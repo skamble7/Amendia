@@ -1,0 +1,13 @@
+Payment Ops — Investigation Notes
+=================================
+
+Case: unable-to-apply wire, funds held in suspense pending repair.
+
+- Beneficiary bank reports the credit account could not be located.
+- Name on the instruction is a plausible match to a prior settled payment;
+  the account number appears to differ by a transposed digit.
+- gpi tracker shows funds stopped at the beneficiary agent (not returned yet).
+- Recommend: confirm corrected account with originator before repair-and-release.
+- Sanctions re-screen required after any change to beneficiary details.
+
+Analyst: L1 Payments Ops

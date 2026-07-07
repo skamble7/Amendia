@@ -1,0 +1,74 @@
+# backend/deploy/docker-compose.yml
+# Local dev stack for Amendia: mongo + rabbitmq + the stub exception generator + the ingestor.
+# Run from the repo root:  docker compose -f backend/deploy/docker-compose.yml up --build
+
+services:
+  mongodb:
+    image: mongo:7
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    ports:
+      - "5672:5672"    # AMQP
+      - "15672:15672"  # management UI (guest/guest)
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  stub-exception-generator:
+    build:
+      # Build context is the repo root so both `libs/` and `stub_exception_generator/` are visible.
+      context: ../..
+      dockerfile: stub_exception_generator/Dockerfile
+    ports:
+      - "8081:8081"
+    environment:
+      STUBEXC_MONGO_URI: mongodb://mongodb:27017
+      STUBEXC_MONGO_DB: amendia
+      STUBEXC_MONGO_COLLECTION: exceptions
+      STUBEXC_RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+      STUBEXC_SERVICE_BASE_URL: http://localhost:8081
+      STUBEXC_DEFAULT_TENANT: bank-alpha
+      STUBEXC_LOG_LEVEL: INFO
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  ingestor:
+    build:
+      # Build context is the repo root so both `libs/` and `backend/services/ingestor/` are visible.
+      context: ../..
+      dockerfile: backend/services/ingestor/Dockerfile
+    ports:
+      - "8082:8082"
+    environment:
+      INGESTOR_MONGO_URI: mongodb://mongodb:27017
+      INGESTOR_MONGO_DB: amendia
+      INGESTOR_MONGO_COLLECTION: ingestions
+      INGESTOR_RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+      INGESTOR_RABBITMQ_QUEUE: ingestor.exception_raised.v1
+      INGESTOR_STUB_BASE_URL: http://stub-exception-generator:8081
+      INGESTOR_LOG_LEVEL: INFO
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      stub-exception-generator:
+        condition: service_started
+
+volumes:
+  mongo_data:

@@ -1,0 +1,13 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "amendia-common"
+version = "0.1.0"
+description = "Shared Amendia conventions: canonical events, exchange, and routing keys"
+requires-python = ">=3.11"
+dependencies = []
+
+[tool.hatch.build.targets.wheel]
+packages = ["amendia_common"]

@@ -1,0 +1,127 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1820 580" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arw" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0,0 L10,5 L0,10 z" fill="#44484c"/>
+    </marker>
+  </defs>
+  <style>
+    .svc { fill:#e9f4f2; stroke:#2a7f73; stroke-width:1.5; }
+    .usr { fill:#fdecdf; stroke:#c4551f; stroke-width:1.5; }
+    .gw  { fill:#ffffff; stroke:#44484c; stroke-width:1.5; }
+    .flow { fill:none; stroke:#44484c; stroke-width:1.5; }
+    .t { font-size:13px; fill:#22262a; text-anchor:middle; }
+    .lbl { font-size:12px; fill:#55595e; font-style:italic; }
+    .ev { font-size:12px; fill:#22262a; text-anchor:middle; }
+  </style>
+
+  <text x="910" y="28" text-anchor="middle" font-size="16" font-weight="bold" fill="#22262a">wire-repair-standard — Wire Transfer Exception: Unable to Apply / Repair</text>
+
+  <!-- legend -->
+  <rect x="700" y="42" width="14" height="14" class="svc" rx="3"/>
+  <text x="720" y="53" font-size="12" fill="#55595e">agent (service task)</text>
+  <rect x="850" y="42" width="14" height="14" class="usr" rx="3"/>
+  <text x="870" y="53" font-size="12" fill="#55595e">human (user task)</text>
+  <text x="1000" y="53" font-size="12" fill="#55595e">◇✕ exclusive (FEEL)   ◇＋ parallel</text>
+
+  <!-- start event -->
+  <circle cx="170" cy="200" r="18" fill="#ffffff" stroke="#2a7f73" stroke-width="2"/>
+  <text x="170" y="238" class="ev">Wire exception</text>
+  <text x="170" y="252" class="ev">received</text>
+
+  <!-- main row tasks -->
+  <rect x="240" y="160" width="120" height="80" rx="10" class="svc"/>
+  <text x="300" y="194" class="t">Enrich &amp; investigate</text>
+  <text x="300" y="210" class="t">payment</text>
+
+  <rect x="410" y="160" width="120" height="80" rx="10" class="svc"/>
+  <text x="470" y="194" class="t">Assess</text>
+  <text x="470" y="210" class="t">repairability</text>
+
+  <!-- exclusive gateway -->
+  <path d="M610,175 L635,200 L610,225 L585,200 Z" class="gw"/>
+  <path d="M602,192 L618,208 M618,192 L602,208" stroke="#44484c" stroke-width="2" fill="none"/>
+  <text x="610" y="162" class="ev">Repairable?</text>
+
+  <rect x="690" y="160" width="120" height="80" rx="10" class="svc"/>
+  <text x="750" y="194" class="t">Draft repair</text>
+  <text x="750" y="210" class="t">instruction</text>
+
+  <rect x="860" y="160" width="120" height="80" rx="10" class="usr"/>
+  <text x="920" y="194" class="t">Approve repair</text>
+  <text x="920" y="210" class="t">(four-eyes)</text>
+
+  <rect x="1030" y="160" width="120" height="80" rx="10" class="svc"/>
+  <text x="1090" y="186" class="t">Sanctions &amp;</text>
+  <text x="1090" y="202" class="t">compliance</text>
+  <text x="1090" y="218" class="t">re-screen</text>
+
+  <rect x="1200" y="160" width="120" height="80" rx="10" class="svc"/>
+  <text x="1260" y="194" class="t">Apply repair &amp;</text>
+  <text x="1260" y="210" class="t">release payment</text>
+
+  <!-- parallel fork -->
+  <path d="M1400,175 L1425,200 L1400,225 L1375,200 Z" class="gw"/>
+  <path d="M1400,184 L1400,216 M1384,200 L1416,200" stroke="#44484c" stroke-width="2" fill="none"/>
+
+  <rect x="1470" y="80" width="120" height="80" rx="10" class="svc"/>
+  <text x="1530" y="114" class="t">Notify originator &amp;</text>
+  <text x="1530" y="130" class="t">beneficiary bank</text>
+
+  <rect x="1470" y="240" width="120" height="80" rx="10" class="svc"/>
+  <text x="1530" y="274" class="t">Record resolution</text>
+  <text x="1530" y="290" class="t">&amp; evidence</text>
+
+  <!-- parallel join -->
+  <path d="M1665,175 L1690,200 L1665,225 L1640,200 Z" class="gw"/>
+  <path d="M1665,184 L1665,216 M1649,200 L1681,200" stroke="#44484c" stroke-width="2" fill="none"/>
+
+  <!-- end resolved -->
+  <circle cx="1758" cy="200" r="18" fill="#ffffff" stroke="#2a7f73" stroke-width="4"/>
+  <text x="1758" y="238" class="ev">Exception</text>
+  <text x="1758" y="252" class="ev">resolved</text>
+
+  <!-- needs info branch -->
+  <rect x="410" y="320" width="120" height="80" rx="10" class="usr"/>
+  <text x="470" y="354" class="t">Obtain missing</text>
+  <text x="470" y="370" class="t">information</text>
+
+  <!-- return branch -->
+  <rect x="690" y="440" width="120" height="80" rx="10" class="svc"/>
+  <text x="750" y="474" class="t">Draft payment</text>
+  <text x="750" y="490" class="t">return (pacs.004)</text>
+
+  <rect x="860" y="440" width="120" height="80" rx="10" class="usr"/>
+  <text x="920" y="474" class="t">Approve return</text>
+  <text x="920" y="490" class="t">(four-eyes)</text>
+
+  <rect x="1030" y="440" width="120" height="80" rx="10" class="svc"/>
+  <text x="1090" y="474" class="t">Execute return</text>
+  <text x="1090" y="490" class="t">&amp; notify</text>
+
+  <circle cx="1218" cy="480" r="18" fill="#ffffff" stroke="#b3392f" stroke-width="4"/>
+  <text x="1218" y="518" class="ev">Funds returned</text>
+
+  <!-- flows -->
+  <polyline points="188,200 236,200" class="flow" marker-end="url(#arw)"/>
+  <polyline points="360,200 406,200" class="flow" marker-end="url(#arw)"/>
+  <polyline points="530,200 581,200" class="flow" marker-end="url(#arw)"/>
+  <polyline points="635,200 686,200" class="flow" marker-end="url(#arw)"/>
+  <text x="646" y="192" class="lbl">repairable</text>
+  <polyline points="610,225 610,360 534,360" class="flow" marker-end="url(#arw)"/>
+  <text x="620" y="300" class="lbl">needs info (default)</text>
+  <polyline points="470,320 470,244" class="flow" marker-end="url(#arw)"/>
+  <polyline points="618,217 618,480 686,480" class="flow" marker-end="url(#arw)"/>
+  <text x="628" y="432" class="lbl">unrepairable</text>
+  <polyline points="810,200 856,200" class="flow" marker-end="url(#arw)"/>
+  <polyline points="980,200 1026,200" class="flow" marker-end="url(#arw)"/>
+  <polyline points="1150,200 1196,200" class="flow" marker-end="url(#arw)"/>
+  <polyline points="1320,200 1371,200" class="flow" marker-end="url(#arw)"/>
+  <polyline points="1400,175 1400,120 1466,120" class="flow" marker-end="url(#arw)"/>
+  <polyline points="1400,225 1400,280 1466,280" class="flow" marker-end="url(#arw)"/>
+  <polyline points="1590,120 1665,120 1665,171" class="flow" marker-end="url(#arw)"/>
+  <polyline points="1590,280 1665,280 1665,229" class="flow" marker-end="url(#arw)"/>
+  <polyline points="1690,200 1736,200" class="flow" marker-end="url(#arw)"/>
+  <polyline points="810,480 856,480" class="flow" marker-end="url(#arw)"/>
+  <polyline points="980,480 1026,480" class="flow" marker-end="url(#arw)"/>
+  <polyline points="1150,480 1196,480" class="flow" marker-end="url(#arw)"/>
+</svg>
