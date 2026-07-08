@@ -1,0 +1,28 @@
+{
+  "descriptor_version": "1.0",
+  "capability_id": "cap.payment.execute_return",
+  "version": "1.0.0",
+  "title": "Execute return & notify",
+  "description": "Executes the approved pacs.004 return and notifies parties. Side-effectful: requires approve_actions gating.",
+  "kind": "skill",
+  "side_effect": "side_effectful",
+  "idempotent": false,
+  "inputs": [
+    {
+      "name": "return",
+      "schema": "art.payment.return_instruction@^1.0.0"
+    }
+  ],
+  "outputs": [],
+  "runtime": {
+    "kind": "skill",
+    "entrypoint": "app.capabilities.wire_repair.execute_return:run"
+  },
+  "constraints": {
+    "timeout_seconds": 120,
+    "max_retries": 0,
+    "min_hitl_mode": "approve_actions"
+  },
+  "owner": "platform",
+  "status": "active"
+}

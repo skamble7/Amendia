@@ -76,7 +76,7 @@ L1 payment-ops receives the case, pulls the payment record, gpi/tracker status, 
 
 ## 6. BPMN model → Amendia annotations
 
-Element subset check: none start/end events, service tasks, user tasks, one exclusive gateway, one parallel fork/join — fully inside the ADR-001 §6.6 Iteration-1 subset. Manifest bindings (sidecar per ADR-002 D1; the XML stays annotation-free):
+Element subset check: start/end events, service tasks, user tasks, one exclusive gateway — fully inside the ADR-001 §6.6 Iteration-1 subset. (The post-repair notify/record steps run **sequentially**, not in parallel — see §8; the agent-runtime plan compiler in Step 3 does not support parallel gateways yet.) Manifest bindings (sidecar per ADR-002 D1; the XML stays annotation-free):
 
 | BPMN element | Kind | Capability / role | HITL |
 |---|---|---|---|
@@ -112,7 +112,9 @@ Element subset check: none start/end events, service tasks, user tasks, one excl
     <bpmn:documentation>Handles unable-to-apply wire exceptions (camt.026 semantics): investigate,
     assess repairability, repair-and-release with four-eyes approval and sanctions re-screen,
     request missing information, or return funds (pacs.004). Execution metadata lives in the
-    Amendia annotation manifest (ADR-002), not in this file.</bpmn:documentation>
+    Amendia annotation manifest (ADR-002), not in this file. Post-repair notification and
+    resolution-recording run sequentially (the Iteration-1 executable subset excludes parallel
+    gateways; see wire-transfer-exception-reference.md §6/§8).</bpmn:documentation>
 
     <bpmn:startEvent id="Start_ExceptionReceived" name="Wire exception received">
       <bpmn:outgoing>Flow_Start_Enrich</bpmn:outgoing>
@@ -158,33 +160,21 @@ Element subset check: none start/end events, service tasks, user tasks, one excl
 
     <bpmn:serviceTask id="Task_ApplyRepair" name="Apply repair &amp; release payment">
       <bpmn:incoming>Flow_Screen_Apply</bpmn:incoming>
-      <bpmn:outgoing>Flow_Apply_Fork</bpmn:outgoing>
+      <bpmn:outgoing>Flow_Apply_Notify</bpmn:outgoing>
     </bpmn:serviceTask>
 
-    <bpmn:parallelGateway id="Gateway_PostRepairFork" name="">
-      <bpmn:incoming>Flow_Apply_Fork</bpmn:incoming>
-      <bpmn:outgoing>Flow_Fork_Notify</bpmn:outgoing>
-      <bpmn:outgoing>Flow_Fork_Record</bpmn:outgoing>
-    </bpmn:parallelGateway>
-
     <bpmn:serviceTask id="Task_NotifyParties" name="Notify originator &amp; beneficiary bank">
-      <bpmn:incoming>Flow_Fork_Notify</bpmn:incoming>
-      <bpmn:outgoing>Flow_Notify_Join</bpmn:outgoing>
+      <bpmn:incoming>Flow_Apply_Notify</bpmn:incoming>
+      <bpmn:outgoing>Flow_Notify_Record</bpmn:outgoing>
     </bpmn:serviceTask>
 
     <bpmn:serviceTask id="Task_RecordResolution" name="Record resolution &amp; evidence">
-      <bpmn:incoming>Flow_Fork_Record</bpmn:incoming>
-      <bpmn:outgoing>Flow_Record_Join</bpmn:outgoing>
+      <bpmn:incoming>Flow_Notify_Record</bpmn:incoming>
+      <bpmn:outgoing>Flow_Record_Resolved</bpmn:outgoing>
     </bpmn:serviceTask>
 
-    <bpmn:parallelGateway id="Gateway_PostRepairJoin" name="">
-      <bpmn:incoming>Flow_Notify_Join</bpmn:incoming>
-      <bpmn:incoming>Flow_Record_Join</bpmn:incoming>
-      <bpmn:outgoing>Flow_Join_Resolved</bpmn:outgoing>
-    </bpmn:parallelGateway>
-
     <bpmn:endEvent id="End_Resolved" name="Exception resolved">
-      <bpmn:incoming>Flow_Join_Resolved</bpmn:incoming>
+      <bpmn:incoming>Flow_Record_Resolved</bpmn:incoming>
     </bpmn:endEvent>
 
     <bpmn:serviceTask id="Task_DraftReturn" name="Draft payment return (pacs.004)">
@@ -222,12 +212,9 @@ Element subset check: none start/end events, service tasks, user tasks, one excl
     <bpmn:sequenceFlow id="Flow_Draft_Approve" sourceRef="Task_DraftRepair" targetRef="Task_ApproveRepair"/>
     <bpmn:sequenceFlow id="Flow_Approve_Screen" sourceRef="Task_ApproveRepair" targetRef="Task_SanctionsRescreen"/>
     <bpmn:sequenceFlow id="Flow_Screen_Apply" sourceRef="Task_SanctionsRescreen" targetRef="Task_ApplyRepair"/>
-    <bpmn:sequenceFlow id="Flow_Apply_Fork" sourceRef="Task_ApplyRepair" targetRef="Gateway_PostRepairFork"/>
-    <bpmn:sequenceFlow id="Flow_Fork_Notify" sourceRef="Gateway_PostRepairFork" targetRef="Task_NotifyParties"/>
-    <bpmn:sequenceFlow id="Flow_Fork_Record" sourceRef="Gateway_PostRepairFork" targetRef="Task_RecordResolution"/>
-    <bpmn:sequenceFlow id="Flow_Notify_Join" sourceRef="Task_NotifyParties" targetRef="Gateway_PostRepairJoin"/>
-    <bpmn:sequenceFlow id="Flow_Record_Join" sourceRef="Task_RecordResolution" targetRef="Gateway_PostRepairJoin"/>
-    <bpmn:sequenceFlow id="Flow_Join_Resolved" sourceRef="Gateway_PostRepairJoin" targetRef="End_Resolved"/>
+    <bpmn:sequenceFlow id="Flow_Apply_Notify" sourceRef="Task_ApplyRepair" targetRef="Task_NotifyParties"/>
+    <bpmn:sequenceFlow id="Flow_Notify_Record" sourceRef="Task_NotifyParties" targetRef="Task_RecordResolution"/>
+    <bpmn:sequenceFlow id="Flow_Record_Resolved" sourceRef="Task_RecordResolution" targetRef="End_Resolved"/>
     <bpmn:sequenceFlow id="Flow_Return_Approve" sourceRef="Task_DraftReturn" targetRef="Task_ApproveReturn"/>
     <bpmn:sequenceFlow id="Flow_Approve_Execute" sourceRef="Task_ApproveReturn" targetRef="Task_ExecuteReturn"/>
     <bpmn:sequenceFlow id="Flow_Execute_Returned" sourceRef="Task_ExecuteReturn" targetRef="End_Returned"/>
@@ -244,11 +231,9 @@ Element subset check: none start/end events, service tasks, user tasks, one excl
       <bpmndi:BPMNShape id="S_ApproveRepair" bpmnElement="Task_ApproveRepair"><dc:Bounds x="860" y="160" width="120" height="80"/></bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="S_Sanctions" bpmnElement="Task_SanctionsRescreen"><dc:Bounds x="1030" y="160" width="120" height="80"/></bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="S_ApplyRepair" bpmnElement="Task_ApplyRepair"><dc:Bounds x="1200" y="160" width="120" height="80"/></bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="S_Fork" bpmnElement="Gateway_PostRepairFork"><dc:Bounds x="1375" y="175" width="50" height="50"/></bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="S_Notify" bpmnElement="Task_NotifyParties"><dc:Bounds x="1470" y="80" width="120" height="80"/></bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="S_Record" bpmnElement="Task_RecordResolution"><dc:Bounds x="1470" y="240" width="120" height="80"/></bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="S_Join" bpmnElement="Gateway_PostRepairJoin"><dc:Bounds x="1640" y="175" width="50" height="50"/></bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="S_EndResolved" bpmnElement="End_Resolved"><dc:Bounds x="1740" y="182" width="36" height="36"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S_Notify" bpmnElement="Task_NotifyParties"><dc:Bounds x="1370" y="160" width="120" height="80"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S_Record" bpmnElement="Task_RecordResolution"><dc:Bounds x="1540" y="160" width="120" height="80"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S_EndResolved" bpmnElement="End_Resolved"><dc:Bounds x="1712" y="182" width="36" height="36"/></bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="S_DraftReturn" bpmnElement="Task_DraftReturn"><dc:Bounds x="690" y="440" width="120" height="80"/></bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="S_ApproveReturn" bpmnElement="Task_ApproveReturn"><dc:Bounds x="860" y="440" width="120" height="80"/></bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="S_ExecuteReturn" bpmnElement="Task_ExecuteReturn"><dc:Bounds x="1030" y="440" width="120" height="80"/></bpmndi:BPMNShape>
@@ -259,16 +244,12 @@ Element subset check: none start/end events, service tasks, user tasks, one excl
       <bpmndi:BPMNEdge id="E_Repairable" bpmnElement="Flow_Repairable"><di:waypoint x="635" y="200"/><di:waypoint x="690" y="200"/></bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="E_NeedsInfo" bpmnElement="Flow_NeedsInfo"><di:waypoint x="610" y="225"/><di:waypoint x="610" y="360"/><di:waypoint x="530" y="360"/></bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="E_Info_Assess" bpmnElement="Flow_Info_Assess"><di:waypoint x="470" y="320"/><di:waypoint x="470" y="240"/></bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="E_Unrepairable" bpmnElement="Flow_Unrepairable"><di:waypoint x="610" y="225"/><di:waypoint x="610" y="480"/><di:waypoint x="690" y="480"/></bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="E_Draft_Approve" bpmnElement="Flow_Draft_Approve"><di:waypoint x="810" y="200"/><di:waypoint x="860" y="200"/></bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="E_Approve_Screen" bpmnElement="Flow_Approve_Screen"><di:waypoint x="980" y="200"/><di:waypoint x="1030" y="200"/></bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="E_Screen_Apply" bpmnElement="Flow_Screen_Apply"><di:waypoint x="1150" y="200"/><di:waypoint x="1200" y="200"/></bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="E_Apply_Fork" bpmnElement="Flow_Apply_Fork"><di:waypoint x="1320" y="200"/><di:waypoint x="1375" y="200"/></bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="E_Fork_Notify" bpmnElement="Flow_Fork_Notify"><di:waypoint x="1400" y="175"/><di:waypoint x="1400" y="120"/><di:waypoint x="1470" y="120"/></bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="E_Fork_Record" bpmnElement="Flow_Fork_Record"><di:waypoint x="1400" y="225"/><di:waypoint x="1400" y="280"/><di:waypoint x="1470" y="280"/></bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="E_Notify_Join" bpmnElement="Flow_Notify_Join"><di:waypoint x="1590" y="120"/><di:waypoint x="1665" y="120"/><di:waypoint x="1665" y="175"/></bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="E_Record_Join" bpmnElement="Flow_Record_Join"><di:waypoint x="1590" y="280"/><di:waypoint x="1665" y="280"/><di:waypoint x="1665" y="225"/></bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="E_Join_Resolved" bpmnElement="Flow_Join_Resolved"><di:waypoint x="1690" y="200"/><di:waypoint x="1740" y="200"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="E_Apply_Notify" bpmnElement="Flow_Apply_Notify"><di:waypoint x="1320" y="200"/><di:waypoint x="1370" y="200"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="E_Notify_Record" bpmnElement="Flow_Notify_Record"><di:waypoint x="1490" y="200"/><di:waypoint x="1540" y="200"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="E_Record_Resolved" bpmnElement="Flow_Record_Resolved"><di:waypoint x="1660" y="200"/><di:waypoint x="1712" y="200"/></bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="E_Return_Approve" bpmnElement="Flow_Return_Approve"><di:waypoint x="810" y="480"/><di:waypoint x="860" y="480"/></bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="E_Approve_Execute" bpmnElement="Flow_Approve_Execute"><di:waypoint x="980" y="480"/><di:waypoint x="1030" y="480"/></bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="E_Execute_Returned" bpmnElement="Flow_Execute_Returned"><di:waypoint x="1150" y="480"/><di:waypoint x="1200" y="480"/></bpmndi:BPMNEdge>
@@ -281,4 +262,5 @@ Element subset check: none start/end events, service tasks, user tasks, one excl
 
 - The XML deliberately carries **no Amendia extension elements**: all execution metadata (capabilities, HITL, tools, bindings) lives in the annotation manifest per ADR-002 D1, keeping the bank's BPMN byte-stable. The DI section is included so bpmn-js renders it in the dashboard as-is.
 - The `Task_ObtainInfo → Task_AssessRepairability` loop is legal within the Iteration-1 subset (it is plain sequence flow); the plan compiler must represent it as a cycle in the execution plan, and the conformance checker allows re-activation of `Task_AssessRepairability` only via this edge.
+- **Post-repair steps are sequential** (`Task_ApplyRepair → Task_NotifyParties → Task_RecordResolution → End_Resolved`). An earlier draft used a `parallelGateway` fork/join to run notify and record concurrently; the Step 3 agent-runtime plan compiler does not support parallel gateways, so the seed was linearized (both steps still run, one after the other). `RecordResolution` depends only on `repair` + `screening`, both produced upstream, so ordering is safe. Re-introducing parallelism is a future-iteration change gated on parallel-gateway support in the compiler.
 - The generator (ADR-006 D4) should randomize `reason_codes` across AC01 / AC04 / RC01 / BE04 and vary amounts and attachment presence, so triage rules, the assess capability, and all three gateway branches get exercised.

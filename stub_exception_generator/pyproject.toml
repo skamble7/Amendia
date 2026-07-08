@@ -17,6 +17,7 @@ dependencies = [
   "orjson>=3.10",
   "dnspython>=2.6",
   "amendia-common",
+  "amendia-contracts",
 ]
 
 [project.optional-dependencies]
@@ -30,11 +31,12 @@ dev = [
 # Local editable path dependency on the shared lib (resolved by uv).
 [tool.uv.sources]
 amendia-common = { path = "../libs", editable = true }
+amendia-contracts = { path = "../libs/amendia_contracts", editable = true }
 
 [tool.hatch.build.targets.wheel]
 packages = ["app"]
 
 [tool.pytest.ini_options]
-pythonpath = ["app", "../libs"]
+pythonpath = ["app", "../libs", "../libs/amendia_contracts"]
 asyncio_mode = "auto"
 addopts = "-q"

@@ -1,0 +1,84 @@
+# app/services/activation.py
+"""Resolve a validated pack's ranges to exact pins at activation.
+
+Produces the ``Resolution`` sub-doc (capability + artifact + per-binding pins) plus a
+capability_id→version map used to fill ``requires_capabilities[].resolved``.
+"""
+from __future__ import annotations
+
+from typing import Dict, Optional, Tuple
+
+from packaging.version import Version
+
+from amendia_contracts.process_pack import ProcessPackManifest
+from app.dal.artifact_schema_repo import ArtifactSchemaRepository
+from app.dal.capability_repo import CapabilityRepository
+from app.models.registry import ResolvedBinding, ResolvedIO, Resolution
+
+
+async def _pin_capability(repo: CapabilityRepository, ref) -> Optional[str]:
+    active = [v for v in await repo.list_by_id(ref.ref_id)
+              if v.status.value == "active" and ref.matches(v.version)]
+    if not active:
+        return None
+    return max(active, key=lambda v: Version(v.version)).version
+
+
+async def _pin_artifact(repo: ArtifactSchemaRepository, ref) -> Optional[str]:
+    active = [v for v in await repo.list_by_key(ref.ref_id)
+              if v.status.value == "active" and ref.matches(v.version)]
+    if not active:
+        return None
+    return max(active, key=lambda v: Version(v.version)).version
+
+
+async def resolve_pins(
+    manifest: ProcessPackManifest,
+    cap_repo: CapabilityRepository,
+    schema_repo: ArtifactSchemaRepository,
+) -> Tuple[Resolution, Dict[str, str]]:
+    caps: Dict[str, str] = {}
+    arts: Dict[str, str] = {}
+
+    async def pin_cap(ref) -> Optional[str]:
+        if ref.ref_id not in caps:
+            v = await _pin_capability(cap_repo, ref)
+            if v is not None:
+                caps[ref.ref_id] = v
+        return caps.get(ref.ref_id)
+
+    async def pin_art(ref) -> Optional[str]:
+        if ref.ref_id not in arts:
+            v = await _pin_artifact(schema_repo, ref)
+            if v is not None:
+                arts[ref.ref_id] = v
+        return arts.get(ref.ref_id)
+
+    for rc in manifest.requires_capabilities:
+        await pin_cap(rc.ref)
+    for ref in manifest.artifacts:
+        await pin_art(ref)
+
+    bindings = []
+    for b in manifest.bindings:
+        ex = b.executor
+        exec_cap = assist = None
+        if ex.type == "capability":
+            v = await pin_cap(ex.capability)
+            exec_cap = f"{ex.capability.ref_id}@{v}" if v else None
+        elif ex.type == "human" and ex.assist_capability is not None:
+            v = await pin_cap(ex.assist_capability)
+            assist = f"{ex.assist_capability.ref_id}@{v}" if v else None
+        inputs, outputs = [], []
+        for io in b.inputs:
+            v = await pin_art(io.schema_)
+            inputs.append(ResolvedIO(name=io.name, schema=f"{io.schema_.ref_id}@{v}"))
+        for io in b.outputs:
+            v = await pin_art(io.schema_)
+            outputs.append(ResolvedIO(name=io.name, schema=f"{io.schema_.ref_id}@{v}"))
+        bindings.append(ResolvedBinding(
+            element_id=b.element_id, executor_capability=exec_cap,
+            assist_capability=assist, inputs=inputs, outputs=outputs,
+        ))
+
+    return Resolution(capabilities=caps, artifacts=arts, bindings=bindings), dict(caps)

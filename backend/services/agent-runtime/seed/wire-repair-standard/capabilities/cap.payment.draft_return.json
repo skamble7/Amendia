@@ -1,0 +1,26 @@
+{
+  "descriptor_version": "1.0",
+  "capability_id": "cap.payment.draft_return",
+  "version": "1.0.0",
+  "title": "Draft payment return (pacs.004)",
+  "description": "Drafts a pacs.004 return with a structured reason code when the exception is unrepairable.",
+  "kind": "llm",
+  "side_effect": "read_only",
+  "idempotent": true,
+  "inputs": [
+    { "name": "dossier", "schema": "art.payment.investigation_dossier@^1.0.0" },
+    { "name": "beneficiary", "schema": "art.payment.repair_verdict@^1.0.0" }
+  ],
+  "outputs": [
+    { "name": "return", "schema": "art.payment.return_instruction@^1.0.0" }
+  ],
+  "runtime": {
+    "kind": "llm",
+    "prompt_key": "prompt.payment.draft_return",
+    "model_config_key": "llm.payment.default",
+    "structured_output": true
+  },
+  "constraints": { "timeout_seconds": 120, "max_retries": 2, "min_hitl_mode": "review_after" },
+  "owner": "platform",
+  "status": "active"
+}

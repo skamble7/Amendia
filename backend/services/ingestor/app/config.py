@@ -19,9 +19,16 @@ class Settings(BaseSettings):
     # RabbitMQ
     RABBITMQ_URL: str = "amqp://guest:guest@localhost:5672/"
     RABBITMQ_QUEUE: str = "ingestor.exception_raised.v1"
+    # Durable queue for the agent-runtime's dispatch replies (accepted/rejected).
+    RABBITMQ_REPLY_QUEUE: str = "ingestor.dispatch_replies.v1"
 
     # Exception store (the stub) — fetch-back API base URL.
     STUB_BASE_URL: str = "http://localhost:8081"
+
+    # Process registry — triage resolve API base URL.
+    REGISTRY_BASE_URL: str = "http://localhost:8084"
+    # Retry-sweep interval: re-resolve records stuck in ``received`` (registry unreachable).
+    RESOLVE_RETRY_SECONDS: int = 60
 
     # Service
     HOST: str = "0.0.0.0"

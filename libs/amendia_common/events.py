@@ -7,6 +7,8 @@ EXCHANGE = "amendia.events"
 
 class Service(str, Enum):
     STUBEXCEPTION = "stub_exception"
+    INGESTOR = "ingestor"
+    AGENT_RUNTIME = "agent_runtime"
 
 class Version(str, Enum):
     V1 = "v1"
@@ -15,6 +17,13 @@ class Version(str, Enum):
 # Additive constants shared across services so producers and consumers agree
 # on the wire vocabulary without hand-typing strings.
 EXCEPTION_RAISED = "exception_raised"
+EXCEPTION_DISPATCHED = "exception_dispatched"
+DISPATCH_ACCEPTED = "dispatch_accepted"
+DISPATCH_REJECTED = "dispatch_rejected"
+HITL_TASK_CREATED = "hitl_task_created"
+HITL_TASK_DECIDED = "hitl_task_decided"
+PROCESS_COMPLETED = "process_completed"
+PROCESS_FAILED = "process_failed"
 
 def rk(org: str, service: Service | str, event: str, version: str = Version.V1.value) -> str:
     """

@@ -1,13 +1,14 @@
 # app/models/ingestion.py
 """The ingestion-log record and its lifecycle.
 
-Each ingested exception has a 3-stage lifecycle:
-  1. ``received``   — event consumed + details fetched + record created (wired now).
-  2. ``dispatched`` — handed to the agent runtime (future).
-  3. ``accepted`` / ``rejected`` — the runtime's outcome (future).
+Lifecycle:
+  1. ``received``   — event consumed + details fetched + record created.
+  2. ``dispatched`` — resolved to a pack and handed to the agent runtime.
+  3. ``accepted`` / ``rejected`` — the runtime's dispatch reply.
+  * ``no_process``  — the registry found no matching pack (terminal, off ``received``).
 
-Only ``received`` is set today; the later states + ``status_history`` exist so
-the agent-runtime work slots in without a schema change.
+Illegal transitions are guarded in the repository so redelivered/replayed events
+never corrupt state.
 """
 from __future__ import annotations
 
@@ -23,6 +24,23 @@ class IngestionStatus(str, Enum):
     DISPATCHED = "dispatched"
     ACCEPTED = "accepted"
     REJECTED = "rejected"
+    NO_PROCESS = "no_process"  # registry found no matching pack (terminal)
+
+
+class ResolutionRef(BaseModel):
+    """The pinned pack the registry resolved this exception to."""
+
+    pack_key: str
+    pack_version: str
+    rule_id: str
+    resolved_at: Optional[str] = None
+
+
+class RejectionRef(BaseModel):
+    """The runtime's dispatch rejection detail."""
+
+    reason: str
+    detail: Optional[str] = None
 
 
 class EventRef(BaseModel):
@@ -51,5 +69,10 @@ class IngestionRecord(BaseModel):
     fetch_error: Optional[str] = None
     status: IngestionStatus = IngestionStatus.RECEIVED
     status_history: List[StatusChange] = Field(default_factory=list)
+    # Populated as the lifecycle advances (agent-runtime dispatch).
+    resolution: Optional[ResolutionRef] = None
+    process_instance_id: Optional[str] = None
+    no_match: Optional[Dict[str, Any]] = None
+    rejection: Optional[RejectionRef] = None
     created_at: datetime
     updated_at: datetime

@@ -1,0 +1,20 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "amendia-contracts"
+version = "0.1.0"
+description = "Amendia platform contract models (ProcessPack, Capability, ArtifactSchema, Dispatch, HITL) + semver"
+requires-python = ">=3.11"
+dependencies = [
+  "pydantic>=2.7",
+  "amendia-common",
+]
+
+# amendia_contracts depends on amendia_common (events.rk); resolve it from the sibling libs root.
+[tool.uv.sources]
+amendia-common = { path = "..", editable = true }
+
+[tool.hatch.build.targets.wheel]
+packages = ["amendia_contracts"]

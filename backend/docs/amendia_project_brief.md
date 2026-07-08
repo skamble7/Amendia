@@ -127,16 +127,113 @@ repo transition methods exist so the agent-runtime work slots in without a schem
 
 **Endpoints:** `GET /ingestions` (filterable), `GET /ingestions/{exception_id}`, `GET /health`.
 
+## Agent Runtime — foundation (implemented)
+
+`backend/services/agent-runtime/` is a FastAPI service (port **8083**) that establishes the platform's
+**five contracts** (see `amendia_platform_contracts_v1.md`) as first-class, persisted, validated
+models, with a seeded `wire-repair-standard` process pack. This is the **foundation** — models +
+storage + seed + read APIs; it does not itself execute. Execution (LangGraph compilation, capability
+execution, dispatch consumers, HITL resume) arrived in the next slice — see the **Agent Runtime —
+execution** section below and **ADR-011**. See **ADR-009** and `backend/services/agent-runtime/README.md`
+for the foundation.
+
+The five contracts (`app/models/`): (1) ProcessPack manifest, (2) Capability descriptor, (3) Artifact
+schema registration, (4) Dispatch event + accepted/rejected replies, (5) HITL task/approval — plus a
+runtime-owned `process_instance` aggregate. References between them use a `VersionedRef` value type
+(`<id>@<range-or-pin>`); `oneOf`s are discriminated unions (executor, capability runtime, recursive
+triage predicate); self-contained invariants are enforced, while cross-document checks are deferred to
+the registry. Events build routing keys via `amendia_common.events.rk` (this work added
+`Service.INGESTOR` / `Service.AGENT_RUNTIME` to the shared lib).
+
+Persistence is one MongoDB collection per aggregate under natural keys (immutable versions; duplicate
+insert → 409): `process_packs`, `capabilities`, `artifact_schemas`, `process_instances`, `hitl_tasks`,
+`dispatch_log`. An **idempotent seed loader** validates every file, meta-validates each artifact
+`json_schema` (draft 2020-12), injects the real `bpmn_sha256`, and upserts by natural key (CLI,
+`POST /admin/seed`, or startup auto-seed).
+
+**Endpoints (read-only):** `GET /packs`, `/packs/{key}/{version}`, `/packs/{key}/{version}/bpmn`
+(`application/xml`), `/capabilities[/{id}/{version}]`, `/artifact-schemas[/{key}/{version}]`,
+`/instances`, `/hitl-tasks`, `POST /admin/seed`, `GET /health`. No authoring APIs — pack/capability/
+schema authoring belongs to the process-registry service.
+
+## Process Registry (implemented — v1)
+
+`backend/services/process-registry/` is a FastAPI service (port **8084**) — the **authoring/write side**
+of the platform (build plan Step 2). It registers capabilities and artifact schemas, onboards
+ProcessPacks through the full **cross-contract validator**, drives the pack lifecycle with version
+pinning at activation, and answers the runtime triage lookup (`POST /resolve`). No UI, no BPMN
+*execution* — validation only. See **ADR-010** and `backend/services/process-registry/README.md`.
+
+**Shared contract models.** To validate exactly what the runtime executes, the five contract models were
+extracted into `libs/amendia_contracts` (with a `semver` range matcher); agent-runtime keeps thin
+re-export shims so its imports/tests are unchanged.
+
+**Ownership split.** The registry is the **write owner** of the `capabilities`, `artifact_schemas`, and
+`process_packs` collections; the **agent-runtime reads** them. Registry-only data (validation reports,
+activation resolutions) lives in sidecar collections so the shared pack doc stays a pure manifest.
+
+**Lifecycle:** `draft → validated → active → deprecated`. `POST /packs` (draft) → `PUT .../bpmn` →
+`POST .../validate` (all-clear ⇒ `validated`) → `POST .../activate` (pins ranges to exact versions) →
+`.../deprecate`. Versions are immutable; a BPMN re-upload drops the pack to `draft`.
+
+**Validator (7 stages):** BPMN subset/well-formedness → binding↔task bijection → capability resolution
+(in-range, active) → HITL & side-effect policy (`side_effectful` ⇒ ≥ `approve_actions`; binding ≥
+capability `min_hitl_mode`) → artifact/IO compatibility → gateway-variable satisfaction → SoD/triage.
+Findings are `{code, severity, element_id?, path?, message}`; any error keeps the pack out of `validated`.
+
+**Seeding through the front door:** `python -m app.seeding.onboard_seed` drives the seed dataset through
+the real APIs (schemas → capabilities → manifest → BPMN → validate → activate) — the validator's
+end-to-end proof (the seed passes clean). `REGISTRY_SEED_ON_STARTUP=true` in compose.
+
+**Key endpoints:** `POST /capabilities`, `POST /artifact-schemas`, `POST /packs`, `PUT
+/packs/{k}/{v}/bpmn`, `POST /packs/{k}/{v}/{validate,activate,deprecate}`, `GET` reads +
+`/validation-report` + `/resolution`, `POST /resolve`, `GET /health`.
+
+## Agent Runtime — execution (implemented)
+
+The agent-runtime now **executes** a resolved pack end-to-end, turning the dormant dispatch/HITL
+lifecycle live. One stub-generated exception flows automatically to a completed process instance,
+through capability execution, schema-validated artifact writes, and **real human approval gates operated
+via API**, all checkpointed in Mongo. Capabilities run in **simulation mode** (deterministic, no external
+LLM/MCP calls) behind a real executor seam. See **ADR-011** and `backend/services/agent-runtime/README.md`.
+
+- **Ingestor now resolves + dispatches.** After `received`, it calls the registry `POST /resolve`:
+  match → `dispatched` + publishes `exception_dispatched`; 404 → the new terminal `no_process`; registry
+  down → stays `received` for a retry sweep. It consumes the runtime's replies to reach `accepted`/`rejected`
+  (all transitions guarded/idempotent).
+- **Compile-don't-embed.** A shared BPMN parser (`libs/amendia_bpmn`, lifted from the registry so both
+  validate the same subset) plus the manifest bindings and pinned resolution compile into a **LangGraph
+  `StateGraph`**; the process instance is a checkpointed thread (checkpoint per node boundary = audit
+  trail). Exclusive gateways become conditional edges over a small expression subset; parallel gateways are
+  rejected (the seed BPMN was linearized).
+- **Generic task runner + executor seam.** Per node: gather inputs → optional pre-gate → execute (kind
+  dispatch: skill / llm / mcp, simulation-routed) → validate outputs against the **pinned** artifact schema
+  → optional post-gate → commit + `actor_log`. Retries honour idempotency; the 10 wire-repair capabilities
+  are deterministic and envelope-aware.
+- **Real HITL.** Gates use LangGraph `interrupt`/`resume`; the engine materializes a `HitlTask` (mode-derived
+  `allowed_decisions`, pinned-schema snapshots, `proposed_actions`, and **SoD `excluded_users` computed from
+  `distinct_actor` policies × the actor_log**). `POST /hitl-tasks/{id}/claim` and `/decide` enforce the
+  lifecycle, SoD (at claim **and** decide), the decisions table, and `edit_and_approve` re-validation, then
+  resume the graph. Instances complete/fail with thin `process_completed`/`process_failed` events.
+- **Executable proof:** `tools/demo_wire_repair.sh` drives generate → ingest → resolve → dispatch → accept →
+  run (all four HITL modes, SoD blocking self-approval) → `completed`; `GET /instances/{id}/state` shows the
+  artifacts. Nodes are pure/synchronous (the Mongo checkpointer is sync); all IO and human-gate handling
+  live in the async engine, which also recovers `running` instances from their checkpoint on restart.
+
+**New/changed endpoints:** ingestor unchanged surface (records now carry `resolution`,
+`process_instance_id`, `no_match`, `rejection`); agent-runtime `POST /hitl-tasks/{id}/claim`,
+`POST /hitl-tasks/{id}/decide`, enriched `GET /instances/{id}`, `GET /instances/{id}/state` (flag-guarded).
+
 ## Current Scope
 
 - Scaffold the monorepo per the structure above (Python workspace rooted at `backend/`, pnpm workspace at `webui/`).
 - ~~Implement the stub exception generator (synthetic exceptions → MongoDB + RabbitMQ events).~~ **Done** — see the Stub Exception Generator section above and ADR-007.
-- Implement ingestion (**done — basic**, see the Ingestor section and ADR-008), process-registry, config-forge, and notifications as mounted FastAPI sub-apps.
-- Stub the agent-runtime boundary (queue consumer skeleton only); its internal design is a separate upcoming scope.
+- Implement ingestion (**done — basic**, see the Ingestor section and ADR-008), process-registry (**done — v1**, see the Process Registry section and ADR-010), config-forge, and notifications as mounted FastAPI sub-apps.
+- ~~Stub the agent-runtime boundary (queue consumer skeleton only); its internal design is a separate upcoming scope.~~ **Done** — the foundation (contract models, persistence, `wire-repair-standard` seed; ADR-009) and now **execution** (LangGraph compilation, capability execution, dispatch consumers, HITL resume; ADR-011) are both in place. One exception runs end-to-end to a `completed` instance with real API-driven approval gates — see the two Agent Runtime sections above.
 - docker-compose for local dev: backend (single container), MongoDB, RabbitMQ, webui.
 
 ## Open Questions (do not decide unilaterally — flag for discussion)
 
-- Whether the agent runtime embeds an existing BPMN engine (e.g., Camunda 8/Zeebe, Flowable) with agents as service-task workers, or interprets BPMN 2.0 natively with LangGraph driving execution.
-- Exact registry matching semantics (exception type only vs. attribute-based rules).
+- ~~Whether the agent runtime embeds an existing BPMN engine (e.g., Camunda 8/Zeebe, Flowable) with agents as service-task workers, or interprets BPMN 2.0 natively with LangGraph driving execution.~~ **Resolved by ADR-011** — **native interpretation**: the runtime compiles the annotation-free BPMN + manifest + pinned resolution into a LangGraph `StateGraph` (no external BPMN engine), with the instance as a Mongo-checkpointed thread and HITL via `interrupt`/`resume`. (Parallel gateways, timers, and compensation remain out of the supported subset for now.)
+- ~~Exact registry matching semantics (exception type only vs. attribute-based rules).~~ **Resolved by ADR-010** — attribute-based via a declarative predicate tree (`all/any/not/leaf` over envelope dot-paths), priority-ordered across active packs, evaluated identically in pack validation and `/resolve`. (Tenant-specific rule overrides remain a later question.)
 - ~~Event schema/contract for exception events and the bank API interface shape.~~ **Resolved by ADR-007** for the `exception_raised` event + fetch-back API (as implemented by the stub); the real bank-connector interface may still differ and can map into this same envelope/contract.

@@ -1,0 +1,40 @@
+{
+  "artifact_key": "art.payment.repair_verdict",
+  "version": "1.0.0",
+  "title": "Beneficiary repairability verdict",
+  "json_schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://amendia.dev/schemas/artifacts/payment/repair_verdict/1.0.0.json",
+    "type": "object",
+    "required": ["repair_verdict", "confidence", "rationale"],
+    "additionalProperties": false,
+    "properties": {
+      "repair_verdict": { "enum": ["repairable", "unrepairable", "needs_info"] },
+      "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+      "rationale": { "type": "string" },
+      "proposed_correction": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "field": { "type": "string", "description": "e.g. creditor.account.id" },
+          "current_value": { "type": "string" },
+          "proposed_value": { "type": "string" }
+        }
+      },
+      "evidence": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "required": ["kind", "detail"],
+          "properties": {
+            "kind": { "enum": ["attachment", "history", "correspondence", "name_match"] },
+            "detail": { "type": "string" },
+            "attachment_id": { "type": "string" }
+          }
+        }
+      }
+    }
+  },
+  "compatibility": "backward",
+  "status": "active"
+}

@@ -1,0 +1,26 @@
+{
+  "descriptor_version": "1.0",
+  "capability_id": "cap.payment.record_resolution",
+  "version": "1.0.0",
+  "title": "Record resolution & evidence",
+  "description": "Composes the audit-facing resolution record from the repair, screening and outcome.",
+  "kind": "llm",
+  "side_effect": "read_only",
+  "idempotent": true,
+  "inputs": [
+    { "name": "repair", "schema": "art.payment.repair_instruction@^1.0.0" },
+    { "name": "screening", "schema": "art.compliance.screening_result@^1.0.0" }
+  ],
+  "outputs": [
+    { "name": "resolution", "schema": "art.payment.resolution_record@^1.0.0" }
+  ],
+  "runtime": {
+    "kind": "llm",
+    "prompt_key": "prompt.payment.record_resolution",
+    "model_config_key": "llm.payment.default",
+    "structured_output": true
+  },
+  "constraints": { "timeout_seconds": 120, "max_retries": 2, "min_hitl_mode": "none" },
+  "owner": "platform",
+  "status": "active"
+}

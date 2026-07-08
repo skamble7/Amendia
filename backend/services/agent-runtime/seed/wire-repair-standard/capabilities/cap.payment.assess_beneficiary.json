@@ -1,0 +1,33 @@
+{
+  "descriptor_version": "1.0",
+  "capability_id": "cap.payment.assess_beneficiary",
+  "version": "1.0.0",
+  "title": "Assess repairability",
+  "description": "Judges whether the beneficiary details can be corrected with confidence and emits a repair verdict.",
+  "kind": "skill",
+  "side_effect": "read_only",
+  "idempotent": true,
+  "inputs": [
+    {
+      "name": "dossier",
+      "schema": "art.payment.investigation_dossier@^1.0.0"
+    }
+  ],
+  "outputs": [
+    {
+      "name": "beneficiary",
+      "schema": "art.payment.repair_verdict@^1.0.0"
+    }
+  ],
+  "runtime": {
+    "kind": "skill",
+    "entrypoint": "app.capabilities.wire_repair.assess:run"
+  },
+  "constraints": {
+    "timeout_seconds": 120,
+    "max_retries": 2,
+    "min_hitl_mode": "review_after"
+  },
+  "owner": "platform",
+  "status": "active"
+}

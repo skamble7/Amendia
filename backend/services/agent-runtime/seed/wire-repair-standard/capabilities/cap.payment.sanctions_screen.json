@@ -1,0 +1,30 @@
+{
+  "descriptor_version": "1.0",
+  "capability_id": "cap.payment.sanctions_screen",
+  "version": "1.0.0",
+  "title": "Sanctions & compliance re-screen",
+  "description": "Re-screens the (possibly repaired) party details against sanctions lists via an MCP screening server.",
+  "kind": "mcp",
+  "side_effect": "read_only",
+  "idempotent": true,
+  "inputs": [
+    { "name": "repair", "schema": "art.payment.repair_instruction@^1.0.0" }
+  ],
+  "outputs": [
+    { "name": "screening", "schema": "art.compliance.screening_result@^1.0.0" }
+  ],
+  "config_schema": {
+    "type": "object",
+    "required": ["list_provider"],
+    "properties": { "list_provider": { "enum": ["stub", "ofac_sim"] } }
+  },
+  "runtime": {
+    "kind": "mcp",
+    "server_key": "mcp.sanctions_screening",
+    "tools": ["screen_party"],
+    "transport": "streamable_http"
+  },
+  "constraints": { "timeout_seconds": 60, "max_retries": 1, "min_hitl_mode": "approve_result" },
+  "owner": "platform",
+  "status": "active"
+}

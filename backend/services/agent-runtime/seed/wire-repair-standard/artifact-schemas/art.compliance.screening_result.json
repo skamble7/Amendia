@@ -1,0 +1,38 @@
+{
+  "artifact_key": "art.compliance.screening_result",
+  "version": "1.0.0",
+  "title": "Sanctions screening result",
+  "description": "Overall verdict plus per-party screening results and the list references consulted.",
+  "json_schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://amendia.dev/schemas/artifacts/compliance/screening_result/1.0.0.json",
+    "type": "object",
+    "required": ["verdict", "party_results"],
+    "additionalProperties": false,
+    "properties": {
+      "verdict": { "enum": ["clean", "hit", "review"] },
+      "party_results": {
+        "type": "array",
+        "minItems": 1,
+        "items": {
+          "type": "object",
+          "required": ["party", "name", "result"],
+          "additionalProperties": false,
+          "properties": {
+            "party": { "enum": ["debtor", "creditor", "debtor_agent", "creditor_agent"] },
+            "name": { "type": "string" },
+            "result": { "enum": ["clean", "hit", "review"] },
+            "score": { "type": "number", "minimum": 0, "maximum": 1 }
+          }
+        }
+      },
+      "list_refs": {
+        "type": "array",
+        "items": { "type": "string", "description": "e.g. OFAC-SDN, EU-CFSP" }
+      },
+      "screened_at": { "type": "string", "format": "date-time" }
+    }
+  },
+  "compatibility": "backward",
+  "status": "active"
+}

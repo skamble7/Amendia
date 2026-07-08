@@ -1,0 +1,384 @@
+{
+  "manifest_version": "1.0",
+  "pack_key": "wire-repair-standard",
+  "version": "1.0.0",
+  "title": "Wire Transfer Exception \u2014 Unable to Apply / Repair",
+  "description": "Standard handling for unable-to-apply wire exceptions (camt.026 semantics): investigate, assess repairability, repair-and-release with four-eyes approval and sanctions re-screen, request missing information, or return funds.",
+  "tenant_scope": "global",
+  "process": {
+    "bpmn_file": "wire-repair.bpmn",
+    "process_id": "Process_WireRepairStandard",
+    "bpmn_sha256": "cb37e8af87aa4ce3c6d7ddfa5193f01515f11a41615346ca87ac109014b45af7"
+  },
+  "triage_rules": [
+    {
+      "rule_id": "wire-uta-repairable-codes",
+      "priority": 100,
+      "description": "Unable-to-apply pacs.008 wires with a repairable external reason code.",
+      "when": {
+        "all": [
+          {
+            "field": "exception_type",
+            "op": "eq",
+            "value": "unable_to_apply"
+          },
+          {
+            "field": "payment.msg_type",
+            "op": "starts_with",
+            "value": "pacs.008"
+          },
+          {
+            "field": "reason_codes",
+            "op": "intersects",
+            "value": [
+              "AC01",
+              "AC04",
+              "RC01",
+              "BE04"
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "requires_capabilities": [
+    {
+      "ref": "cap.payment.enrich_investigation@^1.0.0"
+    },
+    {
+      "ref": "cap.payment.assess_beneficiary@^1.0.0"
+    },
+    {
+      "ref": "cap.payment.draft_rfi@^1.0.0"
+    },
+    {
+      "ref": "cap.payment.draft_repair@^1.0.0"
+    },
+    {
+      "ref": "cap.payment.sanctions_screen@^1.0.0"
+    },
+    {
+      "ref": "cap.payment.apply_repair@^1.0.0"
+    },
+    {
+      "ref": "cap.payment.notify_parties@^1.0.0"
+    },
+    {
+      "ref": "cap.payment.record_resolution@^1.0.0"
+    },
+    {
+      "ref": "cap.payment.draft_return@^1.0.0"
+    },
+    {
+      "ref": "cap.payment.execute_return@^1.0.0"
+    }
+  ],
+  "artifacts": [
+    "art.payment.investigation_dossier@^1.0.0",
+    "art.payment.repair_verdict@^1.0.0",
+    "art.payment.repair_instruction@^1.0.0",
+    "art.payment.return_instruction@^1.0.0",
+    "art.payment.rfi_request@^1.0.0",
+    "art.compliance.screening_result@^1.0.0",
+    "art.payment.resolution_record@^1.0.0"
+  ],
+  "bindings": [
+    {
+      "element_id": "Task_EnrichPayment",
+      "element_kind": "serviceTask",
+      "executor": {
+        "type": "capability",
+        "capability": "cap.payment.enrich_investigation@^1.0.0"
+      },
+      "hitl": {
+        "mode": "none"
+      },
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "dossier",
+          "schema": "art.payment.investigation_dossier@^1.0.0"
+        }
+      ]
+    },
+    {
+      "element_id": "Task_AssessRepairability",
+      "element_kind": "serviceTask",
+      "executor": {
+        "type": "capability",
+        "capability": "cap.payment.assess_beneficiary@^1.0.0"
+      },
+      "hitl": {
+        "mode": "review_after",
+        "role": "role.payments.ops_analyst"
+      },
+      "inputs": [
+        {
+          "name": "dossier",
+          "schema": "art.payment.investigation_dossier@^1.0.0"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "beneficiary",
+          "schema": "art.payment.repair_verdict@^1.0.0"
+        }
+      ]
+    },
+    {
+      "element_id": "Task_ObtainInfo",
+      "element_kind": "userTask",
+      "executor": {
+        "type": "human",
+        "role": "role.payments.ops_analyst",
+        "assist_capability": "cap.payment.draft_rfi@^1.0.0"
+      },
+      "hitl": {
+        "mode": "manual",
+        "role": "role.payments.ops_analyst"
+      },
+      "inputs": [
+        {
+          "name": "dossier",
+          "schema": "art.payment.investigation_dossier@^1.0.0"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "rfi",
+          "schema": "art.payment.rfi_request@^1.0.0"
+        }
+      ]
+    },
+    {
+      "element_id": "Task_DraftRepair",
+      "element_kind": "serviceTask",
+      "executor": {
+        "type": "capability",
+        "capability": "cap.payment.draft_repair@^1.0.0"
+      },
+      "hitl": {
+        "mode": "review_after",
+        "role": "role.payments.ops_analyst"
+      },
+      "inputs": [
+        {
+          "name": "dossier",
+          "schema": "art.payment.investigation_dossier@^1.0.0"
+        },
+        {
+          "name": "beneficiary",
+          "schema": "art.payment.repair_verdict@^1.0.0"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "repair",
+          "schema": "art.payment.repair_instruction@^1.0.0"
+        }
+      ]
+    },
+    {
+      "element_id": "Task_ApproveRepair",
+      "element_kind": "userTask",
+      "executor": {
+        "type": "human",
+        "role": "role.payments.ops_approver"
+      },
+      "hitl": {
+        "mode": "manual",
+        "role": "role.payments.ops_approver"
+      },
+      "inputs": [
+        {
+          "name": "repair",
+          "schema": "art.payment.repair_instruction@^1.0.0"
+        }
+      ]
+    },
+    {
+      "element_id": "Task_SanctionsRescreen",
+      "element_kind": "serviceTask",
+      "executor": {
+        "type": "capability",
+        "capability": "cap.payment.sanctions_screen@^1.0.0"
+      },
+      "hitl": {
+        "mode": "approve_result",
+        "role": "role.payments.ops_approver"
+      },
+      "inputs": [
+        {
+          "name": "repair",
+          "schema": "art.payment.repair_instruction@^1.0.0"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "screening",
+          "schema": "art.compliance.screening_result@^1.0.0"
+        }
+      ]
+    },
+    {
+      "element_id": "Task_ApplyRepair",
+      "element_kind": "serviceTask",
+      "executor": {
+        "type": "capability",
+        "capability": "cap.payment.apply_repair@^1.0.0"
+      },
+      "hitl": {
+        "mode": "approve_actions",
+        "role": "role.payments.ops_approver"
+      },
+      "inputs": [
+        {
+          "name": "repair",
+          "schema": "art.payment.repair_instruction@^1.0.0"
+        },
+        {
+          "name": "screening",
+          "schema": "art.compliance.screening_result@^1.0.0"
+        }
+      ],
+      "outputs": []
+    },
+    {
+      "element_id": "Task_NotifyParties",
+      "element_kind": "serviceTask",
+      "executor": {
+        "type": "capability",
+        "capability": "cap.payment.notify_parties@^1.0.0"
+      },
+      "hitl": {
+        "mode": "approve_actions",
+        "role": "role.payments.ops_approver"
+      },
+      "inputs": [
+        {
+          "name": "repair",
+          "schema": "art.payment.repair_instruction@^1.0.0"
+        }
+      ],
+      "outputs": []
+    },
+    {
+      "element_id": "Task_RecordResolution",
+      "element_kind": "serviceTask",
+      "executor": {
+        "type": "capability",
+        "capability": "cap.payment.record_resolution@^1.0.0"
+      },
+      "hitl": {
+        "mode": "none"
+      },
+      "inputs": [
+        {
+          "name": "repair",
+          "schema": "art.payment.repair_instruction@^1.0.0"
+        },
+        {
+          "name": "screening",
+          "schema": "art.compliance.screening_result@^1.0.0"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "resolution",
+          "schema": "art.payment.resolution_record@^1.0.0"
+        }
+      ]
+    },
+    {
+      "element_id": "Task_DraftReturn",
+      "element_kind": "serviceTask",
+      "executor": {
+        "type": "capability",
+        "capability": "cap.payment.draft_return@^1.0.0"
+      },
+      "hitl": {
+        "mode": "review_after",
+        "role": "role.payments.ops_analyst"
+      },
+      "inputs": [
+        {
+          "name": "dossier",
+          "schema": "art.payment.investigation_dossier@^1.0.0"
+        },
+        {
+          "name": "beneficiary",
+          "schema": "art.payment.repair_verdict@^1.0.0"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "return",
+          "schema": "art.payment.return_instruction@^1.0.0"
+        }
+      ]
+    },
+    {
+      "element_id": "Task_ApproveReturn",
+      "element_kind": "userTask",
+      "executor": {
+        "type": "human",
+        "role": "role.payments.ops_approver"
+      },
+      "hitl": {
+        "mode": "manual",
+        "role": "role.payments.ops_approver"
+      },
+      "inputs": [
+        {
+          "name": "return",
+          "schema": "art.payment.return_instruction@^1.0.0"
+        }
+      ]
+    },
+    {
+      "element_id": "Task_ExecuteReturn",
+      "element_kind": "serviceTask",
+      "executor": {
+        "type": "capability",
+        "capability": "cap.payment.execute_return@^1.0.0"
+      },
+      "hitl": {
+        "mode": "approve_actions",
+        "role": "role.payments.ops_approver"
+      },
+      "inputs": [
+        {
+          "name": "return",
+          "schema": "art.payment.return_instruction@^1.0.0"
+        }
+      ],
+      "outputs": []
+    }
+  ],
+  "gateway_variables": [
+    {
+      "gateway_id": "Gateway_Repairable",
+      "variable": "beneficiary.repair_verdict",
+      "source_artifact": "art.payment.repair_verdict"
+    }
+  ],
+  "policies": {
+    "separation_of_duties": [
+      {
+        "constraint": "distinct_actor",
+        "elements": [
+          "Task_DraftRepair",
+          "Task_ApproveRepair"
+        ]
+      },
+      {
+        "constraint": "distinct_actor",
+        "elements": [
+          "Task_DraftReturn",
+          "Task_ApproveReturn"
+        ]
+      }
+    ]
+  },
+  "status": "draft"
+}

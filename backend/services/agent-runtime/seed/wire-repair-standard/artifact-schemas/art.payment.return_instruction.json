@@ -1,0 +1,32 @@
+{
+  "artifact_key": "art.payment.return_instruction",
+  "version": "1.0.0",
+  "title": "Payment return instruction (pacs.004)",
+  "description": "A pacs.004-shaped return: return reason code, returned amount, and a narrative.",
+  "json_schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://amendia.dev/schemas/artifacts/payment/return_instruction/1.0.0.json",
+    "type": "object",
+    "required": ["uetr", "return_reason_code", "returned_amount", "narrative"],
+    "additionalProperties": false,
+    "properties": {
+      "uetr": { "type": "string" },
+      "return_reason_code": {
+        "type": "string",
+        "description": "ISO external return reason code, e.g. AC01, AC04, RC01, BE04"
+      },
+      "returned_amount": {
+        "type": "object",
+        "required": ["currency", "value"],
+        "additionalProperties": false,
+        "properties": {
+          "currency": { "type": "string" },
+          "value": { "type": "number" }
+        }
+      },
+      "narrative": { "type": "string" }
+    }
+  },
+  "compatibility": "backward",
+  "status": "active"
+}

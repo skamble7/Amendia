@@ -1,0 +1,45 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "process-registry"
+version = "0.1.0"
+description = "Amendia process-registry — contract storage, onboarding validation, activation & triage resolve"
+requires-python = ">=3.12"
+dependencies = [
+  "fastapi>=0.115",
+  "uvicorn[standard]>=0.30",
+  "motor>=3.5",
+  "pydantic>=2.7",
+  "pydantic-settings>=2.3",
+  "jsonschema>=4.21",
+  "packaging>=24.0",
+  "orjson>=3.10",
+  "dnspython>=2.6",
+  "amendia-common",
+  "amendia-contracts",
+  "amendia-bpmn",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.2",
+  "pytest-asyncio>=0.23",
+  "httpx>=0.27",
+  "anyio>=4.4",
+  "mongomock-motor>=0.0.29",
+]
+
+[tool.uv.sources]
+amendia-common = { path = "../../../libs", editable = true }
+amendia-contracts = { path = "../../../libs/amendia_contracts", editable = true }
+amendia-bpmn = { path = "../../../libs/amendia_bpmn", editable = true }
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]
+
+[tool.pytest.ini_options]
+pythonpath = ["app", "../../../libs", "../../../libs/amendia_contracts", "../../../libs/amendia_bpmn"]
+asyncio_mode = "auto"
+addopts = "-q"

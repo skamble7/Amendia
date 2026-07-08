@@ -64,6 +64,85 @@ class FakeRepository:
         items.sort(key=lambda i: i.created_at, reverse=True)
         return items[offset : offset + limit]
 
+    async def list_by_status(self, status: IngestionStatus, *, limit=200) -> List[IngestionRecord]:
+        items = [i for i in self.store.values() if i.status is status]
+        items.sort(key=lambda i: i.created_at)
+        return items[:limit]
+
+    # --- guarded lifecycle transitions (mirror the real repo) ---
+
+    def _transition(self, exception_id, status, *, expected, detail=None, **fields):
+        rec = self.store.get(exception_id)
+        if rec is None or rec.status not in expected:
+            return None
+        rec.status = status
+        rec.status_history.append(StatusChange(status=status, at=_utcnow(), detail=detail))
+        rec.updated_at = _utcnow()
+        for k, v in fields.items():
+            setattr(rec, k, v)
+        return rec
+
+    async def mark_dispatched(self, exception_id, *, resolution, detail=None):
+        from app.models.ingestion import ResolutionRef
+        return self._transition(
+            exception_id, IngestionStatus.DISPATCHED,
+            expected={IngestionStatus.RECEIVED}, detail=detail,
+            resolution=ResolutionRef(**resolution),
+        )
+
+    async def mark_no_process(self, exception_id, *, no_match, detail=None):
+        return self._transition(
+            exception_id, IngestionStatus.NO_PROCESS,
+            expected={IngestionStatus.RECEIVED}, detail=detail, no_match=no_match,
+        )
+
+    async def mark_accepted(self, exception_id, *, process_instance_id, detail=None):
+        return self._transition(
+            exception_id, IngestionStatus.ACCEPTED,
+            expected={IngestionStatus.DISPATCHED}, detail=detail,
+            process_instance_id=process_instance_id,
+        )
+
+    async def mark_rejected(self, exception_id, *, rejection, detail=None):
+        from app.models.ingestion import RejectionRef
+        return self._transition(
+            exception_id, IngestionStatus.REJECTED,
+            expected={IngestionStatus.DISPATCHED}, detail=detail,
+            rejection=RejectionRef(**rejection),
+        )
+
+
+class FakeRegistryClient:
+    """Configurable resolve: return a match, raise no-match, or raise unavailable."""
+
+    def __init__(self, result=None, *, no_match=False, unavailable=False):
+        self.result = result or {
+            "pack_key": "wire-repair-standard",
+            "pack_version": "1.0.0",
+            "rule_id": "wire-uta-repairable-codes",
+            "resolved_at": "2026-07-07T00:00:00Z",
+        }
+        self.no_match = no_match
+        self.unavailable = unavailable
+        self.calls: list = []
+
+    async def resolve(self, tenant, envelope):
+        from app.clients.registry_client import RegistryNoMatch, RegistryUnavailable
+        self.calls.append((tenant, envelope))
+        if self.unavailable:
+            raise RegistryUnavailable("registry down")
+        if self.no_match:
+            raise RegistryNoMatch({"detail": "no active pack matched", "tenant": tenant, "considered_packs": 0})
+        return self.result
+
+
+class FakePublisher:
+    def __init__(self) -> None:
+        self.published: list = []
+
+    async def publish(self, event: dict, routing_key: str, message_id: str) -> None:
+        self.published.append((event, routing_key, message_id))
+
 
 class FakeStubClient:
     def __init__(self, fail: bool = False) -> None:

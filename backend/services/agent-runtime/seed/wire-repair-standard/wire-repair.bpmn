@@ -1,0 +1,159 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
+                  xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
+                  xmlns:dc="http://www.omg.org/spec/DD/20100524/DC"
+                  xmlns:di="http://www.omg.org/spec/DD/20100524/DI"
+                  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                  id="Definitions_WireRepair"
+                  targetNamespace="http://amendia.example/processes/wire-repair"
+                  exporter="Amendia" exporterVersion="0.1">
+  <bpmn:process id="Process_WireRepairStandard"
+                name="Wire Transfer Exception - Unable to Apply / Repair"
+                isExecutable="true">
+    <bpmn:documentation>Handles unable-to-apply wire exceptions (camt.026 semantics): investigate,
+    assess repairability, repair-and-release with four-eyes approval and sanctions re-screen,
+    request missing information, or return funds (pacs.004). Execution metadata lives in the
+    Amendia annotation manifest (ADR-002), not in this file. Post-repair notification and
+    resolution-recording run sequentially (the Iteration-1 executable subset excludes parallel
+    gateways; see wire-transfer-exception-reference.md §6/§8).</bpmn:documentation>
+
+    <bpmn:startEvent id="Start_ExceptionReceived" name="Wire exception received">
+      <bpmn:outgoing>Flow_Start_Enrich</bpmn:outgoing>
+    </bpmn:startEvent>
+
+    <bpmn:serviceTask id="Task_EnrichPayment" name="Enrich &amp; investigate payment">
+      <bpmn:incoming>Flow_Start_Enrich</bpmn:incoming>
+      <bpmn:outgoing>Flow_Enrich_Assess</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <bpmn:serviceTask id="Task_AssessRepairability" name="Assess repairability">
+      <bpmn:incoming>Flow_Enrich_Assess</bpmn:incoming>
+      <bpmn:incoming>Flow_Info_Assess</bpmn:incoming>
+      <bpmn:outgoing>Flow_Assess_Gateway</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <bpmn:exclusiveGateway id="Gateway_Repairable" name="Repairable?" default="Flow_NeedsInfo">
+      <bpmn:incoming>Flow_Assess_Gateway</bpmn:incoming>
+      <bpmn:outgoing>Flow_Repairable</bpmn:outgoing>
+      <bpmn:outgoing>Flow_Unrepairable</bpmn:outgoing>
+      <bpmn:outgoing>Flow_NeedsInfo</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+
+    <bpmn:userTask id="Task_ObtainInfo" name="Obtain missing information">
+      <bpmn:incoming>Flow_NeedsInfo</bpmn:incoming>
+      <bpmn:outgoing>Flow_Info_Assess</bpmn:outgoing>
+    </bpmn:userTask>
+
+    <bpmn:serviceTask id="Task_DraftRepair" name="Draft repair instruction">
+      <bpmn:incoming>Flow_Repairable</bpmn:incoming>
+      <bpmn:outgoing>Flow_Draft_Approve</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <bpmn:userTask id="Task_ApproveRepair" name="Approve repair (four-eyes)">
+      <bpmn:incoming>Flow_Draft_Approve</bpmn:incoming>
+      <bpmn:outgoing>Flow_Approve_Screen</bpmn:outgoing>
+    </bpmn:userTask>
+
+    <bpmn:serviceTask id="Task_SanctionsRescreen" name="Sanctions &amp; compliance re-screen">
+      <bpmn:incoming>Flow_Approve_Screen</bpmn:incoming>
+      <bpmn:outgoing>Flow_Screen_Apply</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <bpmn:serviceTask id="Task_ApplyRepair" name="Apply repair &amp; release payment">
+      <bpmn:incoming>Flow_Screen_Apply</bpmn:incoming>
+      <bpmn:outgoing>Flow_Apply_Notify</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <bpmn:serviceTask id="Task_NotifyParties" name="Notify originator &amp; beneficiary bank">
+      <bpmn:incoming>Flow_Apply_Notify</bpmn:incoming>
+      <bpmn:outgoing>Flow_Notify_Record</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <bpmn:serviceTask id="Task_RecordResolution" name="Record resolution &amp; evidence">
+      <bpmn:incoming>Flow_Notify_Record</bpmn:incoming>
+      <bpmn:outgoing>Flow_Record_Resolved</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <bpmn:endEvent id="End_Resolved" name="Exception resolved">
+      <bpmn:incoming>Flow_Record_Resolved</bpmn:incoming>
+    </bpmn:endEvent>
+
+    <bpmn:serviceTask id="Task_DraftReturn" name="Draft payment return (pacs.004)">
+      <bpmn:incoming>Flow_Unrepairable</bpmn:incoming>
+      <bpmn:outgoing>Flow_Return_Approve</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <bpmn:userTask id="Task_ApproveReturn" name="Approve return (four-eyes)">
+      <bpmn:incoming>Flow_Return_Approve</bpmn:incoming>
+      <bpmn:outgoing>Flow_Approve_Execute</bpmn:outgoing>
+    </bpmn:userTask>
+
+    <bpmn:serviceTask id="Task_ExecuteReturn" name="Execute return &amp; notify">
+      <bpmn:incoming>Flow_Approve_Execute</bpmn:incoming>
+      <bpmn:outgoing>Flow_Execute_Returned</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <bpmn:endEvent id="End_Returned" name="Funds returned">
+      <bpmn:incoming>Flow_Execute_Returned</bpmn:incoming>
+    </bpmn:endEvent>
+
+    <bpmn:sequenceFlow id="Flow_Start_Enrich" sourceRef="Start_ExceptionReceived" targetRef="Task_EnrichPayment"/>
+    <bpmn:sequenceFlow id="Flow_Enrich_Assess" sourceRef="Task_EnrichPayment" targetRef="Task_AssessRepairability"/>
+    <bpmn:sequenceFlow id="Flow_Assess_Gateway" sourceRef="Task_AssessRepairability" targetRef="Gateway_Repairable"/>
+    <bpmn:sequenceFlow id="Flow_Repairable" name="repairable" sourceRef="Gateway_Repairable" targetRef="Task_DraftRepair">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression"
+        language="https://www.omg.org/spec/DMN/20191111/FEEL/">beneficiary.repair_verdict = "repairable"</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_Unrepairable" name="unrepairable" sourceRef="Gateway_Repairable" targetRef="Task_DraftReturn">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression"
+        language="https://www.omg.org/spec/DMN/20191111/FEEL/">beneficiary.repair_verdict = "unrepairable"</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_NeedsInfo" name="needs info (default)" sourceRef="Gateway_Repairable" targetRef="Task_ObtainInfo"/>
+    <bpmn:sequenceFlow id="Flow_Info_Assess" sourceRef="Task_ObtainInfo" targetRef="Task_AssessRepairability"/>
+    <bpmn:sequenceFlow id="Flow_Draft_Approve" sourceRef="Task_DraftRepair" targetRef="Task_ApproveRepair"/>
+    <bpmn:sequenceFlow id="Flow_Approve_Screen" sourceRef="Task_ApproveRepair" targetRef="Task_SanctionsRescreen"/>
+    <bpmn:sequenceFlow id="Flow_Screen_Apply" sourceRef="Task_SanctionsRescreen" targetRef="Task_ApplyRepair"/>
+    <bpmn:sequenceFlow id="Flow_Apply_Notify" sourceRef="Task_ApplyRepair" targetRef="Task_NotifyParties"/>
+    <bpmn:sequenceFlow id="Flow_Notify_Record" sourceRef="Task_NotifyParties" targetRef="Task_RecordResolution"/>
+    <bpmn:sequenceFlow id="Flow_Record_Resolved" sourceRef="Task_RecordResolution" targetRef="End_Resolved"/>
+    <bpmn:sequenceFlow id="Flow_Return_Approve" sourceRef="Task_DraftReturn" targetRef="Task_ApproveReturn"/>
+    <bpmn:sequenceFlow id="Flow_Approve_Execute" sourceRef="Task_ApproveReturn" targetRef="Task_ExecuteReturn"/>
+    <bpmn:sequenceFlow id="Flow_Execute_Returned" sourceRef="Task_ExecuteReturn" targetRef="End_Returned"/>
+  </bpmn:process>
+
+  <bpmndi:BPMNDiagram id="Diagram_WireRepair">
+    <bpmndi:BPMNPlane id="Plane_WireRepair" bpmnElement="Process_WireRepairStandard">
+      <bpmndi:BPMNShape id="S_Start" bpmnElement="Start_ExceptionReceived"><dc:Bounds x="152" y="182" width="36" height="36"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S_Enrich" bpmnElement="Task_EnrichPayment"><dc:Bounds x="240" y="160" width="120" height="80"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S_Assess" bpmnElement="Task_AssessRepairability"><dc:Bounds x="410" y="160" width="120" height="80"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S_Gw" bpmnElement="Gateway_Repairable" isMarkerVisible="true"><dc:Bounds x="585" y="175" width="50" height="50"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S_ObtainInfo" bpmnElement="Task_ObtainInfo"><dc:Bounds x="410" y="320" width="120" height="80"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S_DraftRepair" bpmnElement="Task_DraftRepair"><dc:Bounds x="690" y="160" width="120" height="80"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S_ApproveRepair" bpmnElement="Task_ApproveRepair"><dc:Bounds x="860" y="160" width="120" height="80"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S_Sanctions" bpmnElement="Task_SanctionsRescreen"><dc:Bounds x="1030" y="160" width="120" height="80"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S_ApplyRepair" bpmnElement="Task_ApplyRepair"><dc:Bounds x="1200" y="160" width="120" height="80"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S_Notify" bpmnElement="Task_NotifyParties"><dc:Bounds x="1370" y="160" width="120" height="80"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S_Record" bpmnElement="Task_RecordResolution"><dc:Bounds x="1540" y="160" width="120" height="80"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S_EndResolved" bpmnElement="End_Resolved"><dc:Bounds x="1712" y="182" width="36" height="36"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S_DraftReturn" bpmnElement="Task_DraftReturn"><dc:Bounds x="690" y="440" width="120" height="80"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S_ApproveReturn" bpmnElement="Task_ApproveReturn"><dc:Bounds x="860" y="440" width="120" height="80"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S_ExecuteReturn" bpmnElement="Task_ExecuteReturn"><dc:Bounds x="1030" y="440" width="120" height="80"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S_EndReturned" bpmnElement="End_Returned"><dc:Bounds x="1200" y="462" width="36" height="36"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="E_Start_Enrich" bpmnElement="Flow_Start_Enrich"><di:waypoint x="188" y="200"/><di:waypoint x="240" y="200"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="E_Enrich_Assess" bpmnElement="Flow_Enrich_Assess"><di:waypoint x="360" y="200"/><di:waypoint x="410" y="200"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="E_Assess_Gw" bpmnElement="Flow_Assess_Gateway"><di:waypoint x="530" y="200"/><di:waypoint x="585" y="200"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="E_Repairable" bpmnElement="Flow_Repairable"><di:waypoint x="635" y="200"/><di:waypoint x="690" y="200"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="E_NeedsInfo" bpmnElement="Flow_NeedsInfo"><di:waypoint x="610" y="225"/><di:waypoint x="610" y="360"/><di:waypoint x="530" y="360"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="E_Info_Assess" bpmnElement="Flow_Info_Assess"><di:waypoint x="470" y="320"/><di:waypoint x="470" y="240"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="E_Draft_Approve" bpmnElement="Flow_Draft_Approve"><di:waypoint x="810" y="200"/><di:waypoint x="860" y="200"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="E_Approve_Screen" bpmnElement="Flow_Approve_Screen"><di:waypoint x="980" y="200"/><di:waypoint x="1030" y="200"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="E_Screen_Apply" bpmnElement="Flow_Screen_Apply"><di:waypoint x="1150" y="200"/><di:waypoint x="1200" y="200"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="E_Apply_Notify" bpmnElement="Flow_Apply_Notify"><di:waypoint x="1320" y="200"/><di:waypoint x="1370" y="200"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="E_Notify_Record" bpmnElement="Flow_Notify_Record"><di:waypoint x="1490" y="200"/><di:waypoint x="1540" y="200"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="E_Record_Resolved" bpmnElement="Flow_Record_Resolved"><di:waypoint x="1660" y="200"/><di:waypoint x="1712" y="200"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="E_Return_Approve" bpmnElement="Flow_Return_Approve"><di:waypoint x="810" y="480"/><di:waypoint x="860" y="480"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="E_Approve_Execute" bpmnElement="Flow_Approve_Execute"><di:waypoint x="980" y="480"/><di:waypoint x="1030" y="480"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="E_Execute_Returned" bpmnElement="Flow_Execute_Returned"><di:waypoint x="1150" y="480"/><di:waypoint x="1200" y="480"/></bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>

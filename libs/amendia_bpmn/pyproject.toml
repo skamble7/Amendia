@@ -1,0 +1,13 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "amendia-bpmn"
+version = "0.1.0"
+description = "Shared BPMN 2.0 parser for the Amendia Iteration-1 element subset (stdlib only)"
+requires-python = ">=3.11"
+dependencies = []
+
+[tool.hatch.build.targets.wheel]
+packages = ["amendia_bpmn"]

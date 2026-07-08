@@ -1,6 +1,12 @@
 # backend/deploy/docker-compose.yml
-# Local dev stack for Amendia: mongo + rabbitmq + the stub exception generator + the ingestor.
-# Run from the repo root:  docker compose -f backend/deploy/docker-compose.yml up --build
+# Local dev stack for Amendia: mongo + rabbitmq + stub exception generator + ingestor +
+# agent-runtime + process-registry. Run from the repo root:
+#   docker compose -f backend/deploy/docker-compose.yml up --build
+#
+# The process-registry onboards the wire-repair-standard seed to `active` on startup and is
+# health-gated, so ingestor/agent-runtime only start once the pack resolves. Editing the seed
+# (BPMN/manifest/capabilities/schemas) changes immutable, already-onboarded versions — bring the
+# stack down with a fresh volume first:  docker compose -f backend/deploy/docker-compose.yml down -v
 
 services:
   mongodb:
@@ -38,7 +44,8 @@ services:
       STUBEXC_MONGO_DB: amendia
       STUBEXC_MONGO_COLLECTION: exceptions
       STUBEXC_RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
-      STUBEXC_SERVICE_BASE_URL: http://localhost:8081
+      # Service name (not localhost) so the fetch_url in events resolves from other containers.
+      STUBEXC_SERVICE_BASE_URL: http://stub-exception-generator:8081
       STUBEXC_DEFAULT_TENANT: bank-alpha
       STUBEXC_LOG_LEVEL: INFO
     depends_on:
@@ -60,7 +67,10 @@ services:
       INGESTOR_MONGO_COLLECTION: ingestions
       INGESTOR_RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
       INGESTOR_RABBITMQ_QUEUE: ingestor.exception_raised.v1
+      INGESTOR_RABBITMQ_REPLY_QUEUE: ingestor.dispatch_replies.v1
       INGESTOR_STUB_BASE_URL: http://stub-exception-generator:8081
+      INGESTOR_REGISTRY_BASE_URL: http://process-registry:8084
+      INGESTOR_RESOLVE_RETRY_SECONDS: "60"
       INGESTOR_LOG_LEVEL: INFO
     depends_on:
       mongodb:
@@ -69,6 +79,62 @@ services:
         condition: service_healthy
       stub-exception-generator:
         condition: service_started
+      process-registry:
+        condition: service_healthy
+
+  agent-runtime:
+    build:
+      # Build context is the repo root so both `libs/` and `backend/services/agent-runtime/` are visible.
+      context: ../..
+      dockerfile: backend/services/agent-runtime/Dockerfile
+    ports:
+      - "8083:8083"
+    environment:
+      AGENTRT_MONGO_URI: mongodb://mongodb:27017
+      AGENTRT_MONGO_DB: amendia
+      AGENTRT_RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+      AGENTRT_RABBITMQ_DISPATCH_QUEUE: agent-runtime.exception_dispatched.v1
+      AGENTRT_REGISTRY_BASE_URL: http://process-registry:8084
+      AGENTRT_SELF_BASE_URL: http://agent-runtime:8083
+      # Simulation-mode capabilities (no external LLM/MCP calls) behind the executor seam.
+      AGENTRT_SIMULATION_MODE: "true"
+      AGENTRT_ENABLE_SEED_API: "true"
+      AGENTRT_ENABLE_DEBUG_API: "true"
+      # Registry owns catalog writes (ownership split); it seeds the shared collections
+      # through its onboarding pipeline, so the runtime does not self-seed here.
+      AGENTRT_SEED_ON_STARTUP: "false"
+      AGENTRT_LOG_LEVEL: INFO
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      process-registry:
+        condition: service_healthy
+      stub-exception-generator:
+        condition: service_started
+
+  process-registry:
+    build:
+      # Build context is the repo root so `libs/` and `backend/services/` are visible.
+      context: ../..
+      dockerfile: backend/services/process-registry/Dockerfile
+    ports:
+      - "8084:8084"
+    environment:
+      REGISTRY_MONGO_URI: mongodb://mongodb:27017
+      REGISTRY_MONGO_DB: amendia
+      REGISTRY_SEED_ON_STARTUP: "true"
+      REGISTRY_LOG_LEVEL: INFO
+    healthcheck:
+      # Ready only once the seed pack is onboarded + active (consumers depend on this).
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8084/health').status==200 else 1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    depends_on:
+      mongodb:
+        condition: service_healthy
 
 volumes:
   mongo_data:
