@@ -4,7 +4,8 @@
 - **Date:** 2026-07-08
 - **Related:** `amendia_auth_architecture.md` (normative design — this ADR implements its §6 step 2 and §2.2);
   **ADR-012** (auth backend — the resource-server + identity service this consumes, and the compat bridge
-  this removes); `backend/deploy/keycloak/README.md`; `webui/webui_user_guide.md`, `webui/README.md`.
+  this removes); `backend/deploy/keycloak/README.md`; `Amendia_User_Guide.md` (formerly
+  `webui/webui_user_guide.md`), `webui/README.md`.
 - **Advances:** the "Frontend: webui PKCE integration, `/me`-driven identity, retire the user-switcher" item
   deferred by ADR-012; closes out the auth workstream (the platform is now strict by default).
 

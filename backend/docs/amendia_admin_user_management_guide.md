@@ -2,7 +2,7 @@
 
 **Version:** 1.0 (matches webui v0.3 — Administration release, ADR-014)
 **Audience:** holders of `role.platform.admin` — the people who control who can do what in Amendia.
-**Companions:** the [Web UI User Guide](../../webui/webui_user_guide.md) (the platform generally), [`amendia_services_reference.md`](amendia_services_reference.md) §5 (the identity API, for anything still API-only), and the [Persona Map](amendia_persona_map.md) (the Alex profile).
+**Companions:** the [Amendia User Guide](Amendia_User_Guide.md) (the platform generally), [`amendia_services_reference.md`](amendia_services_reference.md) §5 (the identity API, for anything still API-only), and the [Persona Map](amendia_persona_map.md) (the Alex profile).
 
 ---
 

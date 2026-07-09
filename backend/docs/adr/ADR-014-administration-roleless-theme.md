@@ -5,7 +5,7 @@
 - **Related:** **ADR-012** (auth backend — the identity service + `role.*` enforcement this extends);
   **ADR-013** (auth frontend — the `IdentityContext` / `RequireAuth` sequencing / role-gated nav / theme
   *scaffolding* this builds on, and whose deferred "identity/role admin screens" and roleless handling this
-  delivers); `amendia_services_reference.md` (§5 endpoint contract — updated here); `webui/webui_user_guide.md`
+  delivers); `amendia_services_reference.md` (§5 endpoint contract — updated here); `Amendia_User_Guide.md`
   (→ v0.3); `backend/deploy/keycloak/README.md`.
 - **Advances:** the **admin screens** deferred by ADR-013 ("assignment + enable/disable stay identity-API
   only"), the roleless-user experience (previously an empty dashboard with 403 noise), and turning the
@@ -178,6 +178,8 @@ Two follow-ups from the implementation session were resolved against the running
   roleless-state demonstrator; a "genuinely future personas" note = SCIM lifecycle + audit reporting; role
   wording aligned to the in-app `ROLE_DESCRIPTION`). The one stale reference — "future UI screen for the
   tenant-admin persona" in `amendia_auth_architecture.md` — now points at the shipped Administration UI, and
-  user-guide ↔ admin-guide cross-links were added. *Known, left untouched (admin-guide edits are the owner's):
-  `amendia_admin_user_management_guide.md`'s back-link to the user guide resolves inside `backend/docs/` and
-  is broken.*
+  user-guide ↔ admin-guide cross-links were added.
+  - *Follow-up (later same day):* a standalone **`amendia_persona_map.md`** now exists and is the **sole**
+    home of persona profiles. The user guide was renamed/moved to **`backend/docs/Amendia_User_Guide.md`**,
+    stripped of all persona content (it now only links to the map), and every `webui_user_guide.md` reference
+    across the docs was repointed. The admin-guide back-link is fixed as part of that repoint.

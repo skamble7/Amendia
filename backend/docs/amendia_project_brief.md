@@ -264,7 +264,7 @@ tokens; roles come from Amendia's own store. Single deployment = one customer = 
   restores the pre-login deep link; every API call carries the bearer, a 401 silent-renews then retries
   (full sign-in on failure), a 403 is surfaced (role / SoD), and identity + roles come from `GET /me` (never
   parsed from the token). Role-aware nav hides Registry for non-owners. Sign-out is RP-initiated (ends the
-  IdP session). See `webui/webui_user_guide.md`.
+  IdP session). See `Amendia_User_Guide.md`.
 - **Fully enforced by default.** The temporary compat bridge that let the pre-PKCE webui work has been
   **removed** (settings, code paths, compose flags, and the strict-override file are gone); the stack is
   strict out of the box.
@@ -281,7 +281,7 @@ tokens; roles come from Amendia's own store. Single deployment = one customer = 
 - ~~Implement the stub exception generator (synthetic exceptions → MongoDB + RabbitMQ events).~~ **Done** — see the Stub Exception Generator section above and ADR-007.
 - Implement ingestion (**done — basic**, see the Ingestor section and ADR-008), process-registry (**done — v1**, see the Process Registry section and ADR-010), config-forge, and notifications as mounted FastAPI sub-apps.
 - ~~Stub the agent-runtime boundary (queue consumer skeleton only); its internal design is a separate upcoming scope.~~ **Done** — the foundation (contract models, persistence, `wire-repair-standard` seed; ADR-009) and now **execution** (LangGraph compilation, capability execution, dispatch consumers, HITL resume; ADR-011) are both in place. One exception runs end-to-end to a `completed` instance with real API-driven approval gates — see the two Agent Runtime sections above.
-- ~~Authentication & authorization (replace the dev sign-in stub).~~ **Done** — OIDC end to end: `amendia_auth` + the identity service + Keycloak with enforcement/stub-removal across all services (ADR-012), and the webui PKCE sign-in with `/me`-driven identity (the dev user-switcher and the temporary compat bridge are gone; the stack is strict by default). See the Authentication & Authorization section above and `webui/webui_user_guide.md`.
+- ~~Authentication & authorization (replace the dev sign-in stub).~~ **Done** — OIDC end to end: `amendia_auth` + the identity service + Keycloak with enforcement/stub-removal across all services (ADR-012), and the webui PKCE sign-in with `/me`-driven identity (the dev user-switcher and the temporary compat bridge are gone; the stack is strict by default). See the Authentication & Authorization section above and `Amendia_User_Guide.md`.
 - docker-compose for local dev: backend (single container), MongoDB, RabbitMQ, Keycloak, identity, webui.
 
 ## Open Questions (do not decide unilaterally — flag for discussion)

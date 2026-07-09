@@ -24,7 +24,7 @@ Shared libraries: **`amendia_common`** (exchange, `Service` enum, `rk()`, event-
 and the FastAPI auth dependencies every service mounts).
 
 The **webui** (React SPA) is the operator UI; it authenticates via OIDC (Authorization Code + PKCE)
-and drives these endpoints with a bearer token — see ADR-013 and `webui/webui_user_guide.md`.
+and drives these endpoints with a bearer token — see ADR-013 and `Amendia_User_Guide.md`.
 
 ---
 

@@ -1,7 +1,7 @@
 # Amendia — Persona Map
 
 **Version:** 1.1 (reflects webui v0.3 — Administration release, ADR-014, and the auth releases ADR-012/013)
-**Canonical location note:** this file is the full persona map. The [Web UI User Guide](../../webui/webui_user_guide.md#10-personas) §10 should carry only the quick persona table and a pointer here — deep profiles are maintained in this file only, to prevent drift. The platform-administrator how-to is the [User Management Guide](amendia_admin_user_management_guide.md).
+**Canonical location note:** this file is the **sole** home of persona profiles. The [Amendia User Guide](Amendia_User_Guide.md) is operational and simply points here for personas — deep profiles are maintained in this file only, to prevent drift. The platform-administrator how-to is the [User Management Guide](amendia_admin_user_management_guide.md).
 
 The map covers four human personas (all real, seeded dev users), one state demonstrator, and one non-human actor. Roles here are enforced, not decorative: navigation is role-composed, task claiming checks roles server-side, separation-of-duties exclusions are computed per process instance, and every decision and administrative action is recorded immutably against the acting user's durable Amendia id. Role wording below matches the in-app role descriptions (the Assign-role dialog).
 
@@ -92,4 +92,4 @@ What remains future is not a new screen for an existing persona but new *capabil
 
 ---
 
-*Maintainers: this file is the canonical persona map — update it in the same PR as any role, screen, or guardrail change; keep user guide §10 as a summary + pointer. When a friction item is resolved, strike it here and note it in the user guide changelog.*
+*Maintainers: this file is the sole home of persona profiles — update it in the same PR as any role, screen, or guardrail change (the user guide is operational and only links here). When a friction item is resolved, strike it here and note it in the user guide changelog.*
