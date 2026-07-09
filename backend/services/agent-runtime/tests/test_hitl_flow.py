@@ -65,9 +65,9 @@ async def _approve_next(hitl, hitl_repo, pid, *, decision=None):
     task = await _open_task(hitl_repo, pid)
     assert task is not None, "expected an open task"
     user = role_user(task.role)
-    await hitl.claim(task.task_id, user_id=user, role=task.role)
+    await hitl.claim(task.task_id, actor_id=user, actor_roles={task.role})
     dec = decision or ("complete" if task.hitl_mode.value == "manual" else "approve")
-    await hitl.decide(task.task_id, user_id=user, decision=dec)
+    await hitl.decide(task.task_id, actor_id=user, decision=dec)
     return task
 
 
@@ -122,7 +122,7 @@ async def test_sod_blocks_excluded_user_at_claim(env):
     assert task.element_id == "Task_ApproveRepair"
     assert "analyst-1" in (task.sod.excluded_users or [])
     with pytest.raises(HitlError) as ei:
-        await hitl.claim(task.task_id, user_id="analyst-1", role=task.role)
+        await hitl.claim(task.task_id, actor_id="analyst-1", actor_roles={task.role})
     assert ei.value.status_code == 403
 
 
@@ -132,12 +132,12 @@ async def test_decide_requires_claim_and_correct_user(env):
     task = await _open_task(hitl_repo, inst.process_instance_id)
     # decide before claim → 409
     with pytest.raises(HitlError) as ei:
-        await hitl.decide(task.task_id, user_id="analyst-1", decision="approve")
+        await hitl.decide(task.task_id, actor_id="analyst-1", decision="approve")
     assert ei.value.status_code == 409
     # claim by analyst-1, decide as someone else → 409
-    await hitl.claim(task.task_id, user_id="analyst-1", role=task.role)
+    await hitl.claim(task.task_id, actor_id="analyst-1", actor_roles={task.role})
     with pytest.raises(HitlError) as ei:
-        await hitl.decide(task.task_id, user_id="intruder", decision="approve")
+        await hitl.decide(task.task_id, actor_id="intruder", decision="approve")
     assert ei.value.status_code == 409
 
 
@@ -145,9 +145,9 @@ async def test_illegal_decision_rejected(env):
     engine, hitl, instance_repo, hitl_repo, _ = env
     inst = await _start(engine, instance_repo)
     task = await _open_task(hitl_repo, inst.process_instance_id)
-    await hitl.claim(task.task_id, user_id="analyst-1", role=task.role)
+    await hitl.claim(task.task_id, actor_id="analyst-1", actor_roles={task.role})
     with pytest.raises(HitlError) as ei:
-        await hitl.decide(task.task_id, user_id="analyst-1", decision="complete")  # not allowed for review_after
+        await hitl.decide(task.task_id, actor_id="analyst-1", decision="complete")  # not allowed for review_after
     assert ei.value.status_code == 400
 
 
@@ -155,15 +155,15 @@ async def test_edit_and_approve_revalidates(env):
     engine, hitl, instance_repo, hitl_repo, _ = env
     inst = await _start(engine, instance_repo)
     task = await _open_task(hitl_repo, inst.process_instance_id)
-    await hitl.claim(task.task_id, user_id="analyst-1", role=task.role)
+    await hitl.claim(task.task_id, actor_id="analyst-1", actor_roles={task.role})
     # invalid edit (missing required fields) → 400
     with pytest.raises(HitlError) as ei:
-        await hitl.decide(task.task_id, user_id="analyst-1", decision="edit_and_approve",
+        await hitl.decide(task.task_id, actor_id="analyst-1", decision="edit_and_approve",
                           edits={"beneficiary": {"repair_verdict": "not-an-enum"}})
     assert ei.value.status_code == 400
     # valid edit → succeeds
     good = {"beneficiary": {"repair_verdict": "repairable", "confidence": 0.7, "rationale": "edited"}}
-    await hitl.decide(task.task_id, user_id="analyst-1", decision="edit_and_approve", edits=good)
+    await hitl.decide(task.task_id, actor_id="analyst-1", decision="edit_and_approve", edits=good)
     # the edited artifact is committed
     state = await engine.get_checkpoint_state(inst.process_instance_id, "wire-repair-standard", "1.0.0")
     assert state["artifacts"]["beneficiary"]["rationale"] == "edited"
@@ -175,12 +175,12 @@ async def test_reject_twice_fails_instance(env):
     pid = inst.process_instance_id
     # reject the first assess review → re-runs and re-presents a new task
     t1 = await _open_task(hitl_repo, pid)
-    await hitl.claim(t1.task_id, user_id="analyst-1", role=t1.role)
-    await hitl.decide(t1.task_id, user_id="analyst-1", decision="reject")
+    await hitl.claim(t1.task_id, actor_id="analyst-1", actor_roles={t1.role})
+    await hitl.decide(t1.task_id, actor_id="analyst-1", decision="reject")
     t2 = await _open_task(hitl_repo, pid)
     assert t2 is not None and t2.task_id != t1.task_id
-    await hitl.claim(t2.task_id, user_id="analyst-1", role=t2.role)
-    await hitl.decide(t2.task_id, user_id="analyst-1", decision="reject")
+    await hitl.claim(t2.task_id, actor_id="analyst-1", actor_roles={t2.role})
+    await hitl.decide(t2.task_id, actor_id="analyst-1", decision="reject")
     inst = await instance_repo.get(pid)
     assert inst.status is InstanceStatus.FAILED
 
@@ -197,8 +197,8 @@ async def test_approve_actions_partial_approval_threads_ids(env):
     assert task.hitl_mode.value == "approve_actions"
     assert task.payload.proposed_actions  # proposed actions present
     # partial approval with an explicit action id list
-    await hitl.claim(task.task_id, user_id="approver-1", role=task.role)
-    await hitl.decide(task.task_id, user_id="approver-1", decision="approve",
+    await hitl.claim(task.task_id, actor_id="approver-1", actor_roles={task.role})
+    await hitl.decide(task.task_id, actor_id="approver-1", decision="approve",
                       approved_action_ids=["act-apply-repair"])
     # flow proceeds to NotifyParties
     nxt = await _open_task(hitl_repo, pid)

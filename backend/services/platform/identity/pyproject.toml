@@ -1,0 +1,44 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "identity-service"
+version = "0.1.0"
+description = "Amendia identity platform service — (iss,sub) → Amendia user mapping, JIT provisioning, role assignments, user/role admin API"
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi>=0.115",
+  "uvicorn[standard]>=0.30",
+  "motor>=3.5",
+  "pydantic>=2.7",
+  "pydantic-settings>=2.3",
+  "orjson>=3.10",
+  "dnspython>=2.6",
+  "amendia-common",
+  "amendia-contracts",
+  "amendia-auth",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.2",
+  "pytest-asyncio>=0.23",
+  "httpx>=0.27",
+  "anyio>=4.4",
+  "mongomock-motor>=0.0.29",
+  "cryptography>=42.0",
+]
+
+[tool.uv.sources]
+amendia-common = { path = "../../../../libs", editable = true }
+amendia-contracts = { path = "../../../../libs/amendia_contracts", editable = true }
+amendia-auth = { path = "../../../../libs/amendia_auth", editable = true }
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]
+
+[tool.pytest.ini_options]
+pythonpath = ["app", "../../../../libs", "../../../../libs/amendia_contracts", "../../../../libs/amendia_auth"]
+asyncio_mode = "auto"
+addopts = "-q"

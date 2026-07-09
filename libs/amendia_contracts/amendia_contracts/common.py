@@ -16,7 +16,8 @@ from enum import Enum
 from typing import Annotated, ClassVar, Optional
 
 from pydantic import BaseModel, ConfigDict, StringConstraints
-from pydantic import GetCoreSchemaHandler
+from pydantic import GetCoreSchemaHandler, GetJsonSchemaHandler
+from pydantic.json_schema import JsonSchemaValue
 from pydantic_core import core_schema
 
 from amendia_common.events import Version, rk
@@ -161,6 +162,22 @@ class VersionedRef:
                 str, when_used="always"
             ),
         )
+
+    @classmethod
+    def __get_pydantic_json_schema__(
+        cls, _core_schema: core_schema.CoreSchema, _handler: GetJsonSchemaHandler
+    ) -> JsonSchemaValue:
+        # The wire form is always the compact `<id>@<range-or-pin>` string, so
+        # present it as a plain string in JSON Schema / OpenAPI. (Delegating to
+        # the handler would fail: the core schema is a plain validator function
+        # with no JSON representation.)
+        prefix = f"{cls.prefix}." if cls.prefix else ""
+        return {
+            "type": "string",
+            "title": cls.__name__,
+            "description": "Versioned reference '<id>@<range-or-pin>'.",
+            "examples": [f"{prefix}payment.draft_repair@^1.0.0" if cls.prefix else "cap.payment.draft_repair@1.0.0"],
+        }
 
 
 class CapabilityRef(VersionedRef):

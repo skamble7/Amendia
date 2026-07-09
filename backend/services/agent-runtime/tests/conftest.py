@@ -113,7 +113,14 @@ def bundle():
 
 @pytest_asyncio.fixture
 async def client(mongo, pack_repo, capability_repo, artifact_schema_repo, instance_repo, hitl_task_repo, dispatch_repo):
+    from amendia_auth import AuthContext
+    from amendia_auth.settings import AuthSettings
+
     app = create_app()
+    # Auth isn't the subject of these suites: a synthetic user with all seeded roles.
+    # (The HITL claim/decide domain checks — role, SoD, ownership — are exercised
+    # against the service directly in test_hitl_flow.py.)
+    app.state.auth = AuthContext(AuthSettings(auth_disabled=True, internal_token="test-internal"))
     app.dependency_overrides[get_mongo] = lambda: mongo
     app.dependency_overrides[get_rabbit] = lambda: FakeRabbit()
     app.dependency_overrides[get_pack_repo] = lambda: pack_repo

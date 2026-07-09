@@ -41,27 +41,29 @@ class HitlDecisionService:
         self._engine = engine
         self._publisher = publisher
 
-    async def claim(self, task_id: str, *, user_id: str, role: Optional[str] = None):
+    async def claim(self, task_id: str, *, actor_id: str, actor_roles: set[str]):
+        """Claim a task. Identity + roles come from the authenticated caller
+        (token → identity service), never from the request body. Enforces the
+        task's required role ∈ the actor's roles, plus SoD by amendia_user_id."""
         task = await self._hitl.get(task_id)
         if task is None:
             raise HitlError(404, f"no hitl task {task_id}")
         if task.status is not TaskStatus.OPEN:
             raise HitlError(409, f"task is '{task.status.value}', not open")
-        self._check_sod(task, user_id)
-        # Role-claim stub: no real authz yet — the caller asserts a role claim.
-        if role is not None and role != task.role:
-            raise HitlError(403, f"role '{role}' does not match task role '{task.role}'")  # TODO real authz
+        self._check_sod(task, actor_id)
+        if task.role not in actor_roles:
+            raise HitlError(403, f"caller lacks required role '{task.role}'")
         updated = await self._hitl.transition_status(
             task_id, expected_status=TaskStatus.OPEN, new_status=TaskStatus.CLAIMED,
-            set_fields={"assignee": user_id},
+            set_fields={"assignee": actor_id},
         )
         if updated is None:
             raise HitlError(409, "task was claimed concurrently")
-        logger.info("hitl task %s claimed by %s", task_id, user_id)
+        logger.info("hitl task %s claimed by %s", task_id, actor_id)
         return updated
 
     async def decide(
-        self, task_id: str, *, user_id: str, decision: str,
+        self, task_id: str, *, actor_id: str, decision: str,
         comment: Optional[str] = None, edits: Optional[Dict[str, Any]] = None,
         approved_action_ids: Optional[List[str]] = None,
     ):
@@ -70,9 +72,9 @@ class HitlDecisionService:
             raise HitlError(404, f"no hitl task {task_id}")
         if task.status is not TaskStatus.CLAIMED:
             raise HitlError(409, f"task is '{task.status.value}', not claimed")
-        if task.assignee != user_id:
-            raise HitlError(409, f"task claimed by '{task.assignee}', not '{user_id}'")
-        self._check_sod(task, user_id)
+        if task.assignee != actor_id:
+            raise HitlError(409, f"task claimed by '{task.assignee}', not '{actor_id}'")
+        self._check_sod(task, actor_id)
 
         try:
             decision_enum = Decision(decision)
@@ -89,7 +91,7 @@ class HitlDecisionService:
 
         record = {
             "decision": decision_enum.value,
-            "decided_by": user_id,
+            "decided_by": actor_id,
             "decided_at": _now_iso(),
             "comment": comment,
             "edits": edits,
@@ -104,13 +106,13 @@ class HitlDecisionService:
 
         token = exception_id_ctx.set(task.exception_id)
         try:
-            await self._publish_decided(task, decision_enum, user_id)
+            await self._publish_decided(task, decision_enum, actor_id)
             payload = {
-                "decision": decision_enum.value, "decided_by": user_id,
+                "decision": decision_enum.value, "decided_by": actor_id,
                 "edits": edits, "approved_action_ids": approved_action_ids, "comment": comment,
             }
             logger.info("hitl task %s decided '%s' by %s → resuming instance %s",
-                        task_id, decision, user_id, task.process_instance_id)
+                        task_id, decision, actor_id, task.process_instance_id)
             await self._engine.resume(task.process_instance_id, payload)
         finally:
             exception_id_ctx.reset(token)

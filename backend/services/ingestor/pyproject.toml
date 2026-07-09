@@ -19,6 +19,7 @@ dependencies = [
   "dnspython>=2.6",
   "amendia-common",
   "amendia-contracts",
+  "amendia-auth",
 ]
 
 [project.optional-dependencies]
@@ -33,11 +34,12 @@ dev = [
 [tool.uv.sources]
 amendia-common = { path = "../../../libs", editable = true }
 amendia-contracts = { path = "../../../libs/amendia_contracts", editable = true }
+amendia-auth = { path = "../../../libs/amendia_auth", editable = true }
 
 [tool.hatch.build.targets.wheel]
 packages = ["app"]
 
 [tool.pytest.ini_options]
-pythonpath = ["app", "../../../libs", "../../../libs/amendia_contracts"]
+pythonpath = ["app", "../../../libs", "../../../libs/amendia_contracts", "../../../libs/amendia_auth"]
 asyncio_mode = "auto"
 addopts = "-q"

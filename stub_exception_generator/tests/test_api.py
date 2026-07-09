@@ -46,6 +46,9 @@ async def test_duplicate_exception_id_returns_409(monkeypatch):
     monkeypatch.setattr("app.routers.exceptions.generate_envelope", fixed_gen)
 
     app = create_app()
+    from amendia_auth import AuthContext
+    from amendia_auth.settings import AuthSettings
+    app.state.auth = AuthContext(AuthSettings(auth_disabled=True, internal_token="test-internal"))
     repo, publisher, mongo = FakeRepository(), FakePublisher(), FakeMongo()
     app.dependency_overrides[get_repo] = lambda: repo
     app.dependency_overrides[get_publisher] = lambda: publisher
@@ -110,6 +113,9 @@ async def test_list_filters(client):
 
 async def test_publish_failure_surfaces_warning(monkeypatch):
     app = create_app()
+    from amendia_auth import AuthContext
+    from amendia_auth.settings import AuthSettings
+    app.state.auth = AuthContext(AuthSettings(auth_disabled=True, internal_token="test-internal"))
     repo, publisher, mongo = FakeRepository(), FakePublisher(fail=True), FakeMongo()
     app.dependency_overrides[get_repo] = lambda: repo
     app.dependency_overrides[get_publisher] = lambda: publisher

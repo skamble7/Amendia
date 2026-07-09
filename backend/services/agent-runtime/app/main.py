@@ -12,10 +12,12 @@ from contextlib import asynccontextmanager
 
 import httpx
 import uvicorn
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
+
+from amendia_auth import AuthContext, current_principal
 
 from app.clients.registry_client import ExceptionStoreClient, RegistryClient
-from app.config import settings
+from app.config import auth_settings, settings
 from app.dal.artifact_schema_repo import ArtifactSchemaRepository
 from app.dal.capability_repo import CapabilityRepository
 from app.dal.dispatch_repo import DispatchLogRepository
@@ -56,6 +58,7 @@ async def lifespan(app: FastAPI):
 
     app.state.mongo = mongo
     app.state.rabbit = rabbit
+    app.state.auth = AuthContext(auth_settings)
     pack_repo = ProcessPackRepository(mongo.collection(PROCESS_PACKS))
     capability_repo = CapabilityRepository(mongo.collection(CAPABILITIES))
     artifact_schema_repo = ArtifactSchemaRepository(mongo.collection(ARTIFACT_SCHEMAS))
@@ -78,8 +81,10 @@ async def lifespan(app: FastAPI):
 
     # ---- execution wiring (engine + dispatch consumer + HITL service) ----
     http = httpx.AsyncClient(timeout=settings.HTTP_TIMEOUT)
-    registry_client = RegistryClient(settings.REGISTRY_BASE_URL, http)
-    store_client = ExceptionStoreClient(http)
+    registry_client = RegistryClient(
+        settings.REGISTRY_BASE_URL, http, internal_token=auth_settings.internal_token
+    )
+    store_client = ExceptionStoreClient(http, internal_token=auth_settings.internal_token)
     publisher = RabbitPublisher(settings.RABBITMQ_URL)
     await publisher.connect()
 
@@ -132,13 +137,25 @@ def create_app() -> FastAPI:
     configure_logging(settings.LOG_LEVEL)
     app = FastAPI(title="Amendia — Agent Runtime", version="0.1.0", lifespan=lifespan)
     app.add_middleware(RequestIDMiddleware)
+    if settings.ENABLE_DEV_CORS:
+        from fastapi.middleware.cors import CORSMiddleware
+
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=["*"],
+            allow_methods=["*"],
+            allow_headers=["*"],
+        )
+    # Baseline: every endpoint requires an authenticated principal except /health.
+    # claim/decide additionally resolve the caller to an AuthenticatedUser.
+    guarded = [Depends(current_principal)]
     app.include_router(health.router)
-    app.include_router(packs.router)
-    app.include_router(capabilities.router)
-    app.include_router(artifact_schemas.router)
-    app.include_router(instances.router)
-    app.include_router(hitl_tasks.router)
-    app.include_router(admin.router)
+    app.include_router(packs.router, dependencies=guarded)
+    app.include_router(capabilities.router, dependencies=guarded)
+    app.include_router(artifact_schemas.router, dependencies=guarded)
+    app.include_router(instances.router, dependencies=guarded)
+    app.include_router(hitl_tasks.router, dependencies=guarded)
+    app.include_router(admin.router, dependencies=guarded)
     return app
 
 

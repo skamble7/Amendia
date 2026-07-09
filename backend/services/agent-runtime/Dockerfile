@@ -12,7 +12,8 @@ RUN pip install --no-cache-dir uv
 # 1) Shared libraries (install amendia_common, then amendia_contracts which depends on it).
 COPY libs /src/libs
 RUN uv pip install --system /src/libs \
- && uv pip install --system /src/libs/amendia_contracts
+ && uv pip install --system /src/libs/amendia_contracts \
+ && uv pip install --system /src/libs/amendia_auth
 
 # 2) Service dependencies + package.
 COPY backend/services/agent-runtime/pyproject.toml /src/backend/services/agent-runtime/pyproject.toml

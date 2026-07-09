@@ -1,11 +1,18 @@
 # app/routers/hitl_tasks.py
-"""HITL task API: read + claim + decide (drives interrupt/resume)."""
+"""HITL task API: read + claim + decide (drives interrupt/resume).
+
+Identity and roles for claim/decide come exclusively from the authenticated
+caller (bearer token → identity service). No identity is ever read from the
+request body: claim carries no body, decide carries only the decision.
+"""
 from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
+
+from amendia_auth import AuthenticatedUser, current_user
 
 from app.dal.hitl_task_repo import HitlTaskRepository
 from app.deps import get_hitl_service, get_hitl_task_repo
@@ -15,13 +22,7 @@ from app.services.hitl_service import HitlDecisionService, HitlError
 router = APIRouter(prefix="/hitl-tasks", tags=["hitl-tasks"])
 
 
-class ClaimRequest(BaseModel):
-    user_id: str
-    role: Optional[str] = None
-
-
 class DecideRequest(BaseModel):
-    user_id: str
     decision: str
     comment: Optional[str] = None
     edits: Optional[Dict[str, Any]] = None
@@ -56,11 +57,12 @@ async def get_hitl_task(task_id: str, repo: HitlTaskRepository = Depends(get_hit
 
 @router.post("/{task_id}/claim", response_model=HitlTask)
 async def claim_task(
-    task_id: str, body: ClaimRequest,
+    task_id: str,
     svc: HitlDecisionService = Depends(get_hitl_service),
+    user: AuthenticatedUser = Depends(current_user),
 ):
     try:
-        return await svc.claim(task_id, user_id=body.user_id, role=body.role)
+        return await svc.claim(task_id, actor_id=user.amendia_user_id, actor_roles=set(user.roles))
     except HitlError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail)
 
@@ -69,10 +71,11 @@ async def claim_task(
 async def decide_task(
     task_id: str, body: DecideRequest,
     svc: HitlDecisionService = Depends(get_hitl_service),
+    user: AuthenticatedUser = Depends(current_user),
 ):
     try:
         return await svc.decide(
-            task_id, user_id=body.user_id, decision=body.decision, comment=body.comment,
+            task_id, actor_id=user.amendia_user_id, decision=body.decision, comment=body.comment,
             edits=body.edits, approved_action_ids=body.approved_action_ids,
         )
     except HitlError as exc:

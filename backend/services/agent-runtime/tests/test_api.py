@@ -75,7 +75,10 @@ async def test_seed_endpoint_flag_off_returns_404(mongo, monkeypatch):
     from app.deps import get_mongo
 
     monkeypatch.setattr(settings, "ENABLE_SEED_API", False)
+    from amendia_auth import AuthContext
+    from amendia_auth.settings import AuthSettings
     app = create_app()
+    app.state.auth = AuthContext(AuthSettings(auth_disabled=True, internal_token="test-internal"))
     app.dependency_overrides[get_mongo] = lambda: mongo
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:

@@ -27,13 +27,16 @@ amendia/
 │
 ├── backend/
 │   ├── deploy/
-│   │   └── docker-compose.yml     # Local dev: backend + mongo + rabbitmq (+ webui)
+│   │   ├── docker-compose.yml     # Local dev: backend + mongo + rabbitmq + keycloak + identity (+ webui)
+│   │   ├── docker-compose.auth-strict.yml  # Override: turn OFF the compat-stub bridges (full enforcement)
+│   │   └── keycloak/              # Committed amendia-dev realm export + integration README
 │   │
 │   ├── docs/                      # Architecture notes, ADRs, sample BPMN files
 │   │
-│   ├── libs/                      # Shared Python packages
-│   │   ├── domain/                # Core models: Exception, ProcessDefinition, Task, Approval
+│   ├── libs/                      # Shared Python packages (repo-root libs/: amendia_common,
+│   │   ├── domain/                # amendia_contracts, amendia_bpmn, amendia_auth)
 │   │   ├── bpmn/                  # BPMN 2.0 parsing/validation utilities
+│   │   ├── auth/                  # OIDC bearer validation → Principal; identity resolution; FastAPI deps
 │   │   └── clients/               # Bank API clients + internal service-to-service clients
 │   │
 │   └── services/                  # Each service is an ASGI (FastAPI) app or worker
@@ -42,6 +45,7 @@ amendia/
 │       ├── agent-runtime/         # Executes resolved processes via LangGraph agents; owns orchestration
 │       │                          # and human-in-the-loop task states (design is a separate scope — stub the boundary)
 │       └── platform/              # Cross-cutting platform services
+│           ├── identity/          # (iss,sub) → Amendia user + roles; JIT provisioning; role admin (:8086)
 │           ├── config-forge/      # Persists application configs (e.g., LLM provider configs)
 │           └── notifications/     # SSE/WebSocket push to the front end + inter-service notifications
 │
@@ -224,13 +228,61 @@ LLM/MCP calls) behind a real executor seam. See **ADR-011** and `backend/service
 `process_instance_id`, `no_match`, `rejection`); agent-runtime `POST /hitl-tasks/{id}/claim`,
 `POST /hitl-tasks/{id}/decide`, enriched `GET /instances/{id}`, `GET /instances/{id}/state` (flag-guarded).
 
+## Authentication & Authorization (implemented — backend + frontend)
+
+Real OIDC authentication replaces the dev sign-in stub (three hardcoded users) and the agent-runtime
+role-claim stub, end to end — backend enforcement **and** the webui PKCE sign-in. **Governing principle:
+authenticate with the IdP, authorize in Amendia** — only `iss`/`sub` (+ email/name) are trusted from
+tokens; roles come from Amendia's own store. Single deployment = one customer = one issuer. See
+**ADR-012** (backend) and **ADR-013** (frontend), the normative `amendia_auth_architecture.md`, and
+`backend/deploy/keycloak/README.md`.
+
+- **Keycloak dev IdP (`:8087`)** with a committed `amendia-dev` realm (`backend/deploy/keycloak/`):
+  PKCE-S256 public client `amendia-webui`, a dev-only CLI client for curl token-minting, an `amendia-api`
+  audience mapper, users riya/marcus/priya, and **zero persona roles** (roles live in Amendia). The realm
+  export doubles as the customer IdP-integration reference (issuer + PKCE client + audience are the only
+  three things a customer's IAM team provides).
+- **`libs/amendia_auth`** — shared resource-server library: a `TokenValidator` (discovery→JWKS, TTL cache
+  with key-rotation refresh, RS/ES-only so `alg:none`/HS\* are rejected, `iss`/`aud`/`exp`) yielding a
+  `Principal`; FastAPI deps `current_principal` / `current_user` (→ `AuthenticatedUser` with a 30s resolve
+  cache) / `require_roles` / `principal_or_internal`. Env-prefixed config per service (`AGENTRT_AUTH_*`,
+  …); an `auth_disabled` flag for tests.
+- **Identity service (`platform/identity`, `:8086`)** — the keystone that keeps RBAC IdP-agnostic and audit
+  durable. `users` (with a re-keyable `identities:[{iss,sub}]` array) + `role_assignments`; **JIT
+  provisioning** on first login; internal `POST /resolve-principal` (shared-token guarded), `GET /me`, and
+  `role.platform.admin`-guarded user/role admin. Role assignments are **seeded by email and materialised on
+  first login** (riya→ops_analyst, marcus→ops_approver, priya→process.owner+platform.admin) — no brittle
+  Keycloak UUIDs.
+- **Enforcement** across all four services: baseline principal on every endpoint (except `/health`);
+  **agent-runtime `claim`/`decide` drop the `{user_id, role}` body** and run the existing domain checks
+  (task-role match, SoD, `allowed_decisions`, ownership) on the token-resolved identity —
+  `decided_by`/`assignee` now store `amendia_user_id`; **process-registry mutations require
+  `role.process.owner`**. Service-to-service calls carry a shared `X-Amendia-Internal` token. No service
+  parses any vendor claim (`realm_access`/`groups`).
+- **Webui (`oidc-client-ts` + `react-oidc-context`)** — Authorization Code + PKCE; "Continue with your
+  organization" is the only sign-in path (the dev user-switcher is retired). A `/auth/callback` route
+  restores the pre-login deep link; every API call carries the bearer, a 401 silent-renews then retries
+  (full sign-in on failure), a 403 is surfaced (role / SoD), and identity + roles come from `GET /me` (never
+  parsed from the token). Role-aware nav hides Registry for non-owners. Sign-out is RP-initiated (ends the
+  IdP session). See `webui/webui_user_guide.md`.
+- **Fully enforced by default.** The temporary compat bridge that let the pre-PKCE webui work has been
+  **removed** (settings, code paths, compose flags, and the strict-override file are gone); the stack is
+  strict out of the box.
+- **Acceptance:** `tools/demo_wire_repair.sh` mints real Keycloak bearers and drives the wire-repair flow
+  with **no identity in any body** (analyst=riya, approver=marcus); unauthenticated → 401, wrong role / SoD
+  → 403, and `decided_by` on the immutable records shows Amendia `usr-…` ids.
+
+**New services/ports:** Keycloak `:8087`, identity `:8086`. **New endpoints:** identity
+`POST /internal/resolve-principal`, `GET /me`, `GET/POST/DELETE /users…`, `GET /health`.
+
 ## Current Scope
 
 - Scaffold the monorepo per the structure above (Python workspace rooted at `backend/`, pnpm workspace at `webui/`).
 - ~~Implement the stub exception generator (synthetic exceptions → MongoDB + RabbitMQ events).~~ **Done** — see the Stub Exception Generator section above and ADR-007.
 - Implement ingestion (**done — basic**, see the Ingestor section and ADR-008), process-registry (**done — v1**, see the Process Registry section and ADR-010), config-forge, and notifications as mounted FastAPI sub-apps.
 - ~~Stub the agent-runtime boundary (queue consumer skeleton only); its internal design is a separate upcoming scope.~~ **Done** — the foundation (contract models, persistence, `wire-repair-standard` seed; ADR-009) and now **execution** (LangGraph compilation, capability execution, dispatch consumers, HITL resume; ADR-011) are both in place. One exception runs end-to-end to a `completed` instance with real API-driven approval gates — see the two Agent Runtime sections above.
-- docker-compose for local dev: backend (single container), MongoDB, RabbitMQ, webui.
+- ~~Authentication & authorization (replace the dev sign-in stub).~~ **Done** — OIDC end to end: `amendia_auth` + the identity service + Keycloak with enforcement/stub-removal across all services (ADR-012), and the webui PKCE sign-in with `/me`-driven identity (the dev user-switcher and the temporary compat bridge are gone; the stack is strict by default). See the Authentication & Authorization section above and `webui/webui_user_guide.md`.
+- docker-compose for local dev: backend (single container), MongoDB, RabbitMQ, Keycloak, identity, webui.
 
 ## Open Questions (do not decide unilaterally — flag for discussion)
 

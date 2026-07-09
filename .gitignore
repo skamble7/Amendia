@@ -14,8 +14,10 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
-lib64/
+# Anchored to repo root: these are Python packaging build outputs. Left unanchored,
+# `lib/` also matches source dirs like `webui/src/lib/` and silently drops them from commits.
+/lib/
+/lib64/
 parts/
 sdist/
 var/
@@ -178,7 +180,8 @@ Thumbs.db
 *~
 
 # Docker
-.dockerignore
+#   NOTE: .dockerignore is build config (like the Dockerfile) and IS committed —
+#   webui/.dockerignore keeps node_modules/dist out of the image build context.
 
 # VS Code
 .vscode/
@@ -237,7 +240,7 @@ temp/
 .DS_Store
 .DS_Store?
 ._*
-.Spot`light-V100
+.Spotlight-V100
 .Trashes
 ehthumbs.db
 Thumbs.db

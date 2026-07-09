@@ -197,7 +197,11 @@ def consumer() -> FakeConsumer:
 
 @pytest_asyncio.fixture
 async def client(repo, mongo, consumer):
+    from amendia_auth import AuthContext
+    from amendia_auth.settings import AuthSettings
+
     app = create_app()
+    app.state.auth = AuthContext(AuthSettings(auth_disabled=True, internal_token="test-internal"))
     app.dependency_overrides[get_repo] = lambda: repo
     app.dependency_overrides[get_mongo] = lambda: mongo
     app.dependency_overrides[get_consumer] = lambda: consumer

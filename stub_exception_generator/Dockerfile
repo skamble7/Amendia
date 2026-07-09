@@ -9,9 +9,11 @@ WORKDIR /app
 
 RUN pip install --no-cache-dir uv
 
-# 1) Shared library (installs `amendia_common` so the service dep is satisfied).
+# 1) Shared libraries (amendia_common + amendia_contracts + amendia_auth).
 COPY libs /libs
-RUN uv pip install --system /libs
+RUN uv pip install --system /libs \
+ && uv pip install --system /libs/amendia_contracts \
+ && uv pip install --system /libs/amendia_auth
 
 # 2) Service dependencies + package.
 COPY stub_exception_generator/pyproject.toml /app/pyproject.toml

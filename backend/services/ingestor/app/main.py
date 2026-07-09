@@ -13,11 +13,13 @@ from contextlib import asynccontextmanager
 
 import httpx
 import uvicorn
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
+
+from amendia_auth import AuthContext, current_principal
 
 from app.clients.registry_client import RegistryClient
 from app.clients.stub_client import StubClient
-from app.config import settings
+from app.config import auth_settings, settings
 from app.dal.ingestion_repo import IngestionRepository
 from app.db.mongo import MongoClient
 from app.events.publisher import RabbitPublisher
@@ -50,8 +52,10 @@ async def lifespan(app: FastAPI):
 
     # HTTP client → the exception store (stub) + process registry.
     http = httpx.AsyncClient(timeout=15)
-    stub_client = StubClient(settings.STUB_BASE_URL, http)
-    registry_client = RegistryClient(settings.REGISTRY_BASE_URL, http)
+    stub_client = StubClient(settings.STUB_BASE_URL, http, internal_token=auth_settings.internal_token)
+    registry_client = RegistryClient(
+        settings.REGISTRY_BASE_URL, http, internal_token=auth_settings.internal_token
+    )
 
     # Outbound event publisher (exception_dispatched).
     publisher = RabbitPublisher(settings.RABBITMQ_URL)
@@ -73,6 +77,7 @@ async def lifespan(app: FastAPI):
 
     app.state.mongo = mongo
     app.state.repo = repo
+    app.state.auth = AuthContext(auth_settings)
     app.state.consumer = consumer
     app.state.reply_consumer = reply_consumer
     app.state.publisher = publisher
@@ -95,8 +100,18 @@ def create_app() -> FastAPI:
     configure_logging(settings.LOG_LEVEL)
     app = FastAPI(title="Amendia — Ingestor", version="0.1.0", lifespan=lifespan)
     app.add_middleware(RequestIDMiddleware)
+    if settings.ENABLE_DEV_CORS:
+        from fastapi.middleware.cors import CORSMiddleware
+
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=["*"],
+            allow_methods=["*"],
+            allow_headers=["*"],
+        )
     app.include_router(health_router.router)
-    app.include_router(ingestions_router.router)
+    # Baseline: reads require an authenticated principal. /health stays open.
+    app.include_router(ingestions_router.router, dependencies=[Depends(current_principal)])
     return app
 
 

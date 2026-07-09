@@ -6,6 +6,8 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
+from amendia_auth import require_roles
+
 from amendia_contracts.artifact_schema import ArtifactSchemaRegistration
 from app.dal.artifact_schema_repo import ArtifactSchemaRepository
 from app.dal.base import DuplicateError
@@ -14,8 +16,10 @@ from app.services.registration import RegistrationError, register_schema
 
 router = APIRouter(prefix="/artifact-schemas", tags=["artifact-schemas"])
 
+_OWNER = Depends(require_roles("role.process.owner"))
 
-@router.post("", response_model=ArtifactSchemaRegistration, status_code=201)
+
+@router.post("", response_model=ArtifactSchemaRegistration, status_code=201, dependencies=[_OWNER])
 async def register_artifact_schema(
     reg: ArtifactSchemaRegistration, repo: ArtifactSchemaRepository = Depends(get_artifact_schema_repo)
 ):
@@ -57,7 +61,7 @@ async def get_artifact_schema(
     return reg
 
 
-@router.post("/{artifact_key}/{version}/deprecate", response_model=ArtifactSchemaRegistration)
+@router.post("/{artifact_key}/{version}/deprecate", response_model=ArtifactSchemaRegistration, dependencies=[_OWNER])
 async def deprecate_artifact_schema(
     artifact_key: str, version: str, repo: ArtifactSchemaRepository = Depends(get_artifact_schema_repo)
 ):

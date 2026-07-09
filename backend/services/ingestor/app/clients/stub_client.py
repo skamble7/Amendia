@@ -15,11 +15,13 @@ class StubClient:
     resolve from inside the compose network.
     """
 
-    def __init__(self, base_url: str, http: httpx.AsyncClient) -> None:
+    def __init__(self, base_url: str, http: httpx.AsyncClient, *, internal_token: str = "") -> None:
         self._base_url = base_url.rstrip("/")
         self._http = http
+        # Fetch-back is a service-to-service call; carry the shared internal token.
+        self._headers = {"X-Amendia-Internal": internal_token} if internal_token else {}
 
     async def fetch_exception(self, exception_id: str) -> Dict[str, Any]:
-        resp = await self._http.get(f"{self._base_url}/exceptions/{exception_id}")
+        resp = await self._http.get(f"{self._base_url}/exceptions/{exception_id}", headers=self._headers)
         resp.raise_for_status()
         return resp.json()

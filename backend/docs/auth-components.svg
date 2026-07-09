@@ -1,0 +1,70 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="680" height="440" viewBox="0 0 680 440" role="img">
+<title>Amendia authentication and authorization components</title>
+<desc>The customer's OIDC identity provider authenticates users. The webui SPA performs PKCE login and sends bearer JWTs to the FastAPI services, which validate tokens via the shared amendia_auth library using the IdP's JWKS, then resolve the principal to Amendia roles through the identity platform service backed by MongoDB.</desc>
+<style>
+text { font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+.tt { font-size: 14px; font-weight: 500; }
+.st { font-size: 12px; font-weight: 400; }
+.purple rect { fill: #EEEDFE; stroke: #534AB7; }
+.purple .tt { fill: #3C3489; } .purple .st { fill: #534AB7; }
+.teal rect { fill: #E1F5EE; stroke: #0F6E56; }
+.teal .tt { fill: #085041; } .teal .st { fill: #0F6E56; }
+.gray rect { fill: #F1EFE8; stroke: #5F5E5A; }
+.gray .tt { fill: #444441; } .gray .st { fill: #5F5E5A; }
+.cont { fill: none; stroke: #888780; }
+.contlabel { font-size: 14px; font-weight: 500; fill: #444441; }
+.legend { font-size: 12px; fill: #5F5E5A; }
+.arr { stroke: #73726C; }
+@media (prefers-color-scheme: dark) {
+.purple rect { fill: #3C3489; stroke: #AFA9EC; }
+.purple .tt { fill: #CECBF6; } .purple .st { fill: #AFA9EC; }
+.teal rect { fill: #085041; stroke: #5DCAA5; }
+.teal .tt { fill: #9FE1CB; } .teal .st { fill: #5DCAA5; }
+.gray rect { fill: #444441; stroke: #B4B2A9; }
+.gray .tt { fill: #D3D1C7; } .gray .st { fill: #B4B2A9; }
+.cont { stroke: #9C9A92; }
+.contlabel { fill: #D3D1C7; }
+.legend { fill: #B4B2A9; }
+.arr { stroke: #9C9A92; }
+}
+</style>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></marker></defs>
+<g class="gray">
+<rect x="240" y="40" width="220" height="56" rx="8" stroke-width="0.75"/>
+<text class="tt" x="350" y="58" text-anchor="middle" dominant-baseline="central">Customer IAM (OIDC IdP)</text>
+<text class="st" x="350" y="78" text-anchor="middle" dominant-baseline="central">Keycloak dev · Entra/Okta prod</text>
+</g>
+<line class="arr" x1="152" y1="146" x2="268" y2="100" stroke-width="1.5" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+<line class="arr" x1="470" y1="146" x2="408" y2="100" stroke-width="1.5" marker-end="url(#arrow)"/>
+<g class="purple">
+<rect x="60" y="150" width="185" height="56" rx="8" stroke-width="0.75"/>
+<text class="tt" x="152" y="168" text-anchor="middle" dominant-baseline="central">webui SPA</text>
+<text class="st" x="152" y="188" text-anchor="middle" dominant-baseline="central">PKCE login · oidc-client-ts</text>
+</g>
+<rect class="cont" x="320" y="150" width="310" height="140" rx="16" stroke-dasharray="4 4" stroke-width="0.75"/>
+<text class="contlabel" x="340" y="174">FastAPI services ×4</text>
+<g class="teal">
+<rect x="340" y="200" width="130" height="56" rx="8" stroke-width="0.75"/>
+<text class="tt" x="405" y="218" text-anchor="middle" dominant-baseline="central">amendia_auth</text>
+<text class="st" x="405" y="238" text-anchor="middle" dominant-baseline="central">JWT validation</text>
+</g>
+<line class="arr" x1="470" y1="228" x2="486" y2="228" stroke-width="1.5" marker-end="url(#arrow)"/>
+<g class="purple">
+<rect x="490" y="200" width="120" height="56" rx="8" stroke-width="0.75"/>
+<text class="tt" x="550" y="218" text-anchor="middle" dominant-baseline="central">Route guards</text>
+<text class="st" x="550" y="238" text-anchor="middle" dominant-baseline="central">roles + SoD</text>
+</g>
+<line class="arr" x1="245" y1="228" x2="336" y2="228" stroke-width="1.5" marker-end="url(#arrow)"/>
+<line class="arr" x1="450" y1="290" x2="418" y2="336" stroke-width="1.5" marker-end="url(#arrow)"/>
+<g class="purple">
+<rect x="320" y="340" width="185" height="56" rx="8" stroke-width="0.75"/>
+<text class="tt" x="412" y="358" text-anchor="middle" dominant-baseline="central">identity (platform)</text>
+<text class="st" x="412" y="378" text-anchor="middle" dominant-baseline="central">(iss, sub) → user · roles</text>
+</g>
+<line class="arr" x1="505" y1="368" x2="536" y2="368" stroke-width="1.5" marker-end="url(#arrow)"/>
+<g class="gray">
+<rect x="540" y="346" width="100" height="44" rx="8" stroke-width="0.75"/>
+<text class="tt" x="590" y="368" text-anchor="middle" dominant-baseline="central">MongoDB</text>
+</g>
+<text class="legend" x="340" y="424" text-anchor="middle">gray = external / infra · purple = Amendia components · teal = shared library</text>
+</svg>

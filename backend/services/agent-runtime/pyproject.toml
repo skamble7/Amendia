@@ -25,6 +25,7 @@ dependencies = [
   "amendia-common",
   "amendia-contracts",
   "amendia-bpmn",
+  "amendia-auth",
 ]
 
 [project.optional-dependencies]
@@ -43,12 +44,13 @@ llm = ["langchain-anthropic>=0.2.0"]
 amendia-common = { path = "../../../libs", editable = true }
 amendia-contracts = { path = "../../../libs/amendia_contracts", editable = true }
 amendia-bpmn = { path = "../../../libs/amendia_bpmn", editable = true }
+amendia-auth = { path = "../../../libs/amendia_auth", editable = true }
 
 [tool.hatch.build.targets.wheel]
 packages = ["app"]
 
 [tool.pytest.ini_options]
-pythonpath = ["app", "../../../libs", "../../../libs/amendia_contracts", "../../../libs/amendia_bpmn"]
+pythonpath = ["app", "../../../libs", "../../../libs/amendia_contracts", "../../../libs/amendia_bpmn", "../../../libs/amendia_auth"]
 asyncio_mode = "auto"
 addopts = "-q"
 markers = [

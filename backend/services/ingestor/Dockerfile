@@ -9,9 +9,11 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 RUN pip install --no-cache-dir uv
 
-# 1) Shared library (installs `amendia_common` so the service dep is satisfied).
+# 1) Shared libraries (amendia_common + amendia_contracts + amendia_auth).
 COPY libs /src/libs
-RUN uv pip install --system /src/libs
+RUN uv pip install --system /src/libs \
+ && uv pip install --system /src/libs/amendia_contracts \
+ && uv pip install --system /src/libs/amendia_auth
 
 # 2) Service dependencies + package (path source ../../../libs → /src/libs).
 COPY backend/services/ingestor/pyproject.toml /src/backend/services/ingestor/pyproject.toml

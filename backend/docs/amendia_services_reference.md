@@ -10,20 +10,55 @@ built via `amendia_common.events.rk`.
 
 | Service | Port | Role | ADR |
 |---|---|---|---|
-| **stub-exception-generator** | 8081 | Dev/test stand-in for the bank's exception store: generates synthetic wire exceptions, persists them, publishes `exception_raised`, serves the fetch-back API. | ADR-007 |
-| **ingestor** | 8082 | Consumes `exception_raised`, fetches the full envelope, records an ingestion, resolves it against the registry, dispatches to the runtime, and reconciles the runtime's reply. | ADR-008, ADR-011 |
-| **agent-runtime** | 8083 | Executes a resolved pack as a compiled LangGraph process with schema-validated artifacts, Mongo checkpointing, and real human-in-the-loop approval gates. Read APIs for the catalog + instances/tasks. | ADR-009, ADR-011 |
-| **process-registry** | 8084 | Authoring/write side: registers capabilities & artifact schemas, onboards + validates ProcessPacks, pins versions on activation, and answers the triage `/resolve` lookup. | ADR-010 |
+| **stub-exception-generator** | 8081 | Dev/test stand-in for the bank's exception store: generates synthetic wire exceptions, persists them, publishes `exception_raised`, serves the fetch-back API. | ADR-007, ADR-012 |
+| **ingestor** | 8082 | Consumes `exception_raised`, fetches the full envelope, records an ingestion, resolves it against the registry, dispatches to the runtime, and reconciles the runtime's reply. | ADR-008, ADR-011, ADR-012 |
+| **agent-runtime** | 8083 | Executes a resolved pack as a compiled LangGraph process with schema-validated artifacts, Mongo checkpointing, and real human-in-the-loop approval gates. Read APIs for the catalog + instances/tasks. | ADR-009, ADR-011, ADR-012 |
+| **process-registry** | 8084 | Authoring/write side: registers capabilities & artifact schemas, onboards + validates ProcessPacks, pins versions on activation, and answers the triage `/resolve` lookup. | ADR-010, ADR-012 |
+| **identity** (`platform/identity`) | 8086 | Maps `(iss, sub)` → durable Amendia user, JIT-provisions on first login, stores role assignments, and serves the caller's identity (`/me`) + user/role admin. | ADR-012 |
+| **keycloak** (dev IdP) | 8087 | OIDC identity provider for local dev (realm `amendia-dev`). Not an Amendia service — a standards-only dependency; in production this is the customer's own IAM. | ADR-012, ADR-013 |
 
 Shared libraries: **`amendia_common`** (exchange, `Service` enum, `rk()`, event-name constants),
 **`amendia_contracts`** (the five contract models + `wire_exception` envelope + semver matcher),
-**`amendia_bpmn`** (the shared BPMN 2.0 parser for the Iteration-1 subset).
+**`amendia_bpmn`** (the shared BPMN 2.0 parser for the Iteration-1 subset),
+**`amendia_auth`** (OIDC bearer validation → `Principal`, identity resolution → `AuthenticatedUser`,
+and the FastAPI auth dependencies every service mounts).
+
+The **webui** (React SPA) is the operator UI; it authenticates via OIDC (Authorization Code + PKCE)
+and drives these endpoints with a bearer token — see ADR-013 and `webui/webui_user_guide.md`.
+
+---
+
+## Authentication & authorization (all services)
+
+Every service mounts **`amendia_auth`**. The model (ADR-012): *authenticate with the IdP, authorize in
+Amendia* — only `iss`/`sub` (+ email/name for display) are trusted from tokens; roles come from the
+identity service, never from vendor claims.
+
+- **Baseline:** every endpoint requires a valid OIDC bearer **except `/health`**. A missing/invalid token
+  → **401** with `WWW-Authenticate: Bearer` (the token is never echoed). Reads need only an authenticated
+  principal (no role).
+- **Role guards** (403, naming the missing role): process-registry **mutations** (pack submit / bpmn /
+  validate / activate / deprecate, capability & artifact-schema register/deprecate) require
+  `role.process.owner`; identity **admin** endpoints require `role.platform.admin`.
+- **Identity from the token, not the body:** agent-runtime `claim`/`decide` derive the acting user from
+  the bearer (→ identity service). The existing domain checks (task-role ∈ the caller's roles, SoD by
+  `amendia_user_id`, `allowed_decisions`, claim ownership) run on that resolved identity; `decided_by` /
+  `assignee` / `actor_log` store the Amendia `usr-…` id.
+- **Service-to-service** calls (ingestor → registry `/resolve`, runtime → registry catalog reads,
+  runtime/ingestor → stub fetch-back) carry a shared **`X-Amendia-Internal`** token instead of a user
+  bearer (the `principal_or_internal` dependency). Broker-driven flows are unaffected (no HTTP).
+- **`AGENTRT_AUTH_*` / `<PREFIX>_AUTH_*` config** per service: `issuer`, `audience`, `jwks_uri`
+  (internal JWKS URL — the compose dev-networking escape hatch), `identity_base_url`, `internal_token`,
+  and `auth_disabled` (tests/local only). Dev tokens come from Keycloak (`:8087`); see
+  `backend/deploy/keycloak/README.md`.
 
 ---
 
 ## 1. stub-exception-generator (`:8081`)
 
-Plays the bank's system for local dev — no auth, but it honours the real event + fetch-back contract.
+Plays the bank's exception store for local dev, honouring the real event + fetch-back contract.
+`generate` needs an authenticated principal; the fetch-back reads also accept the internal token
+(the runtime/ingestor call them service-to-service).
 
 | Method | Path | Description |
 |---|---|---|
@@ -69,8 +104,8 @@ collections) + instance/task reads + the **HITL decision API**. Execution itself
 |---|---|---|
 | `GET` | `/hitl-tasks` | List tasks (filter by `tenant`, `status`, `role`, `process_instance_id`, `exception_id`). |
 | `GET` | `/hitl-tasks/{task_id}` | Fetch one task (payload artifacts, proposed_actions, `sod.excluded_users`, `allowed_decisions`). 404 if unknown. |
-| `POST` | `/hitl-tasks/{task_id}/claim` | Claim a task — body `{user_id, role?}`. 409 unless `open`; 403 if SoD-excluded or role mismatch. |
-| `POST` | `/hitl-tasks/{task_id}/decide` | Decide — body `{user_id, decision, comment?, edits?, approved_action_ids?}`. Enforces claim + allowed-decisions + SoD, re-validates `edit_and_approve` edits against the pinned schema, then resumes the graph. |
+| `POST` | `/hitl-tasks/{task_id}/claim` | Claim a task — **no body**; the actor is the bearer's resolved identity. 409 unless `open`; 403 if SoD-excluded or the task's role ∉ the caller's roles. |
+| `POST` | `/hitl-tasks/{task_id}/decide` | Decide — body `{decision, comment?, edits?, approved_action_ids?}` (identity from the bearer). Enforces claim ownership + allowed-decisions + SoD, re-validates `edit_and_approve` edits against the pinned schema, then resumes the graph. |
 
 ### Catalog reads (mirror of registry-owned collections)
 
@@ -92,11 +127,16 @@ collections) + instance/task reads + the **HITL decision API**. Execution itself
 The authoring/write side — the only writer of `capabilities`, `artifact_schemas`, `process_packs`.
 No messaging in v1; validation only (no BPMN execution).
 
+**Auth:** every **mutation** below (capability/schema register+deprecate, pack submit/bpmn/validate/
+activate/deprecate) requires **`role.process.owner`**. Reads and `/resolve` accept any authenticated
+principal **or** the shared internal token — the runtime reads the catalog and the ingestor calls
+`/resolve` service-to-service.
+
 ### Triage
 
 | Method | Path | Description |
 |---|---|---|
-| `POST` | `/resolve` | Map an envelope to a pinned pack — body `{tenant, envelope}` → `{pack_key, pack_version, rule_id, resolved_at}`; 404 `NoMatchResponse` when nothing matches. |
+| `POST` | `/resolve` | Map an envelope to a pinned pack — body `{tenant, envelope}` → `{pack_key, pack_version, rule_id, resolved_at}`; 404 `NoMatchResponse` when nothing matches. Principal-or-internal (the ingestor calls it with `X-Amendia-Internal`). |
 
 ### Capabilities
 
@@ -129,19 +169,68 @@ No messaging in v1; validation only (no BPMN execution).
 | `GET` | `/packs/{key}/{version}/resolution` | The pinned resolution sidecar (capabilities/artifacts/bindings) — how the runtime loads a pack without re-resolving. |
 | `GET` | `/health` | Liveness/readiness. |
 
+## 5. identity (`:8086`)
+
+The keystone that keeps RBAC IdP-agnostic and audit durable: `(iss, sub)` → a durable
+`amendia_user_id`, JIT-provisioned on first login, with role assignments stored in Amendia. Owns the
+`users` (re-keyable `identities: [{iss, sub}]` array) and `role_assignments` collections. No messaging.
+Consumes `amendia_auth` itself, but resolves locally (it never HTTP-calls its own resolve endpoint).
+
+| Method | Path | Description |
+|---|---|---|
+| `POST` | `/internal/resolve-principal` | **Internal only** (`X-Amendia-Internal`). Body `{iss, sub, email?, name?}` → `{amendia_user_id, email, display_name, status, roles}`. JIT-provisions an unknown identity (status from `IDENTITY_JIT_DEFAULT_STATUS`) and materialises seeded role assignments; refreshes stored email/name if changed. Called by `amendia_auth`'s `CurrentUser`. |
+| `GET` | `/me` | Bearer-authenticated. The caller's Amendia user + roles — the webui's identity source. 403 `user_disabled` if disabled. |
+| `GET` | `/users` | **Admin** (`role.platform.admin`). List users (filter by `status`, `role`; pagination). |
+| `GET` | `/users/{amendia_user_id}` | **Admin.** One user + roles. 404 if unknown. |
+| `POST` | `/users/{amendia_user_id}/roles` | **Admin.** Assign a `role.*` — body `{role}` (201; 409 if already held; 422 if the role fails the `role.*` pattern). |
+| `DELETE` | `/users/{amendia_user_id}/roles/{role}` | **Admin.** Revoke a role (404 if the user lacks it). Guardrails: **409 `self_protection`** if an admin revokes their own `role.platform.admin`; **409 `last_admin`** if it would leave zero active platform admins (re-checked at operation time and rolled back). |
+| `POST` | `/users/{amendia_user_id}/disable` · `/enable` | **Admin.** Flip `status` (a disabled user resolves with `status: disabled` → 403 at every enforcing service). Disable guardrails: **409 `self_protection`** (can't disable your own account); **409 `last_admin`** (can't disable the last active platform admin — status is rolled back). |
+| `GET` | `/pending-role-assignments` | **Admin.** List staged (pending) access, aggregated per email; optional case-insensitive `email` substring filter. Each entry is `{email, roles[], staged_by, staged_at}`. |
+| `POST` | `/pending-role-assignments` | **Admin.** Stage roles for an email — body `{email, roles[]}` (201; **422** if any role fails the `role.*` pattern; **409 `user_exists`** if the email already belongs to a provisioned user — the response carries that user's `amendia_user_id` so the UI redirects to their detail). |
+| `PUT` | `/pending-role-assignments/{email}` | **Admin.** Replace the full staged-role set for an email. |
+| `DELETE` | `/pending-role-assignments/{email}` | **Admin.** Remove staged access (204; 404 if none staged). |
+| `GET` | `/health` | Liveness/readiness (mongo). |
+
+The admin user-detail responses (`GET /users`, `GET /users/{id}`, and the mutating admin
+endpoints) additionally carry `role_details: [{role, assigned_by, assigned_at}]`; `/me` omits it.
+
+**Seeding** (`IDENTITY_SEED_ON_STARTUP=true`): role assignments are seeded **by email** and materialised
+onto the user on first login — riya → `role.payments.ops_analyst`, marcus → `role.payments.ops_approver`,
+priya → `role.process.owner` + `role.platform.admin`, alex → `role.platform.admin`. sam is seeded with
+**no** roles (his first login exercises the roleless state). No brittle Keycloak UUIDs — Amendia users are
+born only by JIT (nothing is written to Mongo until first sign-in).
+
+## 6. keycloak (dev IdP, `:8087`)
+
+Not an Amendia service — the OIDC provider for local dev, standing in for the customer's IAM. Imports the
+committed realm `amendia-dev` (`backend/deploy/keycloak/`): public PKCE-S256 client `amendia-webui`, a
+dev-only confidential `amendia-dev-cli` for curl token-minting, a per-client `amendia-api` audience mapper,
+users riya/marcus/priya/**alex**/**sam** (`dev-password`) — alex is platform-admin-only (proves the
+admin-only nav) and sam has no staged roles (first login lands in the roleless state) — and **zero persona
+roles** (roles live in Amendia). Standard OIDC
+surface only — discovery `/.well-known/openid-configuration`, `/protocol/openid-connect/{auth,token,certs}`.
+Issuer: `http://localhost:8087/realms/amendia-dev`. See the realm README for the dev-networking footgun
+(services validate `iss` against the browser-facing issuer but fetch JWKS via the internal alias).
+
 ---
 
 ## End-to-end flow (how the endpoints + events chain)
 
-1. `POST :8081/exceptions/generate` → persists + publishes `exception_raised`.
-2. ingestor consumes it, `GET :8081/exceptions/{id}` (fetch-back), records `received`, then
-   `POST :8084/resolve` → on match records `dispatched` + publishes `exception_dispatched`.
+0. The operator (or the demo script) obtains an OIDC bearer from Keycloak (`:8087`); every HTTP call
+   below carries it. Service-to-service hops carry `X-Amendia-Internal` instead.
+1. `POST :8081/exceptions/generate` (bearer) → persists + publishes `exception_raised`.
+2. ingestor consumes it, `GET :8081/exceptions/{id}` (fetch-back, internal token), records `received`,
+   then `POST :8084/resolve` (internal token) → on match records `dispatched` + publishes
+   `exception_dispatched`.
 3. agent-runtime consumes `exception_dispatched`, loads the pack from the registry
-   (`GET :8084/packs/.../{manifest,resolution,bpmn}` + capabilities/schemas), creates an instance,
-   publishes `dispatch_accepted` (→ ingestor records `accepted`), and runs the compiled graph.
+   (`GET :8084/packs/.../{manifest,resolution,bpmn}` + capabilities/schemas, internal token), creates an
+   instance, publishes `dispatch_accepted` (→ ingestor records `accepted`), and runs the compiled graph.
 4. At each human gate the runtime publishes `hitl_task_created`; an operator drives
-   `POST :8083/hitl-tasks/{id}/claim` then `/decide` to resume the graph.
+   `POST :8083/hitl-tasks/{id}/claim` then `/decide` (bearer — identity from the token, `CurrentUser`
+   resolved via `:8086/internal/resolve-principal`) to resume the graph. `decided_by` records the
+   Amendia `usr-…` id.
 5. On completion the instance is `completed` with `process_completed` published; inspect via
    `GET :8083/instances/{id}` and `GET :8083/instances/{id}/state`.
 
-The `tools/demo_wire_repair.sh` script exercises exactly this chain.
+The `tools/demo_wire_repair.sh` script exercises exactly this chain — it mints riya/marcus bearers from
+Keycloak and passes them throughout (analyst gates as riya, approver gates as marcus).

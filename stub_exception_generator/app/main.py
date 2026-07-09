@@ -11,9 +11,11 @@ import logging
 from contextlib import asynccontextmanager
 
 import uvicorn
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 
-from app.config import settings
+from amendia_auth import AuthContext, principal_or_internal
+
+from app.config import auth_settings, settings
 from app.dal.exceptions_repo import ExceptionRepository
 from app.db.mongo import MongoClient
 from app.events.rabbit import RabbitPublisher
@@ -37,6 +39,7 @@ async def lifespan(app: FastAPI):
     app.state.mongo = mongo
     app.state.repo = ExceptionRepository(mongo.collection)
     app.state.publisher = publisher
+    app.state.auth = AuthContext(auth_settings)
     logger.info("stub_exception_generator ready")
     try:
         yield
@@ -53,8 +56,20 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
     app.add_middleware(RequestIDMiddleware)
+    if settings.ENABLE_DEV_CORS:
+        from fastapi.middleware.cors import CORSMiddleware
+
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=["*"],
+            allow_methods=["*"],
+            allow_headers=["*"],
+        )
     app.include_router(health_router.router)
-    app.include_router(exceptions_router.router)
+    # Baseline: generate requires an authenticated principal; the fetch-back reads
+    # are also called service-to-service (runtime/ingestor), so accept the internal
+    # token too. Under compat-stub, endpoints are exempt when no bearer is present.
+    app.include_router(exceptions_router.router, dependencies=[Depends(principal_or_internal)])
     return app
 
 

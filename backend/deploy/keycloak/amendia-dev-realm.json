@@ -1,0 +1,136 @@
+{
+  "realm": "amendia-dev",
+  "enabled": true,
+  "displayName": "Amendia (dev)",
+  "sslRequired": "none",
+  "registrationAllowed": false,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "accessTokenLifespan": 300,
+  "accessTokenLifespanForImplicitFlow": 300,
+  "ssoSessionIdleTimeout": 1800,
+  "ssoSessionMaxLifespan": 36000,
+  "revokeRefreshToken": true,
+  "refreshTokenMaxReuse": 0,
+  "clients": [
+    {
+      "clientId": "amendia-webui",
+      "name": "Amendia Web UI (public SPA, PKCE)",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "redirectUris": [
+        "http://localhost:5173/*",
+        "http://localhost:8085/*"
+      ],
+      "webOrigins": [
+        "http://localhost:5173",
+        "http://localhost:8085"
+      ],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "http://localhost:5173/*##http://localhost:8085/*"
+      },
+      "protocolMappers": [
+        {
+          "name": "amendia-api-audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.custom.audience": "amendia-api",
+            "id.token.claim": "false",
+            "access.token.claim": "true"
+          }
+        }
+      ]
+    },
+    {
+      "clientId": "amendia-dev-cli",
+      "name": "Amendia dev CLI (confidential, ROPC for curl testing ONLY)",
+      "description": "Dev-only client with direct-access (password) grants enabled so curl can mint tokens. NEVER enable direct-access grants on amendia-webui.",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "secret": "dev-cli-secret",
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": true,
+      "serviceAccountsEnabled": false,
+      "protocolMappers": [
+        {
+          "name": "amendia-api-audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.custom.audience": "amendia-api",
+            "id.token.claim": "false",
+            "access.token.claim": "true"
+          }
+        }
+      ]
+    }
+  ],
+  "users": [
+    {
+      "username": "riya",
+      "enabled": true,
+      "emailVerified": true,
+      "email": "riya@amendia.dev",
+      "firstName": "Riya",
+      "lastName": "Sharma",
+      "credentials": [
+        {"type": "password", "value": "dev-password", "temporary": false}
+      ]
+    },
+    {
+      "username": "marcus",
+      "enabled": true,
+      "emailVerified": true,
+      "email": "marcus@amendia.dev",
+      "firstName": "Marcus",
+      "lastName": "Bianchi",
+      "credentials": [
+        {"type": "password", "value": "dev-password", "temporary": false}
+      ]
+    },
+    {
+      "username": "priya",
+      "enabled": true,
+      "emailVerified": true,
+      "email": "priya@amendia.dev",
+      "firstName": "Priya",
+      "lastName": "Nair",
+      "credentials": [
+        {"type": "password", "value": "dev-password", "temporary": false}
+      ]
+    },
+    {
+      "username": "alex",
+      "enabled": true,
+      "emailVerified": true,
+      "email": "alex@amendia.dev",
+      "firstName": "Alex",
+      "lastName": "Okafor",
+      "credentials": [
+        {"type": "password", "value": "dev-password", "temporary": false}
+      ]
+    },
+    {
+      "username": "sam",
+      "enabled": true,
+      "emailVerified": true,
+      "email": "sam@amendia.dev",
+      "firstName": "Sam",
+      "lastName": "Delgado",
+      "credentials": [
+        {"type": "password", "value": "dev-password", "temporary": false}
+      ]
+    }
+  ]
+}

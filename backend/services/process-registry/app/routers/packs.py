@@ -8,6 +8,8 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 
+from amendia_auth import require_roles
+
 from amendia_contracts.process_pack import ProcessPackManifest
 from app.config import settings
 from app.dal.base import DuplicateError
@@ -30,6 +32,9 @@ from app.validation.pack_validator import PackValidator
 
 router = APIRouter(prefix="/packs", tags=["packs"])
 
+# Pack authoring mutations are process-owner only.
+_OWNER = Depends(require_roles("role.process.owner"))
+
 
 def _load_sample_envelopes() -> List[dict]:
     d = Path(settings.SEED_DIR) / "sample-exception"
@@ -45,7 +50,7 @@ async def _require_pack(repo: ProcessPackRepository, pack_key: str, version: str
     return manifest
 
 
-@router.post("", response_model=ProcessPackManifest, status_code=201)
+@router.post("", response_model=ProcessPackManifest, status_code=201, dependencies=[_OWNER])
 async def submit_pack(manifest: ProcessPackManifest, repo: ProcessPackRepository = Depends(get_pack_repo)):
     if manifest.status.value != "draft":
         raise HTTPException(status_code=422, detail="submitted pack must have status 'draft'")
@@ -57,7 +62,7 @@ async def submit_pack(manifest: ProcessPackManifest, repo: ProcessPackRepository
         raise HTTPException(status_code=409, detail=str(exc))
 
 
-@router.put("/{pack_key}/{version}/bpmn")
+@router.put("/{pack_key}/{version}/bpmn", dependencies=[_OWNER])
 async def upload_bpmn(
     pack_key: str, version: str, request: Request,
     repo: ProcessPackRepository = Depends(get_pack_repo),
@@ -78,7 +83,7 @@ async def upload_bpmn(
     return {"pack_key": pack_key, "version": version, "bpmn_sha256": sha}
 
 
-@router.post("/{pack_key}/{version}/validate")
+@router.post("/{pack_key}/{version}/validate", dependencies=[_OWNER])
 async def validate_pack(
     pack_key: str, version: str,
     repo: ProcessPackRepository = Depends(get_pack_repo),
@@ -95,7 +100,7 @@ async def validate_pack(
     return report
 
 
-@router.post("/{pack_key}/{version}/activate", response_model=ProcessPackManifest)
+@router.post("/{pack_key}/{version}/activate", response_model=ProcessPackManifest, dependencies=[_OWNER])
 async def activate_pack(
     pack_key: str, version: str,
     repo: ProcessPackRepository = Depends(get_pack_repo),
@@ -122,7 +127,7 @@ async def activate_pack(
     return activated
 
 
-@router.post("/{pack_key}/{version}/deprecate", response_model=ProcessPackManifest)
+@router.post("/{pack_key}/{version}/deprecate", response_model=ProcessPackManifest, dependencies=[_OWNER])
 async def deprecate_pack(
     pack_key: str, version: str,
     repo: ProcessPackRepository = Depends(get_pack_repo),

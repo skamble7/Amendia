@@ -124,7 +124,12 @@ async def onboarded(cap_repo, schema_repo, pack_repo, bpmn_repo):
 
 @pytest_asyncio.fixture
 async def client(db, cap_repo, schema_repo, pack_repo, bpmn_repo, resolver):
+    from amendia_auth import AuthContext
+    from amendia_auth.settings import AuthSettings
+
     app = create_app()
+    # Auth isn't the subject of these suites: a synthetic user with all seeded roles.
+    app.state.auth = AuthContext(AuthSettings(auth_disabled=True, internal_token="test-internal"))
     app.dependency_overrides[get_mongo] = lambda: FakeMongo(db)
     app.dependency_overrides[get_capability_repo] = lambda: cap_repo
     app.dependency_overrides[get_artifact_schema_repo] = lambda: schema_repo

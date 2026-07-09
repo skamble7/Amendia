@@ -1,0 +1,127 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * Semantic design tokens. Hues follow the design brief (agent=purple,
+ * artifact=teal, attention=amber, process=coral, success=green, danger=red).
+ *
+ * Theme scheme (reconciled with Tailwind `darkMode: "class"`): dark is the default
+ * (`:root`, also emitted under `.dark` so the `dark:` variant is live), and `.light`
+ * overrides for light mode. The ThemeProvider adds exactly one of `.dark` / `.light`
+ * to <html>; a pre-paint script in index.html sets it before first paint, so there
+ * is never an unclassed flash. With no JS the `:root` dark defaults apply.
+ */
+@layer base {
+  :root,
+  :root.dark {
+    --radius: 0.625rem;
+
+    /* dark theme (default) */
+    --background: 240 10% 6%;
+    --foreground: 240 6% 90%;
+    --surface: 240 9% 9%;
+    --surface-raised: 240 8% 12%;
+    --card: 240 9% 9%;
+    --card-foreground: 240 6% 90%;
+    --popover: 240 9% 10%;
+    --popover-foreground: 240 6% 92%;
+
+    --primary: 262 70% 62%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 240 6% 16%;
+    --secondary-foreground: 240 6% 88%;
+    --muted: 240 6% 16%;
+    --muted-foreground: 240 5% 60%;
+    --accent: 240 6% 18%;
+    --accent-foreground: 240 6% 92%;
+
+    --border: 240 6% 18%;
+    --input: 240 6% 20%;
+    --ring: 262 70% 62%;
+
+    /* semantic */
+    --agent: 262 72% 66%;
+    --agent-foreground: 0 0% 100%;
+    --agent-muted: 262 40% 22%;
+
+    --artifact: 178 62% 45%;
+    --artifact-foreground: 200 20% 8%;
+    --artifact-muted: 178 40% 18%;
+
+    --attention: 38 92% 55%;
+    --attention-foreground: 40 40% 8%;
+    --attention-muted: 38 60% 20%;
+
+    --process: 8 82% 63%;
+    --process-foreground: 0 0% 100%;
+    --process-muted: 8 50% 22%;
+
+    --success: 150 60% 45%;
+    --success-foreground: 150 30% 8%;
+    --success-muted: 150 45% 16%;
+
+    --danger: 356 72% 58%;
+    --danger-foreground: 0 0% 100%;
+    --danger-muted: 356 45% 20%;
+
+    /* Diagram/BPMN canvas — deliberately light in both themes: bpmn-js renders
+       fixed dark strokes, so the backdrop must stay light to keep them legible.
+       A named token (not a raw color) so it stays theme-system-driven. */
+    --canvas: 0 0% 100%;
+  }
+
+  :root.light {
+    --background: 240 20% 99%;
+    --foreground: 240 12% 12%;
+    --surface: 240 20% 97%;
+    --surface-raised: 0 0% 100%;
+    --card: 0 0% 100%;
+    --card-foreground: 240 12% 12%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 240 12% 12%;
+
+    --primary: 262 68% 55%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 240 12% 94%;
+    --secondary-foreground: 240 12% 20%;
+    --muted: 240 12% 94%;
+    --muted-foreground: 240 6% 42%;
+    --accent: 240 12% 92%;
+    --accent-foreground: 240 12% 16%;
+
+    --border: 240 12% 88%;
+    --input: 240 12% 85%;
+    --ring: 262 68% 55%;
+
+    --agent: 262 68% 55%;
+    --agent-muted: 262 60% 92%;
+    --artifact: 178 62% 38%;
+    --artifact-muted: 178 55% 90%;
+    --attention: 34 92% 48%;
+    --attention-muted: 38 90% 90%;
+    --process: 8 78% 56%;
+    --process-muted: 8 80% 93%;
+    --success: 150 58% 38%;
+    --success-muted: 150 50% 90%;
+    --danger: 356 68% 50%;
+    --danger-muted: 356 70% 93%;
+  }
+
+  * {
+    border-color: hsl(var(--border));
+  }
+
+  body {
+    background-color: hsl(var(--background));
+    color: hsl(var(--foreground));
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* IDs, amounts, UETRs — tabular figures for column alignment */
+  .font-mono,
+  .tabular-nums {
+    font-variant-numeric: tabular-nums lining-nums;
+  }
+}

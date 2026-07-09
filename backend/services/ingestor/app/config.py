@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from amendia_auth import AuthSettings, load_auth_settings
+
 
 class Settings(BaseSettings):
     # MongoDB
@@ -35,6 +37,11 @@ class Settings(BaseSettings):
     PORT: int = 8082
     LOG_LEVEL: str = "INFO"
 
+    # Dev-only permissive CORS so a separately-served webui can call this
+    # service directly. The Vite/nginx proxy avoids CORS in the normal setup;
+    # this is default-on in compose and should be disabled in production.
+    ENABLE_DEV_CORS: bool = True
+
     model_config = SettingsConfigDict(
         env_prefix="INGESTOR_",
         env_file=".env",
@@ -44,3 +51,7 @@ class Settings(BaseSettings):
 
 
 settings = Settings()  # type: ignore[call-arg]
+
+# Auth config (INGESTOR_AUTH_ISSUER, _AUDIENCE, _JWKS_URI, _IDENTITY_BASE_URL,
+# _INTERNAL_TOKEN, ...).
+auth_settings: AuthSettings = load_auth_settings("INGESTOR_")

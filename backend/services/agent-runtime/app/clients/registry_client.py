@@ -24,17 +24,23 @@ class RegistryError(Exception):
 
 
 class RegistryClient:
-    def __init__(self, base_url: str, http: httpx.AsyncClient, *, max_retries: int = 2) -> None:
+    def __init__(
+        self, base_url: str, http: httpx.AsyncClient, *, max_retries: int = 2,
+        internal_token: str = "",
+    ) -> None:
         self._base_url = base_url.rstrip("/")
         self._http = http
         self._max_retries = max_retries
+        # Service-to-service auth: the registry's read endpoints accept the shared
+        # internal token (X-Amendia-Internal) when strict enforcement is on.
+        self._headers = {"X-Amendia-Internal": internal_token} if internal_token else {}
 
     async def _get(self, path: str, *, as_text: bool = False) -> Any:
         url = f"{self._base_url}{path}"
         last: Optional[Exception] = None
         for attempt in range(self._max_retries + 1):
             try:
-                resp = await self._http.get(url)
+                resp = await self._http.get(url, headers=self._headers)
             except (httpx.TransportError, httpx.TimeoutException) as exc:
                 last = exc
                 logger.warning("registry GET %s network error (attempt %d): %s", path, attempt + 1, exc)
@@ -70,15 +76,16 @@ class RegistryClient:
 class ExceptionStoreClient:
     """Fetches the full exception envelope from the store's fetch-back URL."""
 
-    def __init__(self, http: httpx.AsyncClient, *, max_retries: int = 2) -> None:
+    def __init__(self, http: httpx.AsyncClient, *, max_retries: int = 2, internal_token: str = "") -> None:
         self._http = http
         self._max_retries = max_retries
+        self._headers = {"X-Amendia-Internal": internal_token} if internal_token else {}
 
     async def fetch(self, fetch_url: str) -> Dict[str, Any]:
         last: Optional[Exception] = None
         for attempt in range(self._max_retries + 1):
             try:
-                resp = await self._http.get(fetch_url)
+                resp = await self._http.get(fetch_url, headers=self._headers)
                 resp.raise_for_status()
                 return resp.json()
             except Exception as exc:  # noqa: BLE001

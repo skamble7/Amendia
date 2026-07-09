@@ -6,6 +6,8 @@ from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from amendia_auth import AuthSettings, load_auth_settings
+
 # Default seed directory: <service-root>/seed/wire-repair-standard
 _SERVICE_ROOT = Path(__file__).resolve().parents[1]
 _DEFAULT_SEED_DIR = str(_SERVICE_ROOT / "seed" / "wire-repair-standard")
@@ -46,6 +48,11 @@ class Settings(BaseSettings):
     PORT: int = 8083
     LOG_LEVEL: str = "INFO"
 
+    # Dev-only permissive CORS so a separately-served webui can call this
+    # service directly. The Vite/nginx proxy avoids CORS in the normal setup;
+    # this is default-on in compose and should be disabled in production.
+    ENABLE_DEV_CORS: bool = True
+
     model_config = SettingsConfigDict(
         env_prefix="AGENTRT_",
         env_file=".env",
@@ -55,3 +62,7 @@ class Settings(BaseSettings):
 
 
 settings = Settings()  # type: ignore[call-arg]
+
+# Auth config (AGENTRT_AUTH_ISSUER, _AUDIENCE, _JWKS_URI, _IDENTITY_BASE_URL,
+# _INTERNAL_TOKEN, _AUTH_DISABLED, ...).
+auth_settings: AuthSettings = load_auth_settings("AGENTRT_")

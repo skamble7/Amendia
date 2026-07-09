@@ -32,10 +32,15 @@ class RegistryUnavailable(Exception):
 
 
 class RegistryClient:
-    def __init__(self, base_url: str, http: httpx.AsyncClient, *, max_retries: int = 2) -> None:
+    def __init__(
+        self, base_url: str, http: httpx.AsyncClient, *, max_retries: int = 2, internal_token: str = ""
+    ) -> None:
         self._base_url = base_url.rstrip("/")
         self._http = http
         self._max_retries = max_retries
+        # /resolve is a service-to-service call; carry the shared internal token
+        # so it passes when strict enforcement is on.
+        self._headers = {"X-Amendia-Internal": internal_token} if internal_token else {}
 
     async def resolve(self, tenant: str, envelope: Dict[str, Any]) -> Dict[str, Any]:
         """POST /resolve. Retries on 5xx/network; raises on 404 / exhaustion."""
@@ -44,7 +49,7 @@ class RegistryClient:
         last_exc: Exception | None = None
         for attempt in range(self._max_retries + 1):
             try:
-                resp = await self._http.post(url, json=payload)
+                resp = await self._http.post(url, json=payload, headers=self._headers)
             except (httpx.TransportError, httpx.TimeoutException) as exc:
                 last_exc = exc
                 logger.warning("registry resolve network error (attempt %d): %s", attempt + 1, exc)

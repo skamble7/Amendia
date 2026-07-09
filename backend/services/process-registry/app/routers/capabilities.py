@@ -6,6 +6,8 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
+from amendia_auth import require_roles
+
 from amendia_contracts.capability import CapabilityDescriptor
 from app.dal.base import DuplicateError
 from app.dal.capability_repo import CapabilityRepository
@@ -13,8 +15,10 @@ from app.deps import get_capability_repo
 
 router = APIRouter(prefix="/capabilities", tags=["capabilities"])
 
+_OWNER = Depends(require_roles("role.process.owner"))
 
-@router.post("", response_model=CapabilityDescriptor, status_code=201)
+
+@router.post("", response_model=CapabilityDescriptor, status_code=201, dependencies=[_OWNER])
 async def register_capability(
     cap: CapabilityDescriptor, repo: CapabilityRepository = Depends(get_capability_repo)
 ):
@@ -56,7 +60,7 @@ async def get_capability(
     return cap
 
 
-@router.post("/{capability_id}/{version}/deprecate", response_model=CapabilityDescriptor)
+@router.post("/{capability_id}/{version}/deprecate", response_model=CapabilityDescriptor, dependencies=[_OWNER])
 async def deprecate_capability(
     capability_id: str, version: str, repo: CapabilityRepository = Depends(get_capability_repo)
 ):
