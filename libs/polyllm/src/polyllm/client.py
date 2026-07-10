@@ -163,8 +163,10 @@ class LLMClient:
         try:
             resp = await llm.ainvoke(messages)
             text = _coerce_content(getattr(resp, "content", None)) or str(resp)
-            # Bedrock has no native JSON mode API — strip code fences post-response.
-            if p.json_mode and p.provider == "bedrock":
+            # Providers without a relied-upon native JSON-mode API — strip code fences
+            # post-response. bedrock has none; nemoclaw's NIM/managed-proxy JSON-mode support
+            # is unconfirmed so we treat it the same (see providers/nemoclaw.py).
+            if p.json_mode and p.provider in ("bedrock", "nemoclaw"):
                 text = _strip_json_fences(text)
         finally:
             # Prevent "Event loop is closed" warnings from dangling httpx clients

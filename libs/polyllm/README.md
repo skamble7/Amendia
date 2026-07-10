@@ -36,6 +36,7 @@ pip install polyllm[langchain,remote]
 | `openai` | `langchain-openai` | Active |
 | `google_genai` | `langchain-google-genai` | Active |
 | `bedrock` | `langchain-aws` | Active |
+| `nemoclaw` | `langchain-openai` (OpenAI-compatible: NVIDIA NIM / OpenShell managed proxy) | Active |
 | `google_vertexai` | `langchain-google-vertexai` | Placeholder — not yet active |
 
 ---
@@ -173,7 +174,7 @@ All fields accepted in the `data` dict when registering an LLM config in ConfigF
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `provider` | str | Yes | `openai`, `google_genai`, `bedrock`, `google_vertexai` |
+| `provider` | str | Yes | `openai`, `google_genai`, `bedrock`, `nemoclaw`, `google_vertexai` |
 | `model` | str | Yes | Model ID (e.g. `gpt-4o`, `gemini-1.5-pro`) |
 | `transport` | str | No | `direct` (default), `vertex`, `bedrock`, `gateway` |
 | `temperature` | float | No | Default `0.1` |
@@ -266,6 +267,43 @@ Note: `max_tokens` maps to Gemini's `max_output_tokens` internally.
         "access_key": "env:AWS_ACCESS_KEY_ID",
         "secret_key": "env:AWS_SECRET_ACCESS_KEY",
     },
+}
+```
+
+### NemoClaw (Nemotron via NVIDIA NIM / OpenShell managed proxy)
+
+NemoClaw targets an **OpenAI-compatible** endpoint, so it reuses the OpenAI chat-model backend
+parameterised on **`base_url`** (which is **required**). JSON is handled Bedrock-style: when
+`json_mode` is set, code fences are stripped from the response post-call rather than relying on a
+provider JSON-mode API (NIM/proxy support is unconfirmed). A profile whose endpoint supports OpenAI
+`response_format` may opt in via `provider_options`.
+
+**Direct NIM (host-side key):**
+
+```python
+{
+    "provider": "nemoclaw",
+    "transport": "direct",
+    "model": "nvidia/nemotron-3-ultra",
+    "base_url": "https://integrate.api.nvidia.com/v1",
+    "json_mode": True,
+    "api_key_ref": "env:NVIDIA_NIM_API_KEY",
+}
+```
+
+**OpenShell managed proxy (gateway-brokered token):** the gateway scopes/injects the token into the
+sandbox, so no host-side key is required. If `api_key_ref` resolves to nothing, the adapter uses a
+non-secret placeholder rather than failing — the real token is supplied by the gateway in the
+in-sandbox path.
+
+```python
+{
+    "provider": "nemoclaw",
+    "transport": "gateway",
+    "model": "nemotron-3-ultra",
+    "base_url": "https://inference.local/v1",
+    "json_mode": True,
+    "api_key_ref": "env:OPENSHELL_INFERENCE_TOKEN",
 }
 ```
 

@@ -6,6 +6,7 @@ from .base import ProviderAdapter
 from .bedrock import BedrockAdapter
 from .google_genai import GoogleGenAIAdapter
 from .google_vertexai import GoogleVertexAIAdapter
+from .nemoclaw import NemoClawAdapter
 from .openai import OpenAIAdapter
 
 _REGISTRY: Dict[str, ProviderAdapter] = {
@@ -13,6 +14,7 @@ _REGISTRY: Dict[str, ProviderAdapter] = {
     "google_genai": GoogleGenAIAdapter(),
     "google_vertexai": GoogleVertexAIAdapter(),
     "bedrock": BedrockAdapter(),
+    "nemoclaw": NemoClawAdapter(),
 }
 
 

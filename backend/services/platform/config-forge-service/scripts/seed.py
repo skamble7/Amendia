@@ -1,8 +1,8 @@
 """
 Seed script — loads default LLM config templates for all polyllm providers into ConfigForge.
 
-Covers the four providers registered in polyllm's registry:
-  openai, google_genai, bedrock, google_vertexai (placeholder — not yet active)
+Covers the providers registered in polyllm's registry:
+  openai, google_genai, bedrock, nemoclaw, google_vertexai (placeholder — not yet active)
 
 Each entry uses env:* api_key_ref refs so no real secrets are stored here.
 Swap env:* for literal:* to store the key directly, or vault:* when Vault is wired in.
@@ -193,6 +193,57 @@ def make_seeds(env: str) -> List[Dict[str, Any]]:
                     "access_key": "env:AWS_ACCESS_KEY_ID",
                     "secret_key": "env:AWS_SECRET_ACCESS_KEY",
                 },
+            },
+        },
+        # ── NemoClaw managed inference (Nemotron 3 Ultra) ─────────────────
+        # Provider `nemoclaw` = OpenAI-compatible endpoint (NVIDIA NIM / OpenShell managed
+        # inference proxy). Selectable per-capability (runtime.model_config_key) or platform-
+        # wide (AGENTRT_LLM_CONFIG_REF). Secrets are env: refs only — never stored here.
+        {
+            "env": env,
+            "kind": "llm",
+            "provider": "nemoclaw",
+            "platform": None,
+            "name": "nemotron-ultra",
+            "description": (
+                "Nemotron 3 Ultra via the OpenShell managed inference proxy "
+                "(inference.local/v1). Intended for the in-sandbox path: the OpenShell "
+                "gateway brokers/scopes the token (OPENSHELL_INFERENCE_TOKEN), so the sandbox "
+                "never holds it. The in-sandbox managed-proxy leg activates with the real "
+                "HttpOpenShellClient (ADR-017 Phase 5); reachable directly today only if the "
+                "proxy URL is routable from the host."
+            ),
+            "data": {
+                "provider": "nemoclaw",
+                "transport": "gateway",
+                "model": "nemotron-3-ultra",  # [confirm] exact model id against live NemoClaw docs
+                "base_url": "https://inference.local/v1",  # [confirm] managed inference proxy path
+                "temperature": 0.1,
+                "max_tokens": 32000,
+                "json_mode": True,
+                "api_key_ref": "env:OPENSHELL_INFERENCE_TOKEN",
+            },
+        },
+        {
+            "env": env,
+            "kind": "llm",
+            "provider": "nemoclaw",
+            "platform": None,
+            "name": "nim",
+            "description": (
+                "Nemotron via a directly-reachable NVIDIA NIM endpoint — the profile a "
+                "developer can actually hit today (host → NIM, no sandbox). Set "
+                "NVIDIA_NIM_API_KEY (and adjust base_url/model to your NIM deployment)."
+            ),
+            "data": {
+                "provider": "nemoclaw",
+                "transport": "direct",
+                "model": "nvidia/nemotron-3-ultra",  # [confirm] NIM model id
+                "base_url": "https://integrate.api.nvidia.com/v1",  # [confirm] hosted NIM base URL
+                "temperature": 0.1,
+                "max_tokens": 32000,
+                "json_mode": True,
+                "api_key_ref": "env:NVIDIA_NIM_API_KEY",
             },
         },
         # ── Google Vertex AI (placeholder — adapter not yet active) ───────

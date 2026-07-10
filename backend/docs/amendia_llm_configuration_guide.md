@@ -136,7 +136,9 @@ ref:
 ```
 
 The runtime **honors the declaration**; capabilities with `model_config_key: null` **fall back** to the
-runtime default.
+runtime default. So you can, e.g., keep `draft_repair` on Claude/Bedrock for quality and move `draft_rfi`
+to `dev.llm.nemoclaw.nim` for cost — a pure config change, no code, in `native` mode **and**
+`nemoclaw`(fake) mode alike (both resolve the ref through the same `run_real_llm` path).
 
 > ⚠️ **Descriptors are immutable once onboarded.** To apply a descriptor change you must re-onboard:
 > ```bash
@@ -153,9 +155,9 @@ runtime default.
 
 ## 6. Providers & example ModelProfiles
 
-polyllm supports **`openai`**, **`google_genai`**, **`bedrock`** (and a `google_vertexai` placeholder).
-**There is no direct Anthropic-API provider yet — run Claude via Bedrock.** Full field reference:
-`libs/polyllm/README.md`.
+polyllm supports **`openai`**, **`google_genai`**, **`bedrock`**, **`nemoclaw`** (and a
+`google_vertexai` placeholder). **There is no direct Anthropic-API provider yet — run Claude via
+Bedrock; Nemotron is now a peer option via `nemoclaw`.** Full field reference: `libs/polyllm/README.md`.
 
 ```jsonc
 // OpenAI
@@ -169,11 +171,31 @@ polyllm supports **`openai`**, **`google_genai`**, **`bedrock`** (and a `google_
   "model": "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
   "temperature": 0.1, "max_tokens": 32000, "aws_region": "us-east-1", "json_mode": true,
   "secret_refs": { "access_key": "env:AWS_ACCESS_KEY_ID", "secret_key": "env:AWS_SECRET_ACCESS_KEY" } }
+
+// Nemotron 3 Ultra via NemoClaw (OpenAI-compatible: NVIDIA NIM or the OpenShell managed proxy)
+// ref: dev.llm.nemoclaw.nim — directly reachable, usable today (host → NIM)
+{ "provider": "nemoclaw", "transport": "direct",
+  "model": "nvidia/nemotron-3-ultra", "base_url": "https://integrate.api.nvidia.com/v1",
+  "temperature": 0.1, "max_tokens": 32000, "json_mode": true,
+  "api_key_ref": "env:NVIDIA_NIM_API_KEY" }
 ```
 
 Notes: set **`json_mode: true`** for capability profiles — the runtime asks for JSON artifacts, and this
-guarantees clean JSON (native for OpenAI/Gemini; fence-stripped for Bedrock). Bedrock may also use
-`aws_profile` or ambient IAM instead of `secret_refs`.
+guarantees clean JSON (native for OpenAI/Gemini; fence-stripped for Bedrock **and `nemoclaw`**). Bedrock
+may also use `aws_profile` or ambient IAM instead of `secret_refs`.
+
+**`nemoclaw` credential modes (ADR-018):** `nemoclaw` is an OpenAI-compatible endpoint, so it always
+needs a `base_url`. Two modes:
+- **Direct / native — usable now.** `api_key_ref` (e.g. `env:NVIDIA_NIM_API_KEY`) resolves host-side like
+  any provider; point `base_url` at a reachable NIM. This is `dev.llm.nemoclaw.nim`.
+- **In-sandbox managed proxy — deferred (ADR-017 Phase 5).** `dev.llm.nemoclaw.nemotron-ultra` targets the
+  OpenShell managed proxy (`inference.local/v1`); the gateway brokers/scopes the token
+  (`OPENSHELL_INFERENCE_TOKEN`) so the sandbox never holds it, and **no host-side token is required**.
+  This leg activates with the real `HttpOpenShellClient`; today the profile is reachable only if that
+  proxy URL is routable from the host. Model id / proxy path are `# [confirm]` against live NemoClaw docs.
+
+Nemotron via managed inference is the intended pairing for **`deep_agent` capabilities (ADR-017 Phase 4)**
+— its ~10× cost/perf claim is measured on the Deep Agents harness.
 
 ---
 
@@ -187,9 +209,15 @@ guarantees clean JSON (native for OpenAI/Gemini; fence-stripped for Bedrock). Be
 | `file:`    | `file:/run/secrets/keys.json#openai` | JSON file on disk   | Docker/mounted secrets |
 | `literal:` | `literal:sk-…`                  | the ref itself           | **dev only**, pre-Vault |
 
-Whatever a profile references (e.g. `env:OPENAI_API_KEY`, `env:AWS_ACCESS_KEY_ID`) must be present in the
-**agent-runtime** container's environment. Prefer `env:`/`file:` in real deployments; `literal:` is a
-convenience for local dev only.
+Whatever a profile references (e.g. `env:OPENAI_API_KEY`, `env:AWS_ACCESS_KEY_ID`,
+`env:NVIDIA_NIM_API_KEY`) must be present in the **agent-runtime** container's environment. Prefer
+`env:`/`file:` in real deployments; `literal:` is a convenience for local dev only.
+
+**One deliberate exception (ADR-018):** a `nemoclaw` profile aimed at the OpenShell *managed proxy*
+(`dev.llm.nemoclaw.nemotron-ultra`) does **not** require its token host-side — the OpenShell gateway
+brokers and scopes it into the sandbox so real secrets never enter the agent-runtime container (the
+credential-surface upgrade ADR-017 §7 anticipated). That leg is deferred until the real `HttpOpenShellClient`
+lands; the *direct* NIM profile (`dev.llm.nemoclaw.nim`) does need `NVIDIA_NIM_API_KEY` host-side.
 
 ---
 
@@ -233,6 +261,9 @@ the ConfigForge fetch. A multi-second latency (vs. sub-ms simulation) is a furth
 | `Config not found: <ref>` / `404` from `/config/resolve` | The ref the capability/runtime uses isn't in ConfigForge | Create it (§4b) or fix `AGENTRT_LLM_CONFIG_REF` / `model_config_key` |
 | `… requires an API key` / auth error | The profile's `api_key_ref`/`secret_refs` env var isn't set in the agent-runtime container | Add the env var, or switch the ref to a `literal:`/`file:` you control |
 | Bedrock `AccessDenied` / model-not-found | Creds/region lack Bedrock access or the model isn't enabled in that account/region | Enable model access in AWS, fix `aws_region`, or point at a different provider ref |
+| `nemoclaw requires base_url` | A `nemoclaw` profile has no `base_url` | Set `base_url` to your NIM endpoint or the managed proxy (`https://inference.local/v1`) |
+| NemoClaw connection/timeout to `base_url` | The NIM/managed-proxy endpoint isn't reachable from the agent-runtime container | Use the directly-reachable `dev.llm.nemoclaw.nim` profile with a valid `base_url`; the `inference.local/v1` proxy leg needs the real OpenShell client (ADR-017 Phase 5) |
+| NemoClaw 401/403 (auth) | `NVIDIA_NIM_API_KEY` not set (direct), or token not brokered (in-sandbox) | Set the env var for the direct profile; the managed-proxy profile relies on the gateway injecting a scoped token (deferred) |
 | `LLM returned non-JSON …` | Model didn't emit clean JSON | Set `json_mode: true` on the profile; consider a stronger model |
 | `… schema_invalid` after a real call | Model output didn't match the artifact schema | Stronger model / lower temperature; the schema is already sent in the prompt |
 | `MCP capability … using simulation fallback` (WARNING) | Expected — no real MCP client yet | None (by design) |

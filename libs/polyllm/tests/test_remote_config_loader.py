@@ -51,6 +51,21 @@ _BEDROCK_PAYLOAD = {
     },
 }
 
+# NemoClaw managed-inference profile (ADR-018) as ConfigForge would return it.
+_NEMOCLAW_PAYLOAD = {
+    "ref": "dev.llm.nemoclaw.nemotron-ultra",
+    "data": {
+        "provider": "nemoclaw",
+        "transport": "gateway",
+        "model": "nemotron-3-ultra",
+        "base_url": "https://inference.local/v1",
+        "temperature": 0.1,
+        "max_tokens": 32000,
+        "json_mode": True,
+        "api_key_ref": "env:OPENSHELL_INFERENCE_TOKEN",
+    },
+}
+
 
 def _mock_http(json_payload: dict | None = None, raise_for_status_exc: Exception | None = None):
     """
@@ -217,6 +232,20 @@ async def test_load_maps_bedrock_secret_refs(monkeypatch):
         "access_key": "env:AWS_ACCESS_KEY_ID",
         "secret_key": "env:AWS_SECRET_ACCESS_KEY",
     }
+
+
+@pytest.mark.asyncio
+async def test_load_maps_nemoclaw_profile(monkeypatch):
+    monkeypatch.delenv("CONFIG_FORGE_URL", raising=False)
+    loader = RemoteConfigLoader(base_url=_BASE_URL)
+    with patch("httpx.AsyncClient", return_value=_mock_http(_NEMOCLAW_PAYLOAD)):
+        client = await loader.load("dev.llm.nemoclaw.nemotron-ultra")
+    profile = client.cfg.profiles["default"]
+    assert profile.provider == "nemoclaw"
+    assert profile.model == "nemotron-3-ultra"
+    assert profile.base_url == "https://inference.local/v1"
+    assert profile.json_mode is True
+    assert profile.api_key_ref == "env:OPENSHELL_INFERENCE_TOKEN"
 
 
 @pytest.mark.asyncio
