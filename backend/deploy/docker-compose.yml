@@ -94,6 +94,35 @@ services:
       keycloak:
         condition: service_started
 
+  # Notification platform service: consumes amendia.events and fans out thin
+  # invalidation signals to browsers over SSE (real-time HITL dashboard, no polling).
+  notification-service:
+    build:
+      # Build context is the repo root so both `libs/` and the service are visible.
+      context: ../..
+      dockerfile: backend/services/platform/notification-service/Dockerfile
+    ports:
+      - "8088:8088"
+    environment:
+      NOTIFICATION_RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+      NOTIFICATION_AUTH_ISSUER: http://localhost:8087/realms/amendia-dev
+      NOTIFICATION_AUTH_AUDIENCE: amendia-api
+      NOTIFICATION_AUTH_JWKS_URI: http://keycloak:8080/realms/amendia-dev/protocol/openid-connect/certs
+      NOTIFICATION_AUTH_IDENTITY_BASE_URL: http://identity:8086
+      NOTIFICATION_AUTH_INTERNAL_TOKEN: dev-internal-token
+      NOTIFICATION_LOG_LEVEL: INFO
+      NOTIFICATION_ENABLE_DEV_CORS: "true"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8088/health').status==200 else 1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      identity:
+        condition: service_started
+
   stub-exception-generator:
     build:
       # Build context is the repo root so both `libs/` and `stub_exception_generator/` are visible.
@@ -252,6 +281,8 @@ services:
         condition: service_started
       process-registry:
         condition: service_healthy
+      notification-service:
+        condition: service_started
 
 volumes:
   mongo_data:

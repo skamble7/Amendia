@@ -21,3 +21,11 @@ export const SERVICE_LABEL: Record<ServiceKey, string> = {
   registry: "process-registry",
   identity: "identity",
 };
+
+/**
+ * Base path for the notification-service SSE stream. Deliberately NOT a `request()`
+ * service (no `ServiceKey`): the stream is consumed by a dedicated fetch reader
+ * (`notificationsStream.ts`), not the JSON request seam.
+ */
+export const NOTIFICATIONS_BASE: string =
+  import.meta.env.VITE_NOTIFICATIONS_BASE ?? "/api/notifications";

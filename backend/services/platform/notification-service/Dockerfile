@@ -1,34 +1,29 @@
-# platform/notification-service/Dockerfile
+# backend/services/platform/notification-service/Dockerfile
+# Build context is the repo root so both `libs/` and the service are visible.
 FROM public.ecr.aws/docker/library/python:3.12-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1 \
-    PIP_DISABLE_PIP_VERSION_CHECK=1
+    PYTHONUNBUFFERED=1
 
-WORKDIR /app
+RUN pip install --no-cache-dir uv
 
-# 1) Install shared libs (editable) — copy project root + package dir
-COPY libs/pyproject.toml /tmp/libs/pyproject.toml
-COPY libs /tmp/libs/libs
-RUN pip install --no-cache-dir -e /tmp/libs
+# 1) Shared libraries: amendia_common, amendia_contracts (deps on common), amendia_auth.
+COPY libs /src/libs
+RUN uv pip install --system /src/libs \
+ && uv pip install --system /src/libs/amendia_contracts \
+ && uv pip install --system /src/libs/amendia_auth
 
-# (optional) sanity check
-RUN python - <<'PY'
-import importlib
-m = importlib.import_module("libs.raina_common.events")
-print("OK:", m.__file__)
-PY
+# 2) Service dependencies + package.
+COPY backend/services/platform/notification-service/pyproject.toml /src/backend/services/platform/notification-service/pyproject.toml
+COPY backend/services/platform/notification-service/app /src/backend/services/platform/notification-service/app
+RUN uv pip install --system /src/backend/services/platform/notification-service
 
-# -------------------------------
-# 2) Install notification service deps
-# -------------------------------
-COPY platform/notification-service/pyproject.toml /app/pyproject.toml
-RUN pip install --no-cache-dir .
+WORKDIR /src/backend/services/platform/notification-service
 
-# -------------------------------
-# 3) Copy the service code
-# -------------------------------
-COPY platform/notification-service/app /app/app
+# 3) Run as a non-root user.
+RUN useradd --create-home --uid 10001 appuser \
+ && chown -R appuser /src
+USER appuser
 
-EXPOSE 8016
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8016"]
+EXPOSE 8088
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8088"]

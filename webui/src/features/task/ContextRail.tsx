@@ -19,7 +19,19 @@ export function ContextRail({ task }: { task: HitlTask }) {
   });
   const { data: instance } = useApiQuery(["instance", task.process_instance_id], (s) => getInstance(task.process_instance_id, s));
 
-  const steps = deriveSteps(pack, instance?.actor_log, { currentElementId: task.element_id });
+  // Derive the current step from the *instance's* live position (its open/claimed
+  // gate), not the task being viewed — so the stepper advances as the process moves
+  // on (real-time via the SSE invalidation of ["instance", id]), instead of staying
+  // pinned to this task. Mirrors InstanceDetailPage.
+  const terminal = instance ? ["completed", "failed", "cancelled"].includes(instance.status) : false;
+  const currentEl = instance?.hitl_tasks.find((t) => t.status === "open" || t.status === "claimed")?.element_id;
+  const failedEl =
+    instance?.status === "failed" ? instance.actor_log[instance.actor_log.length - 1]?.element_id : null;
+  const steps = deriveSteps(pack, instance?.actor_log, {
+    currentElementId: currentEl,
+    failedElementId: failedEl,
+    terminal,
+  });
   const countdown = formatCountdown(task.due_at);
 
   return (
