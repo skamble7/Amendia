@@ -1,6 +1,6 @@
 // Drift gate for the generated API types (CI-ready; not yet wired into a pipeline).
 //
-//   pnpm gen:api:check
+//   npm run gen:api:check
 //
 // Regenerates every service's types into a temp dir and compares them against the
 // committed src/api/gen/*.ts. Exits nonzero if any file differs (i.e. someone
@@ -29,7 +29,7 @@ try {
 
   if (drift.length > 0) {
     console.error(`\n✗ gen/ is stale or hand-edited for: ${drift.join(", ")}`);
-    console.error("  Run `pnpm gen:api` and commit the result.");
+    console.error("  Run `npm run gen:api` and commit the result.");
     process.exit(1);
   }
   console.log("✓ gen/ is up to date with the live API (no drift).");

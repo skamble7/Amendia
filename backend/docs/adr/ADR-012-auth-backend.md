@@ -142,5 +142,5 @@ guardrail failures — `self_protection`, `last_admin`, and the stage-access `us
 returned as `HTTPException(detail={"error": …})` dicts, which FastAPI does **not** model in its OpenAPI
 `responses`, so `openapi-typescript` emits no type for them and the webui reads the `detail.error` codes
 generically (in `features/admin/queries.ts`). This is deliberate; if a typed error contract is ever wanted,
-add explicit `responses={409: …, 422: …}` models on the identity routers and regenerate (`pnpm gen:api`,
-guarded by the new `pnpm gen:api:check`).
+add explicit `responses={409: …, 422: …}` models on the identity routers and regenerate (`npm run gen:api`,
+guarded by the new `npm run gen:api:check`).

@@ -16,9 +16,9 @@ docker compose -f backend/deploy/docker-compose.yml up -d
 
 # 2. run the UI
 cd webui
-pnpm install        # first time only
+npm install        # first time only
 cp .env.example .env
-pnpm dev
+npm run dev
 ```
 
 Then, in the app:
@@ -81,7 +81,7 @@ empty-but-healthy-looking table. Detection is centralized in the API client (`sr
 API types are **generated**, never hand-written. With the stack up:
 
 ```bash
-pnpm gen:api        # writes src/api/gen/{stub,ingestor,runtime,registry,identity}.ts (committed)
+npm run gen:api        # writes src/api/gen/{stub,ingestor,runtime,registry,identity}.ts (committed)
 ```
 
 The two agent-runtime instance-detail endpoints (`GET /instances/{id}` and `/state`) have no FastAPI
@@ -92,11 +92,11 @@ The two agent-runtime instance-detail endpoints (`GET /instances/{id}` and `/sta
 
 | Script | What |
 |---|---|
-| `pnpm dev` | Vite dev server (proxies to the live services) |
-| `pnpm build` | Typecheck + production build |
-| `pnpm lint` | eslint + typescript-eslint |
-| `pnpm test` | vitest + testing-library (MSW is a test-only dependency) |
-| `pnpm gen:api` | Regenerate OpenAPI types (stack must be up) |
+| `npm run dev` | Vite dev server (proxies to the live services) |
+| `npm run build` | Typecheck + production build |
+| `npm run lint` | eslint + typescript-eslint |
+| `npm test` | vitest + testing-library (MSW is a test-only dependency) |
+| `npm run gen:api` | Regenerate OpenAPI types (stack must be up) |
 
 ## Registry & onboarding
 

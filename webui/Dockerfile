@@ -3,14 +3,13 @@ FROM node:22-alpine AS build
 WORKDIR /app
 
 # install deps (cached on lockfile)
-RUN corepack enable
-COPY package.json pnpm-lock.yaml* ./
-RUN pnpm install --frozen-lockfile || pnpm install
+COPY package.json package-lock.json ./
+RUN npm ci
 
 # build the SPA in live mode (calls same-origin /api/* which nginx proxies)
 COPY . .
 ENV VITE_API_MODE=live
-RUN pnpm build
+RUN npm run build
 
 # ---- serve stage ----
 FROM nginx:1.27-alpine AS serve

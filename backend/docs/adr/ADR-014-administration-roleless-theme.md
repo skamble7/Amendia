@@ -142,7 +142,7 @@ dashboard. It is isolated to `AppShell.tsx` + `HomeRedirect.tsx` and trivially r
   requests, IdP-config UI, session policies, and the SSE/notification push (live surfaces still poll).
 - **Traps recorded for maintainers:**
   1. **`gen:api` is stack-dependent.** The identity `gen/identity.ts` pending endpoints + `role_details` were
-     hand-written because the generator needs the live services up; re-run `pnpm gen:api` against the running
+     hand-written because the generator needs the live services up; re-run `npm run gen:api` against the running
      identity service to regenerate (it reproduces them). Keep the hand-edits in lockstep with the router until
      then.
   2. **Guardrail counts are of *active* admins and re-checked post-mutation.** The last-admin check counts
@@ -160,13 +160,13 @@ dashboard. It is isolated to `AppShell.tsx` + `HomeRedirect.tsx` and trivially r
 
 Two follow-ups from the implementation session were resolved against the running stack:
 
-- **Generated API types are now 100% generator-owned (Trap #1 retired).** With compose up, `pnpm gen:api`
+- **Generated API types are now 100% generator-owned (Trap #1 retired).** With compose up, `npm run gen:api`
   regenerated `webui/src/api/gen/identity.ts` from the live identity `/openapi.json`; the output is
   shape-identical to the hand-extended version (webui `tsc` / tests / build stayed green with **no**
   call-site changes) and now carries the backend docstrings. The other four services regenerated with a
   banner-only change — no undocumented API drift. `gen/` is no longer hand-edited. Two guards were added:
   an env-independent `// GENERATED — DO NOT HAND-EDIT` banner emitted by `scripts/gen-api.mjs`, and
-  **`pnpm gen:api:check`** (`scripts/gen-api-check.mjs`) — regenerates into a temp dir and exits nonzero on
+  **`npm run gen:api:check`** (`scripts/gen-api-check.mjs`) — regenerates into a temp dir and exits nonzero on
   any drift (CI-ready; pipeline wiring is out of scope). The guardrail error bodies
   (`self_protection` / `last_admin` / `user_exists`) stay FastAPI `detail` dicts (unmodeled in OpenAPI), so
   their TS shape lives with its consumer in `features/admin/queries.ts` (documented there) rather than in

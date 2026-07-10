@@ -118,7 +118,7 @@ allowed), leaving Keycloak's built-in default scopes intact (`sub`/`email`/`prof
 
 ## Addendum — 2026-07-09
 
-The generated API client types (Part B) are now **drift-guarded**: `pnpm gen:api:check`
+The generated API client types (Part B) are now **drift-guarded**: `npm run gen:api:check`
 (`webui/scripts/gen-api-check.mjs`) regenerates from the live services into a temp dir and fails on any
 diff from the committed `src/api/gen/**`, and the generator now stamps an env-independent
 `// GENERATED — DO NOT HAND-EDIT` banner (no host URL, so the check is byte-stable across machines). The

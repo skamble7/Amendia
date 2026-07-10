@@ -1,8 +1,8 @@
 // Generates TypeScript types from each running service's OpenAPI document.
 // Requires the compose stack (or the services) to be up. Commit the output.
 //
-//   pnpm gen:api          — regenerate src/api/gen/*.ts in place
-//   pnpm gen:api:check     — fail (nonzero) if committed gen/ has drifted
+//   npm run gen:api          — regenerate src/api/gen/*.ts in place
+//   npm run gen:api:check     — fail (nonzero) if committed gen/ has drifted
 //
 // This module exports `generate(outDir)` + `SERVICES` so gen-api-check.mjs can
 // regenerate into a temp dir and diff without duplicating the generation logic.
@@ -34,8 +34,8 @@ export const SERVICES = {
 function bannerFor(name) {
   return (
     `// GENERATED — DO NOT HAND-EDIT.\n` +
-    `// Run \`pnpm gen:api\` to regenerate the ${name} types from its live OpenAPI document.\n` +
-    `// \`pnpm gen:api:check\` fails when this file drifts from the running API.\n\n`
+    `// Run \`npm run gen:api\` to regenerate the ${name} types from its live OpenAPI document.\n` +
+    `// \`npm run gen:api:check\` fails when this file drifts from the running API.\n\n`
   );
 }
 

@@ -1,6 +1,6 @@
 // GENERATED — DO NOT HAND-EDIT.
-// Run `pnpm gen:api` to regenerate the identity types from its live OpenAPI document.
-// `pnpm gen:api:check` fails when this file drifts from the running API.
+// Run `npm run gen:api` to regenerate the identity types from its live OpenAPI document.
+// `npm run gen:api:check` fails when this file drifts from the running API.
 
 export interface paths {
     "/health": {

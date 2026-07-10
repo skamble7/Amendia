@@ -277,7 +277,7 @@ tokens; roles come from Amendia's own store. Single deployment = one customer = 
 
 ## Current Scope
 
-- Scaffold the monorepo per the structure above (Python workspace rooted at `backend/`, pnpm workspace at `webui/`).
+- Scaffold the monorepo per the structure above (Python workspace rooted at `backend/`, npm project at `webui/`).
 - ~~Implement the stub exception generator (synthetic exceptions → MongoDB + RabbitMQ events).~~ **Done** — see the Stub Exception Generator section above and ADR-007.
 - Implement ingestion (**done — basic**, see the Ingestor section and ADR-008), process-registry (**done — v1**, see the Process Registry section and ADR-010), config-forge, and notifications as mounted FastAPI sub-apps.
 - ~~Stub the agent-runtime boundary (queue consumer skeleton only); its internal design is a separate upcoming scope.~~ **Done** — the foundation (contract models, persistence, `wire-repair-standard` seed; ADR-009) and now **execution** (LangGraph compilation, capability execution, dispatch consumers, HITL resume; ADR-011) are both in place. One exception runs end-to-end to a `completed` instance with real API-driven approval gates — see the two Agent Runtime sections above.
