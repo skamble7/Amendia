@@ -31,7 +31,6 @@ class DecideRequest(BaseModel):
 
 @router.get("", response_model=List[HitlTask])
 async def list_hitl_tasks(
-    tenant: Optional[str] = Query(None),
     status: Optional[str] = Query(None),
     role: Optional[str] = Query(None),
     process_instance_id: Optional[str] = Query(None),
@@ -41,7 +40,7 @@ async def list_hitl_tasks(
     repo: HitlTaskRepository = Depends(get_hitl_task_repo),
 ):
     return await repo.list(
-        tenant=tenant, status=status, role=role,
+        status=status, role=role,
         process_instance_id=process_instance_id, exception_id=exception_id,
         limit=limit, offset=offset,
     )

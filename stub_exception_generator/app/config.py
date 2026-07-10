@@ -23,7 +23,6 @@ class Settings(BaseSettings):
 
     # Service
     SERVICE_BASE_URL: str = "http://localhost:8081"
-    DEFAULT_TENANT: str = "bank-alpha"
     HOST: str = "0.0.0.0"
     PORT: int = 8081
     LOG_LEVEL: str = "INFO"

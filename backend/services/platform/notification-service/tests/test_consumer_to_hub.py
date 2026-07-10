@@ -40,11 +40,11 @@ async def test_message_becomes_signal_in_hub():
     consumer = _make_consumer(hub)
 
     body = json.dumps({
-        "tenant": "bank-alpha", "task_id": "hitl-1", "process_instance_id": "pi-1",
+        "task_id": "hitl-1", "process_instance_id": "pi-1",
         "exception_id": "EXC-1", "element_id": "Task_Assess",
         "role": "role.payments.ops_analyst", "decision": "approve",  # must not leak
     }).encode()
-    msg = FakeMessage(body, "bank-alpha.agent_runtime.hitl_task_decided.v1")
+    msg = FakeMessage(body, "agent_runtime.hitl_task_decided.v1")
 
     await consumer._on_message(msg)
 
@@ -59,7 +59,7 @@ async def test_unparseable_body_is_dropped_without_raising():
     q = hub.subscribe()
     consumer = _make_consumer(hub)
 
-    await consumer._on_message(FakeMessage(b"not json{{", "bank-alpha.agent_runtime.process_completed.v1"))
+    await consumer._on_message(FakeMessage(b"not json{{", "agent_runtime.process_completed.v1"))
 
     assert q.empty()  # nothing published
 
@@ -69,7 +69,7 @@ async def test_irrelevant_event_produces_no_signal():
     q = hub.subscribe()
     consumer = _make_consumer(hub)
 
-    body = json.dumps({"tenant": "t"}).encode()
-    await consumer._on_message(FakeMessage(body, "t.agent_runtime.something_else.v1"))
+    body = json.dumps({"exception_id": "EXC-1"}).encode()
+    await consumer._on_message(FakeMessage(body, "agent_runtime.something_else.v1"))
 
     assert q.empty()

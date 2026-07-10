@@ -35,15 +35,15 @@ The status enum, a `status_history` trail, and repository transition methods
 ## Eventing
 
 - Exchange: `amendia.events` (durable topic, `amendia_common.events.EXCHANGE`).
-- Queue: durable `ingestor.exception_raised.v1`, bound with `*.stub_exception.exception_raised.v1`
-  (built from `amendia_common.events` constants — matches every tenant).
+- Queue: durable `ingestor.exception_raised.v1`, bound with `stub_exception.exception_raised.v1`
+  (built from `amendia_common.events` constants).
 - A message that can't be parsed or handled is logged and **acked** (no poison-requeue).
 
 ## Endpoints (port 8082)
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/ingestions` | List processed exceptions; filters `tenant`/`exception_type`/`status`, `limit`/`offset`, `created_at` desc. |
+| `GET` | `/ingestions` | List processed exceptions; filters `exception_type`/`status`, `limit`/`offset`, `created_at` desc. |
 | `GET` | `/ingestions/{exception_id}` | Full ingestion record. `404` if unknown. |
 | `GET` | `/health` | Liveness + readiness (mongo ping + rabbit connection state). |
 

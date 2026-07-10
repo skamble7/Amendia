@@ -23,7 +23,6 @@ def _event(*, exception_id="EXC-D1", fetch_url="http://stub/exceptions/EXC-D1",
         "event_id": event_id or uuid.uuid4().hex,
         "occurred_at": datetime.now(timezone.utc).isoformat(),
         "schema_version": "pin.platform.exception_dispatched/1.0",
-        "tenant": "bank-alpha",
         "exception_id": exception_id,
         "exception_type": "unable_to_apply",
         "fetch_url": fetch_url,
@@ -108,7 +107,7 @@ async def test_duplicate_dispatch_is_idempotent(repos):
     await svc.handle(_event(event_id="e1"))
     await asyncio.sleep(0)
     first = (await instance_repo.list(exception_id="EXC-D1"))[0].process_instance_id
-    await svc.handle(_event(event_id="e2"))  # same (tenant, exception, pack) → same instance
+    await svc.handle(_event(event_id="e2"))  # same (exception, pack) → same instance
     await asyncio.sleep(0)
     insts = await instance_repo.list(exception_id="EXC-D1")
     assert len(insts) == 1

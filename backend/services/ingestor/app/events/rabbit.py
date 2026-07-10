@@ -2,7 +2,7 @@
 """aio-pika consumer: subscribe to exception_raised events on amendia.events.
 
 Declares the canonical durable topic exchange, binds a durable queue with the
-``*.stub_exception.exception_raised.v1`` pattern (built from shared constants),
+``stub_exception.exception_raised.v1`` pattern (built from shared constants),
 and dispatches each message to the injected handler. Reconnects with jittered
 backoff, mirroring the notification-service pattern.
 """
@@ -22,8 +22,8 @@ from app.models.events import IncomingExceptionRaisedEvent
 
 logger = logging.getLogger(__name__)
 
-# Bind across all tenants: <org>=* , service=stub_exception, event=exception_raised, version=v1.
-BINDING_KEY = f"*.{Service.STUBEXCEPTION.value}.{EXCEPTION_RAISED}.{Version.V1.value}"
+# Bind to service=stub_exception, event=exception_raised, version=v1.
+BINDING_KEY = f"{Service.STUBEXCEPTION.value}.{EXCEPTION_RAISED}.{Version.V1.value}"
 
 Handler = Callable[[IncomingExceptionRaisedEvent, str], Awaitable[None]]
 

@@ -36,7 +36,6 @@ class HitlTaskRepository:
     async def list(
         self,
         *,
-        tenant: Optional[str] = None,
         status: Optional[str] = None,
         role: Optional[str] = None,
         process_instance_id: Optional[str] = None,
@@ -45,8 +44,6 @@ class HitlTaskRepository:
         offset: int = 0,
     ) -> List[HitlTask]:
         query: dict = {}
-        if tenant:
-            query["tenant"] = tenant
         if status:
             query["status"] = status
         if role:

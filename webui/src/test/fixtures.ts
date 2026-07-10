@@ -18,7 +18,6 @@ export const TEST_SCHEMA = {
 export function synthTask(overrides: Partial<HitlTask> = {}): HitlTask {
   return {
     task_id: "task-test-1",
-    tenant: "test-tenant",
     process_instance_id: "PI-TEST-1",
     pack_key: "test-pack",
     pack_version: "1.0.0",
@@ -50,7 +49,6 @@ export function synthInstanceDetail(overrides: Partial<InstanceDetail> = {}): In
   return {
     instance: {
       process_instance_id: "PI-TEST-1",
-      tenant: "test-tenant",
       exception_id: "EXC-TEST-001",
       pack_key: "test-pack",
       pack_version: "1.0.0",
@@ -78,7 +76,6 @@ export function synthInstanceDetail(overrides: Partial<InstanceDetail> = {}): In
 export function synthException(overrides: Partial<StoredException> = {}): StoredException {
   return {
     exception_id: "EXC-TEST-001",
-    tenant: "test-tenant",
     exception_type: "unable_to_apply",
     reason_codes: ["AC01"],
     reason_narrative: "Synthetic test exception",

@@ -43,13 +43,13 @@ logger = logging.getLogger(__name__)
 
 _V1 = Version.V1.value
 BINDING_KEYS: List[str] = [
-    f"*.{Service.AGENT_RUNTIME.value}.{HITL_TASK_CREATED}.{_V1}",
-    f"*.{Service.AGENT_RUNTIME.value}.{HITL_TASK_DECIDED}.{_V1}",
-    f"*.{Service.AGENT_RUNTIME.value}.{PROCESS_COMPLETED}.{_V1}",
-    f"*.{Service.AGENT_RUNTIME.value}.{PROCESS_FAILED}.{_V1}",
-    f"*.{Service.AGENT_RUNTIME.value}.{DISPATCH_ACCEPTED}.{_V1}",
-    f"*.{Service.INGESTOR.value}.{EXCEPTION_DISPATCHED}.{_V1}",
-    f"*.{Service.STUBEXCEPTION.value}.{EXCEPTION_RAISED}.{_V1}",
+    f"{Service.AGENT_RUNTIME.value}.{HITL_TASK_CREATED}.{_V1}",
+    f"{Service.AGENT_RUNTIME.value}.{HITL_TASK_DECIDED}.{_V1}",
+    f"{Service.AGENT_RUNTIME.value}.{PROCESS_COMPLETED}.{_V1}",
+    f"{Service.AGENT_RUNTIME.value}.{PROCESS_FAILED}.{_V1}",
+    f"{Service.AGENT_RUNTIME.value}.{DISPATCH_ACCEPTED}.{_V1}",
+    f"{Service.INGESTOR.value}.{EXCEPTION_DISPATCHED}.{_V1}",
+    f"{Service.STUBEXCEPTION.value}.{EXCEPTION_RAISED}.{_V1}",
 ]
 
 Handler = Callable[[dict, str], Awaitable[None]]

@@ -21,7 +21,6 @@ const EXAMPLE_MANIFEST = JSON.stringify(
     pack_key: "example-pack",
     version: "0.1.0",
     title: "Example Pack (replace with your manifest)",
-    tenant_scope: "global",
     status: "draft",
     process: { bpmn_file: "example-pack.bpmn", process_id: "ExampleProcess", bpmn_sha256: "" },
     triage_rules: [{ rule_id: "example-rule", priority: 100, when: { field: "reason_codes", op: "intersects", value: ["AC01"] } }],

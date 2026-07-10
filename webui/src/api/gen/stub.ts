@@ -124,8 +124,6 @@ export interface components {
          *     Anything the caller pins is honored; the rest is randomized per exception.
          */
         GenerateRequest: {
-            /** Tenant */
-            tenant?: string | null;
             /** Reason Code */
             reason_code?: ("AC01" | "AC04" | "RC01" | "BE04") | null;
             /** Amount */
@@ -222,8 +220,6 @@ export interface components {
         StoredException: {
             /** Exception Id */
             exception_id: string;
-            /** Tenant */
-            tenant: string;
             source: components["schemas"]["Source"];
             /** Received At */
             received_at: string;
@@ -334,7 +330,6 @@ export interface operations {
     list_exceptions_exceptions_get: {
         parameters: {
             query?: {
-                tenant?: string | null;
                 exception_type?: string | null;
                 status?: string | null;
                 reason_code?: string | null;

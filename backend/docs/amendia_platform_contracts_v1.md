@@ -8,11 +8,11 @@ Status: draft for review. All schemas are JSON Schema draft 2020-12.
 
 ## 0. Shared conventions
 
-**Identifiers.** Dotted, namespaced, lowercase: capabilities `cap.<domain>.<name>`, roles `role.<domain>.<name>`, artifact schemas `art.<domain>.<name>`. Pack keys are kebab-case (`wire-repair-standard`). Tenants are kebab-case (`bank-alpha`).
+**Identifiers.** Dotted, namespaced, lowercase: capabilities `cap.<domain>.<name>`, roles `role.<domain>.<name>`, artifact schemas `art.<domain>.<name>`. Pack keys are kebab-case (`wire-repair-standard`).
 
 **Versioning.** Semver everywhere. A *reference* to a versioned thing is written `<id>@<range>` (npm-style range: `1.2.0`, `^1.0.0`, `>=1.0 <2.0`) in `requires` positions, and pinned exact (`<id>@1.2.0`) in *resolved/runtime* positions. The registry resolves ranges to pins at pack activation time.
 
-**Timestamps** are UTC ISO-8601. **Envelope kinship:** every event shares the base fields `event_id` (uuid4), `occurred_at`, `schema_version`, `tenant`. Routing keys always come from `amendia_common.events.rk()`: `<tenant>.<service>.<event>.v1` on the `amendia.events` topic exchange.
+**Timestamps** are UTC ISO-8601. **Envelope kinship:** every event shares the base fields `event_id` (uuid4), `occurred_at`, `schema_version`. Routing keys always come from `amendia_common.events.rk()`: `<service>.<event>.v1` on the `amendia.events` topic exchange.
 
 **HITL modes** (used by contracts 1, 2, 5):
 
@@ -49,13 +49,6 @@ The versioned onboarding unit a bank submits: BPMN reference + bindings + triage
     "version": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$" },
     "title": { "type": "string" },
     "description": { "type": "string" },
-    "tenant_scope": {
-      "description": "Which tenants may use this pack. 'global' or explicit list.",
-      "oneOf": [
-        { "const": "global" },
-        { "type": "array", "items": { "type": "string" }, "minItems": 1 }
-      ]
-    },
     "process": {
       "type": "object",
       "required": ["bpmn_file", "process_id", "bpmn_sha256"],
@@ -213,7 +206,6 @@ The versioned onboarding unit a bank submits: BPMN reference + bindings + triage
   "pack_key": "wire-repair-standard",
   "version": "1.0.0",
   "title": "Wire Transfer Exception — Unable to Apply / Repair",
-  "tenant_scope": "global",
   "process": {
     "bpmn_file": "wire-repair.bpmn",
     "process_id": "Process_WireRepairStandard",
@@ -338,7 +330,7 @@ Registered independently of packs, before any pack can reference it. This is the
     "outputs": { "type": "array", "items": { "$ref": "#/$defs/io" } },
     "config_schema": {
       "type": "object",
-      "description": "JSON Schema for per-tenant configuration this capability needs (endpoints, list providers, model params). Stored/served by config-forge."
+      "description": "JSON Schema for per-deployment configuration this capability needs (endpoints, list providers, model params). Stored/served by config-forge."
     },
     "runtime": {
       "oneOf": [
@@ -515,7 +507,7 @@ Artifacts are the typed objects capabilities read/write in process state; gatewa
 
 Published by the ingestor after triage resolution; consumed by the agent runtime. Marks the ingestion record `dispatched`. The runtime answers with an acceptance event that drives `accepted`/`rejected`.
 
-Routing keys: `<tenant>.ingestor.exception_dispatched.v1` and `<tenant>.agent_runtime.dispatch_accepted.v1` / `<tenant>.agent_runtime.dispatch_rejected.v1`, all on `amendia.events`.
+Routing keys: `ingestor.exception_dispatched.v1` and `agent_runtime.dispatch_accepted.v1` / `agent_runtime.dispatch_rejected.v1`, all on `amendia.events`.
 
 ### JSON Schema — `exception_dispatched`
 
@@ -525,14 +517,13 @@ Routing keys: `<tenant>.ingestor.exception_dispatched.v1` and `<tenant>.agent_ru
   "$id": "https://amendia.dev/schemas/platform/exception-dispatched/1.0.json",
   "title": "ExceptionDispatchedEvent",
   "type": "object",
-  "required": ["event_id", "occurred_at", "schema_version", "tenant",
+  "required": ["event_id", "occurred_at", "schema_version",
                "exception_id", "exception_type", "fetch_url", "resolution", "trace"],
   "additionalProperties": false,
   "properties": {
     "event_id": { "type": "string", "format": "uuid" },
     "occurred_at": { "type": "string", "format": "date-time" },
     "schema_version": { "const": "pin.platform.exception_dispatched/1.0" },
-    "tenant": { "type": "string" },
     "exception_id": { "type": "string" },
     "exception_type": { "type": "string" },
     "exception_schema_version": { "type": "string", "description": "e.g. pin.payments.wire_exception/1.0" },
@@ -565,7 +556,7 @@ Routing keys: `<tenant>.ingestor.exception_dispatched.v1` and `<tenant>.agent_ru
 
 ### Acceptance reply — `dispatch_accepted` / `dispatch_rejected`
 
-Same base fields (`event_id`, `occurred_at`, `tenant`, `exception_id`, `trace` with `causation_id` = the dispatch `event_id`), plus:
+Same base fields (`event_id`, `occurred_at`, `exception_id`, `trace` with `causation_id` = the dispatch `event_id`), plus:
 
 ```json
 {
@@ -576,7 +567,7 @@ Same base fields (`event_id`, `occurred_at`, `tenant`, `exception_id`, `trace` w
 }
 ```
 
-`dispatch_rejected` replaces `process_instance_id` with `reason` (enum: `unknown_pack`, `pack_not_active`, `fetch_failed`, `envelope_invalid`, `capacity`) and `detail` (string). The ingestor maps these to its `accepted`/`rejected` lifecycle states. Redelivery safety: the runtime treats (`tenant`, `exception_id`, `pack_key`, `pack_version`) as an idempotency key — a duplicate dispatch returns the existing `process_instance_id` in a fresh `dispatch_accepted` rather than starting a second instance.
+`dispatch_rejected` replaces `process_instance_id` with `reason` (enum: `unknown_pack`, `pack_not_active`, `fetch_failed`, `envelope_invalid`, `capacity`) and `detail` (string). The ingestor maps these to its `accepted`/`rejected` lifecycle states. Redelivery safety: the runtime treats (`exception_id`, `pack_key`, `pack_version`) as an idempotency key — a duplicate dispatch returns the existing `process_instance_id` in a fresh `dispatch_accepted` rather than starting a second instance.
 
 ---
 
@@ -592,13 +583,12 @@ The single work-item shape behind every human touchpoint (all four non-`none` mo
   "$id": "https://amendia.dev/schemas/platform/hitl-task/1.0.json",
   "title": "HitlTask",
   "type": "object",
-  "required": ["task_id", "tenant", "process_instance_id", "pack_key", "pack_version",
+  "required": ["task_id", "process_instance_id", "pack_key", "pack_version",
                "element_id", "exception_id", "hitl_mode", "role", "title",
                "payload", "allowed_decisions", "status", "created_at"],
   "additionalProperties": false,
   "properties": {
     "task_id": { "type": "string" },
-    "tenant": { "type": "string" },
     "process_instance_id": { "type": "string" },
     "pack_key": { "type": "string" },
     "pack_version": { "type": "string" },
@@ -700,7 +690,7 @@ Lifecycle: `open → claimed → decided`, with `cancelled` (instance terminated
 
 Decision → runtime mapping: `approve`/`complete` resume the graph forward; `edit_and_approve` validates `edits` against the pinned artifact schema, replaces the artifact in state, resumes; `reject` on `review_after`/`approve_result` re-runs or routes per binding policy (v1: re-run capability once, then escalate); `reject` on `approve_actions` means actions are NOT executed and the graph takes the pack-defined rejection path; `return_for_rework` resumes backward to the producing node.
 
-Events (on `amendia.events`): `<tenant>.agent_runtime.hitl_task_created.v1` and `…hitl_task_decided.v1`, thin payloads (`task_id`, `exception_id`, `process_instance_id`, `element_id`, `role`, and for decided: `decision`, `decided_by`) — this is what the notification service fans out to the UI.
+Events (on `amendia.events`): `agent_runtime.hitl_task_created.v1` and `…hitl_task_decided.v1`, thin payloads (`task_id`, `exception_id`, `process_instance_id`, `element_id`, `role`, and for decided: `decision`, `decided_by`) — this is what the notification service fans out to the UI.
 
 Audit: the task document is immutable after `decided` except `updated_at`; together with the runtime's checkpoints, (task, decision, checkpoint-before, checkpoint-after) forms the four-eyes audit record.
 
@@ -718,4 +708,4 @@ Audit: the task document is immutable after `decided` except `updated_at`; toget
 | Dispatch resolution pins pack version that is `active` | 4 → 1 |
 | HITL task payload artifacts validate against pinned schemas; SoD resolved from pack policy | 5 → 1, 3 |
 
-Open items deliberately deferred: timer/escalation events (BPMN subset v2), compensation, multi-tenant capability config resolution order (config-forge design), and the `manual` task artifact form-rendering hints (UI scope).
+Open items deliberately deferred: timer/escalation events (BPMN subset v2), compensation, capability config resolution order (config-forge design), and the `manual` task artifact form-rendering hints (UI scope).

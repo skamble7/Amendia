@@ -25,7 +25,6 @@ def make_envelope(
 ) -> Dict[str, Any]:
     return {
         "exception_id": exception_id,
-        "tenant": "bank-alpha",
         "source": {"system": "pacs-gateway", "channel": "swift"},
         "received_at": "2026-07-07T10:00:00Z",
         "exception_type": "unable_to_apply",

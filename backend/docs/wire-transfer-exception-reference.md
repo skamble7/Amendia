@@ -36,7 +36,6 @@ An outbound USD 250,000 customer wire (pacs.008) from Bank Alpha is reported una
 ```json
 {
   "exception_id": "EXC-2026-000123",
-  "tenant": "bank-alpha",
   "source": { "system": "payment-hub-sim", "channel": "swift" },
   "received_at": "2026-07-06T09:14:03Z",
   "exception_type": "unable_to_apply",

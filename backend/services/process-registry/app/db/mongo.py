@@ -39,7 +39,6 @@ async def create_indexes(db: AsyncIOMotorDatabase) -> None:
         [("pack_key", ASCENDING), ("version", ASCENDING)], unique=True
     )
     await db[PROCESS_PACKS].create_index("status")
-    await db[PROCESS_PACKS].create_index("tenant_scope")
 
     for coll in (BPMN_DOCUMENTS, VALIDATION_REPORTS, PACK_RESOLUTIONS):
         await db[coll].create_index(

@@ -39,7 +39,6 @@ class ExceptionRepository:
     async def list(
         self,
         *,
-        tenant: Optional[str] = None,
         exception_type: Optional[str] = None,
         status: Optional[str] = None,
         reason_code: Optional[str] = None,
@@ -47,8 +46,6 @@ class ExceptionRepository:
         offset: int = 0,
     ) -> List[StoredException]:
         query: dict = {}
-        if tenant:
-            query["tenant"] = tenant
         if exception_type:
             query["exception_type"] = exception_type
         if status:

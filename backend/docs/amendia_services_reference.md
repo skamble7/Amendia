@@ -3,7 +3,7 @@
 A catalogue of every service authored so far, the HTTP endpoints each exposes, and the RabbitMQ
 events it publishes/consumes. All services are FastAPI apps following the same conventions
 (config via `env_prefix`, `app.state` singletons, `/health`, structured logs). Messaging rides a
-single **durable topic exchange `amendia.events`**; routing keys are `<tenant>.<service>.<event>.v1`,
+single **durable topic exchange `amendia.events`**; routing keys are `<service>.<event>.v1`,
 built via `amendia_common.events.rk`.
 
 ## Service map
@@ -62,13 +62,13 @@ Plays the bank's exception store for local dev, honouring the real event + fetch
 
 | Method | Path | Description |
 |---|---|---|
-| `POST` | `/exceptions/generate` | Generate N synthetic *unable-to-apply* wire exceptions (optional `tenant`, `reason_code`, `amount`, `currency`, `include_attachments`, `count`), persist them, and publish an `exception_raised` event each. Returns the created items + their routing keys. |
-| `GET` | `/exceptions` | List stored exceptions (filterable by `tenant`, `exception_type`, `status`, `reason_code`, `limit`, `offset`). |
+| `POST` | `/exceptions/generate` | Generate N synthetic *unable-to-apply* wire exceptions (optional `reason_code`, `amount`, `currency`, `include_attachments`, `count`), persist them, and publish an `exception_raised` event each. Returns the created items + their routing keys. |
+| `GET` | `/exceptions` | List stored exceptions (filterable by `exception_type`, `status`, `reason_code`, `limit`, `offset`). |
 | `GET` | `/exceptions/{exception_id}` | Fetch the full stored envelope — the **fetch-back** endpoint consumers call. 404 if unknown. |
 | `GET` | `/exceptions/{exception_id}/attachments/{attachment_id}` | Stream a canned attachment's bytes with its media type. |
 | `GET` | `/health` | Liveness/readiness (mongo + rabbit). |
 
-**Events** — publishes `<tenant>.stub_exception.exception_raised.v1` (thin: identity + `fetch_url`).
+**Events** — publishes `stub_exception.exception_raised.v1` (thin: identity + `fetch_url`).
 
 ## 2. ingestor (`:8082`)
 
@@ -77,13 +77,13 @@ Entry point of the consumer side. Records each exception, then drives the dispat
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/ingestions` | List ingestion-log records (filterable by `tenant`, `exception_type`, `status`, `limit`, `offset`). Records carry `status`, `status_history`, `resolution`, `process_instance_id`, `no_match`, `rejection`. |
+| `GET` | `/ingestions` | List ingestion-log records (filterable by `exception_type`, `status`, `limit`, `offset`). Records carry `status`, `status_history`, `resolution`, `process_instance_id`, `no_match`, `rejection`. |
 | `GET` | `/ingestions/{exception_id}` | Fetch one ingestion record. 404 if unknown. |
 | `GET` | `/health` | Liveness/readiness (mongo + rabbit consumer). |
 
-**Events** — consumes `*.stub_exception.exception_raised.v1`, and the runtime replies
-`*.agent_runtime.dispatch_accepted.v1` + `*.agent_runtime.dispatch_rejected.v1`. Publishes
-`<tenant>.ingestor.exception_dispatched.v1` (contract 4) on a registry match.
+**Events** — consumes `stub_exception.exception_raised.v1`, and the runtime replies
+`agent_runtime.dispatch_accepted.v1` + `agent_runtime.dispatch_rejected.v1`. Publishes
+`ingestor.exception_dispatched.v1` (contract 4) on a registry match.
 
 ## 3. agent-runtime (`:8083`)
 
@@ -94,7 +94,7 @@ collections) + instance/task reads + the **HITL decision API**. Execution itself
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/instances` | List process instances (filter by `tenant`, `exception_id`, `status`). |
+| `GET` | `/instances` | List process instances (filter by `exception_id`, `status`). |
 | `GET` | `/instances/{process_instance_id}` | Instance + status + `outcome` + artifact names + `actor_log` + links to its HITL tasks. 404 if unknown. |
 | `GET` | `/instances/{process_instance_id}/state` | The current **checkpointed graph state** (artifacts, actor_log, trace) — dev/debug surface, guarded by `AGENTRT_ENABLE_DEBUG_API`. |
 
@@ -102,7 +102,7 @@ collections) + instance/task reads + the **HITL decision API**. Execution itself
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/hitl-tasks` | List tasks (filter by `tenant`, `status`, `role`, `process_instance_id`, `exception_id`). |
+| `GET` | `/hitl-tasks` | List tasks (filter by `status`, `role`, `process_instance_id`, `exception_id`). |
 | `GET` | `/hitl-tasks/{task_id}` | Fetch one task (payload artifacts, proposed_actions, `sod.excluded_users`, `allowed_decisions`). 404 if unknown. |
 | `POST` | `/hitl-tasks/{task_id}/claim` | Claim a task — **no body**; the actor is the bearer's resolved identity. 409 unless `open`; 403 if SoD-excluded or the task's role ∉ the caller's roles. |
 | `POST` | `/hitl-tasks/{task_id}/decide` | Decide — body `{decision, comment?, edits?, approved_action_ids?}` (identity from the bearer). Enforces claim ownership + allowed-decisions + SoD, re-validates `edit_and_approve` edits against the pinned schema, then resumes the graph. |
@@ -118,7 +118,7 @@ collections) + instance/task reads + the **HITL decision API**. Execution itself
 | `POST` | `/admin/seed` | Idempotently load the local seed dataset (guarded by `AGENTRT_ENABLE_SEED_API`; the registry is the real write owner). |
 | `GET` | `/health` | Liveness/readiness. |
 
-**Events** — consumes `*.ingestor.exception_dispatched.v1`. Publishes, all `<tenant>.agent_runtime.*.v1`:
+**Events** — consumes `ingestor.exception_dispatched.v1`. Publishes, all `agent_runtime.*.v1`:
 `dispatch_accepted`, `dispatch_rejected`, `hitl_task_created`, `hitl_task_decided`,
 `process_completed`, `process_failed`.
 
@@ -136,7 +136,7 @@ principal **or** the shared internal token — the runtime reads the catalog and
 
 | Method | Path | Description |
 |---|---|---|
-| `POST` | `/resolve` | Map an envelope to a pinned pack — body `{tenant, envelope}` → `{pack_key, pack_version, rule_id, resolved_at}`; 404 `NoMatchResponse` when nothing matches. Principal-or-internal (the ingestor calls it with `X-Amendia-Internal`). |
+| `POST` | `/resolve` | Map an envelope to a pinned pack — body `{envelope}` → `{pack_key, pack_version, rule_id, resolved_at}`; 404 `NoMatchResponse` when nothing matches. Principal-or-internal (the ingestor calls it with `X-Amendia-Internal`). |
 
 ### Capabilities
 

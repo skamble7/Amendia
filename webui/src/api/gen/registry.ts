@@ -625,8 +625,6 @@ export interface components {
             title: string;
             /** Description */
             description?: string | null;
-            /** Tenant Scope */
-            tenant_scope?: "global" | string[] | null;
             process: components["schemas"]["ProcessRef"];
             /** Triage Rules */
             triage_rules: components["schemas"]["TriageRule-Input"][];
@@ -662,8 +660,6 @@ export interface components {
             title: string;
             /** Description */
             description?: string | null;
-            /** Tenant Scope */
-            tenant_scope?: "global" | string[] | null;
             process: components["schemas"]["ProcessRef"];
             /** Triage Rules */
             triage_rules: components["schemas"]["TriageRule-Output"][];
@@ -705,8 +701,6 @@ export interface components {
         };
         /** ResolveRequest */
         ResolveRequest: {
-            /** Tenant */
-            tenant: string;
             /** Envelope */
             envelope: {
                 [key: string]: unknown;
@@ -1167,7 +1161,6 @@ export interface operations {
         parameters: {
             query?: {
                 status?: string | null;
-                tenant_scope?: string | null;
                 limit?: number;
                 offset?: number;
             };

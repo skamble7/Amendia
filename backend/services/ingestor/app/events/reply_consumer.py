@@ -1,8 +1,8 @@
 # app/events/reply_consumer.py
 """aio-pika consumer for the agent-runtime's dispatch replies.
 
-Binds a durable queue to both ``*.agent_runtime.dispatch_accepted.v1`` and
-``*.agent_runtime.dispatch_rejected.v1`` and hands each raw payload + routing key
+Binds a durable queue to both ``agent_runtime.dispatch_accepted.v1`` and
+``agent_runtime.dispatch_rejected.v1`` and hands each raw payload + routing key
 to the injected handler (the two reply shapes differ, so parsing is the handler's
 job). Same reconnect/ack discipline as the exception_raised consumer.
 """
@@ -28,8 +28,8 @@ from amendia_common.events import (
 logger = logging.getLogger(__name__)
 
 BINDING_KEYS = [
-    f"*.{Service.AGENT_RUNTIME.value}.{DISPATCH_ACCEPTED}.{Version.V1.value}",
-    f"*.{Service.AGENT_RUNTIME.value}.{DISPATCH_REJECTED}.{Version.V1.value}",
+    f"{Service.AGENT_RUNTIME.value}.{DISPATCH_ACCEPTED}.{Version.V1.value}",
+    f"{Service.AGENT_RUNTIME.value}.{DISPATCH_REJECTED}.{Version.V1.value}",
 ]
 
 Handler = Callable[[dict, str], Awaitable[None]]

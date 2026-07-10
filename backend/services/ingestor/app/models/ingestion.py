@@ -61,7 +61,6 @@ class StatusChange(BaseModel):
 
 class IngestionRecord(BaseModel):
     exception_id: str
-    tenant: str
     exception_type: str
     event: EventRef
     # Full envelope fetched from the store; None if the fetch failed.

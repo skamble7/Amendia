@@ -145,12 +145,11 @@ async def deprecate_pack(
 @router.get("", response_model=List[ProcessPackManifest])
 async def list_packs(
     status: Optional[str] = Query(None),
-    tenant_scope: Optional[str] = Query(None),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     repo: ProcessPackRepository = Depends(get_pack_repo),
 ):
-    return await repo.list(status=status, tenant_scope=tenant_scope, limit=limit, offset=offset)
+    return await repo.list(status=status, limit=limit, offset=offset)
 
 
 @router.get("/{pack_key}", response_model=List[ProcessPackManifest])

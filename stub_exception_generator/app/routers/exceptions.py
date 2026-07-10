@@ -39,7 +39,7 @@ async def _persist_and_publish(
     stored = await repo.insert(_to_stored(env))  # may raise DuplicateExceptionError
 
     event = ExceptionRaisedEvent.from_envelope(env, settings.SERVICE_BASE_URL)
-    routing_key = rk(env.tenant, Service.STUBEXCEPTION, EXCEPTION_RAISED)
+    routing_key = rk(Service.STUBEXCEPTION, EXCEPTION_RAISED)
 
     published = False
     warning: Optional[str] = None
@@ -62,7 +62,7 @@ async def generate(
     req = body or GenerateRequest()
     created = []
     for _ in range(req.count):
-        env = generate_envelope(req, settings.SERVICE_BASE_URL, settings.DEFAULT_TENANT)
+        env = generate_envelope(req, settings.SERVICE_BASE_URL)
         token = exception_id_ctx.set(env.exception_id)
         try:
             item = await _persist_and_publish(env, repo, publisher)
@@ -76,7 +76,6 @@ async def generate(
 
 @router.get("", response_model=list[StoredException])
 async def list_exceptions(
-    tenant: Optional[str] = Query(None),
     exception_type: Optional[str] = Query(None),
     status: Optional[str] = Query(None),
     reason_code: Optional[str] = Query(None),
@@ -85,7 +84,6 @@ async def list_exceptions(
     repo: ExceptionRepository = Depends(get_repo),
 ):
     return await repo.list(
-        tenant=tenant,
         exception_type=exception_type,
         status=status,
         reason_code=reason_code,

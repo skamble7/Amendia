@@ -4,7 +4,6 @@
   "version": "1.0.0",
   "title": "Wire Transfer Exception \u2014 Unable to Apply / Repair",
   "description": "Standard handling for unable-to-apply wire exceptions (camt.026 semantics): investigate, assess repairability, repair-and-release with four-eyes approval and sanctions re-screen, request missing information, or return funds.",
-  "tenant_scope": "global",
   "process": {
     "bpmn_file": "wire-repair.bpmn",
     "process_id": "Process_WireRepairStandard",

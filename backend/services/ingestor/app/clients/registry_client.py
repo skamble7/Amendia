@@ -42,10 +42,10 @@ class RegistryClient:
         # so it passes when strict enforcement is on.
         self._headers = {"X-Amendia-Internal": internal_token} if internal_token else {}
 
-    async def resolve(self, tenant: str, envelope: Dict[str, Any]) -> Dict[str, Any]:
+    async def resolve(self, envelope: Dict[str, Any]) -> Dict[str, Any]:
         """POST /resolve. Retries on 5xx/network; raises on 404 / exhaustion."""
         url = f"{self._base_url}/resolve"
-        payload = {"tenant": tenant, "envelope": envelope}
+        payload = {"envelope": envelope}
         last_exc: Exception | None = None
         for attempt in range(self._max_retries + 1):
             try:

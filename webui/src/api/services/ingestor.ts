@@ -2,7 +2,6 @@ import { request } from "../client";
 import type { IngestionRecord } from "../types";
 
 export interface IngestionFilters {
-  tenant?: string;
   exception_type?: string;
   status?: string;
   limit?: number;

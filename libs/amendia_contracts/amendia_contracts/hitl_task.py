@@ -94,7 +94,6 @@ class DecisionRecord(ContractModel):
 
 class HitlTask(ContractModel, TimestampsMixin):
     task_id: str
-    tenant: str
     process_instance_id: str
     pack_key: PackKey
     pack_version: SemVerStr

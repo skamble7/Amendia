@@ -68,15 +68,12 @@ class ProcessPackRepository:
         self,
         *,
         status: Optional[str] = None,
-        tenant_scope: Optional[str] = None,
         limit: int = 50,
         offset: int = 0,
     ) -> List[ProcessPackManifest]:
         query: dict = {}
         if status:
             query["status"] = status
-        if tenant_scope:
-            query["tenant_scope"] = tenant_scope
         cursor = (
             self._coll.find(query, projection=_MANIFEST_PROJECTION)
             .sort("created_at", -1)

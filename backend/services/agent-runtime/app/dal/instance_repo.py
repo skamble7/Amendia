@@ -39,15 +39,12 @@ class ProcessInstanceRepository:
     async def list(
         self,
         *,
-        tenant: Optional[str] = None,
         exception_id: Optional[str] = None,
         status: Optional[str] = None,
         limit: int = 50,
         offset: int = 0,
     ) -> List[ProcessInstance]:
         query: dict = {}
-        if tenant:
-            query["tenant"] = tenant
         if exception_id:
             query["exception_id"] = exception_id
         if status:

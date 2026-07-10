@@ -23,7 +23,6 @@ class ExceptionRaisedEvent(BaseModel):
     occurred_at: datetime = Field(default_factory=_utcnow)
     schema_version: str = SCHEMA_VERSION
     exception_id: str
-    tenant: str
     exception_type: str
     fetch_url: str
 
@@ -31,7 +30,6 @@ class ExceptionRaisedEvent(BaseModel):
     def from_envelope(cls, env: WireExceptionEnvelope, base_url: str) -> "ExceptionRaisedEvent":
         return cls(
             exception_id=env.exception_id,
-            tenant=env.tenant,
             exception_type=env.exception_type,
             fetch_url=f"{base_url.rstrip('/')}/exceptions/{env.exception_id}",
         )

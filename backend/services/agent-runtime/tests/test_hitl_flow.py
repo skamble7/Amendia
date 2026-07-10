@@ -48,7 +48,7 @@ async def env():
 async def _start(engine, instance_repo, reason="AC01", exception_id="EXC-1", creditor="ACME LLC"):
     envelope = make_envelope(reason, exception_id=exception_id, creditor_name=creditor)
     inst = ProcessInstance.new(
-        process_instance_id=f"pi-{exception_id}", tenant="bank-alpha", exception_id=exception_id,
+        process_instance_id=f"pi-{exception_id}", exception_id=exception_id,
         pack_key="wire-repair-standard", pack_version="1.0.0", correlation_id=exception_id,
     )
     await instance_repo.insert(inst)

@@ -38,7 +38,6 @@ KNOWN_EVENTS = frozenset({
 
 # The ONLY fields ever copied into a signal (ids + non-sensitive labels).
 _ALLOWED_FIELDS = (
-    "tenant",
     "exception_id",
     "process_instance_id",
     "task_id",
@@ -49,11 +48,11 @@ _ALLOWED_FIELDS = (
 
 
 def event_type(routing_key: str) -> Optional[str]:
-    """Extract the ``<event>`` segment of a ``<tenant>.<service>.<event>.<version>``
-    routing key. Event names contain no dots and the version is the last segment, so
-    the event is always the second-to-last segment (tenant may be anything dot-free)."""
+    """Extract the ``<event>`` segment of a ``<service>.<event>.<version>`` routing
+    key. Event names contain no dots and the version is the last segment, so the
+    event is always the second-to-last segment."""
     parts = routing_key.split(".")
-    if len(parts) < 4:
+    if len(parts) < 3:
         return None
     return parts[-2]
 

@@ -7,6 +7,11 @@
 - **Resolves:** the "Event schema/contract for exception events and the bank API interface shape"
   open question in `amendia_project_brief.md`.
 
+> **Superseded (single-tenant):** Amendia now deploys single-tenant per customer; the `tenant` event
+> field and the tenant-first routing keys described below were removed. Routing keys are now
+> `<service>.<event>.<version>` (`stub_exception.exception_raised.v1`) and events carry no `tenant`.
+> See the current service docs (`stub_exception_generator/README.md`, `amendia_services_reference.md`).
+
 ## Context
 
 Amendia's core flow starts when an exception event arrives on the broker carrying an
@@ -48,7 +53,7 @@ On request it:
 |---|---|---|
 | `POST` | `/exceptions/generate` | Generate `count` (≤20) exceptions; persist, publish, return stored docs + routing key per event. `201`. |
 | `GET`  | `/exceptions/{exception_id}` | Full stored document (the `fetch_url` target). `404` if unknown. |
-| `GET`  | `/exceptions` | List with `tenant`/`exception_type`/`status`/`reason_code` filters, `created_at` desc, `limit`/`offset`. |
+| `GET`  | `/exceptions` | List with `exception_type`/`status`/`reason_code` filters, `created_at` desc, `limit`/`offset`. |
 | `GET`  | `/exceptions/{exception_id}/attachments/{attachment_id}` | Stream canned attachment bytes with the correct `Content-Type`. `404` if missing. |
 | `GET`  | `/health` | Liveness + readiness (mongo ping + rabbit connection state). |
 
@@ -62,16 +67,15 @@ lightweight notification and exposes details behind an API.
 - **Exchange:** `amendia.events` — a single **durable topic** exchange for all Amendia services
   (`amendia_common.events.EXCHANGE`).
 - **Routing key:** built **only** via `amendia_common.events.rk(...)`, never hand-assembled. The
-  tenant is the `org` segment and the service is `Service.STUBEXCEPTION`:
+  service is `Service.STUBEXCEPTION`:
 
   ```
-  rk(tenant, Service.STUBEXCEPTION, EXCEPTION_RAISED)
-    → "<tenant>.stub_exception.exception_raised.v1"
-    e.g. "bank-alpha.stub_exception.exception_raised.v1"
+  rk(Service.STUBEXCEPTION, EXCEPTION_RAISED)
+    → "stub_exception.exception_raised.v1"
   ```
 
-  Format is the canonical `<org>.<service>.<event>.<version>`, so consumers can bind with topic
-  patterns like `*.stub_exception.exception_raised.v1` or `bank-alpha.stub_exception.#`.
+  Format is the canonical `<service>.<event>.<version>`, so consumers can bind with topic
+  patterns like `stub_exception.exception_raised.v1` or `stub_exception.#`.
 - **Message properties:** `content_type = "application/json"`, **persistent** delivery mode,
   `message_id = event_id`, and **publisher confirms** enabled (publish awaits broker ack).
 
@@ -83,7 +87,6 @@ lightweight notification and exposes details behind an API.
   "occurred_at": "2026-07-07T15:53:23.969815Z",
   "schema_version": "pin.payments.wire_exception/1.0",
   "exception_id": "EXC-2026-000123",
-  "tenant": "bank-alpha",
   "exception_type": "unable_to_apply",
   "fetch_url": "http://localhost:8081/exceptions/EXC-2026-000123"
 }
@@ -95,7 +98,6 @@ lightweight notification and exposes details behind an API.
 | `occurred_at` | UTC ISO-8601 | When the event was emitted. |
 | `schema_version` | string | Envelope schema the referenced document conforms to. |
 | `exception_id` | string | The stored exception's id; stable fetch key. |
-| `tenant` | string | Owning bank/tenant; also the routing-key `org` segment. |
 | `exception_type` | string | `unable_to_apply` for this scenario; lets consumers pre-filter. |
 | `fetch_url` | URL | Absolute URL to `GET` the full stored document from the store. |
 
@@ -111,7 +113,7 @@ for a lost exception.
 
 - Downstream services (ingestor first) can develop against a real, production-shaped event + fetch-back
   API without any bank connector. The ingestor binds a durable queue to `amendia.events` with
-  `*.stub_exception.exception_raised.v1` and calls `fetch_url`.
+  `stub_exception.exception_raised.v1` and calls `fetch_url`.
 - The `exception_raised` event schema and routing convention are now the **canonical contract**; the
   brief's corresponding open question is resolved.
 - `libs/amendia_common` gains a backward-compatible `EXCEPTION_RAISED = "exception_raised"` constant so

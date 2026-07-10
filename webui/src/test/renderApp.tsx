@@ -15,6 +15,7 @@ import { ExceptionDetailPage } from "@/features/exceptions/ExceptionDetailPage";
 import { RegistryPage } from "@/features/registry/RegistryPage";
 import { PackDetailPage } from "@/features/registry/PackDetailPage";
 import { OnboardingWizard } from "@/features/registry/OnboardingWizard";
+import { DashboardPage } from "@/features/dashboard/DashboardPage";
 
 /**
  * Test personas: the `amendia_user_id` a test passes doubles as the id SoD /
@@ -55,6 +56,7 @@ export function renderApp(initialPath: string, userId: string, extra?: ReactElem
         <TooltipProvider delayDuration={0}>
           <MemoryRouter initialEntries={[initialPath]}>
             <Routes>
+              <Route path="/dashboard" element={<DashboardPage />} />
               <Route path="/inbox" element={<InboxPage />} />
               <Route path="/inbox/:taskId" element={<TaskDetailPage />} />
               <Route path="/instances" element={<InstancesPage />} />

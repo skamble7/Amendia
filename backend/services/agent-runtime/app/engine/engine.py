@@ -241,7 +241,6 @@ class ProcessEngine:
         ]
         task_doc = {
             "task_id": task_id,
-            "tenant": instance.tenant,
             "process_instance_id": pid,
             "pack_key": instance.pack_key,
             "pack_version": instance.pack_version,
@@ -269,7 +268,7 @@ class ProcessEngine:
         logger.info("instance %s waiting_hitl: task %s element=%s mode=%s excluded=%s",
                     pid, task_id, payload["element_id"], mode, excluded)
         await self._publish(HitlTaskCreatedEvent(
-            event_id=uuid.uuid4().hex, occurred_at=datetime.now(timezone.utc), tenant=instance.tenant,
+            event_id=uuid.uuid4().hex, occurred_at=datetime.now(timezone.utc),
             task_id=task_id, exception_id=instance.exception_id, process_instance_id=pid,
             element_id=payload["element_id"], role=payload["role"],
         ))
@@ -290,7 +289,7 @@ class ProcessEngine:
         logger.info("instance %s completed outcome=%s artifacts=%s",
                     instance.process_instance_id, outcome, artifact_names)
         await self._publish(ProcessCompletedEvent(
-            event_id=uuid.uuid4().hex, occurred_at=datetime.now(timezone.utc), tenant=instance.tenant,
+            event_id=uuid.uuid4().hex, occurred_at=datetime.now(timezone.utc),
             process_instance_id=instance.process_instance_id, exception_id=instance.exception_id,
             pack_key=instance.pack_key, pack_version=instance.pack_version,
             outcome=outcome or "unknown",
@@ -305,7 +304,7 @@ class ProcessEngine:
         logger.warning("instance %s failed reason=%s detail=%s",
                        instance.process_instance_id, reason, detail)
         await self._publish(ProcessFailedEvent(
-            event_id=uuid.uuid4().hex, occurred_at=datetime.now(timezone.utc), tenant=instance.tenant,
+            event_id=uuid.uuid4().hex, occurred_at=datetime.now(timezone.utc),
             process_instance_id=instance.process_instance_id, exception_id=instance.exception_id,
             pack_key=instance.pack_key, pack_version=instance.pack_version,
             reason=reason, detail=detail, trace=Trace(correlation_id=instance.correlation_id),

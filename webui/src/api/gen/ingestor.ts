@@ -86,8 +86,6 @@ export interface components {
         IngestionRecord: {
             /** Exception Id */
             exception_id: string;
-            /** Tenant */
-            tenant: string;
             /** Exception Type */
             exception_type: string;
             event: components["schemas"]["EventRef"];
@@ -205,7 +203,6 @@ export interface operations {
     list_ingestions_ingestions_get: {
         parameters: {
             query?: {
-                tenant?: string | null;
                 exception_type?: string | null;
                 status?: string | null;
                 limit?: number;

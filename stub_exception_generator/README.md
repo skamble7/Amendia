@@ -20,7 +20,7 @@ wrapped with store-managed metadata (`schema_version`, `created_at`, `updated_at
 |---|---|---|
 | `POST` | `/exceptions/generate` | Generate `count` exceptions (all body fields optional); persist, publish, return the stored docs + routing key per event. `201`. |
 | `GET`  | `/exceptions/{exception_id}` | Fetch the full stored document. `404` if unknown. |
-| `GET`  | `/exceptions` | List with optional `tenant`/`exception_type`/`status`/`reason_code` filters, `created_at` desc, `limit`/`offset`. |
+| `GET`  | `/exceptions` | List with optional `exception_type`/`status`/`reason_code` filters, `created_at` desc, `limit`/`offset`. |
 | `GET`  | `/exceptions/{exception_id}/attachments/{attachment_id}` | Stream the canned attachment bytes with the correct `Content-Type`. `404` if missing. |
 | `GET`  | `/health` | Liveness + readiness (mongo ping + rabbit connection state). |
 
@@ -28,7 +28,6 @@ wrapped with store-managed metadata (`schema_version`, `created_at`, `updated_at
 
 ```json
 {
-  "tenant": "bank-alpha",
   "reason_code": "AC01",          // one of AC01 | AC04 | RC01 | BE04
   "amount": 250000.00,
   "currency": "USD",
@@ -44,8 +43,8 @@ attachment presence. `reason_narrative` is kept coherent with the reason code.
 ## Eventing
 
 - Durable topic exchange `amendia.events` (`amendia_common.events.EXCHANGE`).
-- Routing key is built via `amendia_common.events.rk(tenant, Service.STUBEXCEPTION, EXCEPTION_RAISED)`
-  → e.g. `bank-alpha.stub_exception.exception_raised.v1`.
+- Routing key is built via `amendia_common.events.rk(Service.STUBEXCEPTION, EXCEPTION_RAISED)`
+  → `stub_exception.exception_raised.v1`.
 - Published with persistent delivery, `content_type=application/json`, `message_id=event_id`,
   and publisher confirms enabled.
 
@@ -57,7 +56,6 @@ The published event is **thin** (not the full envelope):
   "occurred_at": "<UTC ISO-8601>",
   "schema_version": "pin.payments.wire_exception/1.0",
   "exception_id": "EXC-2026-000123",
-  "tenant": "bank-alpha",
   "exception_type": "unable_to_apply",
   "fetch_url": "http://localhost:8081/exceptions/EXC-2026-000123"
 }
@@ -104,7 +102,7 @@ curl -s localhost:8081/exceptions/EXC-2026-XXXXXX/attachments/att-1 --output scr
 ```
 
 The RabbitMQ management UI (`http://localhost:15672`, guest/guest) shows the message on
-the `amendia.events` exchange — bind a temp queue with `bank-alpha.stub_exception.#`.
+the `amendia.events` exchange — bind a temp queue with `stub_exception.#`.
 
 ## Tests
 

@@ -13,10 +13,10 @@ Define the five shared contracts:
 1. **ProcessPack manifest** — versioned onboarding unit: BPMN ref + bindings (task → capability/role/HITL) + triage rules + declared capability & artifact dependencies + SoD policies. Ranges declare, activation pins.
 2. **Capability descriptor** — independently registered, versioned capability (kind: skill | mcp | llm) with typed IO, side-effect classification, and `min_hitl_mode` floor. Enforces "capabilities built before process onboarding."
 3. **Artifact schema registry conventions** — JSON Schema (2020-12) registration envelope, semver compatibility rules, runtime write-validation, gateway-variable requirements.
-4. **Dispatch event** — `exception_dispatched` (ingestor → runtime) with pinned pack resolution + trace, and the `dispatch_accepted`/`dispatch_rejected` replies with idempotency on (tenant, exception_id, pack_key, pack_version).
+4. **Dispatch event** — `exception_dispatched` (ingestor → runtime) with pinned pack resolution + trace, and the `dispatch_accepted`/`dispatch_rejected` replies with idempotency on (exception_id, pack_key, pack_version).
 5. **HITL task/approval model** — single work-item shape for all four human-touchpoint modes; SoD `excluded_users` resolved per instance at task creation; decision → graph resume mapping; immutable-after-decision audit semantics.
 
-Exit criteria: contracts doc committed under `backend/docs/architecture/`; open questions logged (reject-semantics on review_after, partial action approval in v1, tenant-specific triage rules over shared packs).
+Exit criteria: contracts doc committed under `backend/docs/architecture/`; open questions logged (reject-semantics on review_after, partial action approval in v1).
 
 ## Step 2 — Process-registry service v1 (storage + validation)
 
@@ -47,8 +47,8 @@ Exit criteria: generate exception via stub → ingest → resolve → dispatch �
 Informed by what Steps 2–3 taught us:
 
 - Onboarding UX (webui): upload BPMN, author bindings against registered capabilities, register artifact schemas, dry-run validation report, activate.
-- Capability registration workflow incl. config-forge wiring (per-tenant capability config).
-- Registry hardening: version diff/compatibility checks, deprecation flows, tenant-scoped rules (revisit the pack-owns-rules decision).
+- Capability registration workflow incl. config-forge wiring (per-deployment capability config).
+- Registry hardening: version diff/compatibility checks, deprecation flows (revisit the pack-owns-rules decision).
 - HITL surfaces in webui: task inbox, review/approve screens rendered from artifact schemas, SoD-aware claiming.
 
 Exit criteria: a second process pack (even a toy one) can be onboarded end-to-end without touching platform code.

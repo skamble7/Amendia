@@ -15,7 +15,7 @@ async def test_generate_201_and_publishes(client, publisher):
     for item in body["created"]:
         assert item["published"] is True
         assert item["warning"] is None
-        assert item["routing_key"].endswith(".stub_exception.exception_raised.v1")
+        assert item["routing_key"] == "stub_exception.exception_raised.v1"
         assert item["exception"]["schema_version"] == "pin.payments.wire_exception/1.0"
         assert item["exception"]["exception_type"] == "unable_to_apply"
     assert len(publisher.published) == 2
@@ -36,8 +36,8 @@ async def test_duplicate_exception_id_returns_409(monkeypatch):
     from app.models.api import GenerateRequest
     from app.generator import generate_envelope as real_gen
 
-    def fixed_gen(req: GenerateRequest, base_url, default_tenant, now=None):
-        env = real_gen(req, base_url, default_tenant, now=now)
+    def fixed_gen(req: GenerateRequest, base_url, now=None):
+        env = real_gen(req, base_url, now=now)
         env.exception_id = "EXC-2026-000001"
         for att in env.attachments:
             att.fetch_url = f"{base_url}/exceptions/EXC-2026-000001/attachments/{att.attachment_id}"
@@ -101,14 +101,14 @@ async def test_attachment_unknown_404(client):
 
 
 async def test_list_filters(client):
-    await client.post("/exceptions/generate", json={"tenant": "acme", "count": 2})
-    await client.post("/exceptions/generate", json={"tenant": "other", "count": 1})
+    await client.post("/exceptions/generate", json={"reason_code": "AC04", "count": 2})
+    await client.post("/exceptions/generate", json={"reason_code": "AC01", "count": 1})
 
     all_items = (await client.get("/exceptions")).json()
     assert len(all_items) == 3
 
-    acme = (await client.get("/exceptions", params={"tenant": "acme"})).json()
-    assert len(acme) == 2 and all(i["tenant"] == "acme" for i in acme)
+    ac04 = (await client.get("/exceptions", params={"reason_code": "AC04"})).json()
+    assert len(ac04) == 2 and all("AC04" in i["reason_codes"] for i in ac04)
 
 
 async def test_publish_failure_surfaces_warning(monkeypatch):

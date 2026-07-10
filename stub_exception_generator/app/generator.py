@@ -103,12 +103,10 @@ def _build_attachments(exception_id: str, base_url: str, attachment_ids: List[st
 def generate_envelope(
     req: GenerateRequest,
     base_url: str,
-    default_tenant: str,
     now: Optional[datetime] = None,
 ) -> WireExceptionEnvelope:
     """Produce one synthetic unable-to-apply wire exception envelope."""
     now = now or _now()
-    tenant = req.tenant or default_tenant
 
     reason_code = req.reason_code or random.choice(REASON_CODES)
     amount = req.amount if req.amount is not None else round(random.uniform(10_000, 5_000_000), 2)
@@ -148,7 +146,6 @@ def generate_envelope(
 
     return WireExceptionEnvelope(
         exception_id=exception_id,
-        tenant=tenant,
         source=Source(system="payment-hub-sim", channel="swift"),
         received_at=now.strftime("%Y-%m-%dT%H:%M:%SZ"),
         exception_type="unable_to_apply",

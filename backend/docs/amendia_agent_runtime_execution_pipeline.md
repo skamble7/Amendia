@@ -58,7 +58,7 @@ BPMN engine. Bindings, HITL modes and SoD policies live in the **manifest**, not
 ```mermaid
 flowchart TB
   subgraph Ingress
-    CONS["events/consumer.py\nDispatchConsumer\n(binds *.ingestor.exception_dispatched.v1)"]
+    CONS["events/consumer.py\nDispatchConsumer\n(binds ingestor.exception_dispatched.v1)"]
     DS["services/dispatch_service.py\nDispatchService\n(idempotency, fetch, validate, accept/reject)"]
   end
   subgraph Engine["engine/ (async orchestration)"]
@@ -134,13 +134,13 @@ boundary:
 
 ### 5.1 Ingress → accept-or-reject
 
-A durable consumer binds `*.ingestor.exception_dispatched.v1` and hands each event to
+A durable consumer binds `ingestor.exception_dispatched.v1` and hands each event to
 [`DispatchService.handle`](../services/agent-runtime/app/services/dispatch_service.py). The gatekeeper
 ([`_handle`](../services/agent-runtime/app/services/dispatch_service.py)) — every failure publishes a
 `dispatch_rejected` reply (which the ingestor reconciles):
 
 1. **Record** the event in `dispatch_log` (idempotent).
-2. **Idempotency key** `(tenant, exception_id, pack_key, pack_version)` → if an instance exists, re-emit
+2. **Idempotency key** `(exception_id, pack_key, pack_version)` → if an instance exists, re-emit
    `dispatch_accepted` and stop (safe under redelivery/replay).
 3. **Fetch** the envelope from `fetch_url` → failure = `fetch_failed`.
 4. **Validate** it against `WireExceptionEnvelope` → failure = `envelope_invalid`.
@@ -319,7 +319,7 @@ stateDiagram-v2
 - **Checkpointing** — `langgraph-checkpoint-mongodb`, `thread_id = process_instance_id`, a checkpoint at
   every node boundary. `GET /instances/{id}` exposes status/outcome/artifacts/`actor_log`/HITL links;
   `GET /instances/{id}/state` (debug-flag) returns the checkpointed state.
-- **Idempotency & replay** — the `(tenant, exception_id, pack, version)` key + guarded state transitions
+- **Idempotency & replay** — the `(exception_id, pack, version)` key + guarded state transitions
   make broker redelivery a safe no-op.
 - **Crash recovery** — [`recover`](../services/agent-runtime/app/engine/engine.py) re-invokes any instance
   left `running` from its last checkpoint on startup; `waiting_hitl` instances resume when a human decides.

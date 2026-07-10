@@ -17,6 +17,5 @@ class IncomingExceptionRaisedEvent(BaseModel):
     occurred_at: datetime
     schema_version: str
     exception_id: str
-    tenant: str
     exception_type: str
     fetch_url: str

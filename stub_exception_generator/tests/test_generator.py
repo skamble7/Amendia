@@ -6,25 +6,19 @@ from app.models.api import GenerateRequest
 from app.sample_data import CATALOG
 
 BASE_URL = "http://localhost:8081"
-TENANT = "bank-alpha"
 
 
 def gen(**kwargs):
-    return generate_envelope(GenerateRequest(**kwargs), BASE_URL, TENANT)
+    return generate_envelope(GenerateRequest(**kwargs), BASE_URL)
 
 
 def test_overrides_are_honored():
-    env = gen(tenant="acme", reason_code="AC04", amount=123456.78, currency="EUR",
+    env = gen(reason_code="AC04", amount=123456.78, currency="EUR",
               include_attachments=True)
-    assert env.tenant == "acme"
     assert env.reason_codes == ["AC04"]
     assert env.payment.settlement_amount.value == 123456.78
     assert env.payment.settlement_amount.currency == "EUR"
     assert len(env.attachments) == 2
-
-
-def test_default_tenant_used_when_unset():
-    assert gen().tenant == TENANT
 
 
 def test_randomization_within_allowed_sets():

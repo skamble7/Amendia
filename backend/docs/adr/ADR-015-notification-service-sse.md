@@ -54,7 +54,7 @@ Events**. Three pieces:
 
 ### Part B — thin-invalidation model (the security boundary)
 
-SSE messages carry only **signals** — `{type, tenant, exception_id?, process_instance_id?, task_id?,
+SSE messages carry only **signals** — `{type, exception_id?, process_instance_id?, task_id?,
 element_id?, role?, outcome?}` — projected by `app/events/signal_mapper.py`, which whitelists id/label
 fields and **never** copies payload data (`decision`, `comment`, `edits`, `trace`, `reason`, capability
 outputs). The browser uses a signal only to decide which TanStack Query keys to invalidate; the actual data

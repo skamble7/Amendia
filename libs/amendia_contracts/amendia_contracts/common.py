@@ -234,8 +234,7 @@ class EventBase(ContractModel):
     event_id: str
     occurred_at: datetime
     schema_version: str
-    tenant: str
 
-    def routing_key(self, tenant: Optional[str] = None) -> str:
-        """`<tenant>.<service>.<event>.v1` via the shared rk() builder."""
-        return rk(tenant or self.tenant, self._service, self._event_name, Version.V1.value)
+    def routing_key(self) -> str:
+        """`<service>.<event>.v1` via the shared rk() builder."""
+        return rk(self._service, self._event_name, Version.V1.value)

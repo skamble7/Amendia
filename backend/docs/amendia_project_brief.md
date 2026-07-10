@@ -83,9 +83,8 @@ document and streaming attachment bytes itself.
 
 **Event contract (`exception_raised`).** Published to the single **durable topic** exchange
 `amendia.events` (`amendia_common.events.EXCHANGE`). The routing key is built **only** via
-`amendia_common.events.rk(tenant, Service.STUBEXCEPTION, EXCEPTION_RAISED)` →
-`<tenant>.stub_exception.exception_raised.v1` (canonical `<org>.<service>.<event>.<version>`, e.g.
-`bank-alpha.stub_exception.exception_raised.v1`). Message properties: `content_type=application/json`,
+`amendia_common.events.rk(Service.STUBEXCEPTION, EXCEPTION_RAISED)` →
+`stub_exception.exception_raised.v1` (canonical `<service>.<event>.<version>`). Message properties: `content_type=application/json`,
 persistent delivery, `message_id=event_id`, publisher confirms. The event is **thin** — it announces
 the exception and where to fetch it; the full envelope stays out of the bus:
 
@@ -95,7 +94,6 @@ the exception and where to fetch it; the full envelope stays out of the bus:
   "occurred_at": "<UTC ISO-8601>",
   "schema_version": "pin.payments.wire_exception/1.0",
   "exception_id": "EXC-2026-000123",
-  "tenant": "bank-alpha",
   "exception_type": "unable_to_apply",
   "fetch_url": "http://localhost:8081/exceptions/EXC-2026-000123"
 }
@@ -116,7 +114,7 @@ selection and agent-runtime invocation are future scope. See **ADR-008** and
 On each event it: (1) validates the thin event; (2) fetches the full exception via
 `GET {STUB_BASE_URL}/exceptions/{exception_id}` (attachments ignored for now); and (3) writes an
 ingestion-log record with `status = received`. It binds a durable queue `ingestor.exception_raised.v1`
-to `amendia.events` with `*.stub_exception.exception_raised.v1` (built from `amendia_common.events`
+to `amendia.events` with `stub_exception.exception_raised.v1` (built from `amendia_common.events`
 constants). A **unique index on `exception_id`** makes redelivery an idempotent no-op (one record per
 exception).
 
@@ -287,5 +285,5 @@ tokens; roles come from Amendia's own store. Single deployment = one customer = 
 ## Open Questions (do not decide unilaterally — flag for discussion)
 
 - ~~Whether the agent runtime embeds an existing BPMN engine (e.g., Camunda 8/Zeebe, Flowable) with agents as service-task workers, or interprets BPMN 2.0 natively with LangGraph driving execution.~~ **Resolved by ADR-011** — **native interpretation**: the runtime compiles the annotation-free BPMN + manifest + pinned resolution into a LangGraph `StateGraph` (no external BPMN engine), with the instance as a Mongo-checkpointed thread and HITL via `interrupt`/`resume`. (Parallel gateways, timers, and compensation remain out of the supported subset for now.)
-- ~~Exact registry matching semantics (exception type only vs. attribute-based rules).~~ **Resolved by ADR-010** — attribute-based via a declarative predicate tree (`all/any/not/leaf` over envelope dot-paths), priority-ordered across active packs, evaluated identically in pack validation and `/resolve`. (Tenant-specific rule overrides remain a later question.)
+- ~~Exact registry matching semantics (exception type only vs. attribute-based rules).~~ **Resolved by ADR-010** — attribute-based via a declarative predicate tree (`all/any/not/leaf` over envelope dot-paths), priority-ordered across active packs, evaluated identically in pack validation and `/resolve`.
 - ~~Event schema/contract for exception events and the bank API interface shape.~~ **Resolved by ADR-007** for the `exception_raised` event + fetch-back API (as implemented by the stub); the real bank-connector interface may still differ and can map into this same envelope/contract.

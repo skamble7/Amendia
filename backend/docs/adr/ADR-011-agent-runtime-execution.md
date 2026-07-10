@@ -37,19 +37,19 @@ with everything checkpointed in Mongo. It settles the ADR-009 open question in f
 
 After recording `received`, the ingestor calls the registry `POST /resolve`:
 - **match** → persist the resolution, transition `received → dispatched`, publish `exception_dispatched`
-  (contract 4) via a new publisher (routing key `<tenant>.ingestor.exception_dispatched.v1`,
+  (contract 4) via a new publisher (routing key `ingestor.exception_dispatched.v1`,
   `trace.correlation_id = exception_id`, `causation_id = <exception_raised event_id>`);
 - **404 no-match** → new terminal state `no_process`;
 - **registry unreachable** → stay `received`; a periodic **retry sweep** re-resolves stale records.
 
-A second durable consumer binds the runtime's replies (`*.agent_runtime.dispatch_accepted/rejected.v1`)
+A second durable consumer binds the runtime's replies (`agent_runtime.dispatch_accepted/rejected.v1`)
 and drives `dispatched → accepted/rejected`. All transitions are **guarded** (expected-state filter) so
 redelivery/replay is a safe no-op.
 
 ### Part B — agent-runtime: dispatch consumer + instance lifecycle
 
-A durable consumer binds `*.ingestor.exception_dispatched.v1`. The `DispatchService`:
-idempotency key `(tenant, exception_id, pack_key, pack_version)` → existing instance re-`accepted`;
+A durable consumer binds `ingestor.exception_dispatched.v1`. The `DispatchService`:
+idempotency key `(exception_id, pack_key, pack_version)` → existing instance re-`accepted`;
 else **fetch the envelope from `fetch_url`** (2 retries → `dispatch_rejected(fetch_failed)`), validate it
 (`envelope_invalid`), **load the pack from the registry API** — manifest + resolution + BPMN + pinned
 capability descriptors + pinned artifact schemas — (unknown/inactive → `unknown_pack`/`pack_not_active`),

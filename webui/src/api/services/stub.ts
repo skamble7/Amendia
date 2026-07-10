@@ -3,7 +3,6 @@ import { SERVICE_BASE } from "../config";
 import type { StoredException, GenerateRequest, GenerateResponse } from "../types";
 
 export interface ExceptionFilters {
-  tenant?: string;
   exception_type?: string;
   status?: string;
   reason_code?: string;

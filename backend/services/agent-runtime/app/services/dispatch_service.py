@@ -72,7 +72,7 @@ class DispatchService:
             logger.info("duplicate dispatch event_id=%s", event.event_id)
 
         # Idempotency: an existing instance → re-accept with the same instance id.
-        idem = compute_idempotency_key(event.tenant, event.exception_id, pack_key, pack_version)
+        idem = compute_idempotency_key(event.exception_id, pack_key, pack_version)
         existing = await self._instances.get_by_idempotency_key(idem)
         if existing is not None:
             logger.info("dispatch idempotent: instance %s already exists", existing.process_instance_id)
@@ -113,7 +113,7 @@ class DispatchService:
         # Create the instance (created), then accept + start execution.
         pid = f"pi-{uuid.uuid4().hex[:16]}"
         instance = ProcessInstance.new(
-            process_instance_id=pid, tenant=event.tenant, exception_id=event.exception_id,
+            process_instance_id=pid, exception_id=event.exception_id,
             pack_key=pack_key, pack_version=pack_version, correlation_id=correlation_id,
         )
         try:
@@ -136,7 +136,7 @@ class DispatchService:
 
     async def _accept(self, event: ExceptionDispatchedEvent, pid: str, correlation_id: str) -> None:
         await self._publish(DispatchAcceptedEvent(
-            event_id=uuid.uuid4().hex, occurred_at=datetime.now(timezone.utc), tenant=event.tenant,
+            event_id=uuid.uuid4().hex, occurred_at=datetime.now(timezone.utc),
             exception_id=event.exception_id, process_instance_id=pid,
             pack_key=event.resolution.pack_key, pack_version=event.resolution.pack_version,
             trace=Trace(correlation_id=correlation_id, causation_id=event.event_id),
@@ -146,7 +146,7 @@ class DispatchService:
     async def _reject(self, event: ExceptionDispatchedEvent, reason: DispatchRejectionReason,
                       detail: str, correlation_id: str) -> None:
         await self._publish(DispatchRejectedEvent(
-            event_id=uuid.uuid4().hex, occurred_at=datetime.now(timezone.utc), tenant=event.tenant,
+            event_id=uuid.uuid4().hex, occurred_at=datetime.now(timezone.utc),
             exception_id=event.exception_id, reason=reason, detail=detail,
             trace=Trace(correlation_id=correlation_id, causation_id=event.event_id),
         ))

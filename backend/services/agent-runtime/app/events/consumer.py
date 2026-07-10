@@ -1,7 +1,7 @@
 # app/events/consumer.py
 """aio-pika consumer for inbound ``exception_dispatched`` events.
 
-Binds a durable queue to ``*.ingestor.exception_dispatched.v1`` and hands each raw
+Binds a durable queue to ``ingestor.exception_dispatched.v1`` and hands each raw
 payload + routing key to the injected handler. Same reconnect/ack discipline as
 the ingestor's consumer (a bad message is logged + acked, never poison-requeued).
 """
@@ -20,7 +20,7 @@ from amendia_common.events import EXCEPTION_DISPATCHED, EXCHANGE, Service, Versi
 
 logger = logging.getLogger(__name__)
 
-BINDING_KEY = f"*.{Service.INGESTOR.value}.{EXCEPTION_DISPATCHED}.{Version.V1.value}"
+BINDING_KEY = f"{Service.INGESTOR.value}.{EXCEPTION_DISPATCHED}.{Version.V1.value}"
 
 Handler = Callable[[dict, str], Awaitable[None]]
 

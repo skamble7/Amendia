@@ -25,13 +25,13 @@ HITL_TASK_DECIDED = "hitl_task_decided"
 PROCESS_COMPLETED = "process_completed"
 PROCESS_FAILED = "process_failed"
 
-def rk(org: str, service: Service | str, event: str, version: str = Version.V1.value) -> str:
+def rk(service: Service | str, event: str, version: str = Version.V1.value) -> str:
     """
     Build the canonical versioned routing key:
-        <org>.<service>.<event>.<version>
+        <service>.<event>.<version>
 
     Examples:
-        rk("acme", Service.ARTIFACT, "created") -> "acme.artifact.created.v1"
+        rk(Service.ARTIFACT, "created") -> "artifact.created.v1"
     """
     svc = service.value if isinstance(service, Service) else str(service)
-    return f"{org}.{svc}.{event}.{version}"
+    return f"{svc}.{event}.{version}"

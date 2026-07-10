@@ -160,9 +160,6 @@ class Policies(ContractModel):
     separation_of_duties: Optional[List[SeparationOfDuties]] = None
 
 
-TenantScope = Union[Literal["global"], List[str]]
-
-
 class PackStatus(str, Enum):
     DRAFT = "draft"
     VALIDATED = "validated"
@@ -180,7 +177,6 @@ class ProcessPackManifest(ContractModel, TimestampsMixin):
     version: SemVerStr
     title: str
     description: Optional[str] = None
-    tenant_scope: Optional[TenantScope] = None
     process: ProcessRef
     triage_rules: List[TriageRule] = Field(..., min_length=1)
     requires_capabilities: List[RequiresCapability]
@@ -190,10 +186,3 @@ class ProcessPackManifest(ContractModel, TimestampsMixin):
     policies: Optional[Policies] = None
     status: PackStatus
     created_by: Optional[str] = None
-
-    @field_validator("tenant_scope")
-    @classmethod
-    def _tenant_scope_non_empty(cls, v: Optional[TenantScope]) -> Optional[TenantScope]:
-        if isinstance(v, list) and len(v) < 1:
-            raise ValueError("tenant_scope list must have at least one tenant")
-        return v

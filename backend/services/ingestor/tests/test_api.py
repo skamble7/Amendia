@@ -4,16 +4,15 @@ from datetime import datetime, timezone
 from app.models.ingestion import EventRef
 
 
-async def _seed(repo, exception_id, tenant="bank-alpha", exception_type="unable_to_apply"):
+async def _seed(repo, exception_id, exception_type="unable_to_apply"):
     await repo.create_received(
         exception_id=exception_id,
-        tenant=tenant,
         exception_type=exception_type,
         event=EventRef(
             event_id="evt",
             occurred_at=datetime.now(timezone.utc),
             schema_version="pin.payments.wire_exception/1.0",
-            routing_key=f"{tenant}.stub_exception.exception_raised.v1",
+            routing_key="stub_exception.exception_raised.v1",
             fetch_url=f"http://localhost:8081/exceptions/{exception_id}",
         ),
         detail={"exception_id": exception_id},
@@ -48,13 +47,13 @@ async def test_get_unknown_404(client):
 
 
 async def test_list_filters(client, repo):
-    await _seed(repo, "EXC-2026-000001", tenant="acme")
-    await _seed(repo, "EXC-2026-000002", tenant="other")
+    await _seed(repo, "EXC-2026-000001", exception_type="unable_to_apply")
+    await _seed(repo, "EXC-2026-000002", exception_type="other_type")
 
-    acme = await client.get("/ingestions", params={"tenant": "acme"})
-    assert acme.status_code == 200
-    data = acme.json()
-    assert len(data) == 1 and data[0]["tenant"] == "acme"
+    typed = await client.get("/ingestions", params={"exception_type": "unable_to_apply"})
+    assert typed.status_code == 200
+    data = typed.json()
+    assert len(data) == 1 and data[0]["exception_id"] == "EXC-2026-000001"
 
     received = await client.get("/ingestions", params={"status": "received"})
     assert len(received.json()) == 2

@@ -31,7 +31,6 @@ class IngestionRepository:
         self,
         *,
         exception_id: str,
-        tenant: str,
         exception_type: str,
         event: EventRef,
         detail: Optional[Dict[str, Any]],
@@ -45,7 +44,6 @@ class IngestionRepository:
         now = _utcnow()
         record = IngestionRecord(
             exception_id=exception_id,
-            tenant=tenant,
             exception_type=exception_type,
             event=event,
             exception_detail=detail,
@@ -68,15 +66,12 @@ class IngestionRepository:
     async def list(
         self,
         *,
-        tenant: Optional[str] = None,
         exception_type: Optional[str] = None,
         status: Optional[str] = None,
         limit: int = 50,
         offset: int = 0,
     ) -> List[IngestionRecord]:
         query: Dict[str, Any] = {}
-        if tenant:
-            query["tenant"] = tenant
         if exception_type:
             query["exception_type"] = exception_type
         if status:

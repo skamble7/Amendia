@@ -28,7 +28,6 @@ So: **ProcessPack** = what to do; **Capability** = who/what can do a step; **Art
 | Capability id | `cap.<domain>.<name>` | `cap.payment.sanctions_screen` |
 | Artifact schema key | `art.<domain>.<name>` | `art.payment.repair_verdict` |
 | Role id | `role.<domain>.<name>` | `role.payments.ops_approver` |
-| Tenant | kebab-case | `bank-alpha` |
 
 Domains group by business area (`payment`, `compliance`, …); the platform does not interpret them beyond namespacing, but consistent domains keep registries navigable.
 
@@ -43,7 +42,7 @@ Everything versionable uses **semver** (`MAJOR.MINOR.PATCH`). A *reference* is t
 
 ### 2.3 Timestamps, events, routing
 
-All timestamps are UTC ISO-8601. Every event shares four base fields — `event_id` (uuid4, unique per event, used for dedup and causation), `occurred_at`, `schema_version` (self-describing payload version, e.g. `pin.platform.exception_dispatched/1.0`), `tenant`. Routing keys are always built by `amendia_common.events.rk()` as `<tenant>.<service>.<event>.v1` on the `amendia.events` topic exchange. The tenant-first hierarchy lets consumers bind per-tenant (`bank-alpha.#`), per-event-type (`*.ingestor.exception_dispatched.v1`), or both.
+All timestamps are UTC ISO-8601. Every event shares three base fields — `event_id` (uuid4, unique per event, used for dedup and causation), `occurred_at`, `schema_version` (self-describing payload version, e.g. `pin.platform.exception_dispatched/1.0`). Routing keys are always built by `amendia_common.events.rk()` as `<service>.<event>.v1` on the `amendia.events` topic exchange. The `<service>`-first hierarchy lets consumers bind per-event-type (`ingestor.exception_dispatched.v1`) or per-service (`agent_runtime.#`).
 
 ### 2.4 HITL modes — the platform's safety vocabulary
 
@@ -71,7 +70,6 @@ Strictness ordering (for policy checks): `none < review_after ≤ approve_result
 | `pack_key` | string, kebab-case | ✓ | Stable identity of the process across versions. Renaming = a new process. |
 | `version` | semver | ✓ | Version of this pack revision. Immutable once stored: changing content requires a new version. |
 | `title` / `description` | string | ✓ / – | Human-readable naming for registries, UIs, audit reports. |
-| `tenant_scope` | `"global"` \| tenant list | – | Who may use the pack. `global` = product-supplied process any tenant can adopt; a list = bank-specific process. Triage only considers packs in scope for the exception's tenant. |
 | `process` | object | ✓ | Pointer to the BPMN (below). |
 | `triage_rules` | array ≥1 | ✓ | When this pack applies (below). |
 | `requires_capabilities` | array | ✓ | Declared capability dependencies (below). |
@@ -153,7 +151,7 @@ BPMN gateway conditions (FEEL expressions like `beneficiary.repair_verdict = "re
 | `side_effect` | `read_only` \| `side_effectful` | ✓ | **The most consequential field.** `side_effectful` = changes state outside Amendia (releases a payment, sends a pacs.004, emails a party). Platform policy: side-effectful capabilities must be bound at `approve_actions` or stricter. Investigation/analysis is `read_only` and may run autonomously. |
 | `idempotent` | boolean | – | Whether blind retry is safe. Governs runtime retry behavior: idempotent steps retry freely; non-idempotent ones require an idempotency key or park for human attention on ambiguous failure. |
 | `inputs[]` / `outputs[]` | artifactIO | ✓ | The capability's typed contract. Binding IO must be compatible with these — validated at onboarding. Typed IO is what makes capabilities composable across processes and banks. |
-| `config_schema` | JSON Schema | – | Declares per-tenant configuration the capability needs (endpoints, list providers, model params). Values live in config-forge; the schema here lets onboarding verify a tenant has supplied valid config before activating a pack for them. |
+| `config_schema` | JSON Schema | – | Declares per-deployment configuration the capability needs (endpoints, list providers, model params). Values live in config-forge; the schema here lets onboarding verify the deployment has supplied valid config before activating a pack. |
 | `runtime` | discriminated union | ✓ | How to invoke (below). |
 | `constraints.timeout_seconds` | int (default 120) | – | Max execution time before the runtime fails/retries the step. |
 | `constraints.max_retries` | int (default 2) | – | Automatic retry budget (subject to `idempotent`). |
@@ -167,7 +165,7 @@ BPMN gateway conditions (FEEL expressions like `beneficiary.repair_verdict = "re
 | Kind | Fields | Notes |
 |---|---|---|
 | `skill` | `entrypoint` | Python path (`amendia_caps.payment.enrich:run`) resolved inside the runtime process. |
-| `mcp` | `server_key`, `tools[]`, `transport` | `server_key` indirects into config-forge for endpoint/auth (never hardcode endpoints in descriptors — they differ per environment/tenant); `tools` whitelists exactly which MCP tools this capability may call — the agent gets those and nothing else; `transport` ∈ `streamable_http` (default), `stdio`, `sse`. |
+| `mcp` | `server_key`, `tools[]`, `transport` | `server_key` indirects into config-forge for endpoint/auth (never hardcode endpoints in descriptors — they differ per environment/deployment); `tools` whitelists exactly which MCP tools this capability may call — the agent gets those and nothing else; `transport` ∈ `streamable_http` (default), `stdio`, `sse`. |
 | `llm` | `prompt_key`, `model_config_key`, `structured_output` | Prompt and model config indirect into config-forge so prompts are versioned/managed, not buried in code; `structured_output` (default true) = output is parsed and validated against the declared output artifact schema. |
 
 ---
@@ -203,7 +201,7 @@ BPMN gateway conditions (FEEL expressions like `beneficiary.repair_verdict = "re
 
 **Purpose in execution.** The moment an exception stops being a record and starts being work. Emitted by the ingestor after triage; consumed by the agent runtime; the accepted/rejected reply closes the loop and drives the ingestor's `dispatched → accepted/rejected` lifecycle. Deliberately **thin** — identity plus routing decision plus a fetch URL, never the payload — so messages stay small, never stale, and access to exception detail stays behind the fetch-back API.
 
-Routing keys: `<tenant>.ingestor.exception_dispatched.v1`; replies `<tenant>.agent_runtime.dispatch_accepted.v1` / `...dispatch_rejected.v1`.
+Routing keys: `ingestor.exception_dispatched.v1`; replies `agent_runtime.dispatch_accepted.v1` / `...dispatch_rejected.v1`.
 
 ### `exception_dispatched`
 
@@ -212,7 +210,6 @@ Routing keys: `<tenant>.ingestor.exception_dispatched.v1`; replies `<tenant>.age
 | `event_id` | ✓ | Unique event identity (uuid4); dedup + causation anchor. |
 | `occurred_at` | ✓ | When dispatch happened. |
 | `schema_version` | ✓ | `pin.platform.exception_dispatched/1.0` — self-describing payload. |
-| `tenant` | ✓ | Owning tenant; also the routing key's first segment. |
 | `exception_id` | ✓ | The exception being dispatched. |
 | `exception_type` | ✓ | Cheap filter/telemetry without a fetch. |
 | `exception_schema_version` | – | Envelope schema of the underlying exception (e.g. `pin.payments.wire_exception/1.0`) so the runtime knows how to parse what it fetches. |
@@ -230,7 +227,7 @@ Routing keys: `<tenant>.ingestor.exception_dispatched.v1`; replies `<tenant>.age
 
 `dispatch_rejected`: base fields + `reason` ∈ `unknown_pack` (no such pack), `pack_not_active` (resolved version not active), `fetch_failed` (couldn't retrieve envelope), `envelope_invalid` (retrieved but fails validation), `capacity` (backpressure), plus free-text `detail`. The enum is deliberately closed: the ingestor and dashboards can react programmatically per reason.
 
-**Idempotency.** The runtime treats `(tenant, exception_id, pack_key, pack_version)` as the instance idempotency key. Redelivered or duplicate dispatches return the existing `process_instance_id` in a fresh `dispatch_accepted` — broker redelivery can never double-execute an exception.
+**Idempotency.** The runtime treats `(exception_id, pack_key, pack_version)` as the instance idempotency key. Redelivered or duplicate dispatches return the existing `process_instance_id` in a fresh `dispatch_accepted` — broker redelivery can never double-execute an exception.
 
 ---
 
@@ -243,7 +240,6 @@ Routing keys: `<tenant>.ingestor.exception_dispatched.v1`; replies `<tenant>.age
 | Field | Req | Meaning & rationale |
 |---|---|---|
 | `task_id` | ✓ | Unique work-item identity. |
-| `tenant` | ✓ | Tenant isolation for inboxes and authorization. |
 | `process_instance_id` | ✓ | The instance awaiting this human. |
 | `pack_key` / `pack_version` | ✓ | Which process (pinned) generated the task — the UI renders against exactly this revision's expectations. |
 | `element_id` | ✓ | Which BPMN node the task belongs to — the diagram highlight in the UI and the join back to the binding. |
@@ -285,7 +281,7 @@ Routing keys: `<tenant>.ingestor.exception_dispatched.v1`; replies `<tenant>.age
 
 **Decision → runtime mapping:** `approve`/`complete` resume forward; `edit_and_approve` replaces the artifact then resumes; `reject` on review/result modes re-runs the producing capability once then escalates (v1 policy); `reject` on `approve_actions` = actions NOT executed, graph takes the pack-defined rejection path; `return_for_rework` resumes backward to the producing node; `escalate` re-creates the task for a supervisor role.
 
-**Task events** (thin, for the notification service → UI): `<tenant>.agent_runtime.hitl_task_created.v1` and `...hitl_task_decided.v1` carrying `task_id`, `exception_id`, `process_instance_id`, `element_id`, `role` (+ `decision`, `decided_by` on decided).
+**Task events** (thin, for the notification service → UI): `agent_runtime.hitl_task_created.v1` and `...hitl_task_decided.v1` carrying `task_id`, `exception_id`, `process_instance_id`, `element_id`, `role` (+ `decision`, `decided_by` on decided).
 
 ---
 
@@ -296,11 +292,11 @@ Routing keys: `<tenant>.ingestor.exception_dispatched.v1`; replies `<tenant>.age
 | Field | Meaning & rationale |
 |---|---|
 | `process_instance_id` | Unique instance identity (`PI-…`). |
-| `tenant` / `exception_id` | Whose exception this instance handles. |
+| `exception_id` | Which exception this instance handles. |
 | `pack_key` / `pack_version` | The **pinned** process revision executing. Never changes for the life of the instance, even if newer pack versions activate — in-flight work is never silently migrated. |
 | `status` | `created` (accepted, not yet running) → `running` → `waiting_hitl` (interrupted on a human) → `completed` \| `failed` \| `cancelled`. The coarse-grained state for dashboards; fine-grained position lives in checkpoints. |
 | `correlation_id` | Propagated from the dispatch trace; joins the instance into the end-to-end journey. |
-| `idempotency_key` | Derived from `(tenant, exception_id, pack_key, pack_version)`, unique-indexed — the mechanical guarantee behind dispatch idempotency (§6). |
+| `idempotency_key` | Derived from `(exception_id, pack_key, pack_version)`, unique-indexed — the mechanical guarantee behind dispatch idempotency (§6). |
 | `created_at` / `updated_at` | Store timestamps. |
 
 ---

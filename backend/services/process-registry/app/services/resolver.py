@@ -15,12 +15,6 @@ from app.validation.predicates import evaluate
 from app.validation.semver_key import version_desc_key
 
 
-def _scope_covers(tenant_scope: Any, tenant: str) -> bool:
-    if tenant_scope is None or tenant_scope == "global":
-        return True
-    return isinstance(tenant_scope, list) and tenant in tenant_scope
-
-
 class ResolveService:
     def __init__(self, pack_repo: ProcessPackRepository, ttl_seconds: float = 30.0) -> None:
         self._repo = pack_repo
@@ -38,21 +32,20 @@ class ResolveService:
     def invalidate(self) -> None:
         self._cache = None
 
-    async def resolve(self, tenant: str, envelope: Dict[str, Any]) -> Tuple[Optional[ResolveResponse], int]:
+    async def resolve(self, envelope: Dict[str, Any]) -> Tuple[Optional[ResolveResponse], int]:
         packs = await self._active_packs()
-        in_scope = [p for p in packs if _scope_covers(p.get("tenant_scope"), tenant)]
 
         # (priority, pack_key, version, rule_id) for every matching rule.
         candidates: List[Tuple[int, str, str, str]] = []
-        for p in in_scope:
+        for p in packs:
             for rule in p.get("triage_rules", []):
                 if evaluate(rule["when"], envelope):
                     candidates.append((rule.get("priority", 0), p["pack_key"], p["version"], rule["rule_id"]))
 
         if not candidates:
-            return None, len(in_scope)
+            return None, len(packs)
 
         # priority asc, pack_key asc, version desc, rule_id asc (fully deterministic).
         candidates.sort(key=lambda c: (c[0], c[1], version_desc_key(c[2]), c[3]))
         priority, pack_key, version, rule_id = candidates[0]
-        return ResolveResponse(pack_key=pack_key, pack_version=version, rule_id=rule_id), len(in_scope)
+        return ResolveResponse(pack_key=pack_key, pack_version=version, rule_id=rule_id), len(packs)

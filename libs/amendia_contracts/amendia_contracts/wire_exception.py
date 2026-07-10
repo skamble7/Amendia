@@ -79,7 +79,6 @@ class WireExceptionEnvelope(BaseModel):
     """The business payload the generator emits."""
 
     exception_id: str
-    tenant: str
     source: Source
     received_at: str
     exception_type: str

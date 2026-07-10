@@ -18,7 +18,6 @@ class GenerateRequest(BaseModel):
     Anything the caller pins is honored; the rest is randomized per exception.
     """
 
-    tenant: Optional[str] = None
     reason_code: Optional[ReasonCode] = None
     amount: Optional[float] = Field(default=None, gt=0)
     currency: Optional[str] = None

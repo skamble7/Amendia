@@ -40,8 +40,8 @@ On each `exception_raised` event:
 
 - Exchange: `amendia.events` (durable topic, `amendia_common.events.EXCHANGE`).
 - Queue: durable `ingestor.exception_raised.v1`, bound with
-  `*.stub_exception.exception_raised.v1` — the pattern is built from `amendia_common.events` constants
-  (`Service.STUBEXCEPTION`, `EXCEPTION_RAISED`, `Version.V1`), never hand-typed, and matches every tenant.
+  `stub_exception.exception_raised.v1` — the pattern is built from `amendia_common.events` constants
+  (`Service.STUBEXCEPTION`, `EXCEPTION_RAISED`, `Version.V1`), never hand-typed.
 - The consumer runs as an asyncio task in the FastAPI lifespan (the `notification-service` pattern) with
   jittered reconnect.
 - A message that cannot be parsed or handled is **logged and acked** (no poison-requeue). Acceptable for
@@ -62,7 +62,7 @@ the agent-runtime work slots in **without a schema change**:
 | `dispatched` | Handed over to the agent runtime | ⛔ future |
 | `accepted` / `rejected` | The agent runtime's outcome | ⛔ future |
 
-Record shape (abbreviated): `exception_id`, `tenant`, `exception_type`, embedded `event`
+Record shape (abbreviated): `exception_id`, `exception_type`, embedded `event`
 (`event_id`, `occurred_at`, `schema_version`, `routing_key`, `fetch_url`), `exception_detail` (the full
 fetched envelope, or `null`), `fetch_error` (set if the fetch failed — the event is still logged),
 `status`, `status_history[]`, `created_at`, `updated_at`.
@@ -71,7 +71,7 @@ fetched envelope, or `null`), `fetch_error` (set if the fetch failed — the eve
 
 | Method | Path | Purpose |
 |---|---|---|
-| `GET` | `/ingestions` | List processed exceptions; filters `tenant`/`exception_type`/`status`, `limit`/`offset`, `created_at` desc. |
+| `GET` | `/ingestions` | List processed exceptions; filters `exception_type`/`status`, `limit`/`offset`, `created_at` desc. |
 | `GET` | `/ingestions/{exception_id}` | Full ingestion record. `404` if unknown. |
 | `GET` | `/health` | Liveness + readiness (mongo ping + rabbit connection state). |
 

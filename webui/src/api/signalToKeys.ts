@@ -13,6 +13,7 @@ export const LIVE_KEYS: QueryKey[] = [
   ["instance"],
   ["ingestions"],
   ["ingestion"],
+  ["exceptions"],
   ["exception"],
   ["me"],
 ];
@@ -57,7 +58,9 @@ export function signalToKeys(signal: Signal): QueryKey[] {
 
     case "exception_raised":
     case "exception_dispatched": {
-      const keys: QueryKey[] = [["ingestions"], ["instances"]];
+      // `["exceptions"]` (list) feeds the dashboard's Raised counter + reason-code
+      // tally; the id-scoped `["exception", eid]` refreshes the detail view.
+      const keys: QueryKey[] = [["exceptions"], ["ingestions"], ["instances"]];
       if (eid) keys.push(["exception", eid], ["ingestion", eid]);
       return keys;
     }

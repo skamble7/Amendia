@@ -27,7 +27,7 @@ class FakeRepository:
         self.store: dict[str, IngestionRecord] = {}
 
     async def create_received(
-        self, *, exception_id, tenant, exception_type, event: EventRef,
+        self, *, exception_id, exception_type, event: EventRef,
         detail, fetch_error=None,
     ) -> Optional[IngestionRecord]:
         if exception_id in self.store:
@@ -35,7 +35,6 @@ class FakeRepository:
         now = _utcnow()
         record = IngestionRecord(
             exception_id=exception_id,
-            tenant=tenant,
             exception_type=exception_type,
             event=event,
             exception_detail=detail,
@@ -52,11 +51,9 @@ class FakeRepository:
         return self.store.get(exception_id)
 
     async def list(
-        self, *, tenant=None, exception_type=None, status=None, limit=50, offset=0,
+        self, *, exception_type=None, status=None, limit=50, offset=0,
     ) -> List[IngestionRecord]:
         items = list(self.store.values())
-        if tenant:
-            items = [i for i in items if i.tenant == tenant]
         if exception_type:
             items = [i for i in items if i.exception_type == exception_type]
         if status:
@@ -126,13 +123,13 @@ class FakeRegistryClient:
         self.unavailable = unavailable
         self.calls: list = []
 
-    async def resolve(self, tenant, envelope):
+    async def resolve(self, envelope):
         from app.clients.registry_client import RegistryNoMatch, RegistryUnavailable
-        self.calls.append((tenant, envelope))
+        self.calls.append(envelope)
         if self.unavailable:
             raise RegistryUnavailable("registry down")
         if self.no_match:
-            raise RegistryNoMatch({"detail": "no active pack matched", "tenant": tenant, "considered_packs": 0})
+            raise RegistryNoMatch({"detail": "no active pack matched", "considered_packs": 0})
         return self.result
 
 
@@ -155,7 +152,6 @@ class FakeStubClient:
             raise RuntimeError("stub unreachable")
         return {
             "exception_id": exception_id,
-            "tenant": "bank-alpha",
             "exception_type": "unable_to_apply",
             "status": "open",
             "payment": {"msg_type": "pacs.008.001.10"},

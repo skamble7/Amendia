@@ -13,7 +13,7 @@ from tests.conftest import (
     FakeStubClient,
 )
 
-ROUTING_KEY = "bank-alpha.stub_exception.exception_raised.v1"
+ROUTING_KEY = "stub_exception.exception_raised.v1"
 
 
 def make_event(exception_id="EXC-2026-000123"):
@@ -22,7 +22,6 @@ def make_event(exception_id="EXC-2026-000123"):
         occurred_at=datetime.now(timezone.utc),
         schema_version="pin.payments.wire_exception/1.0",
         exception_id=exception_id,
-        tenant="bank-alpha",
         exception_type="unable_to_apply",
         fetch_url=f"http://localhost:8081/exceptions/{exception_id}",
     )
@@ -47,7 +46,7 @@ async def test_resolve_happy_path_dispatches_and_publishes():
     # one exception_dispatched event published with the right routing key + fields
     assert len(pub.published) == 1
     event, routing_key, _ = pub.published[0]
-    assert routing_key == "bank-alpha.ingestor.exception_dispatched.v1"
+    assert routing_key == "ingestor.exception_dispatched.v1"
     assert event["exception_id"] == "EXC-2026-000123"
     assert event["fetch_url"].endswith("/exceptions/EXC-2026-000123")
     assert event["resolution"]["pack_key"] == "wire-repair-standard"
@@ -89,7 +88,7 @@ async def test_reply_accepted_transitions_and_stores_instance_id():
 
     await svc.handle_reply(
         {"exception_id": "EXC-2026-000123", "process_instance_id": "pi-1"},
-        "bank-alpha.agent_runtime." + DISPATCH_ACCEPTED + ".v1",
+        "agent_runtime." + DISPATCH_ACCEPTED + ".v1",
     )
     rec = await repo.get("EXC-2026-000123")
     assert rec.status is IngestionStatus.ACCEPTED
@@ -102,7 +101,7 @@ async def test_reply_rejected_transitions_and_stores_reason():
 
     await svc.handle_reply(
         {"exception_id": "EXC-2026-000123", "reason": "unknown_pack", "detail": "no such pack"},
-        "bank-alpha.agent_runtime." + DISPATCH_REJECTED + ".v1",
+        "agent_runtime." + DISPATCH_REJECTED + ".v1",
     )
     rec = await repo.get("EXC-2026-000123")
     assert rec.status is IngestionStatus.REJECTED
@@ -118,7 +117,7 @@ async def test_accepted_reply_before_dispatch_is_ignored():
 
     await svc.handle_reply(
         {"exception_id": "EXC-2026-000123", "process_instance_id": "pi-x"},
-        "bank-alpha.agent_runtime." + DISPATCH_ACCEPTED + ".v1",
+        "agent_runtime." + DISPATCH_ACCEPTED + ".v1",
     )
     assert (await repo.get("EXC-2026-000123")).status is IngestionStatus.RECEIVED
 
@@ -126,7 +125,7 @@ async def test_accepted_reply_before_dispatch_is_ignored():
 async def test_duplicate_accepted_reply_is_noop():
     svc, repo, _, _ = _svc()
     await svc.handle_event(make_event(), ROUTING_KEY)
-    key = "bank-alpha.agent_runtime." + DISPATCH_ACCEPTED + ".v1"
+    key = "agent_runtime." + DISPATCH_ACCEPTED + ".v1"
     await svc.handle_reply({"exception_id": "EXC-2026-000123", "process_instance_id": "pi-1"}, key)
     await svc.handle_reply({"exception_id": "EXC-2026-000123", "process_instance_id": "pi-1"}, key)
     rec = await repo.get("EXC-2026-000123")

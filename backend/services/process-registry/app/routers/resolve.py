@@ -14,8 +14,8 @@ router = APIRouter(tags=["resolve"])
 
 @router.post("/resolve", response_model=ResolveResponse)
 async def resolve(req: ResolveRequest, resolver: ResolveService = Depends(get_resolver)):
-    result, considered = await resolver.resolve(req.tenant, req.envelope)
+    result, considered = await resolver.resolve(req.envelope)
     if result is None:
-        body = NoMatchResponse(tenant=req.tenant, considered_packs=considered)
+        body = NoMatchResponse(considered_packs=considered)
         return JSONResponse(status_code=404, content=body.model_dump(mode="json"))
     return result

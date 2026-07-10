@@ -40,7 +40,6 @@ export interface PackResolution {
 
 export interface PackFilters {
   status?: string;
-  tenant_scope?: string;
   limit?: number;
   offset?: number;
 }

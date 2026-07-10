@@ -74,7 +74,6 @@ class IngestionService:
 
             record = await self._repo.create_received(
                 exception_id=event.exception_id,
-                tenant=event.tenant,
                 exception_type=event.exception_type,
                 event=EventRef(
                     event_id=event.event_id,
@@ -92,8 +91,8 @@ class IngestionService:
                 return
 
             logger.info(
-                "Ingested exception_id=%s tenant=%s status=received fetched=%s",
-                event.exception_id, event.tenant, detail is not None,
+                "Ingested exception_id=%s status=received fetched=%s",
+                event.exception_id, detail is not None,
             )
             await self._resolve_and_dispatch(record)
         finally:
@@ -130,7 +129,7 @@ class IngestionService:
             return False
 
         try:
-            resolved = await self._registry.resolve(record.tenant, envelope)
+            resolved = await self._registry.resolve(envelope)
         except RegistryNoMatch as nm:
             await self._repo.mark_no_process(
                 record.exception_id, no_match=nm.body,
@@ -159,7 +158,6 @@ class IngestionService:
         dispatched_event = ExceptionDispatchedEvent(
             event_id=uuid.uuid4().hex,
             occurred_at=_utcnow(),
-            tenant=record.tenant,
             exception_id=record.exception_id,
             exception_type=record.exception_type,
             exception_schema_version=record.event.schema_version,

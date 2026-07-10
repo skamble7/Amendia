@@ -10,7 +10,6 @@ import type {
 // ---------------- HITL tasks ----------------
 
 export interface HitlTaskFilters {
-  tenant?: string;
   status?: string;
   role?: string;
   process_instance_id?: string;
@@ -43,7 +42,6 @@ export function decideTask(taskId: string, body: DecideRequest): Promise<HitlTas
 // ---------------- Instances ----------------
 
 export interface InstanceFilters {
-  tenant?: string;
   exception_id?: string;
   status?: string;
   limit?: number;

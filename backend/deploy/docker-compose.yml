@@ -137,7 +137,6 @@ services:
       STUBEXC_RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
       # Service name (not localhost) so the fetch_url in events resolves from other containers.
       STUBEXC_SERVICE_BASE_URL: http://stub-exception-generator:8081
-      STUBEXC_DEFAULT_TENANT: bank-alpha
       STUBEXC_LOG_LEVEL: INFO
       # Dev-only permissive CORS so a separately-served webui can call directly.
       STUBEXC_ENABLE_DEV_CORS: "true"

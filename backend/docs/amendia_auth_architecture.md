@@ -1,7 +1,7 @@
 # Amendia Authentication & Authorization — Architecture
 
 **Status:** design accepted, pre-implementation.
-**Deployment model assumption:** Amendia is deployed into each customer's infrastructure — **one deployment, one bank, one IdP**. No multi-bank tenancy on a shared instance. The `tenant` value in events/records remains, but becomes a deployment configuration constant.
+**Deployment model assumption:** Amendia is deployed into each customer's infrastructure — **one deployment, one bank, one IdP**. No multi-bank tenancy on a shared instance. There is no `tenant` field on events or records — single-tenant is the deployment boundary, not a data attribute.
 **Diagrams:** `diagrams/auth-components.svg`, `diagrams/auth-flows.svg` (self-contained, dark-mode aware).
 
 ---

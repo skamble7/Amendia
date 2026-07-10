@@ -17,7 +17,6 @@ router = APIRouter(prefix="/instances", tags=["instances"])
 
 @router.get("", response_model=List[ProcessInstance])
 async def list_instances(
-    tenant: Optional[str] = Query(None),
     exception_id: Optional[str] = Query(None),
     status: Optional[str] = Query(None),
     limit: int = Query(50, ge=1, le=200),
@@ -25,7 +24,7 @@ async def list_instances(
     repo: ProcessInstanceRepository = Depends(get_instance_repo),
 ):
     return await repo.list(
-        tenant=tenant, exception_id=exception_id, status=status, limit=limit, offset=offset
+        exception_id=exception_id, status=status, limit=limit, offset=offset
     )
 
 

@@ -44,7 +44,6 @@ class Resolution(BaseModel):
 # --------------------------------------------------------------------------- #
 
 class ResolveRequest(BaseModel):
-    tenant: str
     envelope: Dict[str, Any]
 
 
@@ -57,5 +56,4 @@ class ResolveResponse(BaseModel):
 
 class NoMatchResponse(BaseModel):
     detail: str = "no active pack matched the exception"
-    tenant: str
     considered_packs: int

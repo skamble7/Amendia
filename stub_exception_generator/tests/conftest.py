@@ -36,7 +36,6 @@ class FakeRepository:
     async def list(
         self,
         *,
-        tenant: Optional[str] = None,
         exception_type: Optional[str] = None,
         status: Optional[str] = None,
         reason_code: Optional[str] = None,
@@ -44,8 +43,6 @@ class FakeRepository:
         offset: int = 0,
     ) -> List[StoredException]:
         items = list(self.store.values())
-        if tenant:
-            items = [i for i in items if i.tenant == tenant]
         if exception_type:
             items = [i for i in items if i.exception_type == exception_type]
         if status:

@@ -61,11 +61,11 @@ POST /artifact-schemas/{key}/{version}/deprecate
 POST /packs                              PUT  /packs/{k}/{v}/bpmn   (application/xml)
 POST /packs/{k}/{v}/validate             POST /packs/{k}/{v}/activate
 POST /packs/{k}/{v}/deprecate
-GET  /packs[?status&tenant_scope]        GET  /packs/{k}   GET /packs/{k}/{v}
+GET  /packs[?status]                     GET  /packs/{k}   GET /packs/{k}/{v}
 GET  /packs/{k}/{v}/bpmn                 GET  /packs/{k}/{v}/validation-report
 GET  /packs/{k}/{v}/resolution
 
-POST /resolve   ({tenant, envelope})     GET /health
+POST /resolve   ({envelope})             GET /health
 ```
 
 ## Onboard a pack manually (dependency order)
@@ -84,7 +84,7 @@ curl -XPOST localhost:8084/packs/wire-repair-standard/1.0.0/validate | jq
 curl -XPOST localhost:8084/packs/wire-repair-standard/1.0.0/activate | jq
 # resolve an exception → pack pin + rule
 curl -XPOST localhost:8084/resolve -H 'content-type: application/json' \
-  -d '{"tenant":"bank-alpha","envelope": { ... normalized exception ... }}' | jq
+  -d '{"envelope": { ... normalized exception ... }}' | jq
 ```
 
 The seed dataset is onboarded automatically through exactly this pipeline —

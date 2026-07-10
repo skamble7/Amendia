@@ -61,12 +61,12 @@ as HTTP **409**.
 
 | Collection | Unique key | Extra indexes |
 |---|---|---|
-| `process_packs` | (`pack_key`, `version`) | `status`, `tenant_scope` |
+| `process_packs` | (`pack_key`, `version`) | `status` |
 | `capabilities` | (`capability_id`, `version`) | `status`, `kind` |
 | `artifact_schemas` | (`artifact_key`, `version`) | `status` |
-| `process_instances` | `process_instance_id`, `idempotency_key` | (`tenant`, `exception_id`) |
-| `hitl_tasks` | `task_id` | (`tenant`, `status`, `role`), `process_instance_id` |
-| `dispatch_log` | `event_id` | (`tenant`, `exception_id`) |
+| `process_instances` | `process_instance_id`, `idempotency_key` | `exception_id` |
+| `hitl_tasks` | `task_id` | (`status`, `role`), `process_instance_id` |
+| `dispatch_log` | `event_id` | `exception_id` |
 
 ### 3. Seed dataset (`seed/wire-repair-standard/`)
 

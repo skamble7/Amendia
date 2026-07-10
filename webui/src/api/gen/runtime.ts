@@ -559,8 +559,6 @@ export interface components {
             updated_at?: string | null;
             /** Task Id */
             task_id: string;
-            /** Tenant */
-            tenant: string;
             /** Process Instance Id */
             process_instance_id: string;
             /** Pack Key */
@@ -692,8 +690,6 @@ export interface components {
         ProcessInstance: {
             /** Process Instance Id */
             process_instance_id: string;
-            /** Tenant */
-            tenant: string;
             /** Exception Id */
             exception_id: string;
             /** Pack Key */
@@ -742,8 +738,6 @@ export interface components {
             title: string;
             /** Description */
             description?: string | null;
-            /** Tenant Scope */
-            tenant_scope?: "global" | string[] | null;
             process: components["schemas"]["ProcessRef"];
             /** Triage Rules */
             triage_rules: components["schemas"]["TriageRule"][];
@@ -929,7 +923,6 @@ export interface operations {
         parameters: {
             query?: {
                 status?: string | null;
-                tenant_scope?: string | null;
                 limit?: number;
                 offset?: number;
             };
@@ -1250,7 +1243,6 @@ export interface operations {
     list_instances_instances_get: {
         parameters: {
             query?: {
-                tenant?: string | null;
                 exception_id?: string | null;
                 status?: string | null;
                 limit?: number;
@@ -1347,7 +1339,6 @@ export interface operations {
     list_hitl_tasks_hitl_tasks_get: {
         parameters: {
             query?: {
-                tenant?: string | null;
                 status?: string | null;
                 role?: string | null;
                 process_instance_id?: string | null;

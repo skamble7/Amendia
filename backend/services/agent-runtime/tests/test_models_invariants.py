@@ -44,7 +44,7 @@ def test_recursive_predicate_parsing():
 
 def _valid_task(**overrides):
     base = {
-        "task_id": "T-1", "tenant": "bank-alpha", "process_instance_id": "PI-1",
+        "task_id": "T-1", "process_instance_id": "PI-1",
         "pack_key": "wire-repair-standard", "pack_version": "1.0.0",
         "element_id": "Task_ApproveRepair", "exception_id": "EXC-1",
         "hitl_mode": "manual", "role": "role.payments.ops_approver",
@@ -76,7 +76,7 @@ def test_decision_must_be_allowed():
 def test_dispatch_rejected_requires_reason():
     with pytest.raises(ValidationError):
         DispatchRejectedEvent.model_validate({
-            "event_id": "e1", "occurred_at": "2026-07-07T00:00:00Z", "tenant": "bank-alpha",
+            "event_id": "e1", "occurred_at": "2026-07-07T00:00:00Z",
             "exception_id": "EXC-1", "detail": "x", "trace": {"correlation_id": "EXC-1"},
         })
 
@@ -94,9 +94,9 @@ def test_capability_runtime_kind_must_match():
 
 def test_event_routing_key_delegates_to_rk():
     ev = DispatchAcceptedEvent.model_validate({
-        "event_id": "e1", "occurred_at": "2026-07-07T00:00:00Z", "tenant": "bank-alpha",
+        "event_id": "e1", "occurred_at": "2026-07-07T00:00:00Z",
         "exception_id": "EXC-1", "process_instance_id": "PI-1",
         "pack_key": "wire-repair-standard", "pack_version": "1.0.0",
         "trace": {"correlation_id": "EXC-1"},
     })
-    assert ev.routing_key() == "bank-alpha.agent_runtime.dispatch_accepted.v1"
+    assert ev.routing_key() == "agent_runtime.dispatch_accepted.v1"

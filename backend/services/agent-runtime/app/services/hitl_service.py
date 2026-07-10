@@ -144,7 +144,7 @@ class HitlDecisionService:
         if self._publisher is None:
             return
         event = HitlTaskDecidedEvent(
-            event_id=uuid.uuid4().hex, occurred_at=datetime.now(timezone.utc), tenant=task.tenant,
+            event_id=uuid.uuid4().hex, occurred_at=datetime.now(timezone.utc),
             task_id=task.task_id, exception_id=task.exception_id,
             process_instance_id=task.process_instance_id, element_id=task.element_id,
             role=task.role, decision=decision_enum, decided_by=user_id,

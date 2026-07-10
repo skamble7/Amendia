@@ -7,7 +7,7 @@ from app.models.ingestion import IngestionStatus
 from app.services.ingestion_service import IngestionService
 from tests.conftest import FakeRepository, FakeStubClient
 
-ROUTING_KEY = "bank-alpha.stub_exception.exception_raised.v1"
+ROUTING_KEY = "stub_exception.exception_raised.v1"
 
 
 def make_event(exception_id="EXC-2026-000123"):
@@ -16,14 +16,13 @@ def make_event(exception_id="EXC-2026-000123"):
         occurred_at=datetime.now(timezone.utc),
         schema_version="pin.payments.wire_exception/1.0",
         exception_id=exception_id,
-        tenant="bank-alpha",
         exception_type="unable_to_apply",
         fetch_url=f"http://localhost:8081/exceptions/{exception_id}",
     )
 
 
 def test_binding_key_shape():
-    assert BINDING_KEY == "*.stub_exception.exception_raised.v1"
+    assert BINDING_KEY == "stub_exception.exception_raised.v1"
 
 
 async def test_handle_event_creates_received_record_with_detail():
