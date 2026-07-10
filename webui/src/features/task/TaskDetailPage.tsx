@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useNavigate, useParams, Link } from "react-router-dom";
 import { ArrowLeft, Lock, UserCheck } from "lucide-react";
 import { PageHeader } from "@/app/AppShell";
@@ -13,6 +14,7 @@ import { useCurrentIdentity } from "@/session/IdentityContext";
 import { useHitlTask } from "./queries";
 import { useTaskActions, type DecideArgs } from "./useTaskActions";
 import { ContextRail } from "./ContextRail";
+import { ProcessDiagramView } from "./ProcessDiagramView";
 import { DecidedRecord } from "./DecidedRecord";
 import type { ComponentType } from "react";
 import { ReviewVariant, ApproveResultVariant, AuthorizeActionsVariant, ManualVariant, type VariantProps } from "./variants";
@@ -30,6 +32,7 @@ export function TaskDetailPage() {
   const identity = useCurrentIdentity();
   const { data: task, isLoading, error } = useHitlTask(taskId);
   const { claim, decide } = useTaskActions(taskId!);
+  const [showDiagram, setShowDiagram] = useState(false);
 
   if (isLoading) {
     return (
@@ -44,6 +47,11 @@ export function TaskDetailPage() {
 
   if (!task) {
     return <EmptyState title="Task not found" description="It may have been cancelled or the id is invalid." action={<Button onClick={() => navigate("/inbox")}>Back to inbox</Button>} />;
+  }
+
+  // The BPMN process diagram opens in place (full width), replacing the task layout.
+  if (showDiagram) {
+    return <ProcessDiagramView task={task} onBack={() => setShowDiagram(false)} />;
   }
 
   const mode = task.hitl_mode as HitlTaskMode;
@@ -136,7 +144,7 @@ export function TaskDetailPage() {
           </p>
         </div>
 
-        <ContextRail task={task} />
+        <ContextRail task={task} onOpenDiagram={() => setShowDiagram(true)} />
       </div>
     </>
   );

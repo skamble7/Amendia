@@ -16,7 +16,7 @@ declare module "bpmn-js/dist/bpmn-navigated-viewer.production.min.js" {
   const NavigatedViewer: {
     new (opts: { container: HTMLElement }): {
       importXML: (xml: string) => Promise<{ warnings: unknown[] }>;
-      get: (name: string) => { zoom: (mode: string) => void };
+      get: (name: string) => { zoom: (mode: string) => void; addMarker: (elementId: string, cls: string) => void };
       destroy: () => void;
     };
   };

@@ -125,3 +125,24 @@
     font-variant-numeric: tabular-nums lining-nums;
   }
 }
+
+/*
+ * BPMN process-state overlay — painted by BpmnViewer via canvas.addMarker onto the
+ * pack's actual BPMN diagram (task / instance "process diagram"). Colours mirror the
+ * StepTracker: done=success, current=agent (purple), failed=danger. `!important`
+ * overrides bpmn-js's own element styles. Targets the first visual shape of each
+ * element (the task rect / event circle).
+ */
+.bpmn-state-done .djs-visual > :nth-child(1) {
+  stroke: hsl(var(--success)) !important;
+  fill: hsl(var(--success) / 0.14) !important;
+}
+.bpmn-state-current .djs-visual > :nth-child(1) {
+  stroke: hsl(var(--agent)) !important;
+  fill: hsl(var(--agent) / 0.16) !important;
+  stroke-width: 2.5px !important;
+}
+.bpmn-state-failed .djs-visual > :nth-child(1) {
+  stroke: hsl(var(--danger)) !important;
+  fill: hsl(var(--danger) / 0.14) !important;
+}
