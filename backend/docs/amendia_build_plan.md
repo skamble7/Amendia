@@ -47,7 +47,7 @@ Exit criteria: generate exception via stub → ingest → resolve → dispatch �
 Informed by what Steps 2–3 taught us:
 
 - Onboarding UX (webui): upload BPMN, author bindings against registered capabilities, register artifact schemas, dry-run validation report, activate.
-- Capability registration workflow incl. config-forge wiring (per-deployment capability config).
+- Capability registration workflow incl. config-forge wiring (per-deployment capability config). *(config-forge is now live and serves LLM model profiles consumed by the runtime — ADR-016; the per-capability `config_schema` wiring for `mcp`/skill deployment config remains.)*
 - Registry hardening: version diff/compatibility checks, deprecation flows (revisit the pack-owns-rules decision).
 - HITL surfaces in webui: task inbox, review/approve screens rendered from artifact schemas, SoD-aware claiming.
 

@@ -113,7 +113,10 @@ def _cap_id(ctx: NodeContext) -> str:
 
 def _run_capability(ctx: NodeContext, descriptor, executor, simulation, envelope, inputs, *, mode, approved=None):
     exec_ctx = ExecutionContext(
-        envelope=envelope, mode=mode, approved_action_ids=approved, simulation=simulation
+        envelope=envelope, mode=mode, approved_action_ids=approved, simulation=simulation,
+        # Hand the declared output JSON Schemas to the executor so the real LLM path
+        # can constrain generation to schema-valid artifacts (ignored in simulation).
+        extras={"output_schemas": {s.artifact_key: s.json_schema for s in ctx.outputs}},
     )
     return executor.execute(descriptor, inputs, exec_ctx)
 

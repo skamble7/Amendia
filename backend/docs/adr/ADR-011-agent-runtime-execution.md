@@ -8,6 +8,10 @@
   ADR-010 (process-registry); the four services' READMEs.
 - **Advances:** the "execution (LangGraph, BPMN compilation, dispatch consumers, HITL resume) is the next slice"
   item in `amendia_project_brief.md`.
+- **Superseded in part by ADR-016:** the "simulation seam / minimal real LLM path" (Part D below) is replaced —
+  `llm` capabilities now run a real, provider-agnostic model via **polyllm + ConfigForge** (config-driven, per
+  capability or platform-wide), and `mcp` falls back to simulation rather than raising `NotImplementedError`.
+  Simulation remains available via `AGENTRT_SIMULATION_MODE=true`.
 
 ## Context
 
@@ -82,6 +86,8 @@ imports `runtime.entrypoint`; `llm`/`mcp` route to a paired **simulation** skill
 `AGENTRT_SIMULATION_MODE=true` (default), with a minimal real LLM path behind the flag and MCP raising
 `NotImplementedError`. The 10 simulated capabilities (`app/capabilities/wire_repair/`) are deterministic
 and envelope-aware; the five skill descriptors' entrypoints now point at them.
+> **Superseded by ADR-016:** the "minimal real LLM path" is now the real, config-driven polyllm + ConfigForge
+> path (`llm` → real model; `mcp` → simulation fallback, no longer raising).
 
 ### Part E — HITL: interrupt, task, decision API, resume
 

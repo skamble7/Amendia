@@ -26,6 +26,9 @@ dependencies = [
   "amendia-contracts",
   "amendia-bpmn",
   "amendia-auth",
+  # Provider-agnostic real LLM path (config-driven via ConfigForge). Pulls the
+  # LangChain provider backends (openai / google-genai / aws) + the remote loader.
+  "polyllm[langchain,remote]",
 ]
 
 [project.optional-dependencies]
@@ -36,8 +39,6 @@ dev = [
   "anyio>=4.4",
   "mongomock-motor>=0.0.29",
 ]
-# Real LLM path (only needed when AGENTRT_SIMULATION_MODE=false).
-llm = ["langchain-anthropic>=0.2.0"]
 
 # Local editable path dependencies on the shared libs (resolved by uv).
 [tool.uv.sources]
@@ -45,6 +46,7 @@ amendia-common = { path = "../../../libs", editable = true }
 amendia-contracts = { path = "../../../libs/amendia_contracts", editable = true }
 amendia-bpmn = { path = "../../../libs/amendia_bpmn", editable = true }
 amendia-auth = { path = "../../../libs/amendia_auth", editable = true }
+polyllm = { path = "../../../libs/polyllm", editable = true }
 
 [tool.hatch.build.targets.wheel]
 packages = ["app"]

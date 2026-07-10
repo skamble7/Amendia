@@ -12,10 +12,12 @@ built via `amendia_common.events.rk`.
 |---|---|---|---|
 | **stub-exception-generator** | 8081 | Dev/test stand-in for the bank's exception store: generates synthetic wire exceptions, persists them, publishes `exception_raised`, serves the fetch-back API. | ADR-007, ADR-012 |
 | **ingestor** | 8082 | Consumes `exception_raised`, fetches the full envelope, records an ingestion, resolves it against the registry, dispatches to the runtime, and reconciles the runtime's reply. | ADR-008, ADR-011, ADR-012 |
-| **agent-runtime** | 8083 | Executes a resolved pack as a compiled LangGraph process with schema-validated artifacts, Mongo checkpointing, and real human-in-the-loop approval gates. Read APIs for the catalog + instances/tasks. | ADR-009, ADR-011, ADR-012 |
+| **agent-runtime** | 8083 | Executes a resolved pack as a compiled LangGraph process with schema-validated artifacts, Mongo checkpointing, and real human-in-the-loop approval gates. `llm` capabilities call a real, config-driven model (polyllm + ConfigForge); `mcp` falls back to simulation. Read APIs for the catalog + instances/tasks. | ADR-009, ADR-011, ADR-012, ADR-016 |
 | **process-registry** | 8084 | Authoring/write side: registers capabilities & artifact schemas, onboards + validates ProcessPacks, pins versions on activation, and answers the triage `/resolve` lookup. | ADR-010, ADR-012 |
 | **identity** (`platform/identity`) | 8086 | Maps `(iss, sub)` → durable Amendia user, JIT-provisions on first login, stores role assignments, and serves the caller's identity (`/me`) + user/role admin. | ADR-012 |
 | **keycloak** (dev IdP) | 8087 | OIDC identity provider for local dev (realm `amendia-dev`). Not an Amendia service — a standards-only dependency; in production this is the customer's own IAM. | ADR-012, ADR-013 |
+| **notification-service** (`platform/notification-service`) | 8088 | Consumes the platform's domain events and fans them out to browsers over **SSE** as thin invalidation signals — the real-time transport behind the HITL dashboard (retires polling). Stateless, no DB, publishes nothing. | ADR-015 |
+| **config-forge** (`platform/config-forge-service`) | 8040 | Platform config registry (Mongo DB `ConfigForge`). Stores provider-agnostic **LLM model profiles** (and future config kinds) addressed by canonical ref; the agent-runtime resolves them at call time via polyllm. Secrets are stored as *references*, never values. | ADR-016 |
 
 Shared libraries: **`amendia_common`** (exchange, `Service` enum, `rk()`, event-name constants),
 **`amendia_contracts`** (the five contract models + `wire_exception` envelope + semver matcher),
@@ -200,7 +202,34 @@ priya → `role.process.owner` + `role.platform.admin`, alex → `role.platform.
 **no** roles (his first login exercises the roleless state). No brittle Keycloak UUIDs — Amendia users are
 born only by JIT (nothing is written to Mongo until first sign-in).
 
-## 6. keycloak (dev IdP, `:8087`)
+## 6. notification-service (`:8088`)
+
+Stateless real-time fan-out relay (ADR-015): consumes the platform's domain events from `amendia.events`
+and pushes **thin invalidation signals** to connected browsers over **Server-Sent Events**, so the webui's
+live surfaces update in real time instead of polling. No database; **publishes nothing**.
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/stream` | **SSE** (`text/event-stream`). Bearer-authenticated (any valid token — **no role**); 401 without one. Emits an initial `event: ready`, then `data:` signal frames, with a `: ping` heartbeat every ~20s. One long-lived connection per browser tab. |
+| `GET` | `/health` | Liveness/readiness; `ready` reflects the RabbitMQ consumer connection, plus a `subscribers` count. |
+
+**Events** — consumes via a **per-instance `exclusive`, `auto_delete` broadcast queue** (so every replica
+receives *every* matching event — not a shared work-queue): `agent_runtime.{hitl_task_created,
+hitl_task_decided,process_completed,process_failed,dispatch_accepted}.v1`, `ingestor.exception_dispatched.v1`,
+`stub_exception.exception_raised.v1`. Publishes nothing.
+
+**Signal shape (the security boundary)** — each SSE frame carries only `{type, exception_id?,
+process_instance_id?, task_id?, element_id?, role?, outcome?}` — ids/labels only, **never** payload data
+(`decision`, `comment`, `edits`, `trace`, `reason`, capability outputs). The browser uses a signal only to
+decide which cached queries to invalidate, then re-fetches the actual data through the existing role-guarded
+REST endpoints. Consequences: the broadcast stream needs **authentication only** (no per-event role checks),
+and a missed/duplicated/replayed signal can never leak or corrupt data.
+
+**Auth note:** browser `EventSource` can't send an `Authorization` header, so the webui consumes `/stream`
+via a `fetch`-based reader that carries the bearer and mirrors the API client's `401 → renew → reconnect`
+cycle. Proxied at `/api/notifications` (nginx sets a long `proxy_read_timeout` for the long-lived stream).
+
+## 7. keycloak (dev IdP, `:8087`)
 
 Not an Amendia service — the OIDC provider for local dev, standing in for the customer's IAM. Imports the
 committed realm `amendia-dev` (`backend/deploy/keycloak/`): public PKCE-S256 client `amendia-webui`, a
@@ -211,6 +240,26 @@ roles** (roles live in Amendia). Standard OIDC
 surface only — discovery `/.well-known/openid-configuration`, `/protocol/openid-connect/{auth,token,certs}`.
 Issuer: `http://localhost:8087/realms/amendia-dev`. See the realm README for the dev-networking footgun
 (services validate `iss` against the browser-facing issuer but fetch JWKS via the internal alias).
+
+## 8. config-forge (`:8040`)
+
+Platform config registry (FastAPI + Mongo DB `ConfigForge`). Stores config entries — today, provider-agnostic
+**LLM model profiles** (polyllm `ModelProfile`s) — addressed by a canonical ref
+`{env}.{kind}[.{provider}][.{platform}].{name}`. The agent-runtime resolves a profile at call time via
+polyllm's `RemoteConfigLoader`. **Secrets are stored as references (`env:` / `file:` / `literal:`), never
+values.** Configure/rotate models here with **no code change or redeploy** — see the
+[LLM configuration guide](../amendia_llm_configuration_guide.md) and **ADR-016**.
+
+| Method | Path | Notes |
+|---|---|---|
+| `GET` | `/config/resolve/{ref}` | **The polyllm lookup** — resolves a canonical ref to the config entry (`.data` = ModelProfile). 404 if unknown. |
+| `GET` | `/config/?kind=llm` | List entries (optional `env`/`kind`/`provider`/`platform` filters). |
+| `POST` | `/config/` | Create an entry (`env`, `kind`, `name`, `data`, …); ref is built from the segments. 409 on duplicate ref. |
+| `PUT` | `/config/{id}` | Update `data`/`description` in place — the mutable path for rotating a model/key. |
+| `DELETE` | `/config/{id}` | Remove an entry. |
+| `GET` | `/healthz` | Liveness. |
+
+No auth today (platform-internal); seed defaults with `scripts/seed.py`.
 
 ---
 
@@ -225,12 +274,20 @@ Issuer: `http://localhost:8087/realms/amendia-dev`. See the realm README for the
 3. agent-runtime consumes `exception_dispatched`, loads the pack from the registry
    (`GET :8084/packs/.../{manifest,resolution,bpmn}` + capabilities/schemas, internal token), creates an
    instance, publishes `dispatch_accepted` (→ ingestor records `accepted`), and runs the compiled graph.
+   Each `llm` capability resolves its model profile from config-forge (`GET :8040/config/resolve/{ref}`)
+   and calls the real provider via polyllm; `mcp` falls back to simulation.
 4. At each human gate the runtime publishes `hitl_task_created`; an operator drives
    `POST :8083/hitl-tasks/{id}/claim` then `/decide` (bearer — identity from the token, `CurrentUser`
    resolved via `:8086/internal/resolve-principal`) to resume the graph. `decided_by` records the
    Amendia `usr-…` id.
 5. On completion the instance is `completed` with `process_completed` published; inspect via
    `GET :8083/instances/{id}` and `GET :8083/instances/{id}/state`.
+
+**Real-time fan-out (ADR-015):** every event published in steps 1–5 (`exception_raised`,
+`exception_dispatched`, `dispatch_accepted`, `hitl_task_created`/`decided`, `process_completed`/`failed`) is
+also consumed by the **notification-service** (`:8088`) and pushed to connected dashboards over SSE as a thin
+signal; the webui invalidates the matching queries and re-fetches through the REST endpoints above — so the
+UI reflects each transition live, without polling.
 
 The `tools/demo_wire_repair.sh` script exercises exactly this chain — it mints riya/marcus bearers from
 Keycloak and passes them throughout (analyst gates as riya, approver gates as marcus).

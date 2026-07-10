@@ -73,7 +73,7 @@ flowchart TB
     EXPR["engine/expr.py\ngateway condition eval"]
   end
   subgraph Exec["executor/ + capabilities/"]
-    EX["executor/dispatch.py\nskill / llm / mcp (simulation)"]
+    EX["executor/dispatch.py\nskill / llm (real: polyllm+ConfigForge) / mcp (sim)"]
     CAPS["capabilities/wire_repair/*\n10 deterministic sim capabilities"]
   end
   subgraph HTTPside["routers/ + services/ (HTTP)"]
@@ -186,9 +186,12 @@ Every node runs the same pipeline in [`task_runner.py`](../services/agent-runtim
 **gather inputs → run capability (via the executor) → validate outputs against the pinned schema → commit
 artifacts + append `actor_log`.** The capability is dispatched by kind in
 [`executor/dispatch.py`](../services/agent-runtime/app/engine/executor/dispatch.py): `skill` imports
-`runtime.entrypoint`; `llm`/`mcp` route to a paired **deterministic simulation** capability when
-`AGENTRT_SIMULATION_MODE=true` (default). What happens around the execute step depends on the binding's HITL
-mode:
+`runtime.entrypoint`. When `AGENTRT_SIMULATION_MODE=true` (the code default), `llm`/`mcp` route to a paired
+**deterministic simulation** capability. When simulation is off (the deployed default), `llm` capabilities
+call a **real, config-driven model** via polyllm + ConfigForge — the config ref is the capability's own
+`model_config_key` if declared, else the runtime default `AGENTRT_LLM_CONFIG_REF` — while `mcp` (no real
+client yet) falls back to the simulation skill. See **ADR-016** and the LLM configuration guide. What
+happens around the execute step depends on the binding's HITL mode:
 
 ```mermaid
 flowchart TB
@@ -232,7 +235,10 @@ identity taken from the bearer (never the body):
   next gate or `END`.
 
 Because only the interrupted node replays and simulation capabilities are deterministic, `propose` re-runs
-have no side effects and `execute` runs exactly once, post-approval.
+have no side effects and `execute` runs exactly once, post-approval. **Caveat for real `llm` capabilities:**
+replay re-invokes the model on resume, so a `review_after` node calls the LLM again after approval and the
+regenerated (non-deterministic) artifact — not the one the human reviewed — is what commits. Low temperature
+keeps them near-identical; per-instance memoization of the produced artifact is the planned fix (ADR-016, trap 2).
 
 ### 5.6 Termination
 

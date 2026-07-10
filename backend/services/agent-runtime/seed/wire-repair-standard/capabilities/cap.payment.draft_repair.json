@@ -17,7 +17,7 @@
   "runtime": {
     "kind": "llm",
     "prompt_key": "prompt.payment.draft_repair",
-    "model_config_key": "llm.payment.default",
+    "model_config_key": null,
     "structured_output": true
   },
   "constraints": { "timeout_seconds": 120, "max_retries": 2, "min_hitl_mode": "review_after" },

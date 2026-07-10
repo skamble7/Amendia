@@ -10,10 +10,13 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 RUN pip install --no-cache-dir uv
 
 # 1) Shared libraries (install amendia_common, then amendia_contracts which depends on it).
+#    polyllm[langchain,remote] is pre-installed here (with its provider backends) so the
+#    service install below finds it satisfied — it is a path dep, not on a package index.
 COPY libs /src/libs
 RUN uv pip install --system /src/libs \
  && uv pip install --system /src/libs/amendia_contracts \
- && uv pip install --system /src/libs/amendia_auth
+ && uv pip install --system /src/libs/amendia_auth \
+ && uv pip install --system "/src/libs/polyllm[langchain,remote]"
 
 # 2) Service dependencies + package.
 COPY backend/services/agent-runtime/pyproject.toml /src/backend/services/agent-runtime/pyproject.toml

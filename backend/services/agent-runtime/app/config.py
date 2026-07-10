@@ -35,6 +35,13 @@ class Settings(BaseSettings):
     # Capability execution: simulation seam (no external LLM/MCP calls).
     SIMULATION_MODE: bool = True
 
+    # Real LLM path (polyllm + ConfigForge). Used only when SIMULATION_MODE=false.
+    # polyllm's RemoteConfigLoader fetches the model profile from ConfigForge by
+    # canonical ref, so switching provider/model/keys is a config change (a ConfigForge
+    # entry), never a code change. LLM_CONFIG_REF picks which seeded profile to use.
+    CONFIG_FORGE_URL: str = "http://localhost:8040"
+    LLM_CONFIG_REF: str = "dev.llm.bedrock.explicit-creds"
+
     # Debug/dev surfaces (guarded like the seed API).
     ENABLE_DEBUG_API: bool = True
 

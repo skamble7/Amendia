@@ -123,6 +123,33 @@ services:
       identity:
         condition: service_started
 
+  # ConfigForge — platform config registry. Serves provider-agnostic LLM configs
+  # (polyllm ModelProfiles) by canonical ref (GET /config/resolve/{ref}). Seed the
+  # default LLM profiles with:
+  #   docker compose -f backend/deploy/docker-compose.yml run --rm config-forge \
+  #     python scripts/seed.py --mongo-uri mongodb://mongodb:27017 --db ConfigForge --env dev
+  config-forge:
+    build:
+      # Build context is the repo root (same convention as the other services).
+      context: ../..
+      dockerfile: backend/services/platform/config-forge-service/Dockerfile
+    ports:
+      - "8040:8040"
+    environment:
+      MONGO_URI: mongodb://mongodb:27017
+      MONGO_DB: ConfigForge
+      SERVICE_NAME: config-forge-service
+      PORT: 8040
+      ENV: local
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8040/healthz').status==200 else 1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    depends_on:
+      mongodb:
+        condition: service_healthy
+
   stub-exception-generator:
     build:
       # Build context is the repo root so both `libs/` and `stub_exception_generator/` are visible.
@@ -205,8 +232,12 @@ services:
       AGENTRT_RABBITMQ_DISPATCH_QUEUE: agent-runtime.exception_dispatched.v1
       AGENTRT_REGISTRY_BASE_URL: http://process-registry:8084
       AGENTRT_SELF_BASE_URL: http://agent-runtime:8083
-      # Simulation-mode capabilities (no external LLM/MCP calls) behind the executor seam.
-      AGENTRT_SIMULATION_MODE: "true"
+      # Real LLM capabilities via polyllm + ConfigForge (provider-agnostic). The
+      # llm-kind capabilities call the model named by LLM_CONFIG_REF; mcp-kind
+      # (sanctions) falls back to simulation until a real MCP client lands.
+      AGENTRT_SIMULATION_MODE: "false"
+      AGENTRT_CONFIG_FORGE_URL: http://config-forge:8040
+      AGENTRT_LLM_CONFIG_REF: dev.llm.bedrock.explicit-creds
       AGENTRT_ENABLE_SEED_API: "true"
       AGENTRT_ENABLE_DEBUG_API: "true"
       # Registry owns catalog writes (ownership split); it seeds the shared collections
@@ -231,6 +262,8 @@ services:
         condition: service_started
       identity:
         condition: service_started
+      config-forge:
+        condition: service_healthy
 
   process-registry:
     build:

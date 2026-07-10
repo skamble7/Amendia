@@ -196,8 +196,11 @@ end-to-end proof (the seed passes clean). `REGISTRY_SEED_ON_STARTUP=true` in com
 The agent-runtime now **executes** a resolved pack end-to-end, turning the dormant dispatch/HITL
 lifecycle live. One stub-generated exception flows automatically to a completed process instance,
 through capability execution, schema-validated artifact writes, and **real human approval gates operated
-via API**, all checkpointed in Mongo. Capabilities run in **simulation mode** (deterministic, no external
-LLM/MCP calls) behind a real executor seam. See **ADR-011** and `backend/services/agent-runtime/README.md`.
+via API**, all checkpointed in Mongo. `llm` capabilities now run on a **real, provider-agnostic model**
+(polyllm + ConfigForge; `mcp`/side-effectful `skill`s still simulated), selectable per capability or
+platform-wide by configuration alone — see **ADR-016** and the LLM configuration guide. A deterministic
+**simulation mode** (`AGENTRT_SIMULATION_MODE=true`) remains for tests/CI. See **ADR-011** and
+`backend/services/agent-runtime/README.md`.
 
 - **Ingestor now resolves + dispatches.** After `received`, it calls the registry `POST /resolve`:
   match → `dispatched` + publishes `exception_dispatched`; 404 → the new terminal `no_process`; registry
@@ -209,7 +212,7 @@ LLM/MCP calls) behind a real executor seam. See **ADR-011** and `backend/service
   trail). Exclusive gateways become conditional edges over a small expression subset; parallel gateways are
   rejected (the seed BPMN was linearized).
 - **Generic task runner + executor seam.** Per node: gather inputs → optional pre-gate → execute (kind
-  dispatch: skill / llm / mcp, simulation-routed) → validate outputs against the **pinned** artifact schema
+  dispatch: skill / real-`llm` via polyllm+ConfigForge / `mcp` sim-routed) → validate outputs against the **pinned** artifact schema
   → optional post-gate → commit + `actor_log`. Retries honour idempotency; the 10 wire-repair capabilities
   are deterministic and envelope-aware.
 - **Real HITL.** Gates use LangGraph `interrupt`/`resume`; the engine materializes a `HitlTask` (mode-derived
@@ -277,7 +280,7 @@ tokens; roles come from Amendia's own store. Single deployment = one customer = 
 
 - Scaffold the monorepo per the structure above (Python workspace rooted at `backend/`, npm project at `webui/`).
 - ~~Implement the stub exception generator (synthetic exceptions → MongoDB + RabbitMQ events).~~ **Done** — see the Stub Exception Generator section above and ADR-007.
-- Implement ingestion (**done — basic**, see the Ingestor section and ADR-008), process-registry (**done — v1**, see the Process Registry section and ADR-010), config-forge, and notifications as mounted FastAPI sub-apps.
+- Implement ingestion (**done — basic**, see the Ingestor section and ADR-008), process-registry (**done — v1**, see the Process Registry section and ADR-010), config-forge (**done** — platform config registry serving provider-agnostic LLM model profiles; ADR-016), and notifications (**done** — SSE fan-out; ADR-015) as standalone platform services.
 - ~~Stub the agent-runtime boundary (queue consumer skeleton only); its internal design is a separate upcoming scope.~~ **Done** — the foundation (contract models, persistence, `wire-repair-standard` seed; ADR-009) and now **execution** (LangGraph compilation, capability execution, dispatch consumers, HITL resume; ADR-011) are both in place. One exception runs end-to-end to a `completed` instance with real API-driven approval gates — see the two Agent Runtime sections above.
 - ~~Authentication & authorization (replace the dev sign-in stub).~~ **Done** — OIDC end to end: `amendia_auth` + the identity service + Keycloak with enforcement/stub-removal across all services (ADR-012), and the webui PKCE sign-in with `/me`-driven identity (the dev user-switcher and the temporary compat bridge are gone; the stack is strict by default). See the Authentication & Authorization section above and `Amendia_User_Guide.md`.
 - docker-compose for local dev: backend (single container), MongoDB, RabbitMQ, Keycloak, identity, webui.
