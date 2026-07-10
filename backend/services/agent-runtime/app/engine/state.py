@@ -32,9 +32,18 @@ def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def actor_entry(element_id: str, actor: str, kind: str) -> Dict[str, Any]:
-    """One ``actor_log`` entry — kind is ``capability`` or ``human``."""
-    return {"element_id": element_id, "actor": actor, "kind": kind, "at": now_iso()}
+def actor_entry(element_id: str, actor: str, kind: str,
+                meta: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """One ``actor_log`` entry — kind is ``capability`` or ``human``.
+
+    ``meta`` is optional executor metadata (e.g. an OpenShell OTLP ``exec_meta`` in
+    nemoclaw mode). It is omitted entirely when absent, so native-mode entries are
+    byte-for-byte unchanged (ADR-017 §8.1).
+    """
+    entry: Dict[str, Any] = {"element_id": element_id, "actor": actor, "kind": kind, "at": now_iso()}
+    if meta:
+        entry["exec_meta"] = meta
+    return entry
 
 
 def initial_state(*, envelope: Dict[str, Any], trace: Dict[str, Any], pack: Dict[str, Any]) -> ProcessState:

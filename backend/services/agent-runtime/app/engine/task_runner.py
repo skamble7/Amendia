@@ -89,8 +89,8 @@ def _run_node(ctx: NodeContext, executor: Executor, simulation: bool, state: Dic
     if ctx.hitl_mode in ("review_after", "approve_result"):
         return _run_reviewed(ctx, executor, simulation, envelope, inputs)
     # mode none — fully autonomous
-    committed = _produce_outputs(ctx, executor, simulation, envelope, inputs, mode="execute")
-    return _commit(ctx, committed, actor=_cap_id(ctx), kind="capability")
+    committed, meta = _produce_outputs(ctx, executor, simulation, envelope, inputs, mode="execute")
+    return _commit(ctx, committed, actor=_cap_id(ctx), kind="capability", cap_meta=meta)
 
 
 # --------------------------------------------------------------------------- #
@@ -116,7 +116,11 @@ def _run_capability(ctx: NodeContext, descriptor, executor, simulation, envelope
         envelope=envelope, mode=mode, approved_action_ids=approved, simulation=simulation,
         # Hand the declared output JSON Schemas to the executor so the real LLM path
         # can constrain generation to schema-valid artifacts (ignored in simulation).
-        extras={"output_schemas": {s.artifact_key: s.json_schema for s in ctx.outputs}},
+        # ``element_id`` lets a sandbox tag its OTLP trace to the element (nemoclaw mode).
+        extras={
+            "output_schemas": {s.artifact_key: s.json_schema for s in ctx.outputs},
+            "element_id": ctx.element_id,
+        },
     )
     return executor.execute(descriptor, inputs, exec_ctx)
 
@@ -130,10 +134,12 @@ def _validate(spec: OutputSpec, data: Any) -> Optional[str]:
     return None
 
 
-def _produce_outputs(ctx, executor, simulation, envelope, inputs, *, mode, approved=None) -> Dict[str, Any]:
+def _produce_outputs(ctx, executor, simulation, envelope, inputs, *, mode, approved=None):
     """Run execute + validate, retrying per the descriptor's idempotency policy.
 
-    Returns ``{binding_output_name: data}`` (empty for zero-output tasks).
+    Returns ``({binding_output_name: data}, exec_meta_or_None)`` — ``exec_meta`` is the
+    optional executor metadata (e.g. a sandbox OTLP trace id) recorded in the ``actor_log``
+    entry; it is ``None`` in native mode.
     """
     descriptor = ctx.descriptor
     idempotent = bool(getattr(descriptor, "idempotent", False))
@@ -160,7 +166,7 @@ def _produce_outputs(ctx, executor, simulation, envelope, inputs, *, mode, appro
         if verr is None:
             if result.get("log"):
                 logger.info("[%s] %s", ctx.element_id, result["log"])
-            return committed
+            return committed, result.get("exec_meta")
         # validation failed → retry once if idempotent, else fail
         last_err = verr
         if idempotent and not validation_retry_used:
@@ -173,7 +179,7 @@ def _produce_outputs(ctx, executor, simulation, envelope, inputs, *, mode, appro
                 raise NodeExecutionError(f"{ctx.element_id}: {exc}", reason="execution_error") from exc
             committed, verr2 = _map_and_validate(ctx, result.get("outputs", {}) or {})
             if verr2 is None:
-                return committed
+                return committed, result.get("exec_meta")
             raise NodeExecutionError(f"{ctx.element_id}: {verr2}", reason="schema_invalid")
         raise NodeExecutionError(f"{ctx.element_id}: {verr}", reason="schema_invalid")
 
@@ -198,9 +204,13 @@ def _map_and_validate(ctx: NodeContext, produced: Dict[str, Any]):
 
 
 def _commit(ctx: NodeContext, committed: Dict[str, Any], *, actor: str, kind: str,
-            extra_actors: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
+            extra_actors: Optional[List[Dict[str, Any]]] = None,
+            cap_meta: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     log = list(extra_actors or [])
-    log.append(actor_entry(ctx.element_id, actor, kind))
+    # ``cap_meta`` (executor metadata, e.g. a sandbox trace id) attaches to the primary
+    # entry only when it is the capability itself; human-primary paths pass the capability's
+    # meta on its own ``extra_actors`` entry.
+    log.append(actor_entry(ctx.element_id, actor, kind, meta=cap_meta if kind == "capability" else None))
     return {"artifacts": committed, "actor_log": log}
 
 
@@ -237,7 +247,7 @@ def _decision(resume: Any) -> Dict[str, Any]:
 # --------------------------------------------------------------------------- #
 def _run_reviewed(ctx, executor, simulation, envelope, inputs) -> Dict[str, Any]:
     """review_after / approve_result: run, hold output, gate before commit."""
-    committed = _produce_outputs(ctx, executor, simulation, envelope, inputs, mode="execute")
+    committed, meta = _produce_outputs(ctx, executor, simulation, envelope, inputs, mode="execute")
     rejects = 0
     while True:
         resume = interrupt(_gate_payload(ctx, artifacts=_gate_artifacts_from_outputs(ctx, committed)))
@@ -246,11 +256,11 @@ def _run_reviewed(ctx, executor, simulation, envelope, inputs) -> Dict[str, Any]
         user = d.get("decided_by", "unknown")
         if decision in ("approve", "complete"):
             return _commit(ctx, committed, actor=user, kind="human",
-                           extra_actors=[actor_entry(ctx.element_id, _cap_id(ctx), "capability")])
+                           extra_actors=[actor_entry(ctx.element_id, _cap_id(ctx), "capability", meta=meta)])
         if decision == "edit_and_approve":
             edited = _apply_edits(ctx, d.get("edits"))
             return _commit(ctx, edited, actor=user, kind="human",
-                           extra_actors=[actor_entry(ctx.element_id, _cap_id(ctx), "capability")])
+                           extra_actors=[actor_entry(ctx.element_id, _cap_id(ctx), "capability", meta=meta)])
         if decision == "reject":
             rejects += 1
             if rejects >= 2:
@@ -258,7 +268,7 @@ def _run_reviewed(ctx, executor, simulation, envelope, inputs) -> Dict[str, Any]
                     f"{ctx.element_id}: rejected twice — failing (v1 policy)",  # TODO escalate
                     reason="rejected",
                 )
-            committed = _produce_outputs(ctx, executor, simulation, envelope, inputs, mode="execute")
+            committed, meta = _produce_outputs(ctx, executor, simulation, envelope, inputs, mode="execute")
             continue
         raise NodeExecutionError(f"{ctx.element_id}: unexpected decision {decision!r}", reason="bad_decision")
 
@@ -305,10 +315,10 @@ def _run_approve_actions(ctx, executor, simulation, envelope, inputs) -> Dict[st
     if decision != "approve":
         raise NodeExecutionError(f"{ctx.element_id}: unexpected decision {decision!r}", reason="bad_decision")
     approved_ids = d.get("approved_action_ids")  # None → all
-    committed = _produce_outputs(ctx, executor, simulation, envelope, inputs,
-                                 mode="execute", approved=approved_ids)
+    committed, meta = _produce_outputs(ctx, executor, simulation, envelope, inputs,
+                                       mode="execute", approved=approved_ids)
     return _commit(ctx, committed, actor=user, kind="human",
-                   extra_actors=[actor_entry(ctx.element_id, _cap_id(ctx), "capability")])
+                   extra_actors=[actor_entry(ctx.element_id, _cap_id(ctx), "capability", meta=meta)])
 
 
 def _run_manual(ctx, executor, simulation, envelope, inputs, state) -> Dict[str, Any]:
@@ -321,7 +331,10 @@ def _run_manual(ctx, executor, simulation, envelope, inputs, state) -> Dict[str,
         for spec in ctx.outputs:
             if spec.artifact_key in produced:
                 draft_by_name[spec.name] = produced[spec.artifact_key]
-        extra_actors.append(actor_entry(ctx.element_id, ctx.assist_descriptor.capability_id, "capability"))
+        extra_actors.append(actor_entry(
+            ctx.element_id, ctx.assist_descriptor.capability_id, "capability",
+            meta=assist.get("exec_meta"),
+        ))
 
     gate_arts = _gate_artifacts(ctx.inputs, inputs)
     for name, data in draft_by_name.items():

@@ -13,7 +13,7 @@ from app.dal.instance_repo import ProcessInstanceRepository
 from app.db.mongo import HITL_TASKS, PROCESS_INSTANCES, create_indexes
 from app.engine.bundle import PackBundle
 from app.engine.engine import ProcessEngine
-from app.engine.executor import Executor
+from app.engine.executor import InProcessExecutor
 from app.models.process_instance import InstanceStatus, ProcessInstance
 from app.services.hitl_service import HitlDecisionService, HitlError
 from tests._wire import make_envelope, role_user
@@ -37,7 +37,7 @@ async def env():
     publisher = FakePublisher()
     engine = ProcessEngine(
         registry=None, instance_repo=instance_repo, hitl_repo=hitl_repo,
-        publisher=publisher, settings=settings, executor=Executor(), checkpointer=MemorySaver(),
+        publisher=publisher, settings=settings, executor=InProcessExecutor(), checkpointer=MemorySaver(),
     )
     # inject the bundle so no registry is needed
     engine._bundles[("wire-repair-standard", "1.0.0")] = PackBundle.from_seed_dir(settings.SEED_DIR)

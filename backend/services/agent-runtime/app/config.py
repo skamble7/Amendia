@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Literal, Optional
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -34,6 +35,24 @@ class Settings(BaseSettings):
 
     # Capability execution: simulation seam (no external LLM/MCP calls).
     SIMULATION_MODE: bool = True
+
+    # Execution substrate (ADR-017). Orthogonal to SIMULATION_MODE and LLM_CONFIG_REF:
+    #   EXECUTION_MODE  chooses *where* a capability runs (in-process vs OpenShell sandbox);
+    #   SIMULATION_MODE chooses *whether it's real*;
+    #   LLM_CONFIG_REF  chooses *which model*.
+    # ``native`` (default) is byte-for-byte today's in-process executor. ``nemoclaw`` routes
+    # ``llm``/``mcp`` capability execution through NemoClaw's OpenShell sandbox (Phase 1).
+    EXECUTION_MODE: Literal["native", "nemoclaw"] = "native"
+    # OpenShell gateway endpoint (sandbox dispatch, secret brokering, OTLP). When unset in
+    # ``nemoclaw`` mode a deterministic in-process fake client is used, so the sandboxed path
+    # is exercisable in dev/CI with no live gateway.
+    OPENSHELL_URL: Optional[str] = None
+    # Fail-closed posture: in ``nemoclaw`` mode, if the gateway is unreachable at startup,
+    # ``true`` refuses to start (a payments platform must not silently run capabilities
+    # unsandboxed); ``false`` degrades to ``native`` with a loud warning (dev only).
+    NEMOCLAW_REQUIRED: bool = False
+    # Warm-sandbox pool size (used by the real HttpOpenShellClient; a scaffold in Phase 1).
+    SANDBOX_POOL_SIZE: int = 4
 
     # Real LLM path (polyllm + ConfigForge). Used only when SIMULATION_MODE=false.
     # polyllm's RemoteConfigLoader fetches the model profile from ConfigForge by

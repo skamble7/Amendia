@@ -41,7 +41,7 @@ from amendia_contracts.process_pack import ProcessPackManifest
 from app.clients.registry_client import RegistryClient, RegistryNotFound
 from app.engine.bundle import PackBundle, build_node_contexts
 from app.engine.compiler import FAILED_OUTCOME, compile_graph
-from app.engine.executor import Executor
+from app.engine.executor import Executor, InProcessExecutor
 from app.engine.hitl import allowed_decisions_for, compute_sod_excluded
 from app.engine.state import initial_state
 from app.models.process_instance import InstanceStatus, ProcessInstance
@@ -76,7 +76,7 @@ class ProcessEngine:
         self._hitl = hitl_repo
         self._publisher = publisher
         self._settings = settings
-        self._executor = executor or Executor()
+        self._executor = executor or InProcessExecutor()
         self._bundles: Dict[Tuple[str, str], PackBundle] = {}
         self._graphs: Dict[Tuple[str, str], Any] = {}
         self._lock = asyncio.Lock()

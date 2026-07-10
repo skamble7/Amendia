@@ -10,7 +10,7 @@ from langgraph.checkpoint.memory import MemorySaver
 from langgraph.types import Command
 
 from app.engine.compiler import compile_graph
-from app.engine.executor import Executor
+from app.engine.executor import InProcessExecutor
 from app.engine.state import initial_state
 from tests._wire import default_decision, drive, make_envelope, run_to_first_gate
 
@@ -19,7 +19,7 @@ def _app():
     from app.config import settings
     from app.engine.bundle import PackBundle
     b = PackBundle.from_seed_dir(settings.SEED_DIR)
-    return compile_graph(b, Executor(), simulation=True, checkpointer=MemorySaver())
+    return compile_graph(b, InProcessExecutor(), simulation=True, checkpointer=MemorySaver())
 
 
 def _initial(reason_code, exception_id="EXC-T-1"):
@@ -83,7 +83,7 @@ def test_sanctioned_creditor_blocks_apply_via_reject():
     from app.config import settings
     from app.engine.bundle import PackBundle
     app = compile_graph(
-        PackBundle.from_seed_dir(settings.SEED_DIR), Executor(), simulation=True,
+        PackBundle.from_seed_dir(settings.SEED_DIR), InProcessExecutor(), simulation=True,
         checkpointer=MemorySaver(),
     )
     cfg = {"configurable": {"thread_id": "t-sanction"}}

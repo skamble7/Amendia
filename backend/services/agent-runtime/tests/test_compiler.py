@@ -10,7 +10,7 @@ from langgraph.checkpoint.memory import MemorySaver
 from amendia_bpmn import parse
 from app.engine import compiler
 from app.engine.compiler import CompilerError, compile_graph
-from app.engine.executor import Executor
+from app.engine.executor import InProcessExecutor
 
 
 def _saver():
@@ -18,7 +18,7 @@ def _saver():
 
 
 def test_seed_bundle_compiles(bundle):
-    app = compile_graph(bundle, Executor(), simulation=True, checkpointer=_saver())
+    app = compile_graph(bundle, InProcessExecutor(), simulation=True, checkpointer=_saver())
     assert app is not None
     # every bound task became a node
     node_ids = set(app.get_graph().nodes)
@@ -27,8 +27,8 @@ def test_seed_bundle_compiles(bundle):
 
 
 def test_compilation_is_deterministic(bundle):
-    a = compile_graph(bundle, Executor(), simulation=True, checkpointer=_saver())
-    b = compile_graph(bundle, Executor(), simulation=True, checkpointer=_saver())
+    a = compile_graph(bundle, InProcessExecutor(), simulation=True, checkpointer=_saver())
+    b = compile_graph(bundle, InProcessExecutor(), simulation=True, checkpointer=_saver())
     assert list(a.get_graph().nodes) == list(b.get_graph().nodes)
     edges_a = sorted((e.source, e.target) for e in a.get_graph().edges)
     edges_b = sorted((e.source, e.target) for e in b.get_graph().edges)
@@ -57,7 +57,7 @@ def test_parallel_gateway_rejected(bundle):
     bad.bpmn_model = copy.deepcopy(bundle.bpmn_model)
     bad.bpmn_model.parallel_gateways = ["Gateway_Fake"]
     with pytest.raises(CompilerError, match="parallelGateway"):
-        compile_graph(bad, Executor(), simulation=True, checkpointer=_saver())
+        compile_graph(bad, InProcessExecutor(), simulation=True, checkpointer=_saver())
 
 
 def test_unparseable_condition_rejected(bundle):
@@ -67,7 +67,7 @@ def test_unparseable_condition_rejected(bundle):
         if fl.id == "Flow_Repairable":
             fl.condition_expr = "beneficiary.repair_verdict in [1,2,3]"  # unsupported
     with pytest.raises(CompilerError, match="Gateway_Repairable"):
-        compile_graph(bad, Executor(), simulation=True, checkpointer=_saver())
+        compile_graph(bad, InProcessExecutor(), simulation=True, checkpointer=_saver())
 
 
 def test_unsupported_element_reported_by_parser():

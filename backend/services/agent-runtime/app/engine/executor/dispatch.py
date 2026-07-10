@@ -1,5 +1,5 @@
 # app/engine/executor/dispatch.py
-"""Kind-dispatching capability executor.
+"""Kind-dispatching in-process capability executor (``native`` mode).
 
   * ``skill`` — import ``runtime.entrypoint`` (``module:function``) and call it.
   * ``llm``   — simulation mode → the paired simulation skill (by capability_id);
@@ -34,7 +34,9 @@ logger = logging.getLogger(__name__)
 _LLM_CLIENTS: Dict[str, Any] = {}
 
 
-class Executor:
+class InProcessExecutor:
+    """Today's executor, unchanged — ``native`` mode. Implements the ``Executor`` protocol."""
+
     def execute(
         self, descriptor: CapabilityDescriptor, inputs: Dict[str, Any], ctx: ExecutionContext
     ) -> Dict[str, Any]:
@@ -114,72 +116,97 @@ class Executor:
         constrained to the artifact's JSON Schema, then hand it back for schema validation.
         """
         ref = getattr(descriptor.runtime, "model_config_key", None) or settings.LLM_CONFIG_REF
-        client = self._llm_client(ref)
         output_schemas: Dict[str, Any] = (ctx.extras or {}).get("output_schemas", {})
-
-        produced: Dict[str, Any] = {}
-        provider = model = None
-        for out in descriptor.outputs:
-            artifact_key = out.model_dump(by_alias=True)["schema"].split("@", 1)[0]
-            schema = output_schemas.get(artifact_key)
-            schema_hint = (
-                f"\n\nThe JSON object MUST validate against this JSON Schema:\n{json.dumps(schema)}"
-                if schema else ""
+        targets = [
+            (akey, output_schemas.get(akey))
+            for akey in (
+                out.model_dump(by_alias=True)["schema"].split("@", 1)[0]
+                for out in descriptor.outputs
             )
-            messages = [
-                {
-                    "role": "system",
-                    "content": (
-                        f"You are the '{descriptor.capability_id}' capability in a payments "
-                        f"exception-repair workflow. Produce a SINGLE JSON object for artifact "
-                        f"'{artifact_key}'. Respond with JSON only — no markdown, no prose, no code "
-                        f"fences.{schema_hint}"
-                    ),
-                },
-                {
-                    "role": "user",
-                    "content": (
-                        f"Payment exception envelope:\n{json.dumps(ctx.envelope, default=str)}\n\n"
-                        f"Upstream artifacts (inputs):\n{json.dumps(inputs, default=str)}"
-                    ),
-                },
-            ]
-            try:
-                result = _run_blocking(client.chat(messages))
-            except Exception as exc:  # noqa: BLE001 - surface as a capability failure
-                raise CapabilityError(f"{descriptor.capability_id}: LLM call failed: {exc}") from exc
-
-            data = _parse_json(result.text)
-            if data is None:
-                raise CapabilityError(
-                    f"{descriptor.capability_id}: LLM returned non-JSON for {artifact_key}: "
-                    f"{result.text[:200]!r}"
-                )
-            produced[artifact_key] = data
-            provider = result.raw.get("provider")
-            model = result.raw.get("model")
-
+        ]
+        produced, provider, model = run_real_llm(
+            capability_id=descriptor.capability_id, targets=targets, ref=ref,
+            inputs=inputs, envelope=ctx.envelope,
+        )
         return {
             "outputs": produced,
             "log": f"real LLM [{ref}] ({provider}:{model}) produced {', '.join(produced)}",
         }
 
-    def _llm_client(self, ref: str) -> Any:
-        """Fetch (and cache) a polyllm LLMClient for a given ConfigForge ref."""
-        client = _LLM_CLIENTS.get(ref)
-        if client is None:
-            try:
-                from polyllm import RemoteConfigLoader
-            except ImportError as exc:  # pragma: no cover - real path only
-                raise CapabilityError(
-                    "real LLM path requires polyllm — install the service's LLM dependencies "
-                    "(or set AGENTRT_SIMULATION_MODE=true)"
-                ) from exc
-            loader = RemoteConfigLoader(base_url=settings.CONFIG_FORGE_URL)
-            client = _run_blocking(loader.load(ref))
-            _LLM_CLIENTS[ref] = client
-            logger.info("loaded LLM profile '%s' from ConfigForge (%s)", ref, settings.CONFIG_FORGE_URL)
-        return client
+
+# --------------------------------------------------------------------------- #
+# Reusable real-LLM primitive (shared by InProcessExecutor and the OpenShell fake).
+# The provider/model/keys live in ConfigForge and are addressed by ``ref`` only — a
+# reference, never a raw secret — so this can be routed through a managed inference
+# proxy later (ADR-017 §6, Phase 2) without changing callers.
+# --------------------------------------------------------------------------- #
+def run_real_llm(
+    *, capability_id: str, targets, ref: str, inputs: Dict[str, Any], envelope: Dict[str, Any]
+):
+    """Prompt the configured model for one schema-constrained JSON object per target.
+
+    ``targets`` is a list of ``(artifact_key, json_schema_or_None)``. Returns
+    ``(produced, provider, model)`` where ``produced`` maps artifact_key → parsed dict.
+    """
+    client = _llm_client(ref)
+    produced: Dict[str, Any] = {}
+    provider = model = None
+    for artifact_key, schema in targets:
+        schema_hint = (
+            f"\n\nThe JSON object MUST validate against this JSON Schema:\n{json.dumps(schema)}"
+            if schema else ""
+        )
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    f"You are the '{capability_id}' capability in a payments "
+                    f"exception-repair workflow. Produce a SINGLE JSON object for artifact "
+                    f"'{artifact_key}'. Respond with JSON only — no markdown, no prose, no code "
+                    f"fences.{schema_hint}"
+                ),
+            },
+            {
+                "role": "user",
+                "content": (
+                    f"Payment exception envelope:\n{json.dumps(envelope, default=str)}\n\n"
+                    f"Upstream artifacts (inputs):\n{json.dumps(inputs, default=str)}"
+                ),
+            },
+        ]
+        try:
+            result = _run_blocking(client.chat(messages))
+        except Exception as exc:  # noqa: BLE001 - surface as a capability failure
+            raise CapabilityError(f"{capability_id}: LLM call failed: {exc}") from exc
+
+        data = _parse_json(result.text)
+        if data is None:
+            raise CapabilityError(
+                f"{capability_id}: LLM returned non-JSON for {artifact_key}: "
+                f"{result.text[:200]!r}"
+            )
+        produced[artifact_key] = data
+        provider = result.raw.get("provider")
+        model = result.raw.get("model")
+    return produced, provider, model
+
+
+def _llm_client(ref: str) -> Any:
+    """Fetch (and cache) a polyllm LLMClient for a given ConfigForge ref."""
+    client = _LLM_CLIENTS.get(ref)
+    if client is None:
+        try:
+            from polyllm import RemoteConfigLoader
+        except ImportError as exc:  # pragma: no cover - real path only
+            raise CapabilityError(
+                "real LLM path requires polyllm — install the service's LLM dependencies "
+                "(or set AGENTRT_SIMULATION_MODE=true)"
+            ) from exc
+        loader = RemoteConfigLoader(base_url=settings.CONFIG_FORGE_URL)
+        client = _run_blocking(loader.load(ref))
+        _LLM_CLIENTS[ref] = client
+        logger.info("loaded LLM profile '%s' from ConfigForge (%s)", ref, settings.CONFIG_FORGE_URL)
+    return client
 
 
 # --------------------------------------------------------------------------- #

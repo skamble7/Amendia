@@ -238,6 +238,15 @@ services:
       AGENTRT_SIMULATION_MODE: "false"
       AGENTRT_CONFIG_FORGE_URL: http://config-forge:8040
       AGENTRT_LLM_CONFIG_REF: dev.llm.bedrock.explicit-creds
+      # --- execution mode (ADR-017) ---
+      # Default = native: today's in-process executor, byte-for-byte. Uncomment the block
+      # below (and the openshell-gateway service + depends_on at the bottom of this file) to
+      # route llm/mcp capability execution through NemoClaw's OpenShell sandbox.
+      AGENTRT_EXECUTION_MODE: native
+      # AGENTRT_EXECUTION_MODE: nemoclaw
+      # AGENTRT_OPENSHELL_URL: http://openshell-gateway:8090   # [confirm] gateway port/path
+      # AGENTRT_NEMOCLAW_REQUIRED: "false"                     # dev: degrade to native if gateway is down
+      # AGENTRT_SANDBOX_POOL_SIZE: "4"
       AGENTRT_ENABLE_SEED_API: "true"
       AGENTRT_ENABLE_DEBUG_API: "true"
       # Registry owns catalog writes (ownership split); it seeds the shared collections
@@ -264,6 +273,28 @@ services:
         condition: service_started
       config-forge:
         condition: service_healthy
+      # --- execution mode (ADR-017): uncomment when EXECUTION_MODE=nemoclaw ---
+      # openshell-gateway:
+      #   condition: service_healthy
+
+  # --- NemoClaw OpenShell gateway (ADR-017, nemoclaw mode) --------------------
+  # Secure sandbox runtime for capability execution: egress policy, credential isolation
+  # (real secrets stay here, the sandbox sees only scoped placeholders), managed inference
+  # proxy, OTLP tracing, native MCP brokering. Commented out so `docker compose up` stays on
+  # native. [confirm] the official NemoClaw image / compose fragment / gateway port before use;
+  # no GPU/Nemotron service is added in Phase 1 (that is Phase 5).
+  # openshell-gateway:
+  #   image: nvcr.io/nvidia/nemoclaw/openshell-gateway:latest   # [confirm] image + tag
+  #   ports:
+  #     - "8090:8090"                                           # [confirm] gateway port
+  #   environment:
+  #     # Real provider secrets live HERE (the host gateway), never in the sandbox env.
+  #     OPENSHELL_INFERENCE_TOKEN: ${OPENSHELL_INFERENCE_TOKEN:-}   # [confirm] var name
+  #   healthcheck:
+  #     test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8090/healthz').status==200 else 1)"]  # [confirm] health path
+  #     interval: 10s
+  #     timeout: 5s
+  #     retries: 10
 
   process-registry:
     build:

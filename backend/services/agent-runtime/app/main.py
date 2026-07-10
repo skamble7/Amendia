@@ -34,7 +34,7 @@ from app.db.mongo import (
     MongoClient,
 )
 from app.engine.engine import ProcessEngine
-from app.engine.executor import Executor
+from app.engine.executor import build_executor
 from app.events.consumer import DispatchConsumer
 from app.events.publisher import RabbitPublisher
 from app.events.rabbit import RabbitConnection
@@ -88,9 +88,12 @@ async def lifespan(app: FastAPI):
     publisher = RabbitPublisher(settings.RABBITMQ_URL)
     await publisher.connect()
 
+    # Executor is selected by AGENTRT_EXECUTION_MODE (native | nemoclaw). In nemoclaw mode
+    # with AGENTRT_NEMOCLAW_REQUIRED=true this raises if the gateway is unreachable, which
+    # aborts startup by design (fail-closed — ADR-017 §4.3).
     engine = ProcessEngine(
         registry=registry_client, instance_repo=instance_repo, hitl_repo=hitl_task_repo,
-        publisher=publisher, settings=settings, executor=Executor(),
+        publisher=publisher, settings=settings, executor=build_executor(settings),
     )
     dispatch_service = DispatchService(
         engine=engine, instance_repo=instance_repo, dispatch_repo=dispatch_repo,
@@ -120,7 +123,8 @@ async def lifespan(app: FastAPI):
             logger.exception("recovery sweep error: %s", exc)
     recover_task = asyncio.create_task(_recover())
 
-    logger.info("agent-runtime ready (simulation=%s)", settings.SIMULATION_MODE)
+    logger.info("agent-runtime ready (execution_mode=%s simulation=%s)",
+                settings.EXECUTION_MODE, settings.SIMULATION_MODE)
     try:
         yield
     finally:
