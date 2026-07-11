@@ -1,0 +1,26 @@
+{
+  "descriptor_version": "1.0",
+  "capability_id": "cap.payment.draft_repair",
+  "version": "1.0.0",
+  "title": "Draft repair instruction",
+  "description": "Drafts the corrected beneficiary instruction (field-level before/after) from the dossier and repair verdict.",
+  "kind": "llm",
+  "side_effect": "read_only",
+  "idempotent": true,
+  "inputs": [
+    { "name": "dossier", "schema": "art.payment.investigation_dossier@^1.0.0" },
+    { "name": "beneficiary", "schema": "art.payment.repair_verdict@^1.0.0" }
+  ],
+  "outputs": [
+    { "name": "repair", "schema": "art.payment.repair_instruction@^1.0.0" }
+  ],
+  "runtime": {
+    "kind": "llm",
+    "prompt_key": "prompt.payment.draft_repair",
+    "model_config_key": null,
+    "structured_output": true
+  },
+  "constraints": { "timeout_seconds": 120, "max_retries": 2, "min_hitl_mode": "review_after" },
+  "owner": "platform",
+  "status": "active"
+}

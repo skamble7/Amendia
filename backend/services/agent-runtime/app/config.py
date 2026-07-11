@@ -21,6 +21,8 @@ class Settings(BaseSettings):
     # LangGraph checkpointer collections (runtime-private, same db).
     CHECKPOINT_COLLECTION: str = "lg_checkpoints"
     CHECKPOINT_WRITES_COLLECTION: str = "lg_checkpoint_writes"
+    # Per-instance capability memoization collection (runtime-private, same db). ADR-019.
+    MEMO_COLLECTION: str = "capability_memo"
 
     # RabbitMQ
     RABBITMQ_URL: str = "amqp://guest:guest@localhost:5672/"
@@ -53,6 +55,43 @@ class Settings(BaseSettings):
     NEMOCLAW_REQUIRED: bool = False
     # Warm-sandbox pool size (used by the real HttpOpenShellClient; a scaffold in Phase 1).
     SANDBOX_POOL_SIZE: int = 4
+    # Gateway auth token *reference* (resolved host-side to talk to the OpenShell gateway —
+    # distinct from provider secrets, which stay gateway-side). A ref, never a raw value.
+    OPENSHELL_TOKEN: Optional[str] = None
+
+    # Per-instance capability memoization (ADR-019, fixes ADR-016 trap 2 / ADR-017 trap 5):
+    # an interrupted node's produced artifact is the *committed* artifact, and the
+    # capability/model is not re-invoked on HITL resume. Enabled by default in ``nemoclaw``
+    # mode; this flag also enables it in ``native``. Default False keeps ``native``
+    # byte-for-byte.
+    MEMOIZE_CAPABILITIES: bool = False
+
+    # Integration-test gate for the real OpenShell / worker / MCP round-trips. When unset
+    # (default), those tests skip and CI runs entirely on the deterministic fake.
+    OPENSHELL_IT: bool = False
+
+    # --- In-sandbox capability-worker over the broker (ADR-020) ---
+    # When true and in nemoclaw mode, the host selects BrokerOpenShellClient (RabbitMQ
+    # request/reply to the capability-worker) instead of the FakeOpenShellClient. Default
+    # false keeps the fake as the CI/dev default and native untouched.
+    CAPABILITY_WORKER_ENABLED: bool = False
+    # Broker request/result routing keys (built via amendia_common.events.rk).
+    CAPABILITY_EXEC_REQUEST_QUEUE: str = "agent-runtime.capability_exec_request.v1"
+    # Worker-side: the OpenAI-compatible inference base URL. In an OpenShell sandbox this is
+    # the managed proxy https://inference.local/v1 (creds brokered by the gateway); in dev/CI
+    # point it at a stub. Empty → the worker uses its ConfigForge ref / SIMULATION_MODE as-is.
+    WORKER_INFERENCE_BASE_URL: Optional[str] = None
+    # Worker-side: the in-sandbox MCP registry file OpenShell/NemoClaw writes
+    # (`nemoclaw <sandbox> mcp add`). Unset → the worker has no MCP client → sim fallback.
+    MCP_REGISTRY_PATH: str = "/sandbox/.deepagents/.nemoclaw-mcp.json"
+    # OTLP export endpoint inside an OpenShell sandbox (no-op in dev/CI when unreachable).
+    OTLP_ENDPOINT: str = "http://host.openshell.internal:4318/v1/traces"
+
+    # --- deep_agent (ADR-021) ---
+    # Use the real LangChain Deep Agents harness (requires the `deepagents` SDK + a reachable
+    # model in the sandbox). Default false → deterministic FakeDeepAgentRunner (CI/dev). A
+    # deep_agent capability is nemoclaw-only + HITL-gated + always memoized regardless.
+    DEEPAGENT_REAL: bool = False
 
     # Real LLM path (polyllm + ConfigForge). Used only when SIMULATION_MODE=false.
     # polyllm's RemoteConfigLoader fetches the model profile from ConfigForge by

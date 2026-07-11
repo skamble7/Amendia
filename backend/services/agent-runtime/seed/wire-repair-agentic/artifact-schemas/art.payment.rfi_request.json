@@ -1,0 +1,33 @@
+{
+  "artifact_key": "art.payment.rfi_request",
+  "version": "1.0.0",
+  "title": "Request for information (RFI) draft",
+  "description": "A drafted request-for-information sent to the originator or beneficiary bank when the case is inconclusive.",
+  "json_schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://amendia.dev/schemas/artifacts/payment/rfi_request/1.0.0.json",
+    "type": "object",
+    "required": ["recipient", "channel", "questions"],
+    "additionalProperties": false,
+    "properties": {
+      "recipient": {
+        "type": "object",
+        "required": ["party", "bic"],
+        "additionalProperties": false,
+        "properties": {
+          "party": { "enum": ["originator", "beneficiary_bank", "intermediary"] },
+          "bic": { "type": "string" }
+        }
+      },
+      "channel": { "enum": ["camt.027", "mt199", "email"] },
+      "questions": {
+        "type": "array",
+        "minItems": 1,
+        "items": { "type": "string" }
+      },
+      "due_by": { "type": "string", "format": "date" }
+    }
+  },
+  "compatibility": "backward",
+  "status": "active"
+}

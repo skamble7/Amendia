@@ -22,7 +22,9 @@ from amendia_contracts.capability import CapabilityDescriptor
 from app.config import settings
 from app.engine.executor.base import CapabilityError, ExecutionContext, Executor
 from app.engine.executor.dispatch import InProcessExecutor, _run_blocking
+from app.engine.executor.memo import memoized_execute
 from app.engine.executor.openshell import CapabilityRunSpec, OpenShellClient
+from app.engine.executor.policy import derive_egress_policy
 
 logger = logging.getLogger(__name__)
 
@@ -32,39 +34,52 @@ def _kind(descriptor: CapabilityDescriptor) -> str:
 
 
 class SandboxedExecutor:
-    """``nemoclaw`` mode executor. Satisfies the ``Executor`` protocol."""
+    """``nemoclaw`` mode executor. Satisfies the ``Executor`` protocol.
 
-    def __init__(self, client: OpenShellClient, *, fallback: Optional[Executor] = None) -> None:
+    Per-instance memoization (ADR-019) is applied here at executor entry and defaults **on**
+    in ``nemoclaw`` mode: a HITL resume reuses the reviewed artifact instead of re-invoking
+    the sandbox/model. The ``fallback`` (for ``skill`` kinds) is deliberately un-memoized so
+    memoization is owned in exactly one place.
+    """
+
+    def __init__(self, client: OpenShellClient, *, fallback: Optional[Executor] = None,
+                 memo: Optional[Any] = None, memoize: bool = True) -> None:
         self._client = client
         # skill kinds run un-sandboxed in Phase 1 (delegated to the in-process path).
         self._fallback: Executor = fallback or InProcessExecutor()
-        # Phase 3/4: memoize deep_agent + review_after keyed on (element, inputs-hash) so a
-        # HITL resume reuses the reviewed artifact instead of re-invoking the model (ADR-017
-        # §8.2). Seam wired; a no-op in Phase 1.
-        self._memo: Dict[str, Dict[str, Any]] = {}
+        self._memo = memo
+        self._memoize = memoize and memo is not None
 
     def execute(
         self, descriptor: CapabilityDescriptor, inputs: Dict[str, Any], ctx: ExecutionContext
     ) -> Dict[str, Any]:
-        kind = _kind(descriptor)
-
-        if kind == "skill":
-            # Phase 3: side-effectful skills move into the sandbox with an egress allowlist +
-            # brokered creds. Until then they run in-process — logged so it's auditable.
-            logger.warning(
-                "skill capability %s runs UN-SANDBOXED in Phase 1 (delegated to in-process "
-                "executor); side-effect-skill sandboxing is ADR-017 Phase 3",
-                descriptor.capability_id,
+        # Memoization is MANDATORY for deep_agent (ADR-021 Part D): its output is
+        # non-deterministic, so the reviewed artifact — not a fresh agent run — must commit on
+        # resume. Fail closed if no memo store is wired.
+        force_memo = _kind(descriptor) == "deep_agent"
+        if force_memo and self._memo is None:
+            raise CapabilityError(
+                f"deep_agent '{descriptor.capability_id}' requires memoization but no memo "
+                "store is configured (fail closed)"
             )
-            return self._fallback.execute(descriptor, inputs, ctx)
+        return memoized_execute(
+            memo=self._memo, enabled=(self._memoize or force_memo), inputs=inputs, ctx=ctx,
+            run=lambda: self._execute_uncached(descriptor, inputs, ctx),
+        )
 
-        if kind not in ("llm", "mcp"):
+    def _execute_uncached(
+        self, descriptor: CapabilityDescriptor, inputs: Dict[str, Any], ctx: ExecutionContext
+    ) -> Dict[str, Any]:
+        kind = _kind(descriptor)
+        if kind not in ("llm", "mcp", "skill", "deep_agent"):
             raise CapabilityError(
                 f"unknown capability kind '{kind}' for {descriptor.capability_id}"
             )
-
+        # ADR-020/021: ALL kinds run in the sandbox (the worker) — including side-effect skills
+        # and deep_agent loops,
+        # which execute under the creation-time egress allowlist (their action stays simulated
+        # in dev). One path; the host still validates/commits/checkpoints/memoizes.
         spec = self._build_spec(descriptor, inputs, ctx, kind)
-        # Phase 3/4: memoize here — self._memo.get((spec.element_id, inputs-hash)).
         try:
             result = _run_blocking(self._client.run_capability(spec))
         except CapabilityError:
@@ -88,6 +103,10 @@ class SandboxedExecutor:
         if kind == "llm":
             ref = getattr(descriptor.runtime, "model_config_key", None) or settings.LLM_CONFIG_REF
         output_schemas: Dict[str, Any] = (ctx.extras or {}).get("output_schemas", {})
+        extras = ctx.extras or {}
+        constraints = getattr(descriptor, "constraints", None)
+        timeout_s = getattr(constraints, "timeout_seconds", None) if constraints else None
+        max_retries = (getattr(constraints, "max_retries", 0) if constraints else 0) or 0
         return CapabilityRunSpec(
             capability_id=descriptor.capability_id,
             kind=kind,
@@ -97,11 +116,19 @@ class SandboxedExecutor:
             mode=ctx.mode,
             approved_action_ids=ctx.approved_action_ids,
             model_config_ref=ref,
-            element_id=(ctx.extras or {}).get("element_id"),
+            element_id=extras.get("element_id"),
+            process_instance_id=extras.get("process_instance_id"),
+            memo_attempt=int(extras.get("memo_attempt", 0) or 0),
             simulation=ctx.simulation,
-            # Phase 3: egress_policy derived from contract data (mcp.server_key, rail
-            # endpoint, inference proxy). Placeholder handle in Phase 1.
-            egress_policy=None,
+            # Egress/tool policy derived from contract data (ADR-019 Part C): mcp.server_key +
+            # tools whitelist, or the managed inference proxy host. Carried for auditability +
+            # sandbox provisioning; the deterministic fake ignores it.
+            egress_policy=derive_egress_policy(descriptor).to_dict(),
+            # The worker needs the descriptor to run the shared core (ADR-020). Refs only.
+            descriptor=descriptor,
+            timeout_seconds=float(timeout_s) if timeout_s else None,
+            max_retries=int(max_retries),
+            idempotent=bool(getattr(descriptor, "idempotent", False)),
         )
 
     def _assemble(self, spec: CapabilityRunSpec, result) -> Dict[str, Any]:

@@ -1,0 +1,32 @@
+{
+  "descriptor_version": "1.0",
+  "capability_id": "cap.payment.apply_repair",
+  "version": "1.0.0",
+  "title": "Apply repair & release payment",
+  "description": "Applies the approved corrections and releases the payment. Side-effectful: requires approve_actions gating.",
+  "kind": "skill",
+  "side_effect": "side_effectful",
+  "idempotent": false,
+  "inputs": [
+    {
+      "name": "repair",
+      "schema": "art.payment.repair_instruction@^1.0.0"
+    },
+    {
+      "name": "screening",
+      "schema": "art.compliance.screening_result@^1.0.0"
+    }
+  ],
+  "outputs": [],
+  "runtime": {
+    "kind": "skill",
+    "entrypoint": "app.capabilities.wire_repair.apply_repair:run"
+  },
+  "constraints": {
+    "timeout_seconds": 120,
+    "max_retries": 0,
+    "min_hitl_mode": "approve_actions"
+  },
+  "owner": "platform",
+  "status": "active"
+}

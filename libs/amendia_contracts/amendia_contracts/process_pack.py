@@ -8,7 +8,7 @@ BPMN parse) are NOT done here — they belong to the registry/onboarding step.
 from __future__ import annotations
 
 from enum import Enum
-from typing import List, Literal, Optional, Union
+from typing import Dict, List, Literal, Optional, Union
 
 from pydantic import Field, field_validator, model_validator
 
@@ -184,5 +184,9 @@ class ProcessPackManifest(ContractModel, TimestampsMixin):
     bindings: List[Binding] = Field(..., min_length=1)
     gateway_variables: Optional[List[GatewayVariable]] = None
     policies: Optional[Policies] = None
+    # ADR-021 — explicit, per-capability justification for a *side-effectful* deep_agent
+    # (keyed by capability_id). The registry refuses a side-effectful autonomous loop unless
+    # justified here. Additive; empty for every existing pack.
+    deep_agent_justifications: Dict[str, str] = Field(default_factory=dict)
     status: PackStatus
     created_by: Optional[str] = None

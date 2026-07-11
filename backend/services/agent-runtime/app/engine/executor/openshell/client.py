@@ -17,12 +17,15 @@ secrets stay host-side (in the gateway); the sandbox path sees only references.
 """
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Protocol, runtime_checkable
 
 from app.capabilities.wire_repair import SIM_CAPABILITIES
 from app.engine.executor.base import CapabilityError
 from app.engine.executor.dispatch import run_real_llm
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -43,10 +46,18 @@ class CapabilityRunSpec:
     approved_action_ids: Optional[List[str]] = None
     model_config_ref: Optional[str] = None     # ConfigForge ref — a reference, never a secret
     element_id: Optional[str] = None
+    process_instance_id: Optional[str] = None  # scopes worker-side dedupe (ADR-019 memo key)
+    memo_attempt: int = 0
     simulation: bool = True
-    # Phase 3: derived from already-declared contract data (mcp.server_key, rail endpoint,
-    # inference proxy). A placeholder handle in Phase 1.
+    # Egress/tool policy derived from contract data (ADR-019 Part C).
     egress_policy: Any = None
+    # The pinned capability descriptor — the worker needs it to run the shared core (ADR-020).
+    # Contract data only; it carries *refs*, never secret values (ADR-017 trap 3).
+    descriptor: Optional[Any] = None
+    # Retry/timeout policy from the descriptor's constraints (mirrors the host retry rule).
+    timeout_seconds: Optional[float] = None
+    max_retries: int = 0
+    idempotent: bool = False
 
 
 @dataclass
@@ -139,35 +150,54 @@ class FakeOpenShellClient:
 
 # --------------------------------------------------------------------------- #
 class HttpOpenShellClient:
-    """Scaffold for the live NemoClaw gateway. Wire details are UNVERIFIED — every request/
-    response shape below is a placeholder to be confirmed against live NemoClaw docs and is
-    not exercised in Phase 1 (the fake covers CI). Constructing it is cheap; ``ping`` and
-    ``run_capability`` will raise/deny until the wire format is confirmed.
+    """Host→gateway client for the live NemoClaw/OpenShell gateway.
+
+    **BLOCKED — architectural finding (ADR-019 §Findings), not a fillable [confirm].**
+    A review of the real NemoClaw + OpenShell docs, both GitHub READMEs, the `llms.txt`
+    indexes, the CLI/quickstart pages, and an independent walkthrough establishes that
+    OpenShell/NemoClaw exposes **no host→gateway synchronous "execute this capability, return
+    artifact JSON + trace id" RPC**. The runtime is CLI- and in-sandbox-agent-driven:
+
+      * sandbox lifecycle + egress policy + provider registration are set at creation time via
+        CLI — ``nemoclaw onboard``, ``openshell sandbox create``, ``openshell policy set``;
+      * execution happens *inside* the sandbox via the Deep Agents ``dcode`` agent
+        (``dcode -n "<prompt>"`` headless), not via a host RPC;
+      * inference is the in-sandbox OpenAI-compatible proxy ``https://inference.local/v1``
+        (**confirmed**);
+      * OTLP traces are *exported* to a collector at
+        ``http://host.openshell.internal:4318/v1/traces`` (service
+        ``nemoclaw-langchain-deepagents-code``) — i.e. async export, **not** a trace id
+        returned synchronously in a host response (**confirmed**);
+      * MCP is a file-based registry ``/sandbox/.deepagents/.nemoclaw-mcp.json`` populated via
+        ``nemoclaw <sandbox> mcp add`` (HTTPS-only, OpenShell credential placeholders)
+        (**confirmed**).
+
+    Therefore ``run_capability`` as a host→gateway RPC **cannot be implemented against the
+    real product** without inventing an API — which the guardrail forbids. **Resolved in
+    ADR-020** by inverting the transport: the real ``nemoclaw`` path is now
+    ``BrokerOpenShellClient`` (RabbitMQ request/reply to an in-sandbox ``capability-worker``
+    that reaches *out* of the egress-only sandbox). This class is **retired** — kept guarded
+    with this pointer, never selected by the factory.
     """
 
     def __init__(self, base_url: str, *, pool_size: int = 4, timeout: float = 30.0) -> None:
         self._base_url = base_url.rstrip("/")
         self._pool_size = pool_size
         self._timeout = timeout
-        # Phase 3/5: warm-sandbox pool (AGENTRT_SANDBOX_POOL_SIZE); snapshot/rebuild.
-        # [confirm] OpenShell sandbox lifecycle + pool semantics against live docs.
 
     async def ping(self) -> bool:
-        # [confirm] gateway health endpoint against live NemoClaw docs.
-        import httpx
-
-        try:
-            async with httpx.AsyncClient(timeout=self._timeout) as http:
-                resp = await http.get(f"{self._base_url}/healthz")
-            return resp.status_code == 200
-        except Exception:
-            return False
+        # No confirmed host-side gateway health HTTP endpoint exists (gateway lifecycle is CLI:
+        # `nemoclaw onboard`). Report unreachable so `factory.build_executor` fail-closes
+        # (NEMOCLAW_REQUIRED=true) or degrades to native, rather than pretending a wire API.
+        logger.warning(
+            "HttpOpenShellClient.ping: no confirmed host→gateway health endpoint in "
+            "OpenShell (CLI-driven runtime) — reporting unreachable (ADR-019 §Findings)"
+        )
+        return False
 
     async def run_capability(self, spec: CapabilityRunSpec) -> SandboxResult:
-        # [confirm] against live NemoClaw docs — gateway execute endpoint, request/response
-        # shape, managed inference proxy path (inference.local/v1), OTLP trace id field, and
-        # how per-sandbox egress policy + scoped credential placeholders are expressed.
         raise NotImplementedError(
-            "HttpOpenShellClient is a Phase-1 scaffold; the live NemoClaw gateway wire "
-            "format is unconfirmed. Leave AGENTRT_OPENSHELL_URL unset to use the fake."
+            "OpenShell/NemoClaw exposes no host→gateway execute RPC (confirmed against live "
+            "docs — ADR-019 §Findings). A real integration requires the design pivot described "
+            "there, not a wire-format guess. Leave AGENTRT_OPENSHELL_URL unset to use the fake."
         )

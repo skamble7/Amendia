@@ -11,6 +11,7 @@ from __future__ import annotations
 from app.capabilities.wire_repair import (
     apply_repair,
     assess,
+    assess_agentic,
     draft_repair,
     draft_return,
     draft_rfi,
@@ -25,6 +26,8 @@ from app.capabilities.wire_repair import (
 SIM_CAPABILITIES = {
     "cap.payment.enrich_investigation": enrich.run,
     "cap.payment.assess_beneficiary": assess.run,
+    # ADR-021 pilot deep_agent — deterministic stand-in for the FakeDeepAgentRunner.
+    "cap.payment.assess_beneficiary_agentic": assess_agentic.run,
     "cap.payment.draft_rfi": draft_rfi.run,
     "cap.payment.draft_repair": draft_repair.run,
     "cap.payment.sanctions_screen": sanctions.run,

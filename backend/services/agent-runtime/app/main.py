@@ -35,6 +35,7 @@ from app.db.mongo import (
 )
 from app.engine.engine import ProcessEngine
 from app.engine.executor import build_executor
+from app.engine.executor.memo import build_mongo_memo_store
 from app.events.consumer import DispatchConsumer
 from app.events.publisher import RabbitPublisher
 from app.events.rabbit import RabbitConnection
@@ -90,10 +91,13 @@ async def lifespan(app: FastAPI):
 
     # Executor is selected by AGENTRT_EXECUTION_MODE (native | nemoclaw). In nemoclaw mode
     # with AGENTRT_NEMOCLAW_REQUIRED=true this raises if the gateway is unreachable, which
-    # aborts startup by design (fail-closed — ADR-017 §4.3).
+    # aborts startup by design (fail-closed — ADR-017 §4.3). The Mongo memo store (ADR-019)
+    # is wired unconditionally; it is only *used* when memoization is enabled (nemoclaw, or
+    # native + AGENTRT_MEMOIZE_CAPABILITIES), so native stays byte-for-byte otherwise.
+    memo_store = build_mongo_memo_store(settings)
     engine = ProcessEngine(
         registry=registry_client, instance_repo=instance_repo, hitl_repo=hitl_task_repo,
-        publisher=publisher, settings=settings, executor=build_executor(settings),
+        publisher=publisher, settings=settings, executor=build_executor(settings, memo=memo_store),
     )
     dispatch_service = DispatchService(
         engine=engine, instance_repo=instance_repo, dispatch_repo=dispatch_repo,

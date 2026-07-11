@@ -24,6 +24,10 @@ HITL_TASK_CREATED = "hitl_task_created"
 HITL_TASK_DECIDED = "hitl_task_decided"
 PROCESS_COMPLETED = "process_completed"
 PROCESS_FAILED = "process_failed"
+# In-sandbox capability execution over the broker (ADR-020): the host publishes a job on the
+# request key and the capability-worker publishes the correlated result (or replies directly).
+CAPABILITY_EXEC_REQUEST = "capability_exec_request"
+CAPABILITY_EXEC_RESULT = "capability_exec_result"
 
 def rk(service: Service | str, event: str, version: str = Version.V1.value) -> str:
     """

@@ -81,16 +81,18 @@ def test_sandboxed_executor_llm_capability_produces_valid_artifact_with_trace():
     assert "via OpenShell sandbox trace=" in out["log"]
 
 
-def test_skill_kind_delegates_to_fallback_unsandboxed():
-    # skill kinds are not sandboxed in Phase 1; they must run via the fallback and carry
-    # no sandbox exec_meta.
+def test_skill_kind_runs_in_sandbox_with_trace():
+    # ADR-020 Part E: skill kinds now run through the sandbox (worker/fake), NOT the in-process
+    # fallback, so they carry a sandbox trace id. Their action stays simulated in dev.
     ex = SandboxedExecutor(FakeOpenShellClient(simulation=True), fallback=InProcessExecutor())
     b = _bundle()
     descriptor = b.descriptors["cap.payment.enrich_investigation"]  # kind == skill
     ctx = ExecutionContext(envelope=make_envelope("AC01"), mode="execute", simulation=True,
                            extras={"output_schemas": {}, "element_id": "Task_Enrich"})
     out = ex.execute(descriptor, {}, ctx)
-    assert "exec_meta" not in out  # ran un-sandboxed via InProcessExecutor
+    assert out["exec_meta"]["via"] == "openshell"
+    assert out["exec_meta"]["otlp_trace_id"].startswith("fake-otlp-Task_Enrich-")
+    assert "art.payment.investigation_dossier" in out["outputs"]
 
 
 # --------------------------------------------------------------------------- #

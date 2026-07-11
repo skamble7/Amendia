@@ -1,0 +1,83 @@
+{
+  "artifact_key": "art.payment.investigation_dossier",
+  "version": "1.0.0",
+  "title": "Payment investigation dossier",
+  "description": "Assembled picture for an unable-to-apply wire: payment snapshot, gpi tracker status, prior account history, and attachment summaries.",
+  "json_schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://amendia.dev/schemas/artifacts/payment/investigation_dossier/1.0.0.json",
+    "type": "object",
+    "required": ["payment_snapshot", "gpi_status"],
+    "additionalProperties": false,
+    "properties": {
+      "payment_snapshot": {
+        "type": "object",
+        "required": ["uetr", "settlement_amount", "creditor"],
+        "additionalProperties": false,
+        "properties": {
+          "uetr": { "type": "string" },
+          "instruction_id": { "type": "string" },
+          "settlement_amount": {
+            "type": "object",
+            "required": ["currency", "value"],
+            "additionalProperties": false,
+            "properties": {
+              "currency": { "type": "string" },
+              "value": { "type": "number" }
+            }
+          },
+          "debtor_name": { "type": "string" },
+          "creditor": {
+            "type": "object",
+            "required": ["name"],
+            "additionalProperties": false,
+            "properties": {
+              "name": { "type": "string" },
+              "account_id": { "type": "string" },
+              "agent_bic": { "type": "string" }
+            }
+          }
+        }
+      },
+      "gpi_status": {
+        "type": "object",
+        "required": ["status"],
+        "additionalProperties": false,
+        "properties": {
+          "status": { "enum": ["in_transit", "stopped_at_beneficiary", "returned", "unknown"] },
+          "last_update": { "type": "string", "format": "date-time" },
+          "location_bic": { "type": "string" }
+        }
+      },
+      "account_history": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "required": ["account_id", "outcome"],
+          "additionalProperties": false,
+          "properties": {
+            "account_id": { "type": "string" },
+            "outcome": { "enum": ["settled", "returned", "unknown"] },
+            "value_date": { "type": "string", "format": "date" },
+            "note": { "type": "string" }
+          }
+        }
+      },
+      "attachment_summaries": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "required": ["attachment_id", "media_type", "summary"],
+          "additionalProperties": false,
+          "properties": {
+            "attachment_id": { "type": "string" },
+            "media_type": { "type": "string" },
+            "summary": { "type": "string" }
+          }
+        }
+      }
+    }
+  },
+  "compatibility": "backward",
+  "status": "active"
+}

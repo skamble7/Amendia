@@ -14,6 +14,7 @@ from packaging.version import Version
 from amendia_contracts.capability import CapabilityDescriptor
 from amendia_contracts.common import HitlMode, hitl_mode_at_least
 from amendia_contracts.process_pack import ProcessPackManifest
+from app.validation.deep_agent import validate_deep_agent_bindings
 from app.dal.artifact_schema_repo import ArtifactSchemaRepository
 from app.dal.capability_repo import CapabilityRepository
 from app.validation.bpmn import BpmnModel, parse_and_validate
@@ -201,6 +202,10 @@ class PackValidator:
             if floor is not None and not hitl_mode_at_least(mode, floor):
                 report.error("hitl_below_capability_floor", stage=4, element_id=b.element_id,
                              message=f"binding hitl '{mode.value}' is below capability min_hitl_mode '{floor.value}'")
+
+        # deep_agent-specific rules (ADR-021): HITL gate required, read_only-or-justified,
+        # tools resolve, nemoclaw-mode required. (Runs once, after the per-binding loop.)
+        validate_deep_agent_bindings(manifest, resolved, report)
 
     # ------------------------------------------------------------------ #
     # Stage 5 — artifacts & IO

@@ -1,0 +1,28 @@
+{
+  "descriptor_version": "1.0",
+  "capability_id": "cap.payment.notify_parties",
+  "version": "1.0.0",
+  "title": "Notify originator & beneficiary bank",
+  "description": "Drafts and sends party advices (camt.029 / originator advice). Side-effectful: requires approve_actions gating.",
+  "kind": "skill",
+  "side_effect": "side_effectful",
+  "idempotent": false,
+  "inputs": [
+    {
+      "name": "repair",
+      "schema": "art.payment.repair_instruction@^1.0.0"
+    }
+  ],
+  "outputs": [],
+  "runtime": {
+    "kind": "skill",
+    "entrypoint": "app.capabilities.wire_repair.notify:run"
+  },
+  "constraints": {
+    "timeout_seconds": 120,
+    "max_retries": 1,
+    "min_hitl_mode": "approve_actions"
+  },
+  "owner": "platform",
+  "status": "active"
+}

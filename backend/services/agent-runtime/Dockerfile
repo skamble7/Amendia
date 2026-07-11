@@ -22,6 +22,9 @@ RUN uv pip install --system /src/libs \
 COPY backend/services/agent-runtime/pyproject.toml /src/backend/services/agent-runtime/pyproject.toml
 COPY backend/services/agent-runtime/app /src/backend/services/agent-runtime/app
 COPY backend/services/agent-runtime/seed /src/backend/services/agent-runtime/seed
+# The capability-worker (ADR-020) — a sibling package launched via `python -m worker.main`
+# from WORKDIR (below). Shipped in the same image; not pip-installed (imported from cwd).
+COPY backend/services/agent-runtime/worker /src/backend/services/agent-runtime/worker
 RUN uv pip install --system /src/backend/services/agent-runtime
 
 WORKDIR /src/backend/services/agent-runtime

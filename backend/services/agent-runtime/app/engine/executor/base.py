@@ -9,6 +9,7 @@ sandbox) can be swapped in without touching the pure/sync node code.
 """
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Protocol, runtime_checkable
 
@@ -17,6 +18,24 @@ from amendia_contracts.capability import CapabilityDescriptor
 
 class CapabilityError(Exception):
     """A capability failed to execute (bad descriptor, import error, runtime raise)."""
+
+
+def _run_blocking(coro: Any) -> Any:
+    """Run an async coroutine to completion from sync code (the ADR-016 sync↔async bridge).
+
+    LangGraph nodes run in a worker thread (engine uses ``asyncio.to_thread``), so there is
+    normally no running loop here and ``asyncio.run`` is safe. If a loop is somehow already
+    running in this thread, isolate the coroutine on a fresh thread. Reused by the real-LLM
+    path, the OpenShell clients, and the broker client (ADR-020) alike.
+    """
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(coro)
+    import concurrent.futures
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
+        return ex.submit(asyncio.run, coro).result()
 
 
 @dataclass

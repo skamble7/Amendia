@@ -1,0 +1,43 @@
+{
+  "artifact_key": "art.payment.resolution_record",
+  "version": "1.0.0",
+  "title": "Exception resolution record",
+  "description": "The audit-facing summary of how the exception was resolved: outcome, a timeline summary, and references to the artifacts/messages produced.",
+  "json_schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://amendia.dev/schemas/artifacts/payment/resolution_record/1.0.0.json",
+    "type": "object",
+    "required": ["outcome", "summary"],
+    "additionalProperties": false,
+    "properties": {
+      "outcome": { "enum": ["repaired_and_released", "returned", "closed_no_action"] },
+      "summary": { "type": "string" },
+      "timeline": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "required": ["at", "event"],
+          "additionalProperties": false,
+          "properties": {
+            "at": { "type": "string", "format": "date-time" },
+            "event": { "type": "string" }
+          }
+        }
+      },
+      "references": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "required": ["kind", "id"],
+          "additionalProperties": false,
+          "properties": {
+            "kind": { "enum": ["artifact", "message", "attachment"] },
+            "id": { "type": "string" }
+          }
+        }
+      }
+    }
+  },
+  "compatibility": "backward",
+  "status": "active"
+}

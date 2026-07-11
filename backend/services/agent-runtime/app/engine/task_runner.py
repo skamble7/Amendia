@@ -20,6 +20,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional
 
 from jsonschema import Draft202012Validator
+from langchain_core.runnables import RunnableConfig
 from langgraph.types import interrupt
 
 from amendia_contracts.capability import CapabilityDescriptor
@@ -69,27 +70,38 @@ class NodeContext:
 
 
 def make_task_node(ctx: NodeContext, executor: Executor, *, simulation: bool) -> Callable:
-    def node(state: Dict[str, Any]) -> Dict[str, Any]:
-        return _run_node(ctx, executor, simulation, state)
+    # ``config`` is injected by LangGraph; its thread id is the process_instance_id, which
+    # the executor uses to scope per-instance memoization (ADR-019). Purely additive — with
+    # memoization off (native default) it is unused.
+    def node(state: Dict[str, Any], config: Optional[RunnableConfig] = None) -> Dict[str, Any]:
+        pid = ((config or {}).get("configurable") or {}).get("thread_id")
+        return _run_node(ctx, executor, simulation, state, pid)
     node.__name__ = f"node_{ctx.element_id}"
     return node
 
 
 # --------------------------------------------------------------------------- #
-def _run_node(ctx: NodeContext, executor: Executor, simulation: bool, state: Dict[str, Any]) -> Dict[str, Any]:
+def _run_node(ctx: NodeContext, executor: Executor, simulation: bool, state: Dict[str, Any],
+              pid: Optional[str] = None) -> Dict[str, Any]:
     envelope = state["envelope"]
     inputs = _gather_inputs(ctx, state)
 
     if ctx.executor_type == "human":
-        return _run_manual(ctx, executor, simulation, envelope, inputs, state)
+        return _run_manual(ctx, executor, simulation, envelope, inputs, state, pid)
 
     # capability executor
     if ctx.hitl_mode == "approve_actions":
-        return _run_approve_actions(ctx, executor, simulation, envelope, inputs)
+        return _run_approve_actions(ctx, executor, simulation, envelope, inputs, pid)
     if ctx.hitl_mode in ("review_after", "approve_result"):
-        return _run_reviewed(ctx, executor, simulation, envelope, inputs)
-    # mode none — fully autonomous
-    committed, meta = _produce_outputs(ctx, executor, simulation, envelope, inputs, mode="execute")
+        return _run_reviewed(ctx, executor, simulation, envelope, inputs, pid)
+    # mode none — fully autonomous. A deep_agent must never run un-gated (ADR-021 Part D;
+    # belt-and-suspenders with the registry check) — fail closed.
+    if _is_deep_agent(ctx):
+        raise NodeExecutionError(
+            f"{ctx.element_id}: deep_agent capability must be behind a HITL gate, not 'none'",
+            reason="deep_agent_ungated",
+        )
+    committed, meta = _produce_outputs(ctx, executor, simulation, envelope, inputs, mode="execute", pid=pid)
     return _commit(ctx, committed, actor=_cap_id(ctx), kind="capability", cap_meta=meta)
 
 
@@ -111,15 +123,27 @@ def _cap_id(ctx: NodeContext) -> str:
     return ctx.descriptor.capability_id if ctx.descriptor else ctx.element_id
 
 
-def _run_capability(ctx: NodeContext, descriptor, executor, simulation, envelope, inputs, *, mode, approved=None):
+def _is_deep_agent(ctx: NodeContext) -> bool:
+    d = ctx.descriptor
+    if d is None:
+        return False
+    k = d.kind
+    return (k.value if hasattr(k, "value") else str(k)) == "deep_agent"
+
+
+def _run_capability(ctx: NodeContext, descriptor, executor, simulation, envelope, inputs, *,
+                    mode, approved=None, pid=None, attempt=0):
     exec_ctx = ExecutionContext(
         envelope=envelope, mode=mode, approved_action_ids=approved, simulation=simulation,
         # Hand the declared output JSON Schemas to the executor so the real LLM path
         # can constrain generation to schema-valid artifacts (ignored in simulation).
-        # ``element_id`` lets a sandbox tag its OTLP trace to the element (nemoclaw mode).
+        # ``element_id`` lets a sandbox tag its OTLP trace to the element (nemoclaw mode);
+        # ``process_instance_id`` + ``memo_attempt`` scope per-instance memoization (ADR-019).
         extras={
             "output_schemas": {s.artifact_key: s.json_schema for s in ctx.outputs},
             "element_id": ctx.element_id,
+            "process_instance_id": pid,
+            "memo_attempt": attempt,
         },
     )
     return executor.execute(descriptor, inputs, exec_ctx)
@@ -134,12 +158,15 @@ def _validate(spec: OutputSpec, data: Any) -> Optional[str]:
     return None
 
 
-def _produce_outputs(ctx, executor, simulation, envelope, inputs, *, mode, approved=None):
+def _produce_outputs(ctx, executor, simulation, envelope, inputs, *, mode, approved=None,
+                     pid=None, memo_attempt=0):
     """Run execute + validate, retrying per the descriptor's idempotency policy.
 
     Returns ``({binding_output_name: data}, exec_meta_or_None)`` — ``exec_meta`` is the
     optional executor metadata (e.g. a sandbox OTLP trace id) recorded in the ``actor_log``
-    entry; it is ``None`` in native mode.
+    entry; it is ``None`` in native mode. ``memo_attempt`` scopes the per-instance memo key
+    so a reject → re-run genuinely re-invokes the capability while HITL replays hit the memo
+    (ADR-019).
     """
     descriptor = ctx.descriptor
     idempotent = bool(getattr(descriptor, "idempotent", False))
@@ -154,7 +181,7 @@ def _produce_outputs(ctx, executor, simulation, envelope, inputs, *, mode, appro
     for attempt in range(exec_attempts):
         try:
             result = _run_capability(ctx, descriptor, executor, simulation, envelope, inputs,
-                                     mode=mode, approved=approved)
+                                     mode=mode, approved=approved, pid=pid, attempt=memo_attempt)
         except CapabilityError as exc:
             last_err = str(exc)
             logger.warning("execute error for %s (attempt %d/%d): %s",
@@ -174,7 +201,7 @@ def _produce_outputs(ctx, executor, simulation, envelope, inputs, *, mode, appro
             logger.warning("output schema-invalid for %s; retrying once: %s", ctx.element_id, verr)
             try:
                 result = _run_capability(ctx, descriptor, executor, simulation, envelope, inputs,
-                                         mode=mode, approved=approved)
+                                         mode=mode, approved=approved, pid=pid, attempt=memo_attempt)
             except CapabilityError as exc:
                 raise NodeExecutionError(f"{ctx.element_id}: {exc}", reason="execution_error") from exc
             committed, verr2 = _map_and_validate(ctx, result.get("outputs", {}) or {})
@@ -245,9 +272,9 @@ def _decision(resume: Any) -> Dict[str, Any]:
 
 
 # --------------------------------------------------------------------------- #
-def _run_reviewed(ctx, executor, simulation, envelope, inputs) -> Dict[str, Any]:
+def _run_reviewed(ctx, executor, simulation, envelope, inputs, pid=None) -> Dict[str, Any]:
     """review_after / approve_result: run, hold output, gate before commit."""
-    committed, meta = _produce_outputs(ctx, executor, simulation, envelope, inputs, mode="execute")
+    committed, meta = _produce_outputs(ctx, executor, simulation, envelope, inputs, mode="execute", pid=pid)
     rejects = 0
     while True:
         resume = interrupt(_gate_payload(ctx, artifacts=_gate_artifacts_from_outputs(ctx, committed)))
@@ -268,7 +295,10 @@ def _run_reviewed(ctx, executor, simulation, envelope, inputs) -> Dict[str, Any]
                     f"{ctx.element_id}: rejected twice — failing (v1 policy)",  # TODO escalate
                     reason="rejected",
                 )
-            committed, meta = _produce_outputs(ctx, executor, simulation, envelope, inputs, mode="execute")
+            # A genuine reject re-runs the capability under a fresh memo attempt, so replays
+            # of this reject on later resumes hit the memo rather than re-invoking (ADR-019).
+            committed, meta = _produce_outputs(ctx, executor, simulation, envelope, inputs,
+                                               mode="execute", pid=pid, memo_attempt=rejects)
             continue
         raise NodeExecutionError(f"{ctx.element_id}: unexpected decision {decision!r}", reason="bad_decision")
 
@@ -297,9 +327,10 @@ def _apply_edits(ctx: NodeContext, edits: Any) -> Dict[str, Any]:
     return committed
 
 
-def _run_approve_actions(ctx, executor, simulation, envelope, inputs) -> Dict[str, Any]:
+def _run_approve_actions(ctx, executor, simulation, envelope, inputs, pid=None) -> Dict[str, Any]:
     """approve_actions: propose (no side effects) → gate → execute only on approval."""
-    proposal = _run_capability(ctx, ctx.descriptor, executor, simulation, envelope, inputs, mode="propose")
+    proposal = _run_capability(ctx, ctx.descriptor, executor, simulation, envelope, inputs,
+                               mode="propose", pid=pid)
     actions = proposal.get("proposed_actions", []) or []
     resume = interrupt(_gate_payload(
         ctx, artifacts=_gate_artifacts(ctx.inputs, inputs), proposed_actions=actions,
@@ -316,17 +347,18 @@ def _run_approve_actions(ctx, executor, simulation, envelope, inputs) -> Dict[st
         raise NodeExecutionError(f"{ctx.element_id}: unexpected decision {decision!r}", reason="bad_decision")
     approved_ids = d.get("approved_action_ids")  # None → all
     committed, meta = _produce_outputs(ctx, executor, simulation, envelope, inputs,
-                                       mode="execute", approved=approved_ids)
+                                       mode="execute", approved=approved_ids, pid=pid)
     return _commit(ctx, committed, actor=user, kind="human",
                    extra_actors=[actor_entry(ctx.element_id, _cap_id(ctx), "capability", meta=meta)])
 
 
-def _run_manual(ctx, executor, simulation, envelope, inputs, state) -> Dict[str, Any]:
+def _run_manual(ctx, executor, simulation, envelope, inputs, state, pid=None) -> Dict[str, Any]:
     """manual: human performs the task; assist_capability may pre-draft."""
     draft_by_name: Dict[str, Any] = {}
     extra_actors: List[Dict[str, Any]] = []
     if ctx.assist_descriptor is not None and ctx.outputs:
-        assist = _run_capability(ctx, ctx.assist_descriptor, executor, simulation, envelope, inputs, mode="execute")
+        assist = _run_capability(ctx, ctx.assist_descriptor, executor, simulation, envelope, inputs,
+                                 mode="execute", pid=pid)
         produced = assist.get("outputs", {}) or {}
         for spec in ctx.outputs:
             if spec.artifact_key in produced:

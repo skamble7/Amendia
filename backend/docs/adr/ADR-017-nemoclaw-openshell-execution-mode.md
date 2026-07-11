@@ -124,17 +124,28 @@ compose behaviour stays on `native`.
   spec boundary; real secrets never do. Actually moving provider keys into the gateway lands with the
   real client + managed inference proxy (Phase 2/5).
 - **Deliberately deferred:**
-  - **Phase 2** — the polyllm `nemoclaw` provider (`providers/nemoclaw.py`) + Nemotron ConfigForge refs.
-  - **Phase 3** — side-effect-skill sandboxing (egress allowlists + brokered creds), real sanctions MCP,
-    and per-instance artifact **memoization** (fixes ADR-016 trap 2 for sandboxed replays).
+  - **Phase 2 (done, ADR-018)** — the polyllm `nemoclaw` provider + Nemotron ConfigForge refs.
+  - **Phase 3 (partly done, ADR-019)** — per-instance **memoization** is **delivered** (fixes trap 2);
+    contract-derived **egress policy** is **delivered**. Real sanctions MCP and side-effect-skill
+    sandboxing are **blocked** on the finding below.
   - **Phase 4** — the `deep_agent` capability kind (Deep Agents harness inside the sandbox) + registry
     validation.
   - **Phase 5** — K8s/Helm, Nemotron NIM on GPU, NetworkPolicy egress, Vault-backed gateway secrets.
-  - The real **`HttpOpenShellClient`** wiring is a guarded scaffold only.
-- **Open questions (`[confirm]` against live NemoClaw docs):** gateway execute endpoint + request/response
-  shape; health path; sandbox lifecycle + warm-pool/snapshot semantics; per-sandbox egress policy +
-  credential-scoping expression; managed inference proxy API shape (OpenAI-compatible?); native-MCP
-  wiring from `mcp.server_key`; official compose fragment / Helm charts / GPU requirements.
+- **⚠️ Update (ADR-019): the assumed gateway execute RPC does not exist.** Confirmed against live
+  OpenShell/NemoClaw docs: the runtime is **CLI + in-sandbox-agent driven**, with **no host→gateway
+  synchronous execute-and-return-JSON API**. The real **`HttpOpenShellClient`** therefore cannot be
+  implemented as an HTTP client without inventing an API; it stays **guarded** (raises), and the
+  `nemoclaw` path remains fake-only pending a design **pivot** (run capability execution *inside* an
+  OpenShell sandbox; inference via the in-sandbox `inference.local/v1` proxy; MCP via the in-sandbox
+  registry; egress via sandbox-creation policy). See ADR-019 §Findings.
+- **Open questions — status after ADR-019:**
+  - **Retired (confirmed):** managed inference proxy = OpenAI-compatible `https://inference.local/v1`;
+    OTLP export to `host.openshell.internal:4318/v1/traces`; MCP via file registry
+    `/sandbox/.deepagents/.nemoclaw-mcp.json` (`nemoclaw … mcp add`); egress/credential scoping is
+    CLI/creation-time.
+  - **Resolved to "does not exist → pivot required":** gateway execute endpoint + request/response
+    shape; gateway health path; per-request egress/cred field.
+  - **Still open:** warm-pool/snapshot tuning; official Helm charts / GPU requirements (Phase 5).
 
 ## Traps recorded for maintainers
 
@@ -150,11 +161,13 @@ compose behaviour stays on `native`.
    passthrough silently undoes the ADR-016 trap-1 win).
 4. **Sync node → async client** relies on the engine running nodes in a worker thread; the sandbox call
    reuses ADR-016's `_run_blocking`, which must keep handling both no-loop and running-loop cases.
-5. **`review_after` re-runs on resume** (ADR-016 trap 2) — and a sandbox round-trip sharpens the cost.
-   The memoization seam in `SandboxedExecutor` is the planned fix (Phase 3) and becomes **mandatory** for
-   non-deterministic `deep_agent` capabilities (Phase 4). It is a no-op today.
-6. **`HttpOpenShellClient` is unverified.** Every wire detail is a `[confirm]` placeholder and
-   `run_capability` raises. Do not point `OPENSHELL_URL` at a real gateway until the format is confirmed
-   against live docs; leave it unset to use the fake.
+5. **`review_after` re-runs on resume** (ADR-016 trap 2) — **fixed in ADR-019** by per-instance
+   memoization (`AGENTRT_MEMOIZE_CAPABILITIES`; on by default in `nemoclaw`). The `SandboxedExecutor`
+   memo seam is now wired to `memoized_execute`. Memoization becomes **mandatory** for non-deterministic
+   `deep_agent` capabilities (Phase 4).
+6. **`HttpOpenShellClient` is retired** — ADR-019 confirmed OpenShell has no host→gateway execute RPC.
+   **ADR-020 resolves this** by inverting the transport: the real `nemoclaw` path is
+   `BrokerOpenShellClient` (RabbitMQ request/reply to an in-sandbox `capability-worker`). The HTTP client
+   stays guarded and is never selected; do not revive it. The fake remains the CI default.
 7. **Orchestration stays deterministic.** OpenShell is an *execution* substrate for a single node; the
    BPMN → compiled LangGraph plan is never handed to an agent. Keep autonomy off the orchestration plane.

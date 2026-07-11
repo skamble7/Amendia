@@ -14,14 +14,15 @@ unset) always reports reachable, so dev/CI exercises the sandboxed path with no 
 from __future__ import annotations
 
 import logging
-from typing import Optional
+from typing import Any, Optional
 
 from app.engine.executor.base import Executor
 from app.engine.executor.dispatch import InProcessExecutor, _run_blocking
 from app.engine.executor.openshell import (
+    BrokerOpenShellClient,
     FakeOpenShellClient,
-    HttpOpenShellClient,
     OpenShellClient,
+    RabbitBrokerTransport,
 )
 from app.engine.executor.sandboxed import SandboxedExecutor
 
@@ -33,22 +34,36 @@ class NemoClawUnavailable(RuntimeError):
 
 
 def build_openshell_client(settings) -> OpenShellClient:
-    """Select the OpenShell client: the deterministic fake in dev/CI (no ``OPENSHELL_URL``),
-    or the live HTTP scaffold when a gateway endpoint is configured."""
-    if not settings.OPENSHELL_URL:
-        logger.info(
-            "nemoclaw mode: no AGENTRT_OPENSHELL_URL set — using deterministic "
-            "FakeOpenShellClient (no live gateway)"
-        )
-        return FakeOpenShellClient(simulation=settings.SIMULATION_MODE)
-    return HttpOpenShellClient(settings.OPENSHELL_URL, pool_size=settings.SANDBOX_POOL_SIZE)
+    """Select the OpenShell client (ADR-020):
+      * ``AGENTRT_CAPABILITY_WORKER_ENABLED`` → ``BrokerOpenShellClient`` over RabbitMQ
+        request/reply to the in-sandbox capability-worker (the real ``nemoclaw`` path);
+      * otherwise → the deterministic ``FakeOpenShellClient`` (dev/CI default, no broker).
+
+    (``HttpOpenShellClient`` is retired — OpenShell has no inbound execute API, ADR-019.)
+    """
+    if getattr(settings, "CAPABILITY_WORKER_ENABLED", False):
+        logger.info("nemoclaw mode: BrokerOpenShellClient → capability-worker over RabbitMQ")
+        return BrokerOpenShellClient(RabbitBrokerTransport(settings.RABBITMQ_URL))
+    logger.info(
+        "nemoclaw mode: capability-worker disabled — using deterministic FakeOpenShellClient"
+    )
+    return FakeOpenShellClient(simulation=settings.SIMULATION_MODE)
 
 
-def build_executor(settings, *, client: Optional[OpenShellClient] = None) -> Executor:
-    """Return the executor for ``settings.EXECUTION_MODE``. ``client`` is injectable for tests."""
+def build_executor(settings, *, client: Optional[OpenShellClient] = None,
+                   memo: Optional[Any] = None) -> Executor:
+    """Return the executor for ``settings.EXECUTION_MODE``.
+
+    ``client`` and ``memo`` are injectable for tests. Memoization (ADR-019) is enabled by
+    default in ``nemoclaw`` mode and, in ``native`` mode, when
+    ``AGENTRT_MEMOIZE_CAPABILITIES`` is set — but only takes effect when a ``memo`` store is
+    provided (``main.py`` wires the Mongo store; tests inject an in-memory one). With no
+    store, ``native`` stays byte-for-byte.
+    """
     mode = getattr(settings, "EXECUTION_MODE", "native")
+    native_memoize = bool(getattr(settings, "MEMOIZE_CAPABILITIES", False))
     if mode == "native":
-        return InProcessExecutor()
+        return InProcessExecutor(memo=memo, memoize=native_memoize)
     if mode != "nemoclaw":
         raise ValueError(f"unknown AGENTRT_EXECUTION_MODE '{mode}' (expected native|nemoclaw)")
 
@@ -63,10 +78,11 @@ def build_executor(settings, *, client: Optional[OpenShellClient] = None) -> Exe
             "OpenShell gateway unreachable — degrading to native execution "
             "(AGENTRT_NEMOCLAW_REQUIRED=false)"
         )
-        return InProcessExecutor()
+        return InProcessExecutor(memo=memo, memoize=native_memoize)
 
     logger.info("execution mode: nemoclaw — SandboxedExecutor over %s", type(client).__name__)
-    return SandboxedExecutor(client, fallback=InProcessExecutor())
+    # nemoclaw defaults memoization on (effective only when a memo store is provided).
+    return SandboxedExecutor(client, fallback=InProcessExecutor(), memo=memo, memoize=True)
 
 
 def _probe(client: OpenShellClient) -> bool:

@@ -238,15 +238,17 @@ services:
       AGENTRT_SIMULATION_MODE: "false"
       AGENTRT_CONFIG_FORGE_URL: http://config-forge:8040
       AGENTRT_LLM_CONFIG_REF: dev.llm.bedrock.explicit-creds
-      # --- execution mode (ADR-017) ---
-      # Default = native: today's in-process executor, byte-for-byte. Uncomment the block
-      # below (and the openshell-gateway service + depends_on at the bottom of this file) to
-      # route llm/mcp capability execution through NemoClaw's OpenShell sandbox.
+      # --- execution mode (ADR-017 / ADR-020) ---
+      # Default = native: today's in-process executor, byte-for-byte. To route capability
+      # execution through the in-sandbox capability-worker (ADR-020), set nemoclaw mode and
+      # enable the worker, then start with `--profile nemoclaw` (brings up capability-worker
+      # + stubs). OpenShell has NO inbound gateway API (ADR-019) — the worker consumes jobs
+      # from RabbitMQ and publishes results; the host never calls into the sandbox.
       AGENTRT_EXECUTION_MODE: native
       # AGENTRT_EXECUTION_MODE: nemoclaw
-      # AGENTRT_OPENSHELL_URL: http://openshell-gateway:8090   # [confirm] gateway port/path
-      # AGENTRT_NEMOCLAW_REQUIRED: "false"                     # dev: degrade to native if gateway is down
-      # AGENTRT_SANDBOX_POOL_SIZE: "4"
+      # AGENTRT_CAPABILITY_WORKER_ENABLED: "true"   # host → BrokerOpenShellClient over RabbitMQ
+      # AGENTRT_NEMOCLAW_REQUIRED: "false"          # dev: degrade to native if broker unreachable
+      # AGENTRT_MEMOIZE_CAPABILITIES: "true"        # (on by default in nemoclaw; fixes trap 2)
       AGENTRT_ENABLE_SEED_API: "true"
       AGENTRT_ENABLE_DEBUG_API: "true"
       # Registry owns catalog writes (ownership split); it seeds the shared collections
@@ -273,28 +275,52 @@ services:
         condition: service_started
       config-forge:
         condition: service_healthy
-      # --- execution mode (ADR-017): uncomment when EXECUTION_MODE=nemoclaw ---
-      # openshell-gateway:
-      #   condition: service_healthy
 
-  # --- NemoClaw OpenShell gateway (ADR-017, nemoclaw mode) --------------------
-  # Secure sandbox runtime for capability execution: egress policy, credential isolation
-  # (real secrets stay here, the sandbox sees only scoped placeholders), managed inference
-  # proxy, OTLP tracing, native MCP brokering. Commented out so `docker compose up` stays on
-  # native. [confirm] the official NemoClaw image / compose fragment / gateway port before use;
-  # no GPU/Nemotron service is added in Phase 1 (that is Phase 5).
-  # openshell-gateway:
-  #   image: nvcr.io/nvidia/nemoclaw/openshell-gateway:latest   # [confirm] image + tag
-  #   ports:
-  #     - "8090:8090"                                           # [confirm] gateway port
-  #   environment:
-  #     # Real provider secrets live HERE (the host gateway), never in the sandbox env.
-  #     OPENSHELL_INFERENCE_TOKEN: ${OPENSHELL_INFERENCE_TOKEN:-}   # [confirm] var name
-  #   healthcheck:
-  #     test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8090/healthz').status==200 else 1)"]  # [confirm] health path
-  #     interval: 10s
-  #     timeout: 5s
-  #     retries: 10
+  # --- capability-worker (ADR-020, nemoclaw mode) ----------------------------
+  # The in-sandbox execution substrate, run here as a PLAIN process (no OpenShell needed for
+  # dev/CI). It consumes capability_exec_request jobs from RabbitMQ, runs the shared execution
+  # core, and publishes results. Opt-in via `--profile nemoclaw`; default compose stays native.
+  # In production this same process is launched INSIDE an OpenShell sandbox by `nemoclaw
+  # onboard`, reaching out (egress-only) to RabbitMQ, inference.local/v1, and MCP servers under
+  # the sandbox's creation-time allowlist (see ADR-020 §Packaging).
+  capability-worker:
+    profiles: ["nemoclaw"]
+    build:
+      context: ../..
+      dockerfile: backend/services/agent-runtime/Dockerfile
+    command: ["python", "-m", "worker.main"]
+    environment:
+      AGENTRT_RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+      AGENTRT_CONFIG_FORGE_URL: http://config-forge:8040
+      AGENTRT_LLM_CONFIG_REF: dev.llm.nemoclaw.nim          # llm → inference stub (dev)
+      AGENTRT_SIMULATION_MODE: "false"                      # exercise real llm/mcp transport paths
+      AGENTRT_WORKER_INFERENCE_BASE_URL: http://stub-inference:8055/v1   # dev stub; prod: inference.local/v1
+      AGENTRT_MCP_REGISTRY_PATH: /sandbox/.deepagents/.nemoclaw-mcp.json  # [confirm] real registry shape
+      # deep_agent (ADR-021): fake runner by default (deterministic, no harness). Set true only
+      # inside a sandbox with the `deepagents` SDK + a reachable model; the pilot pack
+      # `wire-repair-agentic` is onboarded via the registry (not a compose change). Sandbox-side
+      # provisioning: `nemoclaw <sandbox> mcp add` for the whitelisted tools + the Deep Agents
+      # harness launch (# [confirm] exact harness bootstrap).
+      AGENTRT_DEEPAGENT_REAL: "false"
+      AGENTRT_LOG_LEVEL: INFO
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      config-forge:
+        condition: service_healthy
+
+  # Dev stubs for the worker's egress targets — OpenAI-compatible inference + an MCP server.
+  # Placeholders: supply an image/command for your stub (e.g. a tiny FastAPI app). They exist
+  # only so the REAL transport paths are exercisable in dev without a GPU/NIM or a real OFAC
+  # list (list_provider stays stub). Marked opt-in; not needed when SIMULATION_MODE=true.
+  # stub-inference:
+  #   profiles: ["nemoclaw"]
+  #   image: <your-openai-compatible-stub>          # [confirm] returns schema-valid JSON completions
+  #   ports: ["8055:8055"]
+  # stub-mcp:
+  #   profiles: ["nemoclaw"]
+  #   image: <your-mcp-stub>                         # [confirm] standard MCP tools/call: screen_party
+  #   ports: ["8056:8056"]
 
   process-registry:
     build:

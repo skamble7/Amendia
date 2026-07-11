@@ -27,6 +27,10 @@ class CapabilityKind(str, Enum):
     SKILL = "skill"
     MCP = "mcp"
     LLM = "llm"
+    # ADR-021 — a bounded agent loop (LangChain Deep Agents harness) inside one node.
+    # Additive: existing descriptors/packs are unaffected. Runnable only in nemoclaw mode,
+    # always behind a HITL gate, always memoized. The contract boundary is the guarantee.
+    DEEP_AGENT = "deep_agent"
 
 
 class SideEffect(str, Enum):
@@ -67,7 +71,29 @@ class LlmRuntime(ContractModel):
     structured_output: bool = True
 
 
-Runtime = Union[SkillRuntime, McpRuntime, LlmRuntime]
+class DeepAgentBudget(ContractModel):
+    """Hard budget caging a deep_agent loop (ADR-021)."""
+
+    max_steps: int = Field(default=12, ge=1, le=200)      # → LangGraph recursion_limit
+    max_tokens: Optional[int] = Field(default=None, ge=1)
+
+
+class DeepAgentRuntime(ContractModel):
+    """A bounded Deep Agents Code loop. ``tools`` is the **whitelisted** toolset (MCP tool
+    ids and/or named worker functions); the harness may use nothing else. ``model_config_key``
+    should resolve to a managed/``nemoclaw`` ref. ``structured_output`` requires the harness
+    to emit an object validating against the declared output artifact schema (host-validated).
+    """
+
+    kind: Literal["deep_agent"]
+    prompt_key: str
+    model_config_key: Optional[str] = None
+    tools: List[str] = Field(..., min_length=1)
+    structured_output: bool = True
+    budget: DeepAgentBudget = Field(default_factory=DeepAgentBudget)
+
+
+Runtime = Union[SkillRuntime, McpRuntime, LlmRuntime, DeepAgentRuntime]
 
 
 class Constraints(ContractModel):

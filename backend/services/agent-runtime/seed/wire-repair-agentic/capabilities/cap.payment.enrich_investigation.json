@@ -1,0 +1,28 @@
+{
+  "descriptor_version": "1.0",
+  "capability_id": "cap.payment.enrich_investigation",
+  "version": "1.0.0",
+  "title": "Enrich & investigate payment",
+  "description": "Pulls the payment record, gpi/tracker status, account history and attachment summaries into an investigation dossier.",
+  "kind": "skill",
+  "side_effect": "read_only",
+  "idempotent": true,
+  "inputs": [],
+  "outputs": [
+    {
+      "name": "dossier",
+      "schema": "art.payment.investigation_dossier@^1.0.0"
+    }
+  ],
+  "runtime": {
+    "kind": "skill",
+    "entrypoint": "app.capabilities.wire_repair.enrich:run"
+  },
+  "constraints": {
+    "timeout_seconds": 120,
+    "max_retries": 2,
+    "min_hitl_mode": "none"
+  },
+  "owner": "platform",
+  "status": "active"
+}

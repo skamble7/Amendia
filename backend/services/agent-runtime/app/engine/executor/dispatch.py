@@ -1,31 +1,24 @@
 # app/engine/executor/dispatch.py
-"""Kind-dispatching in-process capability executor (``native`` mode).
+"""The in-process capability executor (``native`` mode) + the real-LLM primitive.
 
-  * ``skill`` — import ``runtime.entrypoint`` (``module:function``) and call it.
-  * ``llm``   — simulation mode → the paired simulation skill (by capability_id);
-                otherwise the real, provider-agnostic LLM path via polyllm +
-                ConfigForge (see ``_execute_llm_real``).
-  * ``mcp``   — simulation mode → the paired simulation skill; real path has no MCP
-                client yet, so it falls back to the simulation skill with a warning
-                (TODO(mcp): real MCP client).
-
-Capabilities are pure/deterministic in simulation mode and return
-``{"outputs": {artifact_key: data}, "log": str}`` or
-``{"proposed_actions": [...], "log": str}``.
+``InProcessExecutor`` runs the shared execution core (`executor/core.py`) in-process, adding
+only per-instance memoization (ADR-019). The kind-dispatch itself lives in the core so the
+in-process path and the in-sandbox worker (ADR-020) share one implementation. This module
+also owns ``run_real_llm`` — the provider-agnostic polyllm/ConfigForge primitive the core
+calls for ``llm`` capabilities.
 """
 from __future__ import annotations
 
-import asyncio
-import importlib
 import json
 import logging
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Dict, Optional
 
 from amendia_contracts.capability import CapabilityDescriptor
 
-from app.capabilities.wire_repair import SIM_CAPABILITIES
 from app.config import settings
-from app.engine.executor.base import CapabilityError, ExecutionContext
+from app.engine.executor.base import CapabilityError, ExecutionContext, _run_blocking
+from app.engine.executor.core import execute_capability
+from app.engine.executor.memo import memoized_execute
 
 logger = logging.getLogger(__name__)
 
@@ -35,103 +28,30 @@ _LLM_CLIENTS: Dict[str, Any] = {}
 
 
 class InProcessExecutor:
-    """Today's executor, unchanged — ``native`` mode. Implements the ``Executor`` protocol."""
+    """Today's executor — ``native`` mode. Implements the ``Executor`` protocol.
+
+    ``memo``/``memoize`` add per-instance capability memoization (ADR-019); both default to
+    disabled so ``native`` stays byte-for-byte unless ``AGENTRT_MEMOIZE_CAPABILITIES`` is set.
+    """
+
+    def __init__(self, *, memo: Optional[Any] = None, memoize: bool = False) -> None:
+        self._memo = memo
+        self._memoize = memoize
 
     def execute(
         self, descriptor: CapabilityDescriptor, inputs: Dict[str, Any], ctx: ExecutionContext
     ) -> Dict[str, Any]:
-        kind = descriptor.kind.value if hasattr(descriptor.kind, "value") else str(descriptor.kind)
-        if kind == "skill":
-            fn = self._resolve_skill(descriptor)
-        elif kind == "llm":
-            if ctx.simulation:
-                fn = self._resolve_sim(descriptor)
-            else:
-                return self._execute_llm_real(descriptor, inputs, ctx)
-        elif kind == "mcp":
-            if ctx.simulation:
-                fn = self._resolve_sim(descriptor)
-            else:
-                # No real MCP client yet. Until it lands, fall back to the paired
-                # simulation skill so real-LLM runs still complete end-to-end.
-                # TODO(mcp): replace with a real MCP client call.
-                fn = SIM_CAPABILITIES.get(descriptor.capability_id)
-                if fn is None:
-                    raise NotImplementedError(
-                        f"real MCP execution for {descriptor.capability_id} is not implemented "
-                        "and no simulation fallback is registered"
-                    )
-                logger.warning(
-                    "MCP capability %s has no real client yet — using simulation fallback",
-                    descriptor.capability_id,
-                )
-        else:
-            raise CapabilityError(f"unknown capability kind '{kind}' for {descriptor.capability_id}")
+        return memoized_execute(
+            memo=self._memo, enabled=self._memoize, inputs=inputs, ctx=ctx,
+            run=lambda: self._execute_uncached(descriptor, inputs, ctx),
+        )
 
-        try:
-            result = fn(
-                inputs=inputs,
-                envelope=ctx.envelope,
-                mode=ctx.mode,
-                approved_action_ids=ctx.approved_action_ids,
-            )
-        except Exception as exc:  # noqa: BLE001
-            raise CapabilityError(f"{descriptor.capability_id} raised: {exc}") from exc
-        if not isinstance(result, dict):
-            raise CapabilityError(f"{descriptor.capability_id} returned non-dict: {type(result)}")
-        return result
-
-    # ------------------------------------------------------------------ #
-    def _resolve_skill(self, descriptor: CapabilityDescriptor) -> Callable:
-        entrypoint = getattr(descriptor.runtime, "entrypoint", None)
-        if not entrypoint or ":" not in entrypoint:
-            raise CapabilityError(f"bad skill entrypoint for {descriptor.capability_id}: {entrypoint!r}")
-        mod_path, fn_name = entrypoint.split(":", 1)
-        try:
-            mod = importlib.import_module(mod_path)
-            return getattr(mod, fn_name)
-        except (ImportError, AttributeError) as exc:
-            raise CapabilityError(f"cannot import skill {entrypoint!r}: {exc}") from exc
-
-    def _resolve_sim(self, descriptor: CapabilityDescriptor) -> Callable:
-        fn = SIM_CAPABILITIES.get(descriptor.capability_id)
-        if fn is None:
-            raise CapabilityError(
-                f"no simulation capability registered for {descriptor.capability_id}"
-            )
-        return fn
-
-    # ------------------------------------------------------------------ #
-    def _execute_llm_real(
+    def _execute_uncached(
         self, descriptor: CapabilityDescriptor, inputs: Dict[str, Any], ctx: ExecutionContext
     ) -> Dict[str, Any]:
-        """Real LLM path (SIMULATION_MODE=false) — provider-agnostic via polyllm.
-
-        The model, provider, keys and generation params live in ConfigForge; swapping
-        vendors (OpenAI ↔ Gemini ↔ Claude-on-Bedrock) is a ConfigForge edit, not a code
-        change. The config ref is chosen per the platform rule: **the capability's own
-        declaration wins** (``descriptor.runtime.model_config_key``); when the capability
-        declares nothing, we fall back to the runtime default (``settings.LLM_CONFIG_REF``).
-        For each declared output artifact we prompt the model for a single JSON object
-        constrained to the artifact's JSON Schema, then hand it back for schema validation.
-        """
-        ref = getattr(descriptor.runtime, "model_config_key", None) or settings.LLM_CONFIG_REF
-        output_schemas: Dict[str, Any] = (ctx.extras or {}).get("output_schemas", {})
-        targets = [
-            (akey, output_schemas.get(akey))
-            for akey in (
-                out.model_dump(by_alias=True)["schema"].split("@", 1)[0]
-                for out in descriptor.outputs
-            )
-        ]
-        produced, provider, model = run_real_llm(
-            capability_id=descriptor.capability_id, targets=targets, ref=ref,
-            inputs=inputs, envelope=ctx.envelope,
-        )
-        return {
-            "outputs": produced,
-            "log": f"real LLM [{ref}] ({provider}:{model}) produced {', '.join(produced)}",
-        }
+        # Native runs the shared core in-process with no MCP client → mcp falls back to the
+        # simulation skill exactly as before (ADR-020: one execution implementation).
+        return execute_capability(descriptor, inputs, ctx, mcp_client=None)
 
 
 # --------------------------------------------------------------------------- #
@@ -210,23 +130,6 @@ def _llm_client(ref: str) -> Any:
 
 
 # --------------------------------------------------------------------------- #
-def _run_blocking(coro: Any) -> Any:
-    """Run an async coroutine to completion from sync code.
-
-    LangGraph nodes run in a worker thread (engine uses ``asyncio.to_thread``), so
-    there is normally no running loop here and ``asyncio.run`` is safe. If a loop is
-    somehow already running in this thread, isolate the coroutine on a fresh thread.
-    """
-    try:
-        asyncio.get_running_loop()
-    except RuntimeError:
-        return asyncio.run(coro)
-    import concurrent.futures
-
-    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
-        return ex.submit(asyncio.run, coro).result()
-
-
 def _parse_json(text: str) -> Optional[Dict[str, Any]]:
     """Best-effort parse of a model response into a JSON object.
 

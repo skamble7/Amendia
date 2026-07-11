@@ -1,0 +1,34 @@
+{
+  "artifact_key": "art.payment.repair_instruction",
+  "version": "1.0.0",
+  "title": "Wire repair instruction",
+  "description": "Field-level corrections to the beneficiary details, with before/after values and a justification, ready for four-eyes approval.",
+  "json_schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://amendia.dev/schemas/artifacts/payment/repair_instruction/1.0.0.json",
+    "type": "object",
+    "required": ["uetr", "corrections", "justification"],
+    "additionalProperties": false,
+    "properties": {
+      "uetr": { "type": "string" },
+      "corrections": {
+        "type": "array",
+        "minItems": 1,
+        "items": {
+          "type": "object",
+          "required": ["field", "before", "after"],
+          "additionalProperties": false,
+          "properties": {
+            "field": { "type": "string", "description": "dot-path, e.g. creditor.account.id" },
+            "before": { "type": "string" },
+            "after": { "type": "string" }
+          }
+        }
+      },
+      "justification": { "type": "string" },
+      "requires_rescreen": { "type": "boolean", "default": true }
+    }
+  },
+  "compatibility": "backward",
+  "status": "active"
+}

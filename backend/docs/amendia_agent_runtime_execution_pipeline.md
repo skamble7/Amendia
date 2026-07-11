@@ -193,6 +193,14 @@ call a **real, config-driven model** via polyllm + ConfigForge — the config re
 client yet) falls back to the simulation skill. See **ADR-016** and the LLM configuration guide. What
 happens around the execute step depends on the binding's HITL mode:
 
+**`deep_agent` nodes (ADR-021).** A fourth kind runs a **bounded Deep Agents loop** inside the node — but
+**only in `nemoclaw` mode** (the worker/sandbox supplies the runner; the native/in-process path refuses it,
+fail closed). It is **always** behind a HITL gate and **always memoized** (mandatory, independent of the
+opt-in flag) so the reviewed verdict — not a fresh agent run — commits on resume. The loop is caged by the
+pinned output schema (host-validated), a `tools` whitelist + inference-proxy egress (injection resistance,
+§9.6), a step budget, and the HITL gate. The BPMN still dictates order/routing/gates; the harness never
+sees the plan (ADR-017 trap 7). CI drives it via the deterministic `FakeDeepAgentRunner`.
+
 ```mermaid
 flowchart TB
   N["node runs"] --> K{executor_type?}
@@ -236,9 +244,24 @@ identity taken from the bearer (never the body):
 
 Because only the interrupted node replays and simulation capabilities are deterministic, `propose` re-runs
 have no side effects and `execute` runs exactly once, post-approval. **Caveat for real `llm` capabilities:**
-replay re-invokes the model on resume, so a `review_after` node calls the LLM again after approval and the
-regenerated (non-deterministic) artifact — not the one the human reviewed — is what commits. Low temperature
-keeps them near-identical; per-instance memoization of the produced artifact is the planned fix (ADR-016, trap 2).
+replay would re-invoke the model on resume, so a `review_after` node would call the LLM again after approval
+and the regenerated artifact — not the one the human reviewed — would commit. **Fixed in ADR-019** by
+per-instance **memoization** keyed on `(process_instance_id, element_id, inputs_hash, attempt)`: on resume
+the node replays cheaply from a runtime-private Mongo memo and the **reviewed** artifact commits; a genuine
+`reject → re-run` (fresh `attempt`) still re-invokes. Enabled by default in `nemoclaw` mode; in `native` via
+`AGENTRT_MEMOIZE_CAPABILITIES` (default off → byte-identical).
+
+**MCP / `nemoclaw` note (ADR-020):** OpenShell has no inbound execute API (ADR-019), so the real
+`nemoclaw` path **inverts the transport** — the host publishes a `capability_exec_request` job and an
+in-sandbox **capability-worker** consumes it (egress), runs the shared execution core, and replies. The
+`OpenShellClient.run_capability` seam is unchanged (`BrokerOpenShellClient` in place of the retired HTTP
+client). In the worker, `llm` runs against `inference.local/v1`, **`mcp` runs for real** via the
+in-sandbox MCP registry (`server_key`/`tools`, `list_provider` stub in dev — the simulation fallback is
+retained only for the fake/native paths and logged at the boundary), and side-effect skills run
+sandboxed (action still simulated in dev). The host still validates, commits, checkpoints, memoizes, and
+appends `actor_log` (with the worker's OTLP trace id). Contract-derived **egress policy** feeds
+sandbox-creation provisioning. CI runs on the in-memory transport; the real RabbitMQ round-trip is
+env-gated.
 
 ### 5.6 Termination
 

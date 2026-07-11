@@ -318,8 +318,8 @@ Registered independently of packs, before any pack can reference it. This is the
     "title": { "type": "string" },
     "description": { "type": "string" },
     "kind": {
-      "enum": ["skill", "mcp", "llm"],
-      "description": "skill = in-process code (LangGraph subgraph/function); mcp = tools on an MCP server; llm = pure prompt-based step"
+      "enum": ["skill", "mcp", "llm", "deep_agent"],
+      "description": "skill = in-process code (LangGraph subgraph/function); mcp = tools on an MCP server; llm = pure prompt-based step; deep_agent = a bounded LangChain Deep Agents loop inside one node (ADR-021) — nemoclaw-only, HITL-gated, memoized, caged by a tool whitelist + pinned output schema"
     },
     "side_effect": {
       "enum": ["read_only", "side_effectful"],
@@ -703,6 +703,7 @@ Audit: the task document is immutable after `decided` except `updated_at`; toget
 | Every BPMN task ↔ exactly one binding | 1 ↔ BPMN |
 | Binding capability exists, version in range, status active | 1 → 2 |
 | Binding hitl mode ≥ capability `min_hitl_mode`; side_effectful ⇒ ≥ approve_actions | 1 → 2 |
+| **deep_agent** (ADR-021): bound behind a HITL gate (≠ none); `read_only` unless `deep_agent_justifications` provided; every `tools[]` resolves; pack marked nemoclaw-required | 1 → 2 |
 | Binding input/output schemas ≡ capability declared IO schemas (compatible versions) | 1 → 2 → 3 |
 | Every artifact ref registered & active; gateway variables are required fields | 1 → 3 |
 | Dispatch resolution pins pack version that is `active` | 4 → 1 |
