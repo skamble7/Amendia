@@ -97,13 +97,17 @@ GKE is fully wired; EKS/AKS/on-prem are **scaffolds** — every provider-specifi
 
 ## `[confirm]` / deferred (do not invent)
 
-1. **NemoClaw K8s sandbox mechanism** (operator/CRD/DaemonSet) is **unconfirmed** — so the worker runs as
-   a plain hardened Deployment + NetworkPolicy (a valid posture). The OpenShell-sandbox enhancement is
-   **gated** behind `openshell.sandbox.enabled` (default off) and **STOP**: not implemented until
-   confirmed. Baseline is unaffected.
-2. **AMQP egress via the OpenShell egress proxy** (HTTP-method/path-level per ADR-019/020): resolved for
-   the **baseline** as a NetworkPolicy rule to RabbitMQ:5672. Whether the *sandbox* proxy allows an
-   AMQP/TCP allowlist (vs HTTP-only, needing AMQP-over-WebSocket) stays `# [confirm]` for the sandbox path.
+> **Update (ADR-023):** items 1 and 2 are now substantially resolved against the real `openshell` CLI
+> (v0.0.80). OpenShell ships a **Kubernetes driver** (`sandbox create --driver-config-json
+> '{"kubernetes":{"pod":{"node_selector":…}}}'`) — the K8s sandbox mechanism exists (not operator-invented);
+> full cluster wiring still to validate. And **AMQP sandbox egress is allowed** (TCP passthrough — omit the
+> policy `protocol` field), so the sandbox path is not blocked. See ADR-023.
+
+1. **NemoClaw/OpenShell K8s sandbox mechanism** — **partially resolved (ADR-023):** OpenShell has a
+   Kubernetes driver. The baseline (plain hardened Deployment + NetworkPolicy) remains valid and default;
+   the OpenShell-sandbox enhancement stays gated (`openshell.sandbox.enabled`) pending cluster validation.
+2. **AMQP egress via the OpenShell egress proxy** — **RESOLVED (ADR-023): allowed** on the sandbox path via
+   a TCP-passthrough policy endpoint (in addition to the baseline NetworkPolicy rule to RabbitMQ:5672).
 3. **NVIDIA NIM Helm packaging** (image/args/licensing `NGC_API_KEY`) — the in-chart NIM workload is a
    `# [confirm]` placeholder; swap for NVIDIA's official NIM subchart once confirmed.
 4. **CNI egress portability** (Calico/Cilium/GKE-native) — extra `ipBlock`s may be needed `# per-provider`.

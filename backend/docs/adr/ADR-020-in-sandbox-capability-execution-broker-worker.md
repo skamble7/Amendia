@@ -98,11 +98,14 @@ and stub rails, with credential scoping. `docker-compose.yml` adds `capability-w
 service** under an opt-in `nemoclaw` profile (default compose stays `native`), plus commented
 stub-inference / stub-mcp placeholders.
 
-**`# [confirm]` (deploy layer, not guessed into code):** OpenShell's egress proxy is described as
-enforcing at **HTTP method/path level** — whether **AMQP** egress to RabbitMQ needs a TCP-level
-allowlist or AMQP-over-WebSocket is unconfirmed; the exact **MCP registry file shape** written by
-`nemoclaw mcp add`; and the in-sandbox **OTLP exporter** wiring. None of these affect the worker/broker
-code (the worker is transport-plain); they live in the compose/packaging notes marked `# [confirm]`.
+**`# [confirm]` (deploy layer) — RESOLVED in ADR-023:** the AMQP-egress question is **answered — allowed.**
+Against the real `openshell` CLI (v0.0.80) + policy-schema docs, the sandbox egress policy supports a
+**TCP-passthrough** endpoint (omit the `protocol` field), so **AMQP to RabbitMQ:5672 is a valid egress
+rule** — `openshell policy update <sb> --add-endpoint 'host:5672:read-write'`. No AMQP-over-WebSocket or
+HTTP-fallback is needed; the broker transport works in a real sandbox as-is. The worker image is placed via
+`openshell sandbox create --from <image> --policy <yaml>`. (Also corrected: the CLI is `openshell`, not
+`nemoclaw onboard`/`gateway start` — see ADR-023 for the real surface.) MCP is a first-class egress
+protocol (`protocol=mcp`); OTLP live-verification is part of the pending end-to-end run (ADR-023 §Blockers).
 
 ## Consequences
 
