@@ -1,0 +1,23 @@
+{{- /* PodDisruptionBudget per service (+ worker) when enabled. */ -}}
+{{- $root := . -}}
+{{- if .Values.defaults.podDisruptionBudget.enabled -}}
+{{- $entries := dict -}}
+{{- range $name, $svc := .Values.services -}}{{- $_ := set $entries $name $svc -}}{{- end -}}
+{{- if and .Values.capabilityWorker.enabled (eq .Values.executionMode "nemoclaw") -}}
+{{- $_ := set $entries "capability-worker" .Values.capabilityWorker -}}
+{{- end -}}
+{{- range $name, $svc := $entries }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "amendia.svc" (dict "root" $root "name" $name) }}
+  labels:
+{{ include "amendia.labels" (dict "root" $root "name" $name) | indent 4 }}
+spec:
+  minAvailable: {{ $root.Values.defaults.podDisruptionBudget.minAvailable }}
+  selector:
+    matchLabels:
+{{ include "amendia.selectorLabels" (dict "root" $root "name" $name) | indent 6 }}
+{{- end }}
+{{- end }}

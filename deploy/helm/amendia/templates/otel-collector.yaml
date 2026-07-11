@@ -1,0 +1,73 @@
+{{- /* Minimal in-cluster OTLP collector (ADR-022 Part G). agent-runtime + worker export traces
+       here; the otlp_trace_id → actor_log linkage (ADR-017/020) joins traces to the Mongo audit
+       trail by process_instance_id + correlation_id. The export backend (Tempo/Jaeger/Cloud Trace)
+       is # per-deployment — configure the collector's exporters. */ -}}
+{{- if and .Values.otel.enabled .Values.otel.deployCollector }}
+{{- $root := . }}
+{{- $fullname := include "amendia.svc" (dict "root" $root "name" "otel-collector") }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $fullname }}-config
+  labels:
+{{ include "amendia.labels" (dict "root" $root "name" "otel-collector") | indent 4 }}
+data:
+  collector.yaml: |
+    receivers:
+      otlp:
+        protocols:
+          http: { endpoint: 0.0.0.0:4318 }
+          grpc: { endpoint: 0.0.0.0:4317 }
+    processors:
+      batch: {}
+    exporters:
+      # per-deployment: point at your tracing backend (Tempo/Jaeger/Cloud Trace/etc).
+      debug: { verbosity: basic }
+    service:
+      pipelines:
+        traces: { receivers: [otlp], processors: [batch], exporters: [debug] }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $fullname }}
+  labels:
+{{ include "amendia.labels" (dict "root" $root "name" "otel-collector") | indent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+{{ include "amendia.selectorLabels" (dict "root" $root "name" "otel-collector") | indent 6 }}
+  template:
+    metadata:
+      labels:
+{{ include "amendia.selectorLabels" (dict "root" $root "name" "otel-collector") | indent 8 }}
+    spec:
+      containers:
+        - name: otel-collector
+          image: {{ $root.Values.otel.collectorImage | quote }}
+          args: ["--config=/etc/otel/collector.yaml"]
+          ports:
+            - { name: otlp-http, containerPort: 4318 }
+            - { name: otlp-grpc, containerPort: 4317 }
+          volumeMounts:
+            - name: config
+              mountPath: /etc/otel
+      volumes:
+        - name: config
+          configMap: { name: {{ $fullname }}-config }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $fullname }}
+  labels:
+{{ include "amendia.labels" (dict "root" $root "name" "otel-collector") | indent 4 }}
+spec:
+  selector:
+{{ include "amendia.selectorLabels" (dict "root" $root "name" "otel-collector") | indent 4 }}
+  ports:
+    - { name: otlp-http, port: 4318, targetPort: 4318 }
+    - { name: otlp-grpc, port: 4317, targetPort: 4317 }
+{{- end }}

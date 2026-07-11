@@ -1,0 +1,51 @@
+# values-gke.yaml — GKE overlay (FIRST-CLASS, fully wired). ADR-022.
+# Only the genuinely GKE-specific seams differ from the base chart.
+
+global:
+  # GKE default dynamic-provisioning storage class.
+  storageClass: "standard-rwo"
+
+# GKE Workload Identity (only needed for direct GCP API access; Vault secrets use K8s auth).
+serviceAccountAnnotations: {}
+  # iam.gke.io/gcp-service-account: amendia@<project>.iam.gserviceaccount.com
+
+# Nemotron self-hosted on a GKE GPU node pool (Part F).
+inference:
+  mode: "nim-selfhosted"
+  inClusterHost: "amendia-nim"
+  inClusterPort: 8000
+  nim:
+    # GKE GPU scheduling — first-class.
+    nodeSelector:
+      cloud.google.com/gke-accelerator: nvidia-l4     # per-cluster: your GPU SKU
+    tolerations:
+      - key: nvidia.com/gpu
+        operator: Exists
+        effect: NoSchedule
+    resources:
+      limits:
+        nvidia.com/gpu: 1
+
+# GKE ingress (GCE L7 LB). cert-manager / managed-cert annotations as needed.
+ingress:
+  enabled: true
+  className: "gce"
+  host: "amendia.example.com"            # per-deployment
+  annotations:
+    kubernetes.io/ingress.class: "gce"
+
+vault:
+  address: "https://vault.internal.example.com"   # per-deployment
+  method: "csi"
+
+# Prod posture: fail-closed nemoclaw.
+executionMode: "nemoclaw"
+nemoclawRequired: true
+
+# Self-contained datastores are fine for a pilot; for prod prefer managed
+# (Mongo Atlas / Memorystore-for-Rabbit alternative) and set datastores.*.deploy=false +
+# mongo.uri / rabbit.host to the managed endpoints.
+datastores:
+  mongodb: { deploy: true, image: "mongo:7", storage: "20Gi" }
+  rabbitmq: { deploy: true, image: "rabbitmq:3-management" }
+  keycloak: { deploy: false }

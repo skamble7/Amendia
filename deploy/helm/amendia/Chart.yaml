@@ -1,0 +1,16 @@
+apiVersion: v2
+name: amendia
+description: >-
+  Amendia payment-exception platform — portable umbrella chart (ADR-022).
+  Templates every platform service (stub, ingestor, agent-runtime, process-registry,
+  identity, notification-service, config-forge, capability-worker, webui) plus optional
+  in-cluster datastores (Mongo, RabbitMQ, Keycloak). Generic base + thin per-provider
+  values overlays (GKE first-class; EKS/AKS/on-prem scaffolded). Secrets via Vault
+  (Kubernetes auth). Nemotron serving via a single inference.mode toggle.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+# NOTE: Mongo/RabbitMQ/Keycloak are provided as *optional in-chart Deployments* (datastores.*.deploy)
+# so `helm template` renders a self-contained stack offline. A bank typically disables these and
+# points at managed/BYO endpoints (values). NIM is a conditional in-chart workload (inference.mode);
+# swap for NVIDIA's official NIM subchart once its Helm packaging is confirmed (# [confirm]).

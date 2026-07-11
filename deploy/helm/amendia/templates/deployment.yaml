@@ -1,0 +1,105 @@
+{{- /* One Deployment per platform service (generic renderer). ADR-022 Part A. */ -}}
+{{- $root := . -}}
+{{- range $name, $svc := .Values.services }}
+{{- $fullname := include "amendia.svc" (dict "root" $root "name" $name) }}
+{{- $lbls := dict "root" $root "name" $name }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $fullname }}
+  labels:
+{{ include "amendia.labels" $lbls | indent 4 }}
+spec:
+  replicas: {{ $svc.replicas | default $root.Values.defaults.replicas }}
+  selector:
+    matchLabels:
+{{ include "amendia.selectorLabels" $lbls | indent 6 }}
+  template:
+    metadata:
+      labels:
+{{ include "amendia.selectorLabels" $lbls | indent 8 }}
+      annotations:
+{{ include "amendia.vaultAnnotations" (dict "root" $root "name" $name) | indent 8 }}
+    spec:
+      serviceAccountName: {{ $fullname }}
+      {{- with $root.Values.global.imagePullSecrets }}
+      imagePullSecrets:
+{{ toYaml . | indent 8 }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: {{ $root.Values.defaults.securityContext.runAsNonRoot }}
+        runAsUser: {{ $root.Values.defaults.securityContext.runAsUser }}
+        fsGroup: {{ $root.Values.defaults.securityContext.runAsUser }}
+      containers:
+        - name: {{ $name }}
+          image: {{ include "amendia.image" (dict "root" $root "image" $svc.image) }}
+          imagePullPolicy: {{ $root.Values.global.imagePullPolicy }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: {{ $svc.readOnlyRootFs | default false }}
+            capabilities:
+              drop: ["ALL"]
+          ports:
+            - name: http
+              containerPort: {{ $svc.port }}
+          {{- if or $svc.common $svc.extraEnv $svc.secretEnv (eq $name "agent-runtime") }}
+          env:
+          {{- if $svc.common }}
+{{ include "amendia.commonEnv" (dict "root" $root "svc" $svc) | indent 12 }}
+          {{- end }}
+          {{- if $svc.extraEnv }}
+{{ include "amendia.extraEnv" (dict "root" $root "svc" $svc) | indent 12 }}
+          {{- end }}
+          {{- if eq $name "agent-runtime" }}
+            - name: AGENTRT_EXECUTION_MODE
+              value: {{ $root.Values.executionMode | quote }}
+            - name: AGENTRT_NEMOCLAW_REQUIRED
+              value: {{ $root.Values.nemoclawRequired | quote }}
+            - name: AGENTRT_MEMOIZE_CAPABILITIES
+              value: {{ $root.Values.memoizeCapabilities | quote }}
+            - name: AGENTRT_CAPABILITY_WORKER_ENABLED
+              value: {{ eq $root.Values.executionMode "nemoclaw" | quote }}
+            - name: AGENTRT_LLM_CONFIG_REF
+              value: {{ index $root.Values.inference.llmConfigRef $root.Values.inference.mode | quote }}
+            {{- if $root.Values.otel.enabled }}
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: {{ $root.Values.otel.endpoint | quote }}
+            {{- end }}
+          {{- end }}
+          {{- if and $root.Values.vault.enabled (eq $root.Values.vault.method "csi") $svc.secretEnv }}
+{{ include "amendia.secretEnv" (dict "root" $root "name" $name "secretEnv" $svc.secretEnv) | indent 12 }}
+          {{- end }}
+          {{- end }}
+          {{- if $svc.health }}
+          livenessProbe:
+            httpGet: { path: {{ $svc.health | quote }}, port: http }
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet: { path: {{ $svc.health | quote }}, port: http }
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          {{- end }}
+          resources:
+{{ toYaml $root.Values.defaults.resources | indent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+          {{- if and $root.Values.vault.enabled (eq $root.Values.vault.method "csi") $svc.secretEnv }}
+            - name: vault-secrets
+              mountPath: /mnt/secrets-store
+              readOnly: true
+          {{- end }}
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        {{- if and $root.Values.vault.enabled (eq $root.Values.vault.method "csi") $svc.secretEnv }}
+        - name: vault-secrets
+          csi:
+            driver: secrets-store.csi.k8s.io
+            readOnly: true
+            volumeAttributes:
+              secretProviderClass: {{ $fullname }}
+        {{- end }}
+{{- end }}

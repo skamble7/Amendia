@@ -1,0 +1,50 @@
+{{- /* Optional in-cluster datastores (dev/self-contained). Disable (deploy:false) + point at
+       managed/BYO endpoints in prod (mongo.uri / rabbit.host / auth.jwksUri). Simple single
+       replicas — a bank typically uses an operator or managed service. */ -}}
+{{- $root := . -}}
+{{- range $name, $ds := .Values.datastores }}
+{{- if $ds.deploy }}
+{{- $fullname := include "amendia.svc" (dict "root" $root "name" $name) }}
+{{- $port := 27017 }}{{ if eq $name "rabbitmq" }}{{ $port = 5672 }}{{ else if eq $name "keycloak" }}{{ $port = 8080 }}{{ end }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $fullname }}
+  labels:
+{{ include "amendia.labels" (dict "root" $root "name" $name) | indent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+{{ include "amendia.selectorLabels" (dict "root" $root "name" $name) | indent 6 }}
+  template:
+    metadata:
+      labels:
+{{ include "amendia.selectorLabels" (dict "root" $root "name" $name) | indent 8 }}
+    spec:
+      containers:
+        - name: {{ $name }}
+          image: {{ $ds.image }}
+          {{- if eq $name "keycloak" }}
+          args: ["start"]
+          {{- end }}
+          ports:
+            - containerPort: {{ $port }}
+          resources:
+{{ toYaml $root.Values.defaults.resources | indent 12 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $fullname }}
+  labels:
+{{ include "amendia.labels" (dict "root" $root "name" $name) | indent 4 }}
+spec:
+  selector:
+{{ include "amendia.selectorLabels" (dict "root" $root "name" $name) | indent 4 }}
+  ports:
+    - port: {{ $port }}
+      targetPort: {{ $port }}
+{{- end }}
+{{- end }}

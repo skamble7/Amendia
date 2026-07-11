@@ -1,0 +1,36 @@
+# values-eks.yaml — EKS overlay (SCAFFOLD — same architecture as GKE, not yet fully validated).
+# Fill each `# per-provider` seam and validate before prod.
+
+global:
+  storageClass: "gp3"                    # per-provider: EKS EBS gp3 StorageClass
+
+# EKS IRSA (IAM Roles for Service Accounts) — only for direct AWS API access; Vault uses K8s auth.
+serviceAccountAnnotations: {}
+  # eks.amazonaws.com/role-arn: arn:aws:iam::<acct>:role/amendia   # per-provider
+
+inference:
+  mode: "nim-selfhosted"                 # or bedrock-only (native AWS path — no cluster GPU)
+  nim:
+    nodeSelector:
+      # per-provider: EKS GPU node group label (e.g. a g5/p4 nodegroup)
+      eks.amazonaws.com/nodegroup: gpu
+    tolerations:
+      - key: nvidia.com/gpu
+        operator: Exists
+        effect: NoSchedule
+    resources: { limits: { nvidia.com/gpu: 1 } }
+
+ingress:
+  enabled: true
+  className: "alb"                       # per-provider: AWS Load Balancer Controller
+  host: "amendia.example.com"
+  annotations:
+    # per-provider: alb.ingress.kubernetes.io/scheme, certificate-arn, target-type, etc.
+    alb.ingress.kubernetes.io/scheme: internet-facing
+
+vault:
+  address: "https://vault.internal.example.com"   # per-deployment
+  method: "csi"
+
+executionMode: "nemoclaw"
+nemoclawRequired: true

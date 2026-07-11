@@ -1,0 +1,98 @@
+{{- /* capability-worker (ADR-020/022 Part D) — BASELINE: a plain hardened Deployment that
+       consumes broker jobs and runs the shared execution core. Replicas = the warm pool.
+       No Service (it reaches OUT to RabbitMQ; nothing calls in). Rendered only in nemoclaw mode.
+       The OpenShell-sandbox enhancement (openshell.sandbox.enabled) is gated + [confirm] — do NOT
+       enable until NemoClaw's K8s sandbox tooling is confirmed (ADR-019); baseline is unaffected. */ -}}
+{{- if and .Values.capabilityWorker.enabled (eq .Values.executionMode "nemoclaw") }}
+{{- $root := . }}
+{{- $w := .Values.capabilityWorker }}
+{{- $fullname := include "amendia.svc" (dict "root" $root "name" "capability-worker") }}
+{{- $ref := index .Values.inference.llmConfigRef .Values.inference.mode }}
+{{- $inferHost := "" }}
+{{- if eq .Values.inference.mode "nim-selfhosted" }}{{- $inferHost = printf "http://%s-nim:%d/v1" .Release.Name (int .Values.inference.inClusterPort) }}
+{{- else if eq .Values.inference.mode "nvidia-hosted" }}{{- $inferHost = .Values.inference.nvidiaHostedBaseUrl }}
+{{- end }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $fullname }}
+  labels:
+{{ include "amendia.labels" (dict "root" $root "name" "capability-worker") | indent 4 }}
+spec:
+  replicas: {{ $w.replicas }}
+  selector:
+    matchLabels:
+{{ include "amendia.selectorLabels" (dict "root" $root "name" "capability-worker") | indent 6 }}
+  template:
+    metadata:
+      labels:
+{{ include "amendia.selectorLabels" (dict "root" $root "name" "capability-worker") | indent 8 }}
+      annotations:
+{{ include "amendia.vaultAnnotations" (dict "root" $root "name" "capability-worker") | indent 8 }}
+        {{- if .Values.openshell.sandbox.enabled }}
+        # [confirm] OpenShell-sandbox enhancement: NemoClaw K8s sandbox annotations/CRD go here,
+        # ONLY once confirmed against NemoClaw K8s tooling. Not invented. See ADR-022 Part D.
+        amendia.io/openshell-sandbox: "requested"
+        {{- end }}
+    spec:
+      serviceAccountName: {{ $fullname }}
+      {{- with $root.Values.global.imagePullSecrets }}
+      imagePullSecrets:
+{{ toYaml . | indent 8 }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: {{ $root.Values.defaults.securityContext.runAsUser }}
+        fsGroup: {{ $root.Values.defaults.securityContext.runAsUser }}
+      containers:
+        - name: capability-worker
+          image: {{ include "amendia.image" (dict "root" $root "image" $w.image) }}
+          imagePullPolicy: {{ $root.Values.global.imagePullPolicy }}
+          command: ["python", "-m", "worker.main"]
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            capabilities:
+              drop: ["ALL"]
+          env:
+            - name: AGENTRT_MONGO_URI
+              value: {{ $root.Values.mongo.uri | quote }}
+            - name: AGENTRT_MONGO_DB
+              value: {{ $w.mongoDb | quote }}
+            - name: AGENTRT_RABBITMQ_URL
+              value: {{ include "amendia.rabbitUrl" $root | quote }}
+            - name: AGENTRT_CONFIG_FORGE_URL
+              value: {{ $root.Values.configForge.url | quote }}
+            - name: AGENTRT_EXECUTION_MODE
+              value: "nemoclaw"
+            - name: AGENTRT_LLM_CONFIG_REF
+              value: {{ $ref | quote }}
+            {{- if $inferHost }}
+            - name: AGENTRT_WORKER_INFERENCE_BASE_URL
+              value: {{ $inferHost | quote }}
+            {{- end }}
+            {{- if $root.Values.otel.enabled }}
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: {{ $root.Values.otel.endpoint | quote }}
+            {{- end }}
+{{ include "amendia.extraEnv" (dict "root" $root "svc" $w) | indent 12 }}
+            {{- if and $root.Values.vault.enabled (eq $root.Values.vault.method "csi") $w.secretEnv }}
+{{ include "amendia.secretEnv" (dict "root" $root "name" "capability-worker" "secretEnv" $w.secretEnv) | indent 12 }}
+            {{- end }}
+          resources:
+{{ toYaml $root.Values.defaults.resources | indent 12 }}
+          {{- if and $root.Values.vault.enabled (eq $root.Values.vault.method "csi") $w.secretEnv }}
+          volumeMounts:
+            - name: vault-secrets
+              mountPath: /mnt/secrets-store
+              readOnly: true
+      volumes:
+        - name: vault-secrets
+          csi:
+            driver: secrets-store.csi.k8s.io
+            readOnly: true
+            volumeAttributes:
+              secretProviderClass: {{ $fullname }}
+          {{- end }}
+{{- end }}

@@ -1,0 +1,35 @@
+{{- /* ConfigForge seed Job (ADR-022 Part C): seed the LLM ModelProfiles so the active
+       inference.mode ref resolves. Models are configuration (ADR-018) — the toggle picks the ref,
+       this Job ensures the profile (incl. base_url per mode) exists. Idempotent (helm hook). */ -}}
+{{- if .Values.inference.seedJob.enabled }}
+{{- $root := . }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ .Release.Name }}-configforge-seed
+  labels:
+{{ include "amendia.labels" (dict "root" $root "name" "configforge-seed") | indent 4 }}
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "5"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 6
+  template:
+    metadata:
+      labels:
+{{ include "amendia.selectorLabels" (dict "root" $root "name" "configforge-seed") | indent 8 }}
+    spec:
+      restartPolicy: OnFailure
+      serviceAccountName: {{ include "amendia.svc" (dict "root" $root "name" "config-forge") }}
+      containers:
+        - name: seed
+          image: {{ include "amendia.image" (dict "root" $root "image" "config-forge-service") }}
+          command: ["python", "scripts/seed.py",
+                    "--mongo-uri", {{ $root.Values.mongo.uri | quote }},
+                    "--db", "ConfigForge", "--env", "prod"]
+          # Active inference mode: {{ .Values.inference.mode }} → ref
+          # {{ index .Values.inference.llmConfigRef .Values.inference.mode }}
+          # (nvidia-hosted base_url override, if used, is patched via a follow-up PUT — # per-deployment.)
+{{- end }}

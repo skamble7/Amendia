@@ -1,0 +1,39 @@
+# values-onprem.yaml — on-prem / bare-metal overlay (SCAFFOLD — validate before prod).
+# Fill each `# per-provider` seam. No cloud workload-identity; Vault K8s auth is the whole story.
+
+global:
+  storageClass: ""                       # per-provider: your CSI StorageClass (e.g. local-path, Ceph RBD, NFS)
+
+serviceAccountAnnotations: {}            # no cloud identity on-prem
+
+inference:
+  # On-prem GPUs → nim-selfhosted; or bedrock-only / nvidia-hosted if no local GPUs.
+  mode: "nim-selfhosted"
+  nim:
+    nodeSelector:
+      # per-provider: your GPU node label (requires the NVIDIA device plugin installed)
+      nvidia.com/gpu.present: "true"
+    tolerations:
+      - key: nvidia.com/gpu
+        operator: Exists
+        effect: NoSchedule
+    resources: { limits: { nvidia.com/gpu: 1 } }
+
+ingress:
+  enabled: true
+  className: "nginx"                      # per-provider: ingress-nginx / your controller
+  host: "amendia.internal"
+  annotations: {}                        # per-provider: cert-manager, etc.
+
+vault:
+  address: "https://vault.internal:8200" # per-deployment
+  method: "csi"
+
+# On-prem typically self-hosts everything, including Keycloak.
+datastores:
+  mongodb: { deploy: true, image: "mongo:7", storage: "50Gi" }
+  rabbitmq: { deploy: true, image: "rabbitmq:3-management" }
+  keycloak: { deploy: true, image: "quay.io/keycloak/keycloak:26.0" }
+
+executionMode: "nemoclaw"
+nemoclawRequired: true

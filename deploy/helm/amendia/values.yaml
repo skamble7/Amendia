@@ -1,0 +1,273 @@
+# Amendia base values (ADR-022) — provider-agnostic defaults.
+# Cloud-specific settings live ONLY in values-<provider>.yaml overlays behind marked seams.
+# Nothing secret here: secret VALUES come from Vault (see .vault); ConfigForge refs stay refs.
+
+global:
+  imageRegistry: ghcr.io/amendia        # per-deployment: your registry
+  imageTag: "0.1.0"
+  imagePullPolicy: IfNotPresent
+  imagePullSecrets: []
+  # per-provider: storageClass for PVCs (gke: standard-rwo | eks: gp3 | aks: managed-csi | onprem: <yours>)
+  storageClass: ""
+
+# per-provider: cloud workload-identity annotations added to every ServiceAccount
+# (gke: iam.gke.io/gcp-service-account | eks: eks.amazonaws.com/role-arn | aks: azure.workload.identity/client-id).
+# NOTE: Vault uses K8s auth (portable) for *secrets*; these are only for direct cloud-API access if needed.
+serviceAccountAnnotations: {}
+
+# ── Execution mode (ADR-017/020). Prod default = nemoclaw, fail-closed. ──
+executionMode: nemoclaw                 # native | nemoclaw
+nemoclawRequired: true                  # nemoclaw + unreachable broker ⇒ refuse to start
+memoizeCapabilities: true               # on in nemoclaw (fixes trap 2)
+
+# ── Auth (Keycloak / OIDC). issuer is the browser-facing realm URL. ──
+auth:
+  issuer: "https://auth.amendia.example/realms/amendia"      # per-deployment
+  audience: "amendia-api"
+  # In-cluster JWKS fetch (bypasses OIDC discovery); points at the keycloak Service.
+  jwksUri: "http://amendia-keycloak:8080/realms/amendia/protocol/openid-connect/certs"
+  identityBaseUrl: "http://amendia-identity:8086"
+
+# ── Datastores: in-cluster (uri/url from Service names). Override to BYO/managed. ──
+mongo:
+  uri: "mongodb://amendia-mongodb:27017" # override for managed (Atlas/DocumentDB/CosmosDB)
+  db: "amendia"
+rabbit:
+  # user + password come from Vault; host is the in-cluster Service (or BYO/managed).
+  host: "amendia-rabbitmq"
+  port: 5672
+configForge:
+  url: "http://amendia-config-forge:8040"
+registry:
+  url: "http://amendia-process-registry:8084"
+
+# ── Nemotron serving — one toggle (ADR-018/022 Part C). ──
+inference:
+  mode: "nim-selfhosted"                # nim-selfhosted | nvidia-hosted | bedrock-only
+  # The active ConfigForge LLM ref per mode (models are configuration — ADR-018).
+  llmConfigRef:
+    nim-selfhosted: "prod.llm.nemoclaw.nemotron-ultra"
+    nvidia-hosted:  "prod.llm.nemoclaw.nim"
+    bedrock-only:   "prod.llm.bedrock.explicit-creds"
+  # nvidia-hosted: the managed NVIDIA endpoint the nemoclaw ref points at.
+  nvidiaHostedBaseUrl: "https://integrate.api.nvidia.com/v1"
+  # In-cluster inference Service host:port the worker reaches (nim-selfhosted).
+  inClusterHost: "amendia-nim"
+  inClusterPort: 8000
+  # Seed job: PUT the active ConfigForge ref's base_url so the worker resolves it (ADR-018).
+  seedJob:
+    enabled: true
+  nim:
+    # [confirm] against NVIDIA NIM Helm packaging: image, args, licensing (NGC_API_KEY via Vault).
+    image: "nvcr.io/nim/nvidia/nemotron-3-ultra:latest"
+    port: 8000
+    resources:
+      limits:
+        nvidia.com/gpu: 1
+    # GPU scheduling — first-class in values-gke; scaffolded elsewhere (Part F).
+    nodeSelector: {}
+    tolerations: []
+
+# ── Vault (Kubernetes auth) — portable across GKE/EKS/AKS/on-prem (Part B). ──
+vault:
+  enabled: true
+  method: "agent-injector"              # agent-injector | csi  (CSI is the documented alternative)
+  address: "https://vault.amendia.example"   # per-deployment
+  role: "amendia"                        # Vault role bound to the service ServiceAccounts
+  # Base KV path holding Amendia secrets. Each service reads only its subpaths (see deploy/vault).
+  secretBasePath: "secret/data/amendia"
+  # csi only: the SecretProviderClass name (rendered when method=csi).
+  csiSecretProviderClass: "amendia-vault"
+
+# ── Egress NetworkPolicies (Part E). Default-deny + per-service allowlists. ──
+networkPolicy:
+  enabled: true
+  defaultDenyEgress: true
+  # Allow DNS (kube-dns) — required for Service resolution.
+  allowDNS: true
+  # per-provider: CNI differences (Calico/Cilium/GKE-native) may need extra ipBlocks.
+
+# ── Observability (Part G). ──
+otel:
+  enabled: true
+  # In-cluster collector endpoint (baseline). Sandbox enhancement uses host.openshell.internal:4318.
+  endpoint: "http://amendia-otel-collector:4318"
+  deployCollector: true                 # a minimal in-cluster OTLP collector (Deployment)
+  collectorImage: "otel/opentelemetry-collector:0.109.0"
+  # per-deployment: the export/backend (Tempo/Jaeger/Cloud Trace) — configure the collector exporter.
+
+# ── OpenShell-sandbox enhancement (Part D) — gated + [confirm]. ──
+openshell:
+  # Run the capability-worker INSIDE an OpenShell sandbox on K8s. Left OFF: NemoClaw's K8s
+  # sandbox mechanism (operator/CRD/DaemonSet) is UNCONFIRMED (ADR-019). The baseline (a plain
+  # hardened worker Deployment + NetworkPolicy) is a valid production posture. # [confirm] + STOP:
+  # do not enable until confirmed against NemoClaw K8s tooling.
+  sandbox:
+    enabled: false
+
+# ── Optional in-cluster datastores (dev/self-contained). Disable + point external in prod. ──
+datastores:
+  mongodb:
+    deploy: true
+    image: "mongo:7"
+    storage: "10Gi"
+  rabbitmq:
+    deploy: true
+    image: "rabbitmq:3-management"
+  keycloak:
+    deploy: false                       # usually external/managed in prod
+    image: "quay.io/keycloak/keycloak:26.0"
+
+# ── Ingress (webui + APIs). Class/annotations are per-provider seams. ──
+ingress:
+  enabled: false
+  className: ""                         # per-provider: gce | alb | azure/application-gateway | nginx
+  host: "amendia.example"
+  annotations: {}                       # per-provider: cert-manager, cloud LB, etc.
+
+# ── Standard hardening applied to every service. ──
+defaults:
+  replicas: 2
+  resources:
+    requests: { cpu: "100m", memory: "256Mi" }
+    limits:   { cpu: "1",    memory: "512Mi" }
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 10001
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities: { drop: ["ALL"] }
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
+
+# ── The platform services (rendered generically). ──
+# common:true → the helper emits the prefixed auth+mongo+rabbit env block.
+services:
+  stub-exception-generator:
+    port: 8081
+    prefix: STUBEXC
+    image: stub-exception-generator
+    health: /health
+    common: true
+    mongoDb: amendia
+    rabbit: true
+    egress: [mongodb, rabbitmq, identity]
+    secretEnv: [STUBEXC_AUTH_INTERNAL_TOKEN, RABBIT_USER, RABBIT_PASSWORD]
+    extraEnv:
+      STUBEXC_MONGO_COLLECTION: exceptions
+      STUBEXC_SERVICE_BASE_URL: "http://amendia-stub-exception-generator:8081"
+
+  ingestor:
+    port: 8082
+    prefix: INGESTOR
+    image: ingestor
+    health: /health
+    common: true
+    mongoDb: amendia
+    rabbit: true
+    registry: true
+    egress: [mongodb, rabbitmq, process-registry, stub-exception-generator, identity]
+    secretEnv: [INGESTOR_AUTH_INTERNAL_TOKEN, RABBIT_USER, RABBIT_PASSWORD]
+    extraEnv:
+      INGESTOR_MONGO_COLLECTION: ingestions
+      INGESTOR_RABBITMQ_QUEUE: ingestor.exception_raised.v1
+      INGESTOR_RABBITMQ_REPLY_QUEUE: ingestor.dispatch_replies.v1
+      INGESTOR_STUB_BASE_URL: "http://amendia-stub-exception-generator:8081"
+
+  agent-runtime:
+    port: 8083
+    prefix: AGENTRT
+    image: agent-runtime
+    health: /health
+    common: true
+    mongoDb: amendia
+    rabbit: true
+    registry: true
+    configForge: true
+    egress: [mongodb, rabbitmq, process-registry, config-forge, identity, otel]
+    # Provider keys for the real LLM path (ConfigForge refs resolve to these env values, ADR-016).
+    secretEnv: [AGENTRT_AUTH_INTERNAL_TOKEN, RABBIT_USER, RABBIT_PASSWORD,
+                AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, NVIDIA_NIM_API_KEY, OPENSHELL_INFERENCE_TOKEN]
+    extraEnv:
+      AGENTRT_SELF_BASE_URL: "http://amendia-agent-runtime:8083"
+      AGENTRT_SIMULATION_MODE: "false"
+      AGENTRT_RABBITMQ_DISPATCH_QUEUE: agent-runtime.exception_dispatched.v1
+      AGENTRT_ENABLE_SEED_API: "false"
+      AGENTRT_ENABLE_DEBUG_API: "false"
+      AGENTRT_ENABLE_DEV_CORS: "false"
+
+  process-registry:
+    port: 8084
+    prefix: REGISTRY
+    image: process-registry
+    health: /health
+    common: true
+    mongoDb: amendia
+    rabbit: false
+    egress: [mongodb, identity]
+    secretEnv: [REGISTRY_AUTH_INTERNAL_TOKEN]
+    extraEnv:
+      REGISTRY_SEED_ON_STARTUP: "true"
+
+  identity:
+    port: 8086
+    prefix: IDENTITY
+    image: identity
+    health: /health
+    common: true
+    mongoDb: amendia
+    rabbit: false
+    egress: [mongodb, keycloak]
+    secretEnv: [IDENTITY_INTERNAL_TOKEN]
+    extraEnv:
+      IDENTITY_SEED_ON_STARTUP: "true"
+      IDENTITY_JIT_DEFAULT_STATUS: active
+
+  notification-service:
+    port: 8088
+    prefix: NOTIFICATION
+    image: notification-service
+    health: /health
+    common: true
+    rabbit: true
+    egress: [rabbitmq, identity]
+    secretEnv: [NOTIFICATION_AUTH_INTERNAL_TOKEN, RABBIT_USER, RABBIT_PASSWORD]
+
+  config-forge:
+    port: 8040
+    image: config-forge-service
+    health: /healthz
+    common: false                       # unprefixed env
+    egress: [mongodb]
+    secretEnv: []
+    extraEnv:
+      MONGO_URI: "__MONGO_URI__"         # replaced by helper with .mongo.uri
+      MONGO_DB: ConfigForge
+      SERVICE_NAME: config-forge-service
+      PORT: "8040"
+      ENV: prod
+
+  webui:
+    port: 8085
+    image: webui
+    health: /
+    common: false
+    static: true                        # nginx SPA, no app env
+    secretEnv: []
+    egress: [stub-exception-generator, ingestor, agent-runtime, process-registry, notification-service]
+
+# capability-worker is rendered specially (worker: no Service/port; consumes the broker).
+capabilityWorker:
+  enabled: true                         # rendered when executionMode=nemoclaw
+  replicas: 2                           # the "warm pool" (ADR-020 §warm pool)
+  image: agent-runtime                  # same image, command = python -m worker.main
+  mongoDb: amendia
+  # egress: RabbitMQ + inference endpoint + MCP server + OTLP (resolved in networkpolicy.yaml)
+  egress: [rabbitmq, config-forge, inference, mcp, otel]
+  secretEnv: [RABBIT_USER, RABBIT_PASSWORD,
+              AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, NVIDIA_NIM_API_KEY, OPENSHELL_INFERENCE_TOKEN]
+  extraEnv:
+    AGENTRT_SIMULATION_MODE: "false"
+    AGENTRT_MCP_REGISTRY_PATH: /sandbox/.deepagents/.nemoclaw-mcp.json
+    AGENTRT_DEEPAGENT_REAL: "false"      # fake runner unless the harness is provisioned (ADR-021)

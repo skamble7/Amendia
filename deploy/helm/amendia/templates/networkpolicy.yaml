@@ -1,0 +1,85 @@
+{{- /* Egress NetworkPolicies (ADR-022 Part E): default-deny egress + per-workload allowlists.
+       The capability-worker allowlist (RabbitMQ + inference + MCP + OTLP) is the AMQP-egress
+       resolution for ADR-020's [confirm] on the baseline Deployment path. CNI differences
+       (Calico/Cilium/GKE-native) may require extra ipBlocks — # per-provider. */ -}}
+{{- if .Values.networkPolicy.enabled }}
+{{- $root := . }}
+{{- /* token → in-cluster target port (external tokens handled separately below) */ -}}
+{{- $ports := dict "mongodb" 27017 "rabbitmq" 5672 "keycloak" 8080 "identity" 8086 "process-registry" 8084 "stub-exception-generator" 8081 "config-forge" 8040 "agent-runtime" 8083 "ingestor" 8082 "notification-service" 8088 "otel" 4318 }}
+{{- if .Values.networkPolicy.defaultDenyEgress }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ .Release.Name }}-default-deny-egress
+  labels:
+{{ include "amendia.labels" (dict "root" $root "name" "netpol") | indent 4 }}
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+  egress:
+    {{- if .Values.networkPolicy.allowDNS }}
+    # DNS (kube-dns) — required for Service resolution.
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - { protocol: UDP, port: 53 }
+        - { protocol: TCP, port: 53 }
+    {{- end }}
+{{- end }}
+{{- /* per-workload allowlists */ -}}
+{{- $workloads := dict -}}
+{{- range $name, $svc := .Values.services -}}{{- $_ := set $workloads $name $svc -}}{{- end -}}
+{{- if and .Values.capabilityWorker.enabled (eq .Values.executionMode "nemoclaw") -}}
+{{- $_ := set $workloads "capability-worker" .Values.capabilityWorker -}}
+{{- end -}}
+{{- range $name, $svc := $workloads }}
+{{- if $svc.egress }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "amendia.svc" (dict "root" $root "name" $name) }}-egress
+  labels:
+{{ include "amendia.labels" (dict "root" $root "name" $name) | indent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+{{ include "amendia.selectorLabels" (dict "root" $root "name" $name) | indent 6 }}
+  policyTypes: [Egress]
+  egress:
+    {{- if $root.Values.networkPolicy.allowDNS }}
+    - to: [{ namespaceSelector: {} }]
+      ports: [{ protocol: UDP, port: 53 }, { protocol: TCP, port: 53 }]
+    {{- end }}
+    {{- range $t := $svc.egress }}
+    {{- $target := $t }}{{ if eq $t "otel" }}{{ $target = "otel-collector" }}{{ end }}
+    {{- if hasKey $ports $t }}
+    # → {{ $target }} (in-cluster)
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: {{ $target }}
+              app.kubernetes.io/instance: {{ $root.Release.Name }}
+      ports: [{ protocol: TCP, port: {{ index $ports $t }} }]
+    {{- else if eq $t "inference" }}
+    {{- if eq $root.Values.inference.mode "nim-selfhosted" }}
+    # → in-cluster NIM (nim-selfhosted)
+    - to:
+        - podSelector:
+            matchLabels: { app.kubernetes.io/name: nim, app.kubernetes.io/instance: {{ $root.Release.Name }} }
+      ports: [{ protocol: TCP, port: {{ int $root.Values.inference.inClusterPort }} }]
+    {{- else }}
+    # → external inference (nvidia-hosted / bedrock). # per-provider: restrict to the endpoint's CIDRs.
+    - to: [{ ipBlock: { cidr: 0.0.0.0/0 } }]
+      ports: [{ protocol: TCP, port: 443 }]
+    {{- end }}
+    {{- else if eq $t "mcp" }}
+    # → MCP server (external/stub). # per-provider: restrict to the MCP server CIDRs.
+    - to: [{ ipBlock: { cidr: 0.0.0.0/0 } }]
+      ports: [{ protocol: TCP, port: 443 }]
+    {{- end }}
+    {{- end }}
+{{- end }}
+{{- end }}
+{{- end }}

@@ -1,0 +1,38 @@
+# values-aks.yaml — AKS overlay (SCAFFOLD — same architecture as GKE, not yet fully validated).
+# Fill each `# per-provider` seam and validate before prod.
+
+global:
+  storageClass: "managed-csi"            # per-provider: AKS managed disk CSI StorageClass
+
+# AKS Workload Identity — only for direct Azure API access; Vault uses K8s auth.
+serviceAccountAnnotations: {}
+  # azure.workload.identity/client-id: <client-id>   # per-provider (also needs the pod label)
+
+inference:
+  mode: "nim-selfhosted"
+  nim:
+    nodeSelector:
+      # per-provider: AKS GPU node pool label (e.g. an NC-series pool)
+      agentpool: gpu
+    tolerations:
+      - key: nvidia.com/gpu
+        operator: Exists
+        effect: NoSchedule
+      - key: sku                          # per-provider: AKS GPU pool taint, if used
+        operator: Equal
+        value: gpu
+        effect: NoSchedule
+    resources: { limits: { nvidia.com/gpu: 1 } }
+
+ingress:
+  enabled: true
+  className: "webapprouting.kubernetes.azure.com"   # per-provider: AKS app routing / AGIC
+  host: "amendia.example.com"
+  annotations: {}                        # per-provider: AGIC / cert annotations
+
+vault:
+  address: "https://vault.internal.example.com"     # per-deployment
+  method: "csi"
+
+executionMode: "nemoclaw"
+nemoclawRequired: true

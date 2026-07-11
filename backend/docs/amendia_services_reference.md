@@ -57,6 +57,22 @@ identity service, never from vendor claims.
 
 ---
 
+## Deployment
+
+- **Dev:** `backend/deploy/docker-compose.yml` is the dev/CI substrate (unchanged). `native` mode by
+  default; opt into the `nemoclaw` profile for the capability-worker + stubs.
+- **Prod:** a **portable umbrella Helm chart** at `deploy/helm/amendia/` (ADR-022) — generic base +
+  thin per-provider values overlays (`values-gke.yaml` first-class; `values-eks/aks/onprem.yaml`
+  scaffolded). Cloud specifics (storageClass, GPU nodeSelector/tolerations, ingress class, pod identity)
+  live only in overlays behind `# per-provider` seams. Secrets via **Vault (Kubernetes auth)** —
+  `deploy/vault/` — no plaintext anywhere (realizes ADR-016 `literal:→vault:`). Nemotron serving is a
+  single `inference.mode` toggle (`nim-selfhosted` | `nvidia-hosted` | `bedrock-only`). Egress is
+  **default-deny + per-service allowlists** (the worker's AMQP→RabbitMQ rule resolves ADR-020's
+  `[confirm]`). Prod runs `nemoclaw` fail-closed. Install: `helm upgrade --install amendia
+  deploy/helm/amendia -n amendia -f deploy/helm/amendia/values-gke.yaml`.
+
+---
+
 ## 1. stub-exception-generator (`:8081`)
 
 Plays the bank's exception store for local dev, honouring the real event + fetch-back contract.

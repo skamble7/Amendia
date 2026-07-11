@@ -1,0 +1,64 @@
+{{- /* NVIDIA NIM inference workload — rendered ONLY when inference.mode == nim-selfhosted
+       (ADR-022 Part C/F). GPU scheduling (nodeSelector/tolerations/resources) is first-class in
+       values-gke; scaffolded elsewhere. # [confirm] the real NIM image/args/licensing + swap this
+       for NVIDIA's official NIM subchart once its Helm packaging is confirmed — do NOT guess it. */ -}}
+{{- if eq .Values.inference.mode "nim-selfhosted" }}
+{{- $root := . }}
+{{- $nim := .Values.inference.nim }}
+{{- $fullname := printf "%s-nim" .Release.Name }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $fullname }}
+  labels:
+{{ include "amendia.labels" (dict "root" $root "name" "nim") | indent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+{{ include "amendia.selectorLabels" (dict "root" $root "name" "nim") | indent 6 }}
+  template:
+    metadata:
+      labels:
+{{ include "amendia.selectorLabels" (dict "root" $root "name" "nim") | indent 8 }}
+    spec:
+      serviceAccountName: {{ include "amendia.svc" (dict "root" $root "name" "agent-runtime") }}
+      {{- with $nim.nodeSelector }}
+      nodeSelector:
+{{ toYaml . | indent 8 }}
+      {{- end }}
+      {{- with $nim.tolerations }}
+      tolerations:
+{{ toYaml . | indent 8 }}
+      {{- end }}
+      containers:
+        - name: nim
+          image: {{ $nim.image | quote }}          # [confirm] NVIDIA NIM image + tag
+          ports:
+            - name: http
+              containerPort: {{ $nim.port }}
+          # NGC_API_KEY (licensing) via Vault — never inline. # [confirm] exact NIM env/args.
+          {{- if and $root.Values.vault.enabled (eq $root.Values.vault.method "csi") }}
+          env:
+            - name: NGC_API_KEY
+              valueFrom:
+                secretKeyRef: { name: {{ $fullname }}-secrets, key: NGC_API_KEY }
+          {{- end }}
+          resources:
+{{ toYaml $nim.resources | indent 12 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $fullname }}
+  labels:
+{{ include "amendia.labels" (dict "root" $root "name" "nim") | indent 4 }}
+spec:
+  selector:
+{{ include "amendia.selectorLabels" (dict "root" $root "name" "nim") | indent 4 }}
+  ports:
+    - name: http
+      port: {{ int $root.Values.inference.inClusterPort }}
+      targetPort: http
+{{- end }}

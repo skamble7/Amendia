@@ -1,0 +1,14 @@
+Amendia {{ .Chart.AppVersion }} installed as release "{{ .Release.Name }}" in namespace "{{ .Release.Namespace }}".
+
+Execution mode : {{ .Values.executionMode }}{{ if eq .Values.executionMode "nemoclaw" }} (fail-closed: {{ .Values.nemoclawRequired }}){{ end }}
+Inference mode : {{ .Values.inference.mode }} → ConfigForge ref {{ index .Values.inference.llmConfigRef .Values.inference.mode }}
+Secrets        : Vault ({{ .Values.vault.method }}) at {{ .Values.vault.address }}, role {{ .Values.vault.role }}
+NetworkPolicy  : {{ if .Values.networkPolicy.enabled }}default-deny egress + per-service allowlists{{ else }}DISABLED{{ end }}
+Capability-worker: {{ if and .Values.capabilityWorker.enabled (eq .Values.executionMode "nemoclaw") }}{{ .Values.capabilityWorker.replicas }} replica(s){{ if .Values.openshell.sandbox.enabled }} [openshell-sandbox requested — # [confirm]]{{ end }}{{ else }}not rendered (native mode){{ end }}
+
+Install with an explicit release name "amendia" so in-cluster Service DNS matches the defaults:
+  helm upgrade --install amendia deploy/helm/amendia -n amendia -f deploy/helm/amendia/values-gke.yaml
+
+Reminders:
+- No secret values live in this chart. Populate Vault at {{ .Values.vault.secretBasePath }}/<service> (see deploy/vault/).
+- {{ if eq .Values.inference.mode "nim-selfhosted" }}NIM needs a GPU node pool — see values-<provider>.yaml GPU seams.{{ else if eq .Values.inference.mode "nvidia-hosted" }}nvidia-hosted: no cluster GPU; egress to {{ .Values.inference.nvidiaHostedBaseUrl }} must be allowed.{{ else }}bedrock-only: no NIM; deep_agent needs a managed model configured to be available.{{ end }}
