@@ -120,7 +120,7 @@ class SandboxedExecutor:
             process_instance_id=extras.get("process_instance_id"),
             memo_attempt=int(extras.get("memo_attempt", 0) or 0),
             simulation=ctx.simulation,
-            # Egress/tool policy derived from contract data (ADR-019 Part C): mcp.server_key +
+            # Egress/tool policy derived from contract data (ADR-019 Part C): mcp.endpoint host +
             # tools whitelist, or the managed inference proxy host. Carried for auditability +
             # sandbox provisioning; the deterministic fake ignores it.
             egress_policy=derive_egress_policy(descriptor).to_dict(),

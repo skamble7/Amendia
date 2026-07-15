@@ -58,10 +58,15 @@ class SkillRuntime(ContractModel):
 
 
 class McpRuntime(ContractModel):
+    """Self-descriptive MCP server binding (ADR-024). The connection details live directly on
+    the capability descriptor — no config-forge/registry indirection."""
+
     kind: Literal["mcp"]
-    server_key: str
+    endpoint: str                                    # MCP server URL (self-descriptive; was server_key)
     tools: List[str] = Field(..., min_length=1)
     transport: McpTransport = McpTransport.STREAMABLE_HTTP
+    # Non-secret headers or secret-REFS only (env:/file:/vault:) — never a literal secret (ADR-016 trap 1).
+    headers: Dict[str, str] = Field(default_factory=dict)
 
 
 class LlmRuntime(ContractModel):

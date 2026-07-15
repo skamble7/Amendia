@@ -338,12 +338,13 @@ Registered independently of packs, before any pack can reference it. This is the
           "properties": {
             "kind": { "const": "skill" },
             "entrypoint": { "type": "string", "description": "python path, e.g. amendia_caps.payment.enrich:run" } } },
-        { "type": "object", "required": ["kind", "server_key", "tools"], "additionalProperties": false,
+        { "type": "object", "required": ["kind", "endpoint", "tools"], "additionalProperties": false,
           "properties": {
             "kind": { "const": "mcp" },
-            "server_key": { "type": "string", "description": "Key into config-forge for the MCP server endpoint/auth" },
+            "endpoint": { "type": "string", "description": "MCP server URL — self-descriptive (ADR-024); no config-forge indirection" },
             "tools": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
-            "transport": { "enum": ["streamable_http", "stdio", "sse"], "default": "streamable_http" } } },
+            "transport": { "enum": ["streamable_http", "stdio", "sse"], "default": "streamable_http" },
+            "headers": { "type": "object", "additionalProperties": { "type": "string" }, "description": "non-secret headers or secret-refs (env:/file:/vault:) — never a literal secret" } } },
         { "type": "object", "required": ["kind", "prompt_key"], "additionalProperties": false,
           "properties": {
             "kind": { "const": "llm" },
@@ -403,9 +404,10 @@ Registered independently of packs, before any pack can reference it. This is the
   },
   "runtime": {
     "kind": "mcp",
-    "server_key": "mcp.sanctions_screening",
+    "endpoint": "http://stub-mcp:8056/mcp",
     "tools": ["screen_party"],
-    "transport": "streamable_http"
+    "transport": "streamable_http",
+    "headers": {}
   },
   "constraints": { "timeout_seconds": 60, "max_retries": 1, "min_hitl_mode": "approve_result" },
   "owner": "platform",

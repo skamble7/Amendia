@@ -81,9 +81,8 @@ class Settings(BaseSettings):
     # the managed proxy https://inference.local/v1 (creds brokered by the gateway); in dev/CI
     # point it at a stub. Empty → the worker uses its ConfigForge ref / SIMULATION_MODE as-is.
     WORKER_INFERENCE_BASE_URL: Optional[str] = None
-    # Worker-side: the in-sandbox MCP registry file OpenShell/NemoClaw writes
-    # (`nemoclaw <sandbox> mcp add`). Unset → the worker has no MCP client → sim fallback.
-    MCP_REGISTRY_PATH: str = "/sandbox/.deepagents/.nemoclaw-mcp.json"
+    # (MCP server details are now self-descriptive on the capability's runtime.endpoint — ADR-024;
+    # no MCP registry path/config-forge indirection.)
     # OTLP export endpoint inside an OpenShell sandbox (no-op in dev/CI when unreachable).
     OTLP_ENDPOINT: str = "http://host.openshell.internal:4318/v1/traces"
 

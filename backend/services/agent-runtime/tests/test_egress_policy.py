@@ -16,13 +16,14 @@ def _descriptors():
     return PackBundle.from_seed_dir(settings.SEED_DIR).descriptors
 
 
-def test_mcp_policy_from_server_key_and_tools():
+def test_mcp_policy_from_endpoint_and_tools():
     d = _descriptors()["cap.payment.sanctions_screen"]  # kind mcp
     p = derive_egress_policy(d).to_dict()
     assert p["kind"] == "mcp"
-    assert p["mcp"]["server_key"]                  # carried from runtime.server_key
+    assert p["mcp"]["endpoint"]                     # self-descriptive endpoint (ADR-024)
     assert p["mcp"]["tools"]                        # non-empty whitelist from runtime.tools
     assert p["mcp"]["transport"]                    # from runtime.transport
+    assert any("stub-mcp" in h for h in p["allow_hosts"])  # egress host parsed from the endpoint
 
 
 def test_llm_policy_restricts_to_inference_proxy():

@@ -87,7 +87,7 @@ def test_capability_runtime_kind_must_match():
             "descriptor_version": "1.0", "capability_id": "cap.payment.x", "version": "1.0.0",
             "title": "X", "kind": "skill", "side_effect": "read_only",
             "inputs": [], "outputs": [],
-            "runtime": {"kind": "mcp", "server_key": "k", "tools": ["t"]},
+            "runtime": {"kind": "mcp", "endpoint": "http://x", "tools": ["t"]},
             "status": "active",
         })
 

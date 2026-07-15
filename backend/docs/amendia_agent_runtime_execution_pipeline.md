@@ -256,7 +256,7 @@ the node replays cheaply from a runtime-private Mongo memo and the **reviewed** 
 in-sandbox **capability-worker** consumes it (egress), runs the shared execution core, and replies. The
 `OpenShellClient.run_capability` seam is unchanged (`BrokerOpenShellClient` in place of the retired HTTP
 client). In the worker, `llm` runs against `inference.local/v1`, **`mcp` runs for real** via the
-in-sandbox MCP registry (`server_key`/`tools`, `list_provider` stub in dev — the simulation fallback is
+the descriptor's self-descriptive `endpoint` (ADR-024) with its `tools` whitelist (`list_provider` stub in dev — the simulation fallback is
 retained only for the fake/native paths and logged at the boundary), and side-effect skills run
 sandboxed (action still simulated in dev). The host still validates, commits, checkpoints, memoizes, and
 appends `actor_log` (with the worker's OTLP trace id). Contract-derived **egress policy** feeds

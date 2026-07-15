@@ -269,5 +269,5 @@ capabilityWorker:
               AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, NVIDIA_NIM_API_KEY, OPENSHELL_INFERENCE_TOKEN]
   extraEnv:
     AGENTRT_SIMULATION_MODE: "false"
-    AGENTRT_MCP_REGISTRY_PATH: /sandbox/.deepagents/.nemoclaw-mcp.json
+    # (MCP server details are self-descriptive on runtime.endpoint — ADR-024; no registry path.)
     AGENTRT_DEEPAGENT_REAL: "false"      # fake runner unless the harness is provisioned (ADR-021)

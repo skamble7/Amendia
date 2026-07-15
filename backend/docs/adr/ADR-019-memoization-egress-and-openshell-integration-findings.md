@@ -59,7 +59,7 @@ the Mongo store; with no store `native` is byte-identical). ADR-016 trap 2 / ADR
 
 `app/engine/executor/policy.py::derive_egress_policy(descriptor)` builds an `EgressPolicy` purely from
 the descriptor — no parallel hand-maintained list:
-- **`mcp`** → `runtime.server_key` + `runtime.tools` whitelist + `transport`.
+- **`mcp`** → host parsed from `runtime.endpoint` (self-descriptive, ADR-024) + `runtime.tools` whitelist + `transport`.
 - **`llm`** → the managed inference proxy host `inference.local` (**confirmed**, ADR-018).
 - **side-effect `skill`** → endpoint keys declared in `config_schema` (dev → stub only); read-only
   skills → minimal egress.

@@ -22,7 +22,7 @@ async def test_register_capability_and_409(client):
 
 async def test_register_capability_runtime_kind_mismatch_422(client):
     cap = _cap_json(load_capabilities()[0])  # a skill
-    cap["runtime"] = {"kind": "mcp", "server_key": "k", "tools": ["t"]}
+    cap["runtime"] = {"kind": "mcp", "endpoint": "http://x", "tools": ["t"]}
     resp = await client.post("/capabilities", json=cap)
     assert resp.status_code == 422  # model validator: runtime.kind must equal kind
 

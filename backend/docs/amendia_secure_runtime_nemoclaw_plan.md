@@ -218,7 +218,7 @@ the raw value; **egress allowlists** mean a buggy/compromised capability can't r
 its declared endpoints. This is the natural home for the `literal:→vault:` migration ADR-016
 anticipated — the gateway is the broker; Vault backing becomes an infra concern, not an Amendia code
 change. Derive each capability's egress allowlist from **already-declared contract data**
-(`mcp.server_key`, the rail endpoint, the inference proxy), so policy is a function of the contract,
+(`mcp.endpoint` host [ADR-024], the rail endpoint, the inference proxy), so policy is a function of the contract,
 not a parallel hand-maintained list. **[confirm]** how OpenShell expresses per-sandbox egress policy.
 
 ---
@@ -390,7 +390,7 @@ flowchart TB
 - **Deep Agents Code harness SDK** surface — how to run it as an *embedded* bounded task with a fixed
   toolset and a required structured output (vs the full interactive coding agent) → the `deep_agent`
   capability.
-- **Native MCP** wiring — how `mcp.server_key` maps to an OpenShell-brokered tool.
+- **Native MCP** wiring — the MCP server is now self-descriptive on `mcp.endpoint` (ADR-024); how that endpoint maps to an OpenShell-brokered tool.
 - Official **compose fragment / Helm charts / GPU requirements** for OpenShell + Nemotron NIM.
 
 ---

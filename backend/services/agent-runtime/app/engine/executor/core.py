@@ -93,9 +93,9 @@ def execute_capability(
         if ctx.simulation:
             return _call(_resolve_sim(descriptor), descriptor, inputs, ctx)
         if mcp_client is not None:
-            # Real MCP transport (worker path, ADR-020 Part D). server_key/tools/transport
-            # come from the descriptor; the client resolves the endpoint via the in-sandbox
-            # registry. list_provider stays stub in dev (no real OFAC).
+            # Real MCP transport (worker path, ADR-020 Part D; ADR-024). endpoint/tools/
+            # transport/headers come straight from the self-descriptive descriptor; the client
+            # POSTs tools/call to that endpoint. list_provider stays stub in dev (no real OFAC).
             return _execute_mcp_real(descriptor, inputs, ctx, mcp_client)
         # No MCP client (native / fake) → paired simulation skill. Boundary logged.
         fn = SIM_CAPABILITIES.get(descriptor.capability_id)
@@ -172,26 +172,27 @@ def _execute_deep_agent(descriptor, inputs, ctx: ExecutionContext, runner, mcp_c
 
 
 def _execute_mcp_real(descriptor, inputs, ctx: ExecutionContext, mcp_client) -> Dict[str, Any]:
-    """Real MCP path (ADR-020 Part D): broker the capability's tool call through the MCP
-    client (which resolves ``server_key`` via the in-sandbox registry and speaks the MCP
-    transport) and map the result into the declared artifact. The host still validates it."""
+    """Real MCP path (ADR-020 Part D; ADR-024): broker the capability's tool call through the
+    MCP client, which POSTs `tools/call` to the descriptor's self-descriptive ``endpoint`` over
+    the declared transport, and map the result into the declared artifact. The host validates it."""
     from app.engine.executor.base import _run_blocking
 
     rt = descriptor.runtime
-    server_key = getattr(rt, "server_key", None)
+    endpoint = getattr(rt, "endpoint", None)
     tools = list(getattr(rt, "tools", []) or [])
     transport = getattr(rt, "transport", None)
     transport = transport.value if hasattr(transport, "value") else (str(transport) if transport else None)
+    headers = dict(getattr(rt, "headers", {}) or {})
     tool = tools[0] if tools else None
-    if not server_key or not tool:
-        raise CapabilityError(f"{descriptor.capability_id}: mcp runtime missing server_key/tools")
+    if not endpoint or not tool:
+        raise CapabilityError(f"{descriptor.capability_id}: mcp runtime missing endpoint/tools")
 
     # Arguments derived from the pinned envelope/inputs — the party to screen. list_provider
     # stays stub in dev (no real OFAC); the MCP *transport* is what's real here.
     arguments = {"envelope": ctx.envelope, "inputs": inputs}
     try:
         artifact = _run_blocking(mcp_client.call_tool(
-            server_key=server_key, tool=tool, arguments=arguments, transport=transport,
+            endpoint=endpoint, tool=tool, arguments=arguments, transport=transport, headers=headers,
         ))
     except Exception as exc:  # noqa: BLE001
         raise CapabilityError(f"{descriptor.capability_id}: MCP call failed: {exc}") from exc
@@ -199,5 +200,5 @@ def _execute_mcp_real(descriptor, inputs, ctx: ExecutionContext, mcp_client) -> 
     artifact_key = descriptor.outputs[0].model_dump(by_alias=True)["schema"].split("@", 1)[0]
     return {
         "outputs": {artifact_key: artifact},
-        "log": f"real MCP [{server_key}:{tool}] produced {artifact_key}",
+        "log": f"real MCP [{endpoint}:{tool}] produced {artifact_key}",
     }

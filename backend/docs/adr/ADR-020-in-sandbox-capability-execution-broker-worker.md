@@ -76,8 +76,8 @@ those stay host-side (ADR-017 trap 2).
 - **(B) LLM → `inference.local/v1`.** The worker runs the core's `run_real_llm` with the selected
   `nemoclaw` ref (base_url `inference.local/v1`, ADR-018); creds brokered by OpenShell (no raw key held).
   Dev/CI point `AGENTRT_WORKER_INFERENCE_BASE_URL` at a stub OpenAI-compatible endpoint (no GPU/NIM).
-- **(D) Real MCP.** `executor/mcp_client.py`: `RegistryMcpClient` resolves `server_key` via the
-  in-sandbox registry (`MCP_REGISTRY_PATH`) and performs a standard MCP `tools/call` over
+- **(D) Real MCP.** `executor/mcp_client.py`: `HttpMcpClient` POSTs a standard MCP `tools/call` to the
+  capability's self-descriptive `runtime.endpoint` (ADR-024 — no `server_key`/registry indirection) over
   `streamable_http`; `StubMcpClient` is the deterministic dev/CI double (marker-based, `list_provider`
   stays stub — no real OFAC). The worker uses an MCP client for `mcp` kind when not in simulation; the
   **simulation fallback is retained for the fake/native paths and logged at the boundary**.

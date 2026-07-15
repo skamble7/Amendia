@@ -1,16 +1,16 @@
 # app/engine/executor/mcp_client.py
-"""MCP client abstraction for the capability-worker (ADR-020 Part D).
+"""MCP client abstraction for the capability-worker (ADR-020 Part D; ADR-024).
 
-The worker resolves an ``mcp`` capability's ``server_key`` via the **in-sandbox MCP registry**
-that OpenShell/NemoClaw writes (`nemoclaw <sandbox> mcp add` → `/sandbox/.deepagents/.nemoclaw-mcp.json`,
-**confirmed** path per ADR-019) and calls the named tool over the declared transport.
+The MCP capability is now **self-descriptive**: the descriptor's `runtime` carries the server
+`endpoint`, `transport`, and `headers` directly (ADR-024), so the client no longer resolves a
+`server_key` against a registry file — it POSTs a standard **MCP `tools/call`** JSON-RPC
+request to the endpoint from the descriptor.
 
 Two implementations:
-  * ``RegistryMcpClient`` — reads the registry, resolves the endpoint, and performs a standard
-    **MCP `tools/call`** JSON-RPC request over `streamable_http`. The MCP protocol itself is an
-    open standard (not a NemoClaw invention); the **registry file shape** is marked
-    ``# [confirm]`` against a real `nemoclaw mcp add` output. Exercised only in the env-gated
-    integration test against a stub MCP server.
+  * ``HttpMcpClient`` — POSTs `tools/call` to the given `endpoint` with the given `headers`
+    (non-secret headers or resolved secret-refs). The MCP protocol itself is an open standard;
+    the exact streamable-http framing is ``# [confirm]`` against the target server. Exercised
+    by the env-gated integration test against a stub MCP server.
   * ``StubMcpClient`` — deterministic, in-process, no network. Exercises the worker's real MCP
     *code path* (dispatch → client → tool result → artifact) in unit/dev without a server, and
     keeps ``list_provider: stub`` (no real OFAC): a creditor name containing ``SANCTIONED``
@@ -23,8 +23,7 @@ from __future__ import annotations
 
 import json
 import logging
-from pathlib import Path
-from typing import Any, Dict, List, Optional, Protocol
+from typing import Any, Dict, Optional, Protocol
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +48,8 @@ def _screen_party_result(envelope: Dict[str, Any]) -> Dict[str, Any]:
 
 class McpClient(Protocol):
     async def call_tool(
-        self, *, server_key: str, tool: str, arguments: Dict[str, Any], transport: Optional[str],
+        self, *, endpoint: str, tool: str, arguments: Dict[str, Any],
+        transport: Optional[str], headers: Optional[Dict[str, str]] = None,
     ) -> Dict[str, Any]:
         ...
 
@@ -57,43 +57,27 @@ class McpClient(Protocol):
 class StubMcpClient:
     """Deterministic in-process MCP stand-in (unit/dev). No network, no real list."""
 
-    async def call_tool(self, *, server_key, tool, arguments, transport):
+    async def call_tool(self, *, endpoint, tool, arguments, transport, headers=None):
         envelope = (arguments or {}).get("envelope", {})
-        logger.info("StubMcpClient: %s/%s (transport=%s) — stub list, no OFAC", server_key, tool, transport)
+        logger.info("StubMcpClient: %s/%s (transport=%s) — stub list, no OFAC", endpoint, tool, transport)
         return _screen_party_result(envelope)
 
 
-class RegistryMcpClient:
-    """Resolves ``server_key`` from the in-sandbox registry and calls the MCP server.
+class HttpMcpClient:
+    """Calls the MCP server at the descriptor's ``endpoint`` (ADR-024).
 
-    The registry file is written by OpenShell/NemoClaw; its exact JSON shape is
-    ``# [confirm]`` — we read a tolerant ``{server_key: {"url", "transport", "headers"?}}``
-    (also accepts a top-level ``{"servers": {...}}``). Credentials are OpenShell placeholders
-    resolved gateway-side; we never hold a raw token.
+    Performs a standard **MCP `tools/call`** JSON-RPC POST. ``headers`` are non-secret headers
+    or resolved secret-refs (OpenShell may broker credentials gateway-side); we never hold a raw
+    token in the descriptor. ``# [confirm]`` the exact streamable-http framing (SSE vs plain
+    JSON) and result envelope against the target server.
     """
 
-    def __init__(self, registry_path: str, *, timeout: float = 30.0) -> None:
-        self._registry_path = registry_path
+    def __init__(self, *, timeout: float = 30.0) -> None:
         self._timeout = timeout
 
-    def _resolve(self, server_key: str) -> Dict[str, Any]:
-        p = Path(self._registry_path)
-        if not p.exists():
-            raise RuntimeError(f"MCP registry not found at {self._registry_path}")
-        data = json.loads(p.read_text(encoding="utf-8"))
-        servers = data.get("servers", data) if isinstance(data, dict) else {}
-        entry = servers.get(server_key)
-        if not entry or "url" not in entry:
-            raise RuntimeError(f"MCP server_key '{server_key}' not in registry")
-        return entry
-
-    async def call_tool(self, *, server_key, tool, arguments, transport):
-        entry = self._resolve(server_key)
-        url = entry["url"]
-        headers = {"content-type": "application/json", "accept": "application/json"}
-        headers.update(entry.get("headers") or {})  # OpenShell credential placeholders
-        # Standard MCP tools/call over streamable_http (JSON-RPC 2.0). [confirm] the exact
-        # streamable-http framing (SSE vs plain JSON) against the target MCP server.
+    async def call_tool(self, *, endpoint, tool, arguments, transport, headers=None):
+        hdrs = {"content-type": "application/json", "accept": "application/json"}
+        hdrs.update(headers or {})  # non-secret headers / resolved secret-refs
         payload = {
             "jsonrpc": "2.0", "id": 1, "method": "tools/call",
             "params": {"name": tool, "arguments": arguments},
@@ -101,7 +85,7 @@ class RegistryMcpClient:
         import httpx
 
         async with httpx.AsyncClient(timeout=self._timeout) as http:
-            resp = await http.post(url, json=payload, headers=headers)
+            resp = await http.post(endpoint, json=payload, headers=hdrs)
             resp.raise_for_status()
             body = resp.json()
         if "error" in body:
@@ -124,12 +108,7 @@ class RegistryMcpClient:
         raise RuntimeError(f"MCP tool '{tool}' returned no structured result")
 
 
-def build_mcp_client(settings) -> Optional[McpClient]:
-    """Worker-side MCP client selection: the registry client when the in-sandbox registry
-    exists, else the stub (dev/CI). Returns None only if MCP should sim-fallback."""
-    path = getattr(settings, "MCP_REGISTRY_PATH", None)
-    if path and Path(path).exists():
-        logger.info("MCP: using RegistryMcpClient over %s", path)
-        return RegistryMcpClient(path)
-    logger.info("MCP: registry %s absent — using StubMcpClient (dev/CI, no real list)", path)
-    return StubMcpClient()
+def build_mcp_client(settings) -> McpClient:
+    """Worker-side MCP client: the real HTTP client (calls the descriptor's endpoint). Tests
+    and dev pass ``StubMcpClient()`` explicitly; simulation-gating happens in the caller."""
+    return HttpMcpClient()

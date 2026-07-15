@@ -70,13 +70,15 @@ def resolve_tools(tool_ids: List[str], *, mcp_client: Optional[Any] = None) -> L
     return resolved
 
 
-def _mcp_tool_shim(tool_id: str, mcp_client: Any) -> Callable:
+def _mcp_tool_shim(tool_id: str, mcp_client: Any, *, endpoint: Optional[str] = None) -> Callable:
     def _tool(**arguments) -> dict:  # pragma: no cover - real MCP path only
         from app.engine.executor.base import _run_blocking
+        # [confirm] a deep_agent MCP tool's endpoint would come from the whitelisted tool's
+        # own descriptor/config (ADR-024 self-descriptive) — threaded here when that lands.
         return _run_blocking(mcp_client.call_tool(
-            server_key=None, tool=tool_id, arguments=arguments, transport="streamable_http"))
+            endpoint=endpoint, tool=tool_id, arguments=arguments, transport="streamable_http"))
     _tool.__name__ = tool_id
-    _tool.__doc__ = f"MCP tool '{tool_id}' (registry-brokered)."
+    _tool.__doc__ = f"MCP tool '{tool_id}' (self-descriptive endpoint)."
     return _tool
 
 

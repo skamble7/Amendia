@@ -3,8 +3,8 @@
 (ADR-019 Part C) — not a parallel hand-maintained list.
 
 The policy is a function of the capability descriptor:
-  * ``mcp``   → ``runtime.server_key`` (the gateway resolves it to an MCP endpoint via
-                config-forge) + ``runtime.tools`` whitelist + ``transport``.
+  * ``mcp``   → the host parsed from the self-descriptive ``runtime.endpoint`` (ADR-024) +
+                ``runtime.tools`` whitelist + ``transport``.
   * ``llm``   → the managed inference proxy host (``inference.local`` — **confirmed** against
                 NemoClaw docs; the in-sandbox OpenAI-compatible endpoint is ``inference.local/v1``).
   * ``skill`` (side-effectful) → the specific rail/notification endpoint declared in the
@@ -35,7 +35,7 @@ class EgressPolicy:
     side_effect: str
     allow_hosts: List[str] = field(default_factory=list)
     # mcp only
-    mcp_server_key: Optional[str] = None
+    mcp_endpoint: Optional[str] = None
     mcp_tools: List[str] = field(default_factory=list)
     mcp_transport: Optional[str] = None
     # llm / deep_agent
@@ -52,9 +52,9 @@ class EgressPolicy:
             "side_effect": self.side_effect,
             "allow_hosts": sorted(set(self.allow_hosts)),
             "mcp": (
-                {"server_key": self.mcp_server_key, "tools": self.mcp_tools,
+                {"endpoint": self.mcp_endpoint, "tools": self.mcp_tools,
                  "transport": self.mcp_transport}
-                if self.mcp_server_key else None
+                if self.mcp_endpoint else None
             ),
             "inference_proxy_host": self.inference_proxy_host,
             "agent_tools": self.agent_tools,
@@ -96,15 +96,20 @@ def derive_egress_policy(descriptor, *, llm_proxy_host: Optional[str] = None) ->
 
     if kind == "mcp":
         rt = descriptor.runtime
-        policy.mcp_server_key = getattr(rt, "server_key", None)
-        tools = list(getattr(rt, "tools", []) or [])
-        policy.mcp_tools = tools
+        policy.mcp_endpoint = getattr(rt, "endpoint", None)
+        policy.mcp_tools = list(getattr(rt, "tools", []) or [])
         tr = getattr(rt, "transport", None)
         policy.mcp_transport = tr.value if hasattr(tr, "value") else (str(tr) if tr else None)
-        # The concrete host is resolved from server_key by the gateway/config-forge; the
-        # allowlist is expressed by server_key + tools (the gateway brokers the endpoint).
+        # Self-descriptive (ADR-024): the egress host is parsed straight from the endpoint —
+        # no gateway/config-forge resolution needed. Allowlist = endpoint host + tools whitelist.
+        if policy.mcp_endpoint:
+            from urllib.parse import urlparse
+
+            host = urlparse(policy.mcp_endpoint).hostname
+            if host:
+                policy.allow_hosts.append(host)
         policy.notes.append(
-            f"mcp egress brokered by gateway from server_key={policy.mcp_server_key}; "
+            f"mcp egress restricted to endpoint host={sorted(set(policy.allow_hosts))}; "
             f"tools whitelist={policy.mcp_tools}"
         )
 

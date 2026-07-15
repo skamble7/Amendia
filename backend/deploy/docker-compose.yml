@@ -295,7 +295,7 @@ services:
       AGENTRT_LLM_CONFIG_REF: dev.llm.nemoclaw.nim          # llm → inference stub (dev)
       AGENTRT_SIMULATION_MODE: "false"                      # exercise real llm/mcp transport paths
       AGENTRT_WORKER_INFERENCE_BASE_URL: http://stub-inference:8055/v1   # dev stub; prod: inference.local/v1
-      AGENTRT_MCP_REGISTRY_PATH: /sandbox/.deepagents/.nemoclaw-mcp.json  # [confirm] real registry shape
+      # (MCP server details are self-descriptive on runtime.endpoint — ADR-024; seed points at stub-mcp:8056)
       # deep_agent (ADR-021): fake runner by default (deterministic, no harness). Set true only
       # inside a sandbox with the `deepagents` SDK + a reachable model; the pilot pack
       # `wire-repair-agentic` is onboarded via the registry (not a compose change). Sandbox-side

@@ -20,9 +20,10 @@
   },
   "runtime": {
     "kind": "mcp",
-    "server_key": "mcp.sanctions_screening",
+    "endpoint": "http://stub-mcp:8056/mcp",
     "tools": ["screen_party"],
-    "transport": "streamable_http"
+    "transport": "streamable_http",
+    "headers": {}
   },
   "constraints": { "timeout_seconds": 60, "max_retries": 1, "min_hitl_mode": "approve_result" },
   "owner": "platform",
