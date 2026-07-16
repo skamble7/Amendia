@@ -9,6 +9,8 @@ import {
   getCapability,
   listArtifactSchemas,
   getArtifactSchemaVersions,
+  listOnboardingSessions,
+  getOnboardingSession,
   type PackFilters,
 } from "@/api/services/registry";
 
@@ -38,4 +40,10 @@ export function useArtifactSchemas() {
 }
 export function useArtifactSchemaVersions(key: string | undefined) {
   return useApiQuery(["artifact-schema-versions", key], (s) => getArtifactSchemaVersions(key!, s), { enabled: !!key });
+}
+export function useOnboardingSessions() {
+  return useApiQuery(["onboarding-sessions"], (s) => listOnboardingSessions(s));
+}
+export function useOnboardingSession(id: string | undefined) {
+  return useApiQuery(["onboarding-session", id], (s) => getOnboardingSession(id!, s), { enabled: !!id, staleTime: Infinity });
 }

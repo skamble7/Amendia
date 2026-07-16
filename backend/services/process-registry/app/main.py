@@ -14,14 +14,16 @@ from app.config import auth_settings, settings
 from app.dal.artifact_schema_repo import ArtifactSchemaRepository
 from app.dal.bpmn_repo import BpmnRepository
 from app.dal.capability_repo import CapabilityRepository
+from app.dal.onboarding_repo import OnboardingRepository
 from app.dal.pack_repo import ProcessPackRepository
 from app.db.mongo import (
-    ARTIFACT_SCHEMAS, BPMN_DOCUMENTS, CAPABILITIES, PACK_RESOLUTIONS,
-    PROCESS_PACKS, VALIDATION_REPORTS, MongoClient,
+    ARTIFACT_SCHEMAS, BPMN_DOCUMENTS, CAPABILITIES, ONBOARDING_SESSIONS,
+    PACK_RESOLUTIONS, PROCESS_PACKS, VALIDATION_REPORTS, MongoClient,
 )
 from app.logging_conf import configure_logging
 from app.middleware.request_id import RequestIDMiddleware
-from app.routers import artifact_schemas, capabilities, health, packs, resolve
+from app.routers import artifact_schemas, capabilities, health, onboarding, packs, resolve
+from app.services.mcp_introspect import RealMcpIntrospector
 from app.services.resolver import ResolveService
 
 logger = logging.getLogger(__name__)
@@ -41,6 +43,8 @@ async def lifespan(app: FastAPI):
         mongo.collection(PACK_RESOLUTIONS),
     )
     app.state.bpmn_repo = BpmnRepository(mongo.collection(BPMN_DOCUMENTS))
+    app.state.onboarding_repo = OnboardingRepository(mongo.collection(ONBOARDING_SESSIONS))
+    app.state.mcp_introspector = RealMcpIntrospector()
     app.state.resolver = ResolveService(app.state.pack_repo, settings.RESOLVE_CACHE_TTL)
     app.state.auth = AuthContext(auth_settings)
 
@@ -86,6 +90,8 @@ def create_app() -> FastAPI:
     app.include_router(artifact_schemas.router, dependencies=guarded)
     app.include_router(packs.router, dependencies=guarded)
     app.include_router(resolve.router, dependencies=guarded)
+    app.include_router(onboarding.router, dependencies=guarded)
+    app.include_router(onboarding.introspect_router, dependencies=guarded)
     return app
 
 

@@ -19,18 +19,62 @@ from app.config import settings
 from app.dal.artifact_schema_repo import ArtifactSchemaRepository
 from app.dal.bpmn_repo import BpmnRepository
 from app.dal.capability_repo import CapabilityRepository
+from app.dal.onboarding_repo import OnboardingRepository
 from app.dal.pack_repo import ProcessPackRepository
 from app.db.mongo import (
-    ARTIFACT_SCHEMAS, BPMN_DOCUMENTS, CAPABILITIES, PACK_RESOLUTIONS,
-    PROCESS_PACKS, VALIDATION_REPORTS, create_indexes,
+    ARTIFACT_SCHEMAS, BPMN_DOCUMENTS, CAPABILITIES, ONBOARDING_SESSIONS,
+    PACK_RESOLUTIONS, PROCESS_PACKS, VALIDATION_REPORTS, create_indexes,
 )
 from app.deps import (
     get_artifact_schema_repo, get_bpmn_repo, get_capability_repo, get_mongo,
-    get_pack_repo, get_resolver, get_validator,
+    get_onboarding_service, get_pack_repo, get_resolver, get_validator,
 )
 from app.main import create_app
+from app.services.mcp_introspect import RawMcpTool
+from app.services.onboarding import OnboardingService
 from app.services.resolver import ResolveService
 from app.validation.pack_validator import PackValidator
+
+
+# --------------------------------------------------------------------------- #
+# In-memory MCP introspection (no live network in CI).
+# --------------------------------------------------------------------------- #
+
+class FakeMcpIntrospector:
+    def __init__(self, tools):
+        self._tools = tools
+
+    async def list_tools(self, *, endpoint, transport, headers):
+        return list(self._tools)
+
+
+def default_fake_tools():
+    return [
+        RawMcpTool(
+            name="screen_party", description="Screen a party against sanctions.",
+            input_schema={"type": "object", "properties": {"party": {"type": "string"}}, "required": ["party"]},
+            output_schema={"type": "object", "properties": {"hit": {"type": "boolean"}}, "required": ["hit"]},
+        ),
+        RawMcpTool(  # non-compliant: no outputSchema
+            name="notify_ops", description="Notify the ops channel.",
+            input_schema={"type": "object", "properties": {"msg": {"type": "string"}}},
+            output_schema=None,
+        ),
+    ]
+
+
+# A minimal, valid single-serviceTask BPMN used across onboarding tests.
+MCP_BPMN = """<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" id="def_1" targetNamespace="http://amendia">
+  <bpmn:process id="mcp_test_process" isExecutable="true">
+    <bpmn:startEvent id="Start_1"><bpmn:outgoing>f1</bpmn:outgoing></bpmn:startEvent>
+    <bpmn:serviceTask id="Task_Screen" name="Screen party"><bpmn:incoming>f1</bpmn:incoming><bpmn:outgoing>f2</bpmn:outgoing></bpmn:serviceTask>
+    <bpmn:endEvent id="End_1"><bpmn:incoming>f2</bpmn:incoming></bpmn:endEvent>
+    <bpmn:sequenceFlow id="f1" sourceRef="Start_1" targetRef="Task_Screen"/>
+    <bpmn:sequenceFlow id="f2" sourceRef="Task_Screen" targetRef="End_1"/>
+  </bpmn:process>
+</bpmn:definitions>
+"""
 
 SEED = Path(settings.SEED_DIR)
 
@@ -105,6 +149,24 @@ def resolver(pack_repo):
     return ResolveService(pack_repo, ttl_seconds=0.0)  # no caching in tests
 
 
+@pytest.fixture
+def onboarding_repo(db):
+    return OnboardingRepository(db[ONBOARDING_SESSIONS])
+
+
+@pytest.fixture
+def fake_introspector():
+    return FakeMcpIntrospector(default_fake_tools())
+
+
+@pytest.fixture
+def onboarding_service(onboarding_repo, cap_repo, schema_repo, pack_repo, bpmn_repo, fake_introspector):
+    return OnboardingService(
+        onboarding_repo, cap_repo, schema_repo, pack_repo, bpmn_repo,
+        fake_introspector, sample_envelopes=[load_sample()],
+    )
+
+
 @pytest_asyncio.fixture
 async def registered(cap_repo, schema_repo):
     """All seed capabilities + artifact schemas registered (no pack)."""
@@ -123,7 +185,7 @@ async def onboarded(cap_repo, schema_repo, pack_repo, bpmn_repo):
 
 
 @pytest_asyncio.fixture
-async def client(db, cap_repo, schema_repo, pack_repo, bpmn_repo, resolver):
+async def client(db, cap_repo, schema_repo, pack_repo, bpmn_repo, resolver, onboarding_service):
     from amendia_auth import AuthContext
     from amendia_auth.settings import AuthSettings
 
@@ -137,6 +199,7 @@ async def client(db, cap_repo, schema_repo, pack_repo, bpmn_repo, resolver):
     app.dependency_overrides[get_bpmn_repo] = lambda: bpmn_repo
     app.dependency_overrides[get_resolver] = lambda: resolver
     app.dependency_overrides[get_validator] = lambda: PackValidator(cap_repo, schema_repo)
+    app.dependency_overrides[get_onboarding_service] = lambda: onboarding_service
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         yield ac

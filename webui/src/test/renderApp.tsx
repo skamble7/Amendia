@@ -65,6 +65,7 @@ export function renderApp(initialPath: string, userId: string, extra?: ReactElem
               <Route path="/exceptions/:exceptionId" element={<ExceptionDetailPage />} />
               <Route path="/registry" element={<RegistryPage />} />
               <Route path="/registry/onboard" element={<OnboardingWizard />} />
+              <Route path="/registry/onboard/:sessionId" element={<OnboardingWizard />} />
               <Route path="/registry/packs/:packKey/:version" element={<PackDetailPage />} />
               {extra}
             </Routes>

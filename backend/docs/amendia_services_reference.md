@@ -149,15 +149,35 @@ The authoring/write side — the only writer of `capabilities`, `artifact_schema
 No messaging in v1; validation only (no BPMN execution).
 
 **Auth:** every **mutation** below (capability/schema register+deprecate, pack submit/bpmn/validate/
-activate/deprecate) requires **`role.process.owner`**. Reads and `/resolve` accept any authenticated
-principal **or** the shared internal token — the runtime reads the catalog and the ingestor calls
-`/resolve` service-to-service.
+activate/deprecate, and the **onboarding** session transitions + `introspect-mcp`) requires
+**`role.process.owner`**. Reads and `/resolve` accept any authenticated principal **or** the shared
+internal token — the runtime reads the catalog and the ingestor calls `/resolve` service-to-service.
 
 ### Triage
 
 | Method | Path | Description |
 |---|---|---|
 | `POST` | `/resolve` | Map an envelope to a pinned pack — body `{envelope}` → `{pack_key, pack_version, rule_id, resolved_at}`; 404 `NoMatchResponse` when nothing matches. Principal-or-internal (the ingestor calls it with `X-Amendia-Internal`). |
+
+### Onboarding (form-driven, ADR-025)
+
+The `OnboardingSession` state machine — a registry-owned authoring *scratch* doc (`onboarding_sessions`,
+owner-scoped). Every transition returns the full session (the webui wizard renders it). **Staging, not
+writing:** new artifacts/capabilities live on the session and are written to the catalog only at `commit`.
+All owner-gated.
+
+| Method | Path | Description |
+|---|---|---|
+| `POST` | `/capabilities/introspect-mcp` | Introspect a running MCP server — body `{endpoint, transport?, headers?, domain}` → each tool with its schemas + a **compliance verdict**. Owner-gated, `http(s)`-only, timeout-bounded (SSRF surface). 502 on connection failure. |
+| `POST` | `/onboarding` | Create a session (`initiated`) — body basics. 409 if `pack_key@version` is already an active/deprecated pack. |
+| `GET` | `/onboarding` · `/onboarding/{id}` | List this owner's sessions / resume one. |
+| `DELETE` | `/onboarding/{id}` | Abandon (204) — safe; nothing was written to the catalog. |
+| `PUT` | `/onboarding/{id}/bpmn` | Parse BPMN, derive inventory (exclusive gateways only). |
+| `POST` | `/onboarding/{id}/capabilities` | Stage `mcp` capabilities (+ two inferred artifacts each, MCP-only) and reused catalog refs. |
+| `PUT` | `/onboarding/{id}/bindings` | Store bindings — checks the task↔binding bijection and the side-effect→HITL coupling (field-level errors). |
+| `PUT` | `/onboarding/{id}/triage` · `.../policies` | Triage predicate trees / gateway variables + SoD + pack-local roles. |
+| `POST` | `/onboarding/{id}/assemble` | Compose the manifest + **dry-run** the 7-stage validator against staged rows; returns the report. |
+| `POST` | `/onboarding/{id}/commit` | Ordered, idempotent chain (artifacts → capabilities → pack draft → BPMN → validate → activate); stops before activate on a non-clean report; re-run is a no-op → `completed`. |
 
 ### Capabilities
 
