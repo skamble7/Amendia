@@ -18,11 +18,11 @@ from app.dal.onboarding_repo import OnboardingRepository
 from app.dal.pack_repo import ProcessPackRepository
 from app.db.mongo import (
     ARTIFACT_SCHEMAS, BPMN_DOCUMENTS, CAPABILITIES, ONBOARDING_SESSIONS,
-    PACK_RESOLUTIONS, PROCESS_PACKS, VALIDATION_REPORTS, MongoClient,
+    PACK_RESOLUTIONS, PACK_ROLES, PROCESS_PACKS, VALIDATION_REPORTS, MongoClient,
 )
 from app.logging_conf import configure_logging
 from app.middleware.request_id import RequestIDMiddleware
-from app.routers import artifact_schemas, capabilities, health, onboarding, packs, resolve
+from app.routers import artifact_schemas, capabilities, health, onboarding, packs, resolve, roles
 from app.services.mcp_introspect import RealMcpIntrospector
 from app.services.resolver import ResolveService
 
@@ -41,6 +41,7 @@ async def lifespan(app: FastAPI):
         mongo.collection(PROCESS_PACKS),
         mongo.collection(VALIDATION_REPORTS),
         mongo.collection(PACK_RESOLUTIONS),
+        mongo.collection(PACK_ROLES),
     )
     app.state.bpmn_repo = BpmnRepository(mongo.collection(BPMN_DOCUMENTS))
     app.state.onboarding_repo = OnboardingRepository(mongo.collection(ONBOARDING_SESSIONS))
@@ -90,6 +91,7 @@ def create_app() -> FastAPI:
     app.include_router(artifact_schemas.router, dependencies=guarded)
     app.include_router(packs.router, dependencies=guarded)
     app.include_router(resolve.router, dependencies=guarded)
+    app.include_router(roles.router, dependencies=guarded)
     app.include_router(onboarding.router, dependencies=guarded)
     app.include_router(onboarding.introspect_router, dependencies=guarded)
     return app

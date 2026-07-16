@@ -82,7 +82,9 @@ with the reason shown.
 
 **Registry → Onboard pack** walks Manifest → BPMN → Validate → Activate against the real
 registry, with the validation report grouped by validator stage. Activation is blocked while
-any stage reports an error. Visible only to users with the process-owner role.
+any stage reports an error. On the **Policies** step you can give each pack-local role a
+human-friendly label and description — admins see these when granting the role (ADR-026).
+Visible only to users with the process-owner role.
 
 ## 6. Administration — Users (platform admins)
 
@@ -103,8 +105,12 @@ platform-administrator persona is profiled in the [Persona Map](amendia_persona_
 **User detail** has three blocks:
 
 - **Roles** — each assigned role with a plain-language description and who assigned it/when;
-  **Assign role** opens a picker with descriptions (platform admin is flagged as elevated);
-  revoke from any row. A user with no roles shows an inline "assign a role" prompt.
+  **Assign role** opens a **master-detail picker** — packs (plus a *Platform* group) on the left,
+  that group's roles on the right — so the list stays short as more packs are onboarded. The roles
+  come from what active packs actually use (`GET /roles`, ADR-026), platform admin is flagged as
+  elevated, roles already held show as *granted*, and a **custom-role** field grants a role a
+  not-yet-active pack references. Revoke from any row; a user with no roles shows an inline
+  "assign a role" prompt.
 - **Identities** — the read-only `iss`/`sub` link(s) to your identity provider. Re-linking or
   merging identities is API-only in this release.
 - **Account** — **Disable** (with a consequence explainer and a required reason) blocks the

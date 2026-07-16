@@ -57,3 +57,14 @@ class ResolveResponse(BaseModel):
 class NoMatchResponse(BaseModel):
     detail: str = "no active pack matched the exception"
     considered_packs: int
+
+
+# --------------------------------------------------------------------------- #
+# Roles in use (derived from active packs' bindings + per-pack metadata sidecar)
+# --------------------------------------------------------------------------- #
+
+class RoleInUse(BaseModel):
+    role_id: str
+    label: Optional[str] = None
+    description: Optional[str] = None
+    sources: List[str] = Field(default_factory=list)  # pack_key@version references

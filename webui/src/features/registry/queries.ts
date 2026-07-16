@@ -11,6 +11,7 @@ import {
   getArtifactSchemaVersions,
   listOnboardingSessions,
   getOnboardingSession,
+  listRolesInUse,
   type PackFilters,
 } from "@/api/services/registry";
 
@@ -46,4 +47,8 @@ export function useOnboardingSessions() {
 }
 export function useOnboardingSession(id: string | undefined) {
   return useApiQuery(["onboarding-session", id], (s) => getOnboardingSession(id!, s), { enabled: !!id, staleTime: Infinity });
+}
+/** Assignable-role catalog: role ids derived from active packs' bindings + authored metadata. */
+export function useRolesInUse() {
+  return useApiQuery(["roles-in-use"], (s) => listRolesInUse(s));
 }

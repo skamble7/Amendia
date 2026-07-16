@@ -150,14 +150,21 @@ No messaging in v1; validation only (no BPMN execution).
 
 **Auth:** every **mutation** below (capability/schema register+deprecate, pack submit/bpmn/validate/
 activate/deprecate, and the **onboarding** session transitions + `introspect-mcp`) requires
-**`role.process.owner`**. Reads and `/resolve` accept any authenticated principal **or** the shared
-internal token — the runtime reads the catalog and the ingestor calls `/resolve` service-to-service.
+**`role.process.owner`**. Reads, `/resolve`, and `/roles` accept any authenticated principal **or** the
+shared internal token — the runtime reads the catalog, the ingestor calls `/resolve` service-to-service,
+and the admin UI reads `/roles`.
 
 ### Triage
 
 | Method | Path | Description |
 |---|---|---|
 | `POST` | `/resolve` | Map an envelope to a pinned pack — body `{envelope}` → `{pack_key, pack_version, rule_id, resolved_at}`; 404 `NoMatchResponse` when nothing matches. Principal-or-internal (the ingestor calls it with `X-Amendia-Internal`). |
+
+### Roles (ADR-026)
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/roles` | Roles **in use** across active packs — `[{role_id, label?, description?, sources[]}]`. Ids are **derived** from every active pack's bindings (`hitl.role` + human `executor.role`); `sources` are the `pack_key@version` packs referencing each id; `label`/`description` come from the optional per-pack `pack_roles` sidecar (authored on the onboarding Policies step) or are `null`. **A read** — principal-or-internal, no owner gate. The admin role picker builds its assignable list from this (merged with the two code-fixed platform roles on the frontend). Does **not** surface `role.process.owner` / `role.platform.admin` — those are a frontend constant. |
 
 ### Onboarding (form-driven, ADR-025)
 
@@ -175,7 +182,7 @@ All owner-gated.
 | `PUT` | `/onboarding/{id}/bpmn` | Parse BPMN, derive inventory (exclusive gateways only). |
 | `POST` | `/onboarding/{id}/capabilities` | Stage `mcp` capabilities (+ two inferred artifacts each, MCP-only) and reused catalog refs. |
 | `PUT` | `/onboarding/{id}/bindings` | Store bindings — checks the task↔binding bijection and the side-effect→HITL coupling (field-level errors). |
-| `PUT` | `/onboarding/{id}/triage` · `.../policies` | Triage predicate trees / gateway variables + SoD + pack-local roles. |
+| `PUT` | `/onboarding/{id}/triage` · `.../policies` | Triage predicate trees / gateway variables + SoD + pack-local roles. `policies` also accepts optional `role_meta` (label/description per role id) → written to the `pack_roles` sidecar at commit and surfaced by `GET /roles` (ADR-026). |
 | `POST` | `/onboarding/{id}/assemble` | Compose the manifest + **dry-run** the 7-stage validator against staged rows; returns the report. |
 | `POST` | `/onboarding/{id}/commit` | Ordered, idempotent chain (artifacts → capabilities → pack draft → BPMN → validate → activate); stops before activate on a non-clean report; re-run is a no-op → `completed`. |
 
@@ -234,6 +241,9 @@ Consumes `amendia_auth` itself, but resolves locally (it never HTTP-calls its ow
 
 The admin user-detail responses (`GET /users`, `GET /users/{id}`, and the mutating admin
 endpoints) additionally carry `role_details: [{role, assigned_by, assigned_at}]`; `/me` omits it.
+
+Identity assigns any well-formed `role.*` (no catalog check). The admin UI's *pickable* role list is
+sourced separately from the registry's `GET /roles` (§4, ADR-026); identity stays the assignment authority.
 
 **Seeding** (`IDENTITY_SEED_ON_STARTUP=true`): role assignments are seeded **by email** and materialised
 onto the user on first login — riya → `role.payments.ops_analyst`, marcus → `role.payments.ops_approver`,

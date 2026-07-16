@@ -45,7 +45,7 @@ owner-scoped by the Amendia `usr-…` from the bearer. It is **not a contract do
 | `capabilities_resolved` | `POST /onboarding/{id}/capabilities` | Stage new `mcp` capabilities (+ two inferred artifacts each) and record reused catalog refs. |
 | `bindings_set` | `PUT /onboarding/{id}/bindings` | Store bindings; check the task↔binding **bijection**; enforce the **side-effect→HITL** coupling. |
 | `triage_set` | `PUT /onboarding/{id}/triage` | Store triage predicate trees (validated as `Predicate`). |
-| `policies_set` | `PUT /onboarding/{id}/policies` | Store gateway variables, SoD, pack-local roles. |
+| `policies_set` | `PUT /onboarding/{id}/policies` | Store gateway variables, SoD, pack-local roles (+ optional per-role label/description — see the ADR-026 addendum). |
 | `assembled` | `POST /onboarding/{id}/assemble` | Compose the full manifest; **dry-run** the real 7-stage validator against staged (not-yet-registered) rows; return the report. |
 | `completed` | `POST /onboarding/{id}/commit` | Run the real ordered, idempotent chain. |
 
@@ -109,7 +109,9 @@ egress allowlist.
   binding to any capability must be ≥ its `min_hitl_mode`. Rejected at `bindings_set` with `allowed_min_mode`
   so the UI greys out weaker modes.
 - **Non-`none` HITL requires a role.** Roles are **pack-local** (collected from `policies_set` + the bindings;
-  no cross-pack role catalog). User↔role assignment stays the identity service's job.
+  no cross-pack role catalog). User↔role assignment stays the identity service's job. *(ADR-026 later surfaces
+  this derived set to the admin role picker via `GET /roles` and lets the Policies step author a
+  label/description per role — see the addendum below.)*
 - **Gateway variables** resolve to a `required` field of an upstream-produced artifact — already a validator
   stage, surfaced in the dry-run.
 
@@ -152,3 +154,13 @@ system (the rest of the app is unchanged).
    owner-gated; never echo server responses beyond the tool schemas. Tests must use the fake client.
 5. **Capability *creation* is `mcp`-only in this flow.** Other kinds are reuse-only. Don't add
    skill/llm/deep_agent authoring here — those are separate, deliberate acts.
+
+## Addendum — 2026-07-15 (per-pack role registry; see ADR-026)
+
+The Policies step now also authors **role metadata**: `SetPoliciesRequest`/`OnboardingSession` carry optional
+`role_meta` (`role_id → {label?, description?}`), filtered at `set_policies` to roles that actually exist in the
+derived set. At `commit` (after activate) the session writes a **`pack_roles`** sidecar
+(`save_pack_roles(pk, ver, [{role_id, label or humanize(role_id), description or ""}])`). This is UX/governance
+metadata only — **not** part of the immutable manifest, and the runtime never reads it. A new registry endpoint
+`GET /roles` derives role ids from every active pack's bindings and enriches them from this sidecar; the admin
+role picker builds its assignable list from it. Full rationale and the master-detail picker are in **ADR-026**.

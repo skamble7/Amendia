@@ -154,6 +154,13 @@ class StagedSod(BaseModel):
     elements: List[str] = Field(default_factory=list)
 
 
+class RoleMeta(BaseModel):
+    """Operator-authored label/description for a pack-local role id (UX/governance only)."""
+
+    label: Optional[str] = None
+    description: Optional[str] = None
+
+
 class CommitStep(BaseModel):
     key: str
     label: str
@@ -182,6 +189,7 @@ class OnboardingSession(BaseModel):
     gateway_variables: List[StagedGatewayVariable] = Field(default_factory=list)
     sod_policies: List[StagedSod] = Field(default_factory=list)
     roles: List[str] = Field(default_factory=list)
+    role_meta: Dict[str, RoleMeta] = Field(default_factory=dict)  # role_id -> label/description
 
     dry_run_report: Optional[Dict[str, Any]] = None
     commit_progress: List[CommitStep] = Field(default_factory=list)
@@ -267,6 +275,7 @@ class SetPoliciesRequest(BaseModel):
     gateway_variables: List[StagedGatewayVariable] = Field(default_factory=list)
     sod_policies: List[StagedSod] = Field(default_factory=list)
     roles: List[str] = Field(default_factory=list)
+    role_meta: Dict[str, RoleMeta] = Field(default_factory=dict)  # role_id -> label/description
 
 
 # --------------------------------------------------------------------------- #

@@ -1,9 +1,11 @@
 # Amendia — Persona Map
 
-**Version:** 1.1 (reflects webui v0.3 — Administration release, ADR-014, and the auth releases ADR-012/013)
+**Version:** 1.2 (adds the dynamic-assignable-roles model, ADR-026; reflects webui v0.3 — Administration release, ADR-014, and the auth releases ADR-012/013)
 **Canonical location note:** this file is the **sole** home of persona profiles. The [Amendia User Guide](Amendia_User_Guide.md) is operational and simply points here for personas — deep profiles are maintained in this file only, to prevent drift. The platform-administrator how-to is the [User Management Guide](amendia_admin_user_management_guide.md).
 
-The map covers four human personas (all real, seeded dev users), one state demonstrator, and one non-human actor. Roles here are enforced, not decorative: navigation is role-composed, task claiming checks roles server-side, separation-of-duties exclusions are computed per process instance, and every decision and administrative action is recorded immutably against the acting user's durable Amendia id. Role wording below matches the in-app role descriptions (the Assign-role dialog).
+The map covers four human personas (all real, seeded dev users), one state demonstrator, and one non-human actor. Roles here are enforced, not decorative: navigation is role-composed, task claiming checks roles server-side, separation-of-duties exclusions are computed per process instance, and every decision and administrative action is recorded immutably against the acting user's durable Amendia id.
+
+A note on the role vocabulary: only `role.process.owner` and `role.platform.admin` are platform-fixed. The analyst/approver roles below are the ones the **seeded payments pack** references — since ADR-026 the assignable-role list is **dynamic**, derived from whatever active packs use (the Assign-role dialog builds it from `GET /roles` plus those two platform roles), and a process owner can author each pack role's label/description. So these four are representative personas, not a closed set.
 
 ---
 
@@ -39,7 +41,7 @@ The map covers four human personas (all real, seeded dev users), one state demon
 
 **Roles:** `role.process.owner` + `role.platform.admin` · **Dev sign-in:** `priya` · **Mission:** make new exception-handling processes executable — safely.
 
-**Jobs to be done.** Understand the building blocks (capabilities with side-effect classifications, artifact schemas); onboard packs: manifest → BPMN → validation → activation; read validation reports and fix precisely what they name; understand version pinning.
+**Jobs to be done.** Understand the building blocks (capabilities with side-effect classifications, artifact schemas); onboard packs: manifest → BPMN → validation → activation; author a label + description for each pack-local role on the Policies step (so admins see friendly names when granting it, ADR-026); read validation reports and fix precisely what they name; understand version pinning.
 
 **Screens.** Registry (Processes catalog + onboarding wizard, Capabilities, Schemas), Dashboard — and, via her admin role, the full Administration area (she demonstrates that personas are role compositions, not fixed people).
 
@@ -85,6 +87,8 @@ Capabilities executing under the runtime: they enrich, assess, draft, screen, an
 | **Administration (users & roles)** | — | — | — | ✓ |
 
 Operator surfaces appear for anyone holding an operator role, so a platform-admin-*only* user (alex) sees just Administration. Reads stay role-free server-side (pages remain reachable by direct URL) — the matrix is nav-level progressive disclosure; mutations are what the server role-guards. A person holding none of these roles sees the "no access yet" state until an administrator grants one.
+
+The Analyst / Approver columns are the seeded payments pack's roles; a pack introducing new HITL roles (e.g. `role.lending.underwriter`) adds them to the assignable set automatically (ADR-026). Nav gating keys off a fixed **operator** set (`OPERATOR_ROLES` = analyst / approver / process-owner) — that's a UX grouping, separate from what's *grantable*.
 
 ## Genuinely future personas
 

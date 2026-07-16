@@ -66,6 +66,13 @@ _DOMAIN_RE = re.compile(r"^[a-z0-9_]+$")
 _APPROVE_ACTIONS = HitlMode.APPROVE_ACTIONS
 
 
+def humanize_role(role_id: str) -> str:
+    """Fallback label for a role id with no authored metadata: last dotted segment,
+    Title Cased (``role.payments.ops_analyst`` → ``Ops Analyst``)."""
+    tail = role_id.rsplit(".", 1)[-1]
+    return tail.replace("_", " ").title() or role_id
+
+
 class TransitionError(Exception):
     """A guard/validation failure → mapped to ``HTTPException(status_code, detail)``."""
 
@@ -411,6 +418,8 @@ class OnboardingService:
             if b.executor_type == "human" and b.role:
                 declared.add(b.role)
         s.roles = sorted(declared)
+        # Metadata is optional enrichment; keep only entries for roles that actually exist.
+        s.role_meta = {rid: meta for rid, meta in req.role_meta.items() if rid in declared}
         cleared = self._clear(s, {"dry_run"})
         s.state = self._advance(s.state, OnboardingState.POLICIES_SET)
         s.last_cleared = cleared
@@ -540,6 +549,17 @@ class OnboardingService:
         _mark("activate", "running")
         resolution, resolved_caps = await resolve_pins(manifest, self.caps, self.schemas)
         await self.packs.activate(pk, ver, resolved_caps=resolved_caps, resolution=resolution.to_doc())
+        # Per-pack role metadata sidecar: enrich every derived role id with the operator's
+        # authored label/description (falling back to a humanized label). Read by GET /roles.
+        role_docs = [
+            {
+                "role_id": rid,
+                "label": (s.role_meta.get(rid).label if s.role_meta.get(rid) else None) or humanize_role(rid),
+                "description": (s.role_meta.get(rid).description if s.role_meta.get(rid) else None) or "",
+            }
+            for rid in s.roles
+        ]
+        await self.packs.save_pack_roles(pk, ver, role_docs)
         _mark("activate", "done")
 
         s.state = OnboardingState.COMPLETED

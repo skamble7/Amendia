@@ -183,3 +183,15 @@ Two follow-ups from the implementation session were resolved against the running
     home of persona profiles. The user guide was renamed/moved to **`backend/docs/Amendia_User_Guide.md`**,
     stripped of all persona content (it now only links to the map), and every `webui_user_guide.md` reference
     across the docs was repointed. The admin-guide back-link is fixed as part of that repoint.
+
+## Addendum — 2026-07-15 (Assign/Stage dialogs superseded by ADR-026)
+
+The **Assign-role (A3)** and **Stage-access (A4)** dialogs described in Part B were a **flat list driven by a
+hardcoded four-role constant** (`ASSIGNABLE_ROLES`). **ADR-026 supersedes that**: the assignable-role list is
+now **dynamic** — derived from active packs' bindings via the registry's `GET /roles` and merged with the two
+code-fixed platform roles — and both dialogs render a shared **master-detail `RolePicker`** (packs on the left,
+that pack's roles on the right) plus a validated custom-role field. `ASSIGNABLE_ROLES` is retired. The 409 codes
+(`self_protection` / `last_admin` / `user_exists`), the guardrails, and the roleless-user state (Parts A/B) are
+unchanged. Note the **`OPERATOR_ROLES`** nav-gating constant (Deliberate deviation, above) is a separate concern
+— it groups the *operator* nav surfaces and is intentionally still a small fixed frontend set, independent of
+what roles are *grantable*.

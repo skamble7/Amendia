@@ -68,6 +68,7 @@ GET  /packs/{k}/{v}/bpmn                 GET  /packs/{k}/{v}/validation-report
 GET  /packs/{k}/{v}/resolution
 
 POST /resolve   ({envelope})             GET /health
+GET  /roles                              # roles in use — derived from active packs' bindings + pack_roles sidecar (ADR-026)
 
 # Onboarding session state machine (ADR-025) — owner-gated; renders in the webui wizard.
 # Nothing is written to the catalog collections until commit (staging, not writing).
@@ -86,7 +87,12 @@ seeder chain (idempotent; a non-clean re-validation stops before activate; a re-
 `assemble` dry-runs the real 7-stage validator against staged rows via a read-only overlay. Editing an
 upstream step invalidates dependent downstream state and reports what was cleared. `introspect-mcp`
 turns each compliant MCP tool into an input artifact + output artifact + one `kind: mcp` capability
-(creation is MCP-only; other kinds are reuse-only). See ADR-025.
+(creation is MCP-only; other kinds are reuse-only). The Policies step may author a label/description per
+pack-local role (`role_meta`), written to a `pack_roles` sidecar at commit. See ADR-025 / ADR-026.
+
+**Roles in use (`GET /roles`, ADR-026).** Derives role ids from every active pack's bindings
+(`hitl.role` + human `executor.role`), enriched with the optional `pack_roles` metadata sidecar. A read
+(principal-or-internal, no owner gate); the admin role picker builds its assignable list from it.
 
 ## Onboard a pack manually (dependency order)
 

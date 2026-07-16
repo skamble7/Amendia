@@ -23,7 +23,7 @@ from app.dal.onboarding_repo import OnboardingRepository
 from app.dal.pack_repo import ProcessPackRepository
 from app.db.mongo import (
     ARTIFACT_SCHEMAS, BPMN_DOCUMENTS, CAPABILITIES, ONBOARDING_SESSIONS,
-    PACK_RESOLUTIONS, PROCESS_PACKS, VALIDATION_REPORTS, create_indexes,
+    PACK_RESOLUTIONS, PACK_ROLES, PROCESS_PACKS, VALIDATION_REPORTS, create_indexes,
 )
 from app.deps import (
     get_artifact_schema_repo, get_bpmn_repo, get_capability_repo, get_mongo,
@@ -131,7 +131,7 @@ def schema_repo(db):
 
 @pytest.fixture
 def pack_repo(db):
-    return ProcessPackRepository(db[PROCESS_PACKS], db[VALIDATION_REPORTS], db[PACK_RESOLUTIONS])
+    return ProcessPackRepository(db[PROCESS_PACKS], db[VALIDATION_REPORTS], db[PACK_RESOLUTIONS], db[PACK_ROLES])
 
 
 @pytest.fixture

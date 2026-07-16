@@ -36,6 +36,21 @@ export interface PackResolution {
   bindings: Record<string, unknown>;
 }
 
+// ---- roles in use (derived from active packs' bindings + per-pack metadata sidecar) ----
+// Mirrors app/models/registry.py::RoleInUse. This is the dynamic assignable-role source for
+// the admin picker — role ids come from what active packs actually reference.
+
+export interface RoleInUse {
+  role_id: string;
+  label?: string | null;
+  description?: string | null;
+  sources: string[]; // pack_key@version references
+}
+
+export function listRolesInUse(signal?: AbortSignal): Promise<RoleInUse[]> {
+  return request<RoleInUse[]>("registry", "/roles", { signal });
+}
+
 // ---------------- Packs ----------------
 
 export interface PackFilters {
@@ -169,6 +184,7 @@ export interface OnbStagedBinding {
 export interface OnbTriageRule { rule_id: string; priority: number; description?: string | null; when: Record<string, unknown>; }
 export interface OnbGatewayVariable { gateway_id: string; variable: string; source_artifact: string; }
 export interface OnbSod { elements: string[]; }
+export interface OnbRoleMeta { label?: string | null; description?: string | null; }
 export interface OnbCommitStep { key: string; label: string; status: string; detail?: string | null; }
 
 export interface OnboardingSession {
@@ -176,7 +192,7 @@ export interface OnboardingSession {
   basics: OnbBasics; bpmn?: OnbBpmnInventory | null;
   staged_artifacts: OnbStagedArtifact[]; staged_capabilities: OnbStagedCapability[]; reused_capability_refs: string[];
   bindings: OnbStagedBinding[]; triage_rules: OnbTriageRule[]; gateway_variables: OnbGatewayVariable[];
-  sod_policies: OnbSod[]; roles: string[];
+  sod_policies: OnbSod[]; roles: string[]; role_meta?: Record<string, OnbRoleMeta>;
   dry_run_report?: ValidationReport | null; commit_progress: OnbCommitStep[];
   result_pack?: string | null; last_cleared: string[];
 }
@@ -234,7 +250,7 @@ export function setOnboardingBindings(id: string, body: { bindings: BindingInput
 export function setOnboardingTriage(id: string, body: { triage_rules: OnbTriageRule[] }): Promise<OnboardingSession> {
   return request<OnboardingSession>("registry", `/onboarding/${id}/triage`, { method: "PUT", body, silent: true });
 }
-export function setOnboardingPolicies(id: string, body: { gateway_variables: OnbGatewayVariable[]; sod_policies: OnbSod[]; roles: string[] }): Promise<OnboardingSession> {
+export function setOnboardingPolicies(id: string, body: { gateway_variables: OnbGatewayVariable[]; sod_policies: OnbSod[]; roles: string[]; role_meta?: Record<string, OnbRoleMeta> }): Promise<OnboardingSession> {
   return request<OnboardingSession>("registry", `/onboarding/${id}/policies`, { method: "PUT", body, silent: true });
 }
 export function assembleOnboarding(id: string): Promise<OnboardingSession> {

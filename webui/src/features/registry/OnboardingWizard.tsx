@@ -723,9 +723,27 @@ function PoliciesStep({ session, onDone }: { session: OnboardingSession; onDone:
     })),
   );
   const [sod, setSod] = useState<string[][]>(session.sod_policies.map((s) => s.elements));
-  const [roles, setRoles] = useState<string[]>(session.roles);
+  // Seed roles with any id the bindings already reference so the operator can author names
+  // for them here (the backend re-derives the authoritative set from bindings at save time).
+  const bindingRoles = [
+    ...session.bindings.map((b) => b.hitl_role).filter(Boolean),
+    ...session.bindings.filter((b) => b.executor_type === "human").map((b) => b.role).filter(Boolean),
+  ] as string[];
+  const [roles, setRoles] = useState<string[]>(() => Array.from(new Set([...session.roles, ...bindingRoles])));
+  const [roleMeta, setRoleMeta] = useState<Record<string, { label: string; description: string }>>(
+    () => Object.fromEntries(
+      Object.entries(session.role_meta ?? {}).map(([id, m]) => [id, { label: m?.label ?? "", description: m?.description ?? "" }]),
+    ),
+  );
   const [roleInput, setRoleInput] = useState("");
   const [busy, setBusy] = useState(false);
+
+  function metaFor(id: string) {
+    return roleMeta[id] ?? { label: "", description: "" };
+  }
+  function patchMeta(id: string, patch: Partial<{ label: string; description: string }>) {
+    setRoleMeta((prev) => ({ ...prev, [id]: { ...metaFor(id), ...patch } }));
+  }
 
   async function submit() {
     setBusy(true);
@@ -733,8 +751,15 @@ function PoliciesStep({ session, onDone }: { session: OnboardingSession; onDone:
       const gateway_variables = gateways
         .filter((g) => gvars[g]!.variable && gvars[g]!.source_artifact)
         .map((g) => ({ gateway_id: g, variable: gvars[g]!.variable, source_artifact: gvars[g]!.source_artifact }));
+      // Only send authored metadata (non-empty), keyed by a role still in the list.
+      const role_meta = Object.fromEntries(
+        roles
+          .map((id) => [id, metaFor(id)] as const)
+          .filter(([, m]) => m.label.trim() || m.description.trim())
+          .map(([id, m]) => [id, { label: m.label.trim() || undefined, description: m.description.trim() || undefined }]),
+      );
       onDone(await setOnboardingPolicies(session.session_id, {
-        gateway_variables, sod_policies: sod.filter((e) => e.length >= 2).map((elements) => ({ elements })), roles,
+        gateway_variables, sod_policies: sod.filter((e) => e.length >= 2).map((elements) => ({ elements })), roles, role_meta,
       }));
     } catch (e) { toast.error(extractErrors(e).general || "Could not save policies."); }
     finally { setBusy(false); }
@@ -787,18 +812,40 @@ function PoliciesStep({ session, onDone }: { session: OnboardingSession; onDone:
       </Card>
 
       <Card>
-        <CardHeader><CardTitle>Pack roles</CardTitle></CardHeader>
-        <CardContent>
-          <div className="flex flex-wrap items-center gap-2">
-            {roles.map((r) => (
-              <span key={r} className="flex items-center gap-1.5 rounded bg-surface px-2 py-1 font-mono text-xs">
-                {r}<button onClick={() => setRoles(roles.filter((x) => x !== r))}><XCircle className="size-3 text-muted-foreground" /></button>
-              </span>
-            ))}
-            <Input value={roleInput} onChange={(e) => setRoleInput(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter" && roleInput.trim()) { setRoles(Array.from(new Set([...roles, roleInput.trim()]))); setRoleInput(""); } }}
-              placeholder="role.payments.ops_approver + Enter" className="w-64 font-mono text-xs" />
-          </div>
+        <CardHeader>
+          <CardTitle>Pack roles</CardTitle>
+          <p className="text-xs text-muted-foreground">
+            Name each role a human-friendly label and description — admins see these when granting the
+            role. Ids referenced by your bindings are listed automatically; the label/description are
+            optional (a humanized fallback is used when blank).
+          </p>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {roles.length === 0 && (
+            <p className="text-sm text-muted-foreground">No roles yet — add the ids your process uses.</p>
+          )}
+          {roles.map((r) => (
+            <div key={r} className="rounded-md border border-border p-3">
+              <div className="mb-2 flex items-center justify-between">
+                <span className="font-mono text-xs font-medium">{r}</span>
+                <Button variant="ghost" size="icon" className="size-7"
+                  onClick={() => setRoles(roles.filter((x) => x !== r))}><XCircle className="size-3.5" /></Button>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="Label">
+                  <Input value={metaFor(r).label} onChange={(e) => patchMeta(r, { label: e.target.value })}
+                    placeholder="Sanctions Analyst" className="text-xs" />
+                </Field>
+                <Field label="Description">
+                  <Input value={metaFor(r).description} onChange={(e) => patchMeta(r, { description: e.target.value })}
+                    placeholder="Reviews screening hits" className="text-xs" />
+                </Field>
+              </div>
+            </div>
+          ))}
+          <Input value={roleInput} onChange={(e) => setRoleInput(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter" && roleInput.trim()) { setRoles(Array.from(new Set([...roles, roleInput.trim()]))); setRoleInput(""); } }}
+            placeholder="role.payments.ops_approver + Enter" className="w-72 font-mono text-xs" />
         </CardContent>
       </Card>
 

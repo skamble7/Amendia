@@ -21,6 +21,9 @@ BPMN_DOCUMENTS = "bpmn_documents"
 # shape stays a pure manifest that the agent-runtime can also read).
 VALIDATION_REPORTS = "validation_reports"
 PACK_RESOLUTIONS = "pack_resolutions"
+# Per-pack role metadata (label/description) authored during onboarding. Enriches the
+# derived-from-bindings role ids surfaced by GET /roles; UX/governance only.
+PACK_ROLES = "pack_roles"
 # Authoring scratch space for the form-driven onboarding wizard. NOT a contract
 # document — nothing here is written to the shared catalog collections until commit.
 ONBOARDING_SESSIONS = "onboarding_sessions"
@@ -43,7 +46,7 @@ async def create_indexes(db: AsyncIOMotorDatabase) -> None:
     )
     await db[PROCESS_PACKS].create_index("status")
 
-    for coll in (BPMN_DOCUMENTS, VALIDATION_REPORTS, PACK_RESOLUTIONS):
+    for coll in (BPMN_DOCUMENTS, VALIDATION_REPORTS, PACK_RESOLUTIONS, PACK_ROLES):
         await db[coll].create_index(
             [("pack_key", ASCENDING), ("version", ASCENDING)], unique=True
         )
