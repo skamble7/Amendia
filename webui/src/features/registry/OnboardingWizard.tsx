@@ -1,9 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { toast } from "sonner";
 import {
   ArrowLeft, ArrowRight, Check, AlertTriangle, XCircle, Info, Loader2, Search,
-  Plus, Trash2, ShieldAlert, Boxes,
+  Plus, Trash2, ShieldAlert, Boxes, Eye, Upload, FileCode,
 } from "lucide-react";
 import { PageHeader } from "@/app/AppShell";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -12,6 +12,8 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { BpmnViewer } from "./BpmnViewer";
 import { ApiError } from "@/api/client";
 import { groupByStage, countBySeverity, SEVERITY_VARIANT } from "@/lib/validation";
 import { cn } from "@/lib/utils";
@@ -237,14 +239,23 @@ function BasicsStep({ session, onNext }: { session: OnboardingSession; onNext: (
 // -- Step 2: BPMN --------------------------------------------------------------
 function BpmnStep({ session, onDone }: { session: OnboardingSession; onDone: (s: OnboardingSession) => void }) {
   const [xml, setXml] = useState("");
+  const [fileName, setFileName] = useState("");
   const [busy, setBusy] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
   const [findings, setFindings] = useState<any[]>([]);
   const [general, setGeneral] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  async function loadFile(file: File | undefined | null) {
+    if (!file) return;
+    const text = await file.text();
+    setXml(text); setFileName(file.name); setFindings([]); setGeneral("");
+  }
 
   async function submit() {
     setBusy(true); setFindings([]); setGeneral("");
     try {
-      onDone(await attachOnboardingBpmn(session.session_id, { bpmn_xml: xml }));
+      onDone(await attachOnboardingBpmn(session.session_id, { bpmn_xml: xml, bpmn_file: fileName || undefined }));
     } catch (e) {
       const x = extractErrors(e);
       setFindings(x.findings); setGeneral(x.general);
@@ -255,10 +266,58 @@ function BpmnStep({ session, onDone }: { session: OnboardingSession; onDone: (s:
   return (
     <div className="space-y-4">
       <Card>
-        <CardHeader><CardTitle>BPMN process definition</CardTitle></CardHeader>
+        <CardHeader className="flex-row items-center justify-between">
+          <CardTitle>BPMN process definition</CardTitle>
+          <Dialog>
+            <DialogTrigger asChild>
+              <Button variant="outline" size="sm" disabled={!xml.trim()}><Eye className="mr-1 size-4" /> View diagram</Button>
+            </DialogTrigger>
+            <DialogContent className="max-w-4xl">
+              <DialogHeader><DialogTitle>Process diagram {fileName && <span className="font-mono text-xs font-normal text-muted-foreground">· {fileName}</span>}</DialogTitle></DialogHeader>
+              <BpmnViewer xml={xml} className="h-[70vh]" />
+            </DialogContent>
+          </Dialog>
+        </CardHeader>
         <CardContent className="space-y-3">
-          <Label htmlFor="bpmn">Paste a BPMN 2.0 XML. The server parses it and returns the task &amp; gateway inventory (exclusive gateways only).</Label>
-          <Textarea id="bpmn" value={xml} onChange={(e) => setXml(e.target.value)} rows={14} className="font-mono text-xs" placeholder="<bpmn:definitions …>" />
+          <Label>Upload or paste a BPMN 2.0 XML. The server parses it and returns the task &amp; gateway inventory (exclusive gateways only).</Label>
+
+          {/* Upload zone (drag-drop + file picker) */}
+          <input
+            ref={inputRef} type="file" accept=".bpmn,.xml,text/xml,application/xml" className="hidden"
+            onChange={(e) => { loadFile(e.target.files?.[0]); e.target.value = ""; }}
+          />
+          <div
+            onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+            onDragLeave={() => setDragOver(false)}
+            onDrop={(e) => { e.preventDefault(); setDragOver(false); loadFile(e.dataTransfer.files?.[0]); }}
+            className={cn(
+              "flex flex-col items-center gap-2 rounded-md border border-dashed p-6 text-center transition-colors",
+              dragOver ? "border-agent bg-agent/5" : "border-border bg-surface/40",
+            )}
+          >
+            {fileName ? (
+              <div className="flex items-center gap-2 text-sm">
+                <FileCode className="size-4 text-agent" />
+                <span className="font-mono text-xs">{fileName}</span>
+                <Button variant="ghost" size="sm" onClick={() => inputRef.current?.click()}>Replace</Button>
+              </div>
+            ) : (
+              <>
+                <Upload className="size-6 text-muted-foreground" />
+                <div className="text-sm font-medium">Drag &amp; drop a .bpmn file</div>
+                <div className="text-xs text-muted-foreground">or use the picker · BPMN 2.0, exclusive gateways only</div>
+                <Button variant="secondary" size="sm" className="mt-1" onClick={() => inputRef.current?.click()}>
+                  <Upload className="mr-1 size-4" /> Choose file
+                </Button>
+              </>
+            )}
+          </div>
+
+          <Textarea
+            id="bpmn" value={xml}
+            onChange={(e) => { setXml(e.target.value); setFileName(""); }}
+            rows={12} className="font-mono text-xs" placeholder="…or paste <bpmn:definitions …> here"
+          />
           {general && <p className="text-sm text-danger">{general}</p>}
           {findings.length > 0 && (
             <div className="rounded-md border border-danger/40 bg-danger-muted/20 p-3">
