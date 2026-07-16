@@ -1,0 +1,43 @@
+# mcp_stub/deploy/docker-compose.yml
+#
+# Deploys the standalone MCP stub server(s) from ../servers on the SAME Docker network as the
+# backend stack, so process-registry (:8084) and agent-runtime (:8083) can reach them by alias.
+#
+# Bring up AFTER the backend stack is running:
+#   docker compose -f backend/deploy/docker-compose.yml up -d --build          # backend first
+#   docker compose -f mcp_stub/deploy/docker-compose.yml up --build            # then the MCP stub(s)
+#
+# The onboarding wizard then introspects  http://wirefix-mcp:8060/mcp  and drives
+# `wire-repair-agentic` to `active`; the agent-runtime invokes the tools during a run.
+#
+# Shared network: the backend compose defines no explicit network, so its default is
+# `deploy_default` (Compose derives the project name from the compose file's directory,
+# `backend/deploy`). If you brought the backend up with a different project name (e.g.
+# `-p amendia` → `amendia_default`), set AMENDIA_NETWORK to match:
+#   AMENDIA_NETWORK=amendia_default docker compose -f mcp_stub/deploy/docker-compose.yml up --build
+name: amendia-mcp-stub
+
+services:
+  # One service per authored server under ../servers. Add future servers as sibling blocks
+  # reusing the same network + streamable-HTTP pattern.
+  wire-transfer-exception:
+    build:
+      context: ../servers/wire_transfer_exception
+    image: amendia/wire-transfer-exception-mcp:dev
+    ports:
+      - "8060:8060"
+    environment:
+      PORT: "8060"
+      MCP_HOST: "0.0.0.0"
+    networks:
+      amendia:
+        # The exact host the registry/runtime introspect: http://wirefix-mcp:8060/mcp
+        aliases:
+          - wirefix-mcp
+    restart: unless-stopped
+
+networks:
+  # Join the backend stack's network as external (do not create an isolated one).
+  amendia:
+    external: true
+    name: ${AMENDIA_NETWORK:-deploy_default}
