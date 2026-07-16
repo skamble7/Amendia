@@ -100,7 +100,9 @@ platform-administrator persona is profiled in the [Persona Map](amendia_persona_
   but haven't been granted access yet). Disabled users are shown muted. Open a user for detail.
 - **Pending access** — roles **staged by email before someone first signs in**. Each entry
   shows the email, the staged roles, who staged them and when, and the note that they *activate
-  on first sign-in*. Stage new access, edit the staged roles, or remove an entry.
+  on first sign-in* — at which point the roles attach to the new account and the entry drops off
+  this tab (it only ever lists people who haven't signed in yet). Stage new access, edit the
+  staged roles, or remove an entry.
 
 **User detail** has three blocks:
 

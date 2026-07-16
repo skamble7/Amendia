@@ -43,6 +43,16 @@ class UserRepository:
         )
         return User.model_validate(doc) if doc else None
 
+    async def emails_in_use(self, emails: List[str]) -> set[str]:
+        """The subset of ``emails`` (compared case-insensitively) that already belong
+        to a provisioned user, returned lowercased. Used to keep staged access for a
+        now-provisioned email out of the Pending tab and to reconcile stale rows."""
+        in_use: set[str] = set()
+        for email in {e.lower() for e in emails if e}:
+            if await self.get_by_email(email) is not None:
+                in_use.add(email)
+        return in_use
+
     async def active_ids_among(self, user_ids: List[str]) -> List[str]:
         """Subset of ``user_ids`` whose accounts are currently active. Used by the
         last-admin guardrail to count live holders of a role."""

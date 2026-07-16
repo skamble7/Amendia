@@ -51,10 +51,18 @@ async def lifespan(app: FastAPI):
     if settings.SEED_ON_STARTUP:
         try:
             from app.seeding.seed import seed_role_assignments
-            report = await seed_role_assignments(role_repo)
+            report = await seed_role_assignments(role_repo, user_repo)
             logger.info("identity seed: %s", report)
         except Exception as exc:  # noqa: BLE001 - never block startup on a seed hiccup
             logger.error("identity seed failed: %s", exc)
+
+    # Always reconcile staged access against reality — purge pending rows for emails that
+    # already belong to a provisioned user (self-heals legacy stale rows; cheap no-op once clean).
+    try:
+        from app.seeding.seed import reconcile_pending
+        await reconcile_pending(role_repo, user_repo)
+    except Exception as exc:  # noqa: BLE001 - never block startup on a reconcile hiccup
+        logger.error("pending reconcile failed: %s", exc)
 
     logger.info("identity service ready")
     try:

@@ -50,7 +50,7 @@ Roles compose freely: one person may hold several (in dev, priya is process owne
 **Administration → Users** in the left navigation (visible only to platform admins). Two tabs:
 
 - **Users** — everyone who has signed in at least once. Search by name/email; filter by status, role, or **no roles** (your most useful filter — people waiting for access).
-- **Pending access** — role grants staged **by email** for people who have *not* signed in yet. The moment that email authenticates for the first time, the staged roles attach automatically.
+- **Pending access** — role grants staged **by email** for people who have *not* signed in yet. The moment that email authenticates for the first time, the staged roles attach to their new account and the entry **drops out of this tab** (it only ever lists people who haven't signed in — an already-provisioned email is managed on their user detail instead).
 
 Everything you do here is recorded with your identity and a timestamp (`assigned by · at` on every role row, `staged by · at` on every pending entry).
 
@@ -124,6 +124,7 @@ Least privilege by default — stage exactly the roles the job needs, and treat 
 
 ## 8. Changelog
 
+- **1.3** — Clarified that the **Pending access** tab only ever lists people who haven't signed in — staged roles attach and the entry drops out on first sign-in (backing bug fix: pending rows are now removed on materialisation, filtered on read, and reconciled at startup; `PUT` gained the same `user_exists` guard as `POST`).
 - **1.2** — Roles you can grant are now **dynamic**, derived from active packs (ADR-026): reframed "The roles you can grant" (two platform roles + pack-contributed roles + custom-role field), and noted the master-detail picker in the Assign/Stage flows.
 - **1.1** — Added §3.6: Day-0 bootstrap of the first administrator (`IDENTITY_BOOTSTRAP_ADMIN_EMAILS` self-disarming staging + break-glass CLI); fixed companion links; linked the persona map.
 - **1.0** — First edition, covering the Administration release: users & pending-access management, role assignment, disable/enable, guardrails, and the API-only edges.

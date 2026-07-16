@@ -226,16 +226,16 @@ Consumes `amendia_auth` itself, but resolves locally (it never HTTP-calls its ow
 
 | Method | Path | Description |
 |---|---|---|
-| `POST` | `/internal/resolve-principal` | **Internal only** (`X-Amendia-Internal`). Body `{iss, sub, email?, name?}` → `{amendia_user_id, email, display_name, status, roles}`. JIT-provisions an unknown identity (status from `IDENTITY_JIT_DEFAULT_STATUS`) and materialises seeded role assignments; refreshes stored email/name if changed. Called by `amendia_auth`'s `CurrentUser`. |
+| `POST` | `/internal/resolve-principal` | **Internal only** (`X-Amendia-Internal`). Body `{iss, sub, email?, name?}` → `{amendia_user_id, email, display_name, status, roles}`. JIT-provisions an unknown identity (status from `IDENTITY_JIT_DEFAULT_STATUS`) and materialises staged role assignments — attaching them attributed to whoever staged them, then **deleting the pending rows** so they don't linger; refreshes stored email/name if changed. Called by `amendia_auth`'s `CurrentUser`. |
 | `GET` | `/me` | Bearer-authenticated. The caller's Amendia user + roles — the webui's identity source. 403 `user_disabled` if disabled. |
 | `GET` | `/users` | **Admin** (`role.platform.admin`). List users (filter by `status`, `role`; pagination). |
 | `GET` | `/users/{amendia_user_id}` | **Admin.** One user + roles. 404 if unknown. |
 | `POST` | `/users/{amendia_user_id}/roles` | **Admin.** Assign a `role.*` — body `{role}` (201; 409 if already held; 422 if the role fails the `role.*` pattern). |
 | `DELETE` | `/users/{amendia_user_id}/roles/{role}` | **Admin.** Revoke a role (404 if the user lacks it). Guardrails: **409 `self_protection`** if an admin revokes their own `role.platform.admin`; **409 `last_admin`** if it would leave zero active platform admins (re-checked at operation time and rolled back). |
 | `POST` | `/users/{amendia_user_id}/disable` · `/enable` | **Admin.** Flip `status` (a disabled user resolves with `status: disabled` → 403 at every enforcing service). Disable guardrails: **409 `self_protection`** (can't disable your own account); **409 `last_admin`** (can't disable the last active platform admin — status is rolled back). |
-| `GET` | `/pending-role-assignments` | **Admin.** List staged (pending) access, aggregated per email; optional case-insensitive `email` substring filter. Each entry is `{email, roles[], staged_by, staged_at}`. |
+| `GET` | `/pending-role-assignments` | **Admin.** List staged (pending) access, aggregated per email; optional case-insensitive `email` substring filter. Each entry is `{email, roles[], staged_by, staged_at}`. **Invariant:** a row is listed only for an email that has **not** signed in yet — emails now belonging to a provisioned user are filtered out (their roles are already live on the user). |
 | `POST` | `/pending-role-assignments` | **Admin.** Stage roles for an email — body `{email, roles[]}` (201; **422** if any role fails the `role.*` pattern; **409 `user_exists`** if the email already belongs to a provisioned user — the response carries that user's `amendia_user_id` so the UI redirects to their detail). |
-| `PUT` | `/pending-role-assignments/{email}` | **Admin.** Replace the full staged-role set for an email. |
+| `PUT` | `/pending-role-assignments/{email}` | **Admin.** Replace the full staged-role set for an email (same **409 `user_exists`** guard as `POST`). |
 | `DELETE` | `/pending-role-assignments/{email}` | **Admin.** Remove staged access (204; 404 if none staged). |
 | `GET` | `/health` | Liveness/readiness (mongo). |
 
@@ -249,7 +249,10 @@ sourced separately from the registry's `GET /roles` (§4, ADR-026); identity sta
 onto the user on first login — riya → `role.payments.ops_analyst`, marcus → `role.payments.ops_approver`,
 priya → `role.process.owner` + `role.platform.admin`, alex → `role.platform.admin`. sam is seeded with
 **no** roles (his first login exercises the roleless state). No brittle Keycloak UUIDs — Amendia users are
-born only by JIT (nothing is written to Mongo until first sign-in).
+born only by JIT (nothing is written to Mongo until first sign-in). Seeding **skips any email already
+provisioned** (so restarts don't resurrect a Pending-tab row for someone who has signed in), and every
+startup runs a **reconcile** that purges pending rows whose email now belongs to a provisioned user
+(self-heals legacy strays; no migration needed).
 
 ## 6. notification-service (`:8088`)
 

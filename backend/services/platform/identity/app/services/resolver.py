@@ -82,10 +82,19 @@ class ResolveService:
         return user
 
     async def _materialise_pending_roles(self, user: User) -> None:
-        pending = await self._roles.pending_roles_for_email(user.email)
-        for role in pending:
-            if await self._roles.assign_if_absent(user.amendia_user_id, role, "seed"):
-                logger.info("attached seeded role %s to %s (%s)", role, user.amendia_user_id, user.email)
+        """Attach any email-staged roles to the freshly-provisioned user, then delete
+        the staged rows. Removal enforces the invariant that a pending row exists only
+        for an email that has *not* signed in yet — so the Pending tab never lists a
+        provisioned user. Idempotent: re-running finds nothing to do."""
+        pending = await self._roles.pending_grants_for_email(user.email)
+        if not pending:
+            return
+        for grant in pending:
+            # Attribute the grant to whoever staged it (the admin, or "seed"), not a
+            # generic marker — the user-detail audit line ("assigned by") stays honest.
+            if await self._roles.assign_if_absent(user.amendia_user_id, grant["role"], grant["staged_by"]):
+                logger.info("attached staged role %s to %s (%s)", grant["role"], user.amendia_user_id, user.email)
+        await self._roles.delete_pending(user.email)
 
 
 class LocalResolver:
