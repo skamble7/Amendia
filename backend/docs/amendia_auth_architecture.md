@@ -91,7 +91,7 @@ Service-to-service and broker-driven flows (dispatch, replies, engine execution)
 
 **Every API request.** Bearer JWT → `amendia_auth` validates (sig/iss/aud/exp via cached JWKS) → `CurrentUser` resolves principal → user + roles (cached) → route guard checks the required role → domain logic (SoD, decisions) runs against the Amendia user id.
 
-**Role administration.** Platform admin assigns/revokes `role.*` on users via the identity API (future UI screen for the tenant-admin persona). Takes effect within the resolution cache TTL.
+**Role administration.** Platform admin assigns/revokes `role.*` on users via the **Administration UI** (ADR-014) over the identity API. The *pickable* role list is dynamic — sourced from the registry's `GET /roles`, derived from active packs' bindings, so onboarding a pack makes its roles grantable automatically (ADR-026). Takes effect within the resolution cache TTL.
 
 **IdP migration (the durability story).** Customer replaces Okta with Entra: new issuer configured, users' new (iss, sub) identities linked to their existing Amendia users (admin re-key or matched JIT policy) — zero rewrites of immutable audit records.
 
@@ -104,7 +104,7 @@ Service-to-service and broker-driven flows (dispatch, replies, engine execution)
 | Amendia user id as the identity in all records | Audit immutability survives IdP migration; SoD/decisions unchanged |
 | JIT provisioning + identity array | Zero-friction onboarding; re-keyable identities |
 | Native role store first, claim-mapping as pluggable strategy | Ship simple; enterprise central-IAM entitlements remain a config feature, not a rearchitecture |
-| Roles remain the contracts' `role.*` vocabulary | RBAC vocabulary owned by the platform, identical across all customers |
+| Roles remain the contracts' `role.*` vocabulary | RBAC *pattern* owned by the platform (`role.*`, shape-validated, no central catalog); the *grantable set* is deployment-specific — derived from active packs' bindings via `GET /roles` (ADR-026) plus two code-fixed platform roles |
 | Single-issuer config (deployment = customer) | Tenancy relaxation per deployment model; removes issuer mapping entirely |
 | Keycloak realm export committed | Reproducible dev; also the reference integration doc for customer IdPs |
 

@@ -20,12 +20,28 @@ One sentence to internalize: **the IdP decides who gets in the door; you decide 
 
 ### The roles you can grant
 
-| Role | Grants | Grant with care because… |
-|---|---|---|
-| `role.payments.ops_analyst` | Claim/decide analyst gates: reviews of agent output, manual steps (RFIs), edit-and-approve | Their edits enter the audit record of payment repairs |
-| `role.payments.ops_approver` | Approve agent results; **authorize side-effectful actions** (releasing payments, sending interbank messages) | This is the money-moving signature; four-eyes depends on who holds it |
-| `role.process.owner` | Onboard, validate, activate, and deprecate process packs; register capabilities and artifact schemas | Activation changes how live exceptions are handled |
-| `role.platform.admin` | Everything in this guide | An admin can grant any role, including this one — treat it like a keys-to-the-keys role |
+The grantable list is **not fixed** — it is built from what your active process packs actually use, so it
+grows as you onboard packs (see ADR-026). Two sources feed the role picker:
+
+- **The two platform roles**, fixed by the platform itself:
+
+  | Role | Grants | Grant with care because… |
+  |---|---|---|
+  | `role.process.owner` | Onboard, validate, activate, and deprecate process packs; register capabilities and artifact schemas | Activation changes how live exceptions are handled |
+  | `role.platform.admin` | Everything in this guide | An admin can grant any role, including this one — treat it like a keys-to-the-keys role |
+
+- **Roles contributed by active packs.** Every role a pack references at a human/HITL gate becomes grantable
+  the moment that pack is active — no configuration on your side. In the seeded payments pack these are
+  `role.payments.ops_analyst` (claims/decides analyst gates — reviews, RFIs, edit-and-approve; their edits
+  enter the audit record) and `role.payments.ops_approver` (approves results and **authorizes side-effectful
+  actions** — the money-moving signature four-eyes depends on). A pack that introduces, say,
+  `role.lending.underwriter` simply appears in the picker once activated. Each pack role can carry a
+  human-friendly **label and description** the process owner authored during onboarding (otherwise a sensible
+  name is derived from the id).
+
+The picker is a **master-detail** view: pick a pack (or the *Platform* group) on the left, then a role on the
+right — so the list stays short no matter how many packs you run. There is also a **custom-role** field for
+granting a role a not-yet-active pack references (it moves into its pack's group once the pack goes live).
 
 Roles compose freely: one person may hold several (in dev, priya is process owner *and* admin). Note what roles do **not** override: an approver who also drafted a repair is still SoD-blocked from approving it — separation of duties is computed per process instance from who actually acted, and no role, including yours, bypasses it.
 
@@ -34,7 +50,7 @@ Roles compose freely: one person may hold several (in dev, priya is process owne
 **Administration → Users** in the left navigation (visible only to platform admins). Two tabs:
 
 - **Users** — everyone who has signed in at least once. Search by name/email; filter by status, role, or **no roles** (your most useful filter — people waiting for access).
-- **Pending access** — role grants staged **by email** for people who have *not* signed in yet. The moment that email authenticates for the first time, the staged roles attach automatically.
+- **Pending access** — role grants staged **by email** for people who have *not* signed in yet. The moment that email authenticates for the first time, the staged roles attach to their new account and the entry **drops out of this tab** (it only ever lists people who haven't signed in — an already-provisioned email is managed on their user detail instead).
 
 Everything you do here is recorded with your identity and a timestamp (`assigned by · at` on every role row, `staged by · at` on every pending entry).
 
@@ -42,11 +58,11 @@ Everything you do here is recorded with your identity and a timestamp (`assigned
 
 ### 3.1 Onboard a new employee before day one
 
-Pending access tab → **Stage access** → their work email (exactly as the IdP will present it) → pick roles → confirm. Done: on their first sign-in they land in a working app with the right screens. If you typo the email, the staging simply never matches — edit or remove it from the same tab. If the email already belongs to a provisioned user, the dialog redirects you to that user's detail instead (stage nothing; assign directly).
+Pending access tab → **Stage access** → their work email (exactly as the IdP will present it) → pick roles (the same pack/Platform master-detail picker as §3.2; multi-select here) → confirm. Done: on their first sign-in they land in a working app with the right screens. If you typo the email, the staging simply never matches — edit or remove it from the same tab. If the email already belongs to a provisioned user, the dialog redirects you to that user's detail instead (stage nothing; assign directly).
 
 ### 3.2 Grant access to someone who already signed in
 
-The "I logged in but the screen says I have no roles" ticket. Users tab → filter **no roles** (or search their name) → open their detail → **Assign role** → pick → confirm. Their next page load (or a fresh sign-in) picks it up. This is the intended flow, not an error: anyone in your organization's IdP *can* authenticate; only you decide who becomes an operator.
+The "I logged in but the screen says I have no roles" ticket. Users tab → filter **no roles** (or search their name) → open their detail → **Assign role** → pick a pack (or *Platform*) then a role → confirm. Roles the person already holds show as *granted*; if the pack you need isn't live yet, type its role id in the **custom-role** field. Their next page load (or a fresh sign-in) picks it up. This is the intended flow, not an error: anyone in your organization's IdP *can* authenticate; only you decide who becomes an operator.
 
 ### 3.3 Change what someone can do
 
@@ -108,6 +124,8 @@ Least privilege by default — stage exactly the roles the job needs, and treat 
 
 ## 8. Changelog
 
+- **1.3** — Clarified that the **Pending access** tab only ever lists people who haven't signed in — staged roles attach and the entry drops out on first sign-in (backing bug fix: pending rows are now removed on materialisation, filtered on read, and reconciled at startup; `PUT` gained the same `user_exists` guard as `POST`).
+- **1.2** — Roles you can grant are now **dynamic**, derived from active packs (ADR-026): reframed "The roles you can grant" (two platform roles + pack-contributed roles + custom-role field), and noted the master-detail picker in the Assign/Stage flows.
 - **1.1** — Added §3.6: Day-0 bootstrap of the first administrator (`IDENTITY_BOOTSTRAP_ADMIN_EMAILS` self-disarming staging + break-glass CLI); fixed companion links; linked the persona map.
 - **1.0** — First edition, covering the Administration release: users & pending-access management, role assignment, disable/enable, guardrails, and the API-only edges.
 

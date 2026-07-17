@@ -15,6 +15,7 @@ import { UsersListPage } from "./UsersListPage";
 import { UserDetailPage } from "./UserDetailPage";
 
 const ID = SERVICE_BASE.identity;
+const REG = SERVICE_BASE.registry;
 
 function identity(userId: string, roles: string[]): Identity {
   return { amendiaUserId: userId, displayName: userId, email: `${userId}@test.local`, roles };
@@ -122,7 +123,9 @@ describe("Pending access (A1/A4)", () => {
 
     const dialog = await screen.findByRole("dialog");
     await user.type(within(dialog).getByLabelText("Email"), "new@org.com");
-    await user.click(within(dialog).getByText("Analyst"));
+    // Roles live under their pack in the master-detail rail — open the pack, then pick the role.
+    await user.click(within(dialog).getByText("wire-repair-standard"));
+    await user.click(await within(dialog).findByText("Analyst"));
     await user.click(within(dialog).getByRole("button", { name: /^stage access$/i }));
 
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
@@ -146,7 +149,8 @@ describe("Pending access (A1/A4)", () => {
 
     const dialog = await screen.findByRole("dialog");
     await user.type(within(dialog).getByLabelText("Email"), "taken@org.com");
-    await user.click(within(dialog).getByText("Analyst"));
+    await user.click(within(dialog).getByText("wire-repair-standard"));
+    await user.click(await within(dialog).findByText("Analyst"));
     await user.click(within(dialog).getByRole("button", { name: /^stage access$/i }));
 
     expect(await within(dialog).findByText(/already belongs to a provisioned user/i)).toBeInTheDocument();
@@ -181,6 +185,29 @@ describe("User detail (A2/A3)", () => {
     await user.click(within(dialog).getByText("Process owner"));
     await user.click(within(dialog).getByRole("button", { name: /^assign role$/i }));
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  });
+
+  it("lists a pack-supplied role in the assign picker (derived from active packs)", async () => {
+    const target = makeUser({ amendia_user_id: "usr-1", display_name: "User One", roles: [] });
+    server.use(
+      http.get(`${ID}/users/usr-1`, () => HttpResponse.json(target)),
+      http.get(`${ID}/users`, () => HttpResponse.json([makeUser({ amendia_user_id: "usr-admin", roles: [ROLE.platformAdmin] })])),
+      // A pack that invented its own role, with no authored metadata → humanized label.
+      http.get(`${REG}/roles`, () =>
+        HttpResponse.json([
+          { role_id: "role.lending.underwriter", label: null, description: null, sources: ["lending-review@1.0.0"] },
+        ]),
+      ),
+    );
+    const user = userEvent.setup();
+    renderAdmin("/admin/users/usr-1", ADMIN);
+    expect(await screen.findByText("User One")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /assign role/i }));
+    const dialog = await screen.findByRole("dialog");
+    // The derived pack appears as a rail entry (labeled by pack_key, no title stubbed); opening
+    // it reveals its role with a humanized label (no authored metadata for this pack).
+    await user.click(await within(dialog).findByText("lending-review"));
+    expect(await within(dialog).findByText("Underwriter")).toBeInTheDocument();
   });
 
   it("disables self-targeting controls with a guardrail (own admin account)", async () => {

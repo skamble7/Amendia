@@ -196,6 +196,12 @@ BPMN gateway conditions (FEEL expressions like `beneficiary.repair_verdict = "re
 4. The runtime validates every artifact **write** against the pinned version at execution time; failure fails the task — never silent coercion.
 5. Fields used as gateway variables must be `required` (checked during pack validation, see §3).
 
+> **Form-driven onboarding (ADR-025).** The process-registry's `OnboardingSession` state machine can
+> **infer** these registrations from a running MCP server: introspect a compliant tool, and its
+> `inputSchema`/`outputSchema` are normalized to rules 1 & 3 above (draft 2020-12, forced root object,
+> canonical `$id`, `additionalProperties: false`, external-`$ref` rejection) to produce an input artifact,
+> an output artifact, and one `kind: mcp` capability — with nothing written to the catalog until commit.
+
 ---
 
 ## 6. Dispatch event — "the handoff into execution"

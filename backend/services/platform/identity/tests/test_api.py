@@ -151,13 +151,45 @@ async def test_stage_invalid_role_rejected(client):
     assert r.status_code == 422
 
 
-async def test_pending_attaches_on_first_login(client, resolve_service):
-    await client.post(
+async def test_pending_attaches_on_first_login(client, resolve_service, role_repo):
+    staged = await client.post(
         "/pending-role-assignments",
         json={"email": "jit@x.dev", "roles": ["role.payments.ops_analyst"]},
     )
+    assert staged.json()["staged_by"] == "usr-priya"  # the admin who staged it
     resolved = await resolve_service.resolve(iss="kc", sub="jit", email="jit@x.dev")
     assert "role.payments.ops_analyst" in resolved.roles
+    # The staged row is consumed on first login — it must not linger in Pending.
+    assert await role_repo.list_pending() == []
+    # …and the grant is attributed to whoever staged it, not a generic "seed" marker.
+    grants = {g["role"]: g["assigned_by"] for g in await role_repo.assignments_for(resolved.amendia_user_id)}
+    assert grants["role.payments.ops_analyst"] == "usr-priya"
+
+
+async def test_list_pending_hides_provisioned_email(client, resolve_service, role_repo):
+    # One genuinely-pending email, one email that belongs to a provisioned user
+    # (a stray row injected directly, bypassing the POST guard).
+    await client.post(
+        "/pending-role-assignments",
+        json={"email": "waiting@x.dev", "roles": ["role.payments.ops_analyst"]},
+    )
+    await resolve_service.resolve(iss="kc", sub="live", email="live@x.dev")
+    await role_repo.add_pending("live@x.dev", "role.process.owner", "seed")
+
+    listed = await client.get("/pending-role-assignments")
+    assert listed.status_code == 200
+    assert [p["email"] for p in listed.json()] == ["waiting@x.dev"]
+
+
+async def test_replace_pending_existing_user_conflicts(client, resolve_service):
+    resolved = await resolve_service.resolve(iss="kc", sub="rex", email="rex@x.dev")
+    r = await client.put(
+        "/pending-role-assignments/rex@x.dev", json={"roles": ["role.process.owner"]}
+    )
+    assert r.status_code == 409
+    detail = r.json()["detail"]
+    assert detail["error"] == "user_exists"
+    assert detail["amendia_user_id"] == resolved.amendia_user_id
 
 
 # ------------------------------ guardrails ---------------------------------- #
@@ -225,10 +257,37 @@ async def test_revoke_admin_succeeds_when_another_admin_remains(
 
 
 # ------------------------------ seed ---------------------------------------- #
-async def test_seed_idempotent(role_repo):
+async def test_seed_idempotent(role_repo, user_repo):
     from app.seeding.seed import seed_role_assignments
 
-    first = await seed_role_assignments(role_repo)
+    first = await seed_role_assignments(role_repo, user_repo)
     assert first["added"] and not first["skipped"]
-    second = await seed_role_assignments(role_repo)
+    second = await seed_role_assignments(role_repo, user_repo)
     assert not second["added"] and second["skipped"]
+
+
+async def test_seed_skips_provisioned_email(role_repo, user_repo, resolve_service):
+    from app.seeding.seed import seed_role_assignments
+
+    # riya has already signed in — the seed must not re-stage her (that would
+    # resurrect a Pending-tab row for someone clearly provisioned).
+    await resolve_service.resolve(iss="kc", sub="riya", email="riya@amendia.dev")
+    report = await seed_role_assignments(role_repo, user_repo)
+    assert any(s.startswith("riya@amendia.dev:already-provisioned") for s in report["skipped"])
+    assert "riya@amendia.dev" not in {p["email"] for p in await role_repo.list_pending()}
+
+
+async def test_reconcile_purges_pending_for_provisioned(role_repo, user_repo, resolve_service):
+    from app.seeding.seed import reconcile_pending
+
+    # A stray pending row for an email that later got provisioned (e.g. staged before
+    # the delete-on-materialise fix), plus a genuinely-still-pending email.
+    await role_repo.add_pending("ghost@x.dev", "role.platform.admin", "seed")
+    await resolve_service.resolve(iss="kc", sub="ghost", email="ghost@x.dev")  # provisions
+    await role_repo.add_pending("ghost@x.dev", "role.process.owner", "admin")  # stray, post-provision
+    await role_repo.add_pending("waiting@x.dev", "role.payments.ops_analyst", "admin")
+
+    purged = await reconcile_pending(role_repo, user_repo)
+    assert purged == ["ghost@x.dev"]
+    remaining = {p["email"] for p in await role_repo.list_pending()}
+    assert remaining == {"waiting@x.dev"}

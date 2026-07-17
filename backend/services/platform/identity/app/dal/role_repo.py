@@ -99,11 +99,18 @@ class RoleRepository:
         except DuplicateKeyError:
             return False
 
-    async def pending_roles_for_email(self, email: Optional[str]) -> List[str]:
+    async def pending_grants_for_email(self, email: Optional[str]) -> List[dict]:
+        """Staged (role, staged_by) rows for one email — used at first login to
+        materialise the grants (attributed to whoever staged them, not literally
+        "seed"). Empty when the email has none staged."""
         if not email:
             return []
         cursor = self._pending.find({"email": email.lower()}, projection=_PROJECTION)
-        return [d["role"] async for d in cursor]
+        return [{"role": d["role"], "staged_by": d.get("staged_by", "seed")} async for d in cursor]
+
+    async def pending_emails(self) -> List[str]:
+        """Distinct emails with any staged rows (for the startup reconcile)."""
+        return await self._pending.distinct("email")
 
     async def stage_pending(self, email: str, roles: List[str], staged_by: str) -> None:
         """Add each role for ``email`` (idempotent per role). Preserves any roles

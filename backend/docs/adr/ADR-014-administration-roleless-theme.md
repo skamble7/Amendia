@@ -183,3 +183,40 @@ Two follow-ups from the implementation session were resolved against the running
     home of persona profiles. The user guide was renamed/moved to **`backend/docs/Amendia_User_Guide.md`**,
     stripped of all persona content (it now only links to the map), and every `webui_user_guide.md` reference
     across the docs was repointed. The admin-guide back-link is fixed as part of that repoint.
+
+## Addendum — 2026-07-15 (Pending-access invariant: a staged row means "not signed in yet")
+
+Part A materialised staged roles onto a user at first login (`_materialise_pending_roles`) but **never
+removed the pending rows**, and `GET /pending-role-assignments` didn't filter them — so already-signed-in
+people lingered in the **Pending access** tab, contradicting the tab's own promise ("until then they exist
+only here") and the `user_exists` guard's logic. The seeder re-adding rows on every startup amplified it
+(seeded personas reappeared after a restart, since they never re-provision to trigger cleanup).
+
+Fixed by enforcing one invariant end-to-end — **a pending row exists only for an email that has not signed
+in yet** — at every path:
+
+- **Materialise then delete.** `_materialise_pending_roles` now attaches the staged roles *and deletes the
+  pending rows*. It also attributes each grant to **whoever staged it** (the pending row's `staged_by`, or
+  `seed`) instead of a blanket `"seed"`, so the user-detail "assigned by" line stays honest.
+- **`PUT` guarded like `POST`.** Replacing staged roles for an email that already belongs to a provisioned
+  user now also returns **409 `user_exists`** (previously only `POST` did).
+- **`GET` filters provisioned emails** (defence in depth) — even a stray row never surfaces.
+- **Seeder skips provisioned emails**, and **every startup runs `reconcile_pending`** (purges pending rows
+  for provisioned emails) so existing deployments self-heal without a migration.
+
+Identity suite **+4 tests** (materialise-cleanup + attribution, list filter, `PUT` 409, seed-skip / reconcile);
+`role_repo.pending_roles_for_email` → `pending_grants_for_email` (carries `staged_by`); `user_repo` gains
+`emails_in_use`. **No frontend change** — the tab renders whatever `GET` returns, which is now correct. The
+guardrails, roleless state, and theme system (Parts A–C) are otherwise unchanged.
+
+## Addendum — 2026-07-15 (Assign/Stage dialogs superseded by ADR-026)
+
+The **Assign-role (A3)** and **Stage-access (A4)** dialogs described in Part B were a **flat list driven by a
+hardcoded four-role constant** (`ASSIGNABLE_ROLES`). **ADR-026 supersedes that**: the assignable-role list is
+now **dynamic** — derived from active packs' bindings via the registry's `GET /roles` and merged with the two
+code-fixed platform roles — and both dialogs render a shared **master-detail `RolePicker`** (packs on the left,
+that pack's roles on the right) plus a validated custom-role field. `ASSIGNABLE_ROLES` is retired. The 409 codes
+(`self_protection` / `last_admin` / `user_exists`), the guardrails, and the roleless-user state (Parts A/B) are
+unchanged. Note the **`OPERATOR_ROLES`** nav-gating constant (Deliberate deviation, above) is a separate concern
+— it groups the *operator* nav surfaces and is intentionally still a small fixed frontend set, independent of
+what roles are *grantable*.

@@ -44,6 +44,7 @@ export const router = createBrowserRouter([
       { path: "exceptions/:exceptionId", element: <ExceptionDetailPage /> },
       { path: "registry", element: <RegistryPage /> },
       { path: "registry/onboard", element: <OnboardingWizard /> },
+      { path: "registry/onboard/:sessionId", element: <OnboardingWizard /> },
       { path: "registry/packs/:packKey/:version", element: <PackDetailPage /> },
       {
         path: "admin/users",

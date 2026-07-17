@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowRight, Check, Clock, UserCheck } from "lucide-react";
+import { ArrowRight, Clock, UserCheck } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -12,8 +12,15 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { cn } from "@/lib/utils";
-import { ASSIGNABLE_ROLES, roleDescription, roleLabel } from "@/lib/roles";
+import {
+  buildAssignableRoles,
+  isAdminRole,
+  roleDescription,
+  roleLabel,
+  type AssignableRole,
+} from "@/lib/roles";
+import { usePacks, useRolesInUse } from "@/features/registry/queries";
+import { RolePicker } from "./RolePicker";
 import { errorDetail, useReplacePending, useStagePending } from "./queries";
 
 export function StageAccessDialog({
@@ -32,6 +39,8 @@ export function StageAccessDialog({
   const navigate = useNavigate();
   const stage = useStagePending();
   const replace = useReplacePending();
+  const rolesInUse = useRolesInUse();
+  const packs = usePacks({ status: "active" });
   const pending = stage.isPending || replace.isPending;
 
   const [email, setEmail] = useState(initialEmail);
@@ -48,8 +57,27 @@ export function StageAccessDialog({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
+  // Platform roles + roles active packs reference, plus any already-selected id not in the
+  // catalog (a custom role the admin added, or a legacy staged grant) so it still renders.
+  const catalog = useMemo<AssignableRole[]>(() => {
+    const base = buildAssignableRoles(rolesInUse.data ?? []);
+    const extra: AssignableRole[] = roles
+      .filter((id) => !base.some((o) => o.id === id))
+      .map((id) => ({ id, label: roleLabel(id), description: roleDescription(id), isAdmin: isAdminRole(id) }));
+    return [...base, ...extra];
+  }, [rolesInUse.data, roles]);
+
+  const packTitles = useMemo(
+    () => Object.fromEntries((packs.data ?? []).map((p) => [p.pack_key, p.title])),
+    [packs.data],
+  );
+
   function toggle(role: string) {
     setRoles((prev) => (prev.includes(role) ? prev.filter((r) => r !== role) : [...prev, role]));
+  }
+
+  function addCustom(id: string) {
+    setRoles((prev) => (prev.includes(id) ? prev : [...prev, id]));
   }
 
   const emailValid = /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email.trim());
@@ -80,7 +108,7 @@ export function StageAccessDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+      <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>{mode === "edit" ? "Edit staged access" : "Stage access"}</DialogTitle>
           <DialogDescription>
@@ -110,37 +138,14 @@ export function StageAccessDialog({
 
         <div className="space-y-1.5">
           <Label>Roles</Label>
-          <div className="grid gap-2">
-            {ASSIGNABLE_ROLES.map((role) => {
-              const active = roles.includes(role);
-              return (
-                <button
-                  key={role}
-                  type="button"
-                  role="checkbox"
-                  aria-checked={active}
-                  onClick={() => toggle(role)}
-                  className={cn(
-                    "flex items-start gap-3 rounded-lg border p-3 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                    active ? "border-primary bg-accent/50" : "border-border hover:bg-accent/40",
-                  )}
-                >
-                  <span
-                    className={cn(
-                      "mt-0.5 flex size-4 shrink-0 items-center justify-center rounded border",
-                      active ? "border-primary bg-primary text-primary-foreground" : "border-input",
-                    )}
-                  >
-                    {active && <Check className="size-3" />}
-                  </span>
-                  <span className="min-w-0 space-y-0.5">
-                    <span className="block text-sm font-medium">{roleLabel(role)}</span>
-                    <span className="block text-xs text-muted-foreground">{roleDescription(role)}</span>
-                  </span>
-                </button>
-              );
-            })}
-          </div>
+          <RolePicker
+            mode="multi"
+            catalog={catalog}
+            selected={roles}
+            onToggle={toggle}
+            onAddCustom={addCustom}
+            packTitles={packTitles}
+          />
         </div>
 
         {existing && (

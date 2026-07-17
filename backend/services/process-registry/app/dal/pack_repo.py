@@ -33,10 +33,12 @@ class ProcessPackRepository:
         collection: AsyncIOMotorCollection,
         reports: Optional[AsyncIOMotorCollection] = None,
         resolutions: Optional[AsyncIOMotorCollection] = None,
+        pack_roles: Optional[AsyncIOMotorCollection] = None,
     ) -> None:
         self._coll = collection
         self._reports = reports
         self._resolutions = resolutions
+        self._pack_roles = pack_roles
 
     async def insert(self, manifest: ProcessPackManifest) -> ProcessPackManifest:
         doc = stamp_new(manifest.to_doc())
@@ -141,3 +143,19 @@ class ProcessPackRepository:
             {"pack_key": pack_key, "version": version}, projection={"_id": 0, "pack_key": 0, "version": 0}
         )
         return doc if doc else None
+
+    # -- per-pack role metadata (label/description authored during onboarding) --
+    async def save_pack_roles(self, pack_key: str, version: str, roles: List[Dict[str, Any]]) -> None:
+        if self._pack_roles is None:
+            return
+        await self._pack_roles.replace_one(
+            {"pack_key": pack_key, "version": version},
+            {"pack_key": pack_key, "version": version, "roles": roles},
+            upsert=True,
+        )
+
+    async def get_pack_roles(self, pack_key: str, version: str) -> List[Dict[str, Any]]:
+        if self._pack_roles is None:
+            return []
+        doc = await self._pack_roles.find_one({"pack_key": pack_key, "version": version}, projection={"_id": 0})
+        return doc.get("roles", []) if doc else []

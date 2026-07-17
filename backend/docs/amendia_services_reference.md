@@ -149,15 +149,42 @@ The authoring/write side — the only writer of `capabilities`, `artifact_schema
 No messaging in v1; validation only (no BPMN execution).
 
 **Auth:** every **mutation** below (capability/schema register+deprecate, pack submit/bpmn/validate/
-activate/deprecate) requires **`role.process.owner`**. Reads and `/resolve` accept any authenticated
-principal **or** the shared internal token — the runtime reads the catalog and the ingestor calls
-`/resolve` service-to-service.
+activate/deprecate, and the **onboarding** session transitions + `introspect-mcp`) requires
+**`role.process.owner`**. Reads, `/resolve`, and `/roles` accept any authenticated principal **or** the
+shared internal token — the runtime reads the catalog, the ingestor calls `/resolve` service-to-service,
+and the admin UI reads `/roles`.
 
 ### Triage
 
 | Method | Path | Description |
 |---|---|---|
 | `POST` | `/resolve` | Map an envelope to a pinned pack — body `{envelope}` → `{pack_key, pack_version, rule_id, resolved_at}`; 404 `NoMatchResponse` when nothing matches. Principal-or-internal (the ingestor calls it with `X-Amendia-Internal`). |
+
+### Roles (ADR-026)
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/roles` | Roles **in use** across active packs — `[{role_id, label?, description?, sources[]}]`. Ids are **derived** from every active pack's bindings (`hitl.role` + human `executor.role`); `sources` are the `pack_key@version` packs referencing each id; `label`/`description` come from the optional per-pack `pack_roles` sidecar (authored on the onboarding Policies step) or are `null`. **A read** — principal-or-internal, no owner gate. The admin role picker builds its assignable list from this (merged with the two code-fixed platform roles on the frontend). Does **not** surface `role.process.owner` / `role.platform.admin` — those are a frontend constant. |
+
+### Onboarding (form-driven, ADR-025)
+
+The `OnboardingSession` state machine — a registry-owned authoring *scratch* doc (`onboarding_sessions`,
+owner-scoped). Every transition returns the full session (the webui wizard renders it). **Staging, not
+writing:** new artifacts/capabilities live on the session and are written to the catalog only at `commit`.
+All owner-gated.
+
+| Method | Path | Description |
+|---|---|---|
+| `POST` | `/capabilities/introspect-mcp` | Introspect a running MCP server — body `{endpoint, transport?, headers?, domain}` → each tool with its schemas + a **compliance verdict**. Owner-gated, `http(s)`-only, timeout-bounded (SSRF surface). 502 on connection failure. |
+| `POST` | `/onboarding` | Create a session (`initiated`) — body basics. 409 if `pack_key@version` is already an active/deprecated pack. |
+| `GET` | `/onboarding` · `/onboarding/{id}` | List this owner's sessions / resume one. |
+| `DELETE` | `/onboarding/{id}` | Abandon (204) — safe; nothing was written to the catalog. |
+| `PUT` | `/onboarding/{id}/bpmn` | Parse BPMN, derive inventory (exclusive gateways only). |
+| `POST` | `/onboarding/{id}/capabilities` | Stage `mcp` capabilities (+ two inferred artifacts each, MCP-only) and reused catalog refs. |
+| `PUT` | `/onboarding/{id}/bindings` | Store bindings — checks the task↔binding bijection and the side-effect→HITL coupling (field-level errors). |
+| `PUT` | `/onboarding/{id}/triage` · `.../policies` | Triage predicate trees / gateway variables + SoD + pack-local roles. `policies` also accepts optional `role_meta` (label/description per role id) → written to the `pack_roles` sidecar at commit and surfaced by `GET /roles` (ADR-026). |
+| `POST` | `/onboarding/{id}/assemble` | Compose the manifest + **dry-run** the 7-stage validator against staged rows; returns the report. |
+| `POST` | `/onboarding/{id}/commit` | Ordered, idempotent chain (artifacts → capabilities → pack draft → BPMN → validate → activate); stops before activate on a non-clean report; re-run is a no-op → `completed`. |
 
 ### Capabilities
 
@@ -199,27 +226,33 @@ Consumes `amendia_auth` itself, but resolves locally (it never HTTP-calls its ow
 
 | Method | Path | Description |
 |---|---|---|
-| `POST` | `/internal/resolve-principal` | **Internal only** (`X-Amendia-Internal`). Body `{iss, sub, email?, name?}` → `{amendia_user_id, email, display_name, status, roles}`. JIT-provisions an unknown identity (status from `IDENTITY_JIT_DEFAULT_STATUS`) and materialises seeded role assignments; refreshes stored email/name if changed. Called by `amendia_auth`'s `CurrentUser`. |
+| `POST` | `/internal/resolve-principal` | **Internal only** (`X-Amendia-Internal`). Body `{iss, sub, email?, name?}` → `{amendia_user_id, email, display_name, status, roles}`. JIT-provisions an unknown identity (status from `IDENTITY_JIT_DEFAULT_STATUS`) and materialises staged role assignments — attaching them attributed to whoever staged them, then **deleting the pending rows** so they don't linger; refreshes stored email/name if changed. Called by `amendia_auth`'s `CurrentUser`. |
 | `GET` | `/me` | Bearer-authenticated. The caller's Amendia user + roles — the webui's identity source. 403 `user_disabled` if disabled. |
 | `GET` | `/users` | **Admin** (`role.platform.admin`). List users (filter by `status`, `role`; pagination). |
 | `GET` | `/users/{amendia_user_id}` | **Admin.** One user + roles. 404 if unknown. |
 | `POST` | `/users/{amendia_user_id}/roles` | **Admin.** Assign a `role.*` — body `{role}` (201; 409 if already held; 422 if the role fails the `role.*` pattern). |
 | `DELETE` | `/users/{amendia_user_id}/roles/{role}` | **Admin.** Revoke a role (404 if the user lacks it). Guardrails: **409 `self_protection`** if an admin revokes their own `role.platform.admin`; **409 `last_admin`** if it would leave zero active platform admins (re-checked at operation time and rolled back). |
 | `POST` | `/users/{amendia_user_id}/disable` · `/enable` | **Admin.** Flip `status` (a disabled user resolves with `status: disabled` → 403 at every enforcing service). Disable guardrails: **409 `self_protection`** (can't disable your own account); **409 `last_admin`** (can't disable the last active platform admin — status is rolled back). |
-| `GET` | `/pending-role-assignments` | **Admin.** List staged (pending) access, aggregated per email; optional case-insensitive `email` substring filter. Each entry is `{email, roles[], staged_by, staged_at}`. |
+| `GET` | `/pending-role-assignments` | **Admin.** List staged (pending) access, aggregated per email; optional case-insensitive `email` substring filter. Each entry is `{email, roles[], staged_by, staged_at}`. **Invariant:** a row is listed only for an email that has **not** signed in yet — emails now belonging to a provisioned user are filtered out (their roles are already live on the user). |
 | `POST` | `/pending-role-assignments` | **Admin.** Stage roles for an email — body `{email, roles[]}` (201; **422** if any role fails the `role.*` pattern; **409 `user_exists`** if the email already belongs to a provisioned user — the response carries that user's `amendia_user_id` so the UI redirects to their detail). |
-| `PUT` | `/pending-role-assignments/{email}` | **Admin.** Replace the full staged-role set for an email. |
+| `PUT` | `/pending-role-assignments/{email}` | **Admin.** Replace the full staged-role set for an email (same **409 `user_exists`** guard as `POST`). |
 | `DELETE` | `/pending-role-assignments/{email}` | **Admin.** Remove staged access (204; 404 if none staged). |
 | `GET` | `/health` | Liveness/readiness (mongo). |
 
 The admin user-detail responses (`GET /users`, `GET /users/{id}`, and the mutating admin
 endpoints) additionally carry `role_details: [{role, assigned_by, assigned_at}]`; `/me` omits it.
 
+Identity assigns any well-formed `role.*` (no catalog check). The admin UI's *pickable* role list is
+sourced separately from the registry's `GET /roles` (§4, ADR-026); identity stays the assignment authority.
+
 **Seeding** (`IDENTITY_SEED_ON_STARTUP=true`): role assignments are seeded **by email** and materialised
 onto the user on first login — riya → `role.payments.ops_analyst`, marcus → `role.payments.ops_approver`,
 priya → `role.process.owner` + `role.platform.admin`, alex → `role.platform.admin`. sam is seeded with
 **no** roles (his first login exercises the roleless state). No brittle Keycloak UUIDs — Amendia users are
-born only by JIT (nothing is written to Mongo until first sign-in).
+born only by JIT (nothing is written to Mongo until first sign-in). Seeding **skips any email already
+provisioned** (so restarts don't resurrect a Pending-tab row for someone who has signed in), and every
+startup runs a **reconcile** that purges pending rows whose email now belongs to a provisioned user
+(self-heals legacy strays; no migration needed).
 
 ## 6. notification-service (`:8088`)
 

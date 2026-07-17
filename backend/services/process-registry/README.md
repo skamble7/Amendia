@@ -3,7 +3,9 @@
 The **authoring / write side** of the Amendia platform (Step 2 of the build plan). It stores and
 validates the platform's contract declarations, runs the cross-contract **onboarding validator**,
 drives the pack lifecycle with version pinning at activation, and answers the runtime triage lookup
-(`POST /resolve`). No UI, no BPMN *execution* — validation only. Port **:8084**.
+(`POST /resolve`). It also hosts the **form-driven onboarding state machine** (`OnboardingSession`,
+ADR-025) that the webui wizard renders, plus **MCP introspection** (`POST /capabilities/introspect-mcp`).
+No BPMN *execution* — validation only. Port **:8084**.
 
 ## Ownership split (registry writes, runtime reads)
 
@@ -66,7 +68,31 @@ GET  /packs/{k}/{v}/bpmn                 GET  /packs/{k}/{v}/validation-report
 GET  /packs/{k}/{v}/resolution
 
 POST /resolve   ({envelope})             GET /health
+GET  /roles                              # roles in use — derived from active packs' bindings + pack_roles sidecar (ADR-026)
+
+# Onboarding session state machine (ADR-025) — owner-gated; renders in the webui wizard.
+# Nothing is written to the catalog collections until commit (staging, not writing).
+POST /capabilities/introspect-mcp        # {endpoint,transport?,headers?,domain} → tools + compliance
+POST /onboarding                         GET  /onboarding            GET /onboarding/{id}   DELETE /onboarding/{id}
+PUT  /onboarding/{id}/bpmn               POST /onboarding/{id}/capabilities
+PUT  /onboarding/{id}/bindings           PUT  /onboarding/{id}/triage    PUT /onboarding/{id}/policies
+POST /onboarding/{id}/assemble           POST /onboarding/{id}/commit
 ```
+
+**Onboarding (form-driven).** `OnboardingSession` is a registry-owned authoring *scratch* doc
+(collection `onboarding_sessions`, owner-scoped) — an explicit state machine `initiated → bpmn_attached
+→ capabilities_resolved → bindings_set → triage_set → policies_set → assembled → completed`. New
+artifacts/capabilities are **staged** on the session and only written at `commit`, which reuses the exact
+seeder chain (idempotent; a non-clean re-validation stops before activate; a re-run is a no-op).
+`assemble` dry-runs the real 7-stage validator against staged rows via a read-only overlay. Editing an
+upstream step invalidates dependent downstream state and reports what was cleared. `introspect-mcp`
+turns each compliant MCP tool into an input artifact + output artifact + one `kind: mcp` capability
+(creation is MCP-only; other kinds are reuse-only). The Policies step may author a label/description per
+pack-local role (`role_meta`), written to a `pack_roles` sidecar at commit. See ADR-025 / ADR-026.
+
+**Roles in use (`GET /roles`, ADR-026).** Derives role ids from every active pack's bindings
+(`hitl.role` + human `executor.role`), enriched with the optional `pack_roles` metadata sidecar. A read
+(principal-or-internal, no owner gate); the admin role picker builds its assignable list from it.
 
 ## Onboard a pack manually (dependency order)
 
