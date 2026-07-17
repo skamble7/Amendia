@@ -23,7 +23,7 @@ from amendia_contracts.capability import CapabilityDescriptor
 
 from app.capabilities.wire_repair import SIM_CAPABILITIES
 from app.config import settings
-from app.engine.executor.base import CapabilityError, ExecutionContext
+from app.engine.executor.base import CapabilityBusinessError, CapabilityError, ExecutionContext
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +57,10 @@ def _call(fn: Callable, descriptor: CapabilityDescriptor, inputs, ctx: Execution
             inputs=inputs, envelope=ctx.envelope, mode=ctx.mode,
             approved_action_ids=ctx.approved_action_ids,
         )
+    except CapabilityBusinessError:
+        # ADR-030: a modeled business error is NOT a technical failure — let it propagate so the
+        # task runner can route it to the error boundary rather than wrapping it as a CapabilityError.
+        raise
     except Exception as exc:  # noqa: BLE001
         raise CapabilityError(f"{descriptor.capability_id} raised: {exc}") from exc
     if not isinstance(result, dict):

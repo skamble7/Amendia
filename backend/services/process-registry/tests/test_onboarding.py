@@ -237,15 +237,107 @@ async def test_reattach_bpmn_clears_bindings_and_gateway_vars(onboarding_service
     assert s.state == OnboardingState.CAPABILITIES_RESOLVED
 
 
-async def test_reject_parallel_gateway_bpmn(onboarding_service):
-    s = await onboarding_service.create(CreateSessionRequest(pack_key="p-x", version="1.0.0", title="t"), owner=OWNER)
-    parallel = MCP_BPMN.replace(
-        '<bpmn:serviceTask id="Task_Screen" name="Screen party"><bpmn:incoming>f1</bpmn:incoming><bpmn:outgoing>f2</bpmn:outgoing></bpmn:serviceTask>',
-        '<bpmn:parallelGateway id="Gw_P"><bpmn:incoming>f1</bpmn:incoming><bpmn:outgoing>f2</bpmn:outgoing></bpmn:parallelGateway>',
-    )
+_NS = 'xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"'
+
+
+async def test_attach_accepts_full_bpmn_with_coverage(onboarding_service):
+    # ADR-027: a diagram richer than the executable subset (lanes, boundary event, send task,
+    # a parallel gateway off the live path) now ATTACHES — documented, never rejected.
+    s = await onboarding_service.create(CreateSessionRequest(pack_key="rich", version="1.0.0", title="t"), owner=OWNER)
+    xml = f"""<bpmn:definitions {_NS}>
+      <bpmn:process id="P" isExecutable="true">
+        <bpmn:laneSet id="ls"/>
+        <bpmn:boundaryEvent id="b" attachedToRef="Task_Screen"/>
+        <bpmn:sendTask id="send"/>
+        <bpmn:startEvent id="s"><bpmn:outgoing>f1</bpmn:outgoing></bpmn:startEvent>
+        <bpmn:serviceTask id="Task_Screen"><bpmn:incoming>f1</bpmn:incoming><bpmn:outgoing>f2</bpmn:outgoing></bpmn:serviceTask>
+        <bpmn:endEvent id="e"><bpmn:incoming>f2</bpmn:incoming></bpmn:endEvent>
+        <bpmn:sequenceFlow id="f1" sourceRef="s" targetRef="Task_Screen"/>
+        <bpmn:sequenceFlow id="f2" sourceRef="Task_Screen" targetRef="e"/>
+      </bpmn:process>
+    </bpmn:definitions>"""
+    s = await onboarding_service.attach_bpmn(s.session_id, AttachBpmnRequest(bpmn_xml=xml), owner=OWNER)
+    assert s.state == OnboardingState.BPMN_ATTACHED
+    assert s.bpmn.service_tasks == ["Task_Screen"]
+    assert s.bpmn.coverage_counts["executable"] == 3        # start + serviceTask + end
+    kinds = {d.kind for d in s.bpmn.documented_elements}
+    assert {"laneSet", "boundaryEvent", "sendTask"} <= kinds
+    assert s.bpmn.coverage_counts["documented"] >= 3
+
+
+async def test_attach_accepts_parallel_gateway_as_documented(onboarding_service):
+    s = await onboarding_service.create(CreateSessionRequest(pack_key="pg", version="1.0.0", title="t"), owner=OWNER)
+    xml = f"""<bpmn:definitions {_NS}>
+      <bpmn:process id="P" isExecutable="true">
+        <bpmn:startEvent id="s"><bpmn:outgoing>f0</bpmn:outgoing></bpmn:startEvent>
+        <bpmn:parallelGateway id="Gw_P"><bpmn:incoming>f0</bpmn:incoming><bpmn:outgoing>fa</bpmn:outgoing><bpmn:outgoing>fb</bpmn:outgoing></bpmn:parallelGateway>
+        <bpmn:endEvent id="ea"><bpmn:incoming>fa</bpmn:incoming></bpmn:endEvent>
+        <bpmn:endEvent id="eb"><bpmn:incoming>fb</bpmn:incoming></bpmn:endEvent>
+        <bpmn:sequenceFlow id="f0" sourceRef="s" targetRef="Gw_P"/>
+        <bpmn:sequenceFlow id="fa" sourceRef="Gw_P" targetRef="ea"/>
+        <bpmn:sequenceFlow id="fb" sourceRef="Gw_P" targetRef="eb"/>
+      </bpmn:process>
+    </bpmn:definitions>"""
+    s = await onboarding_service.attach_bpmn(s.session_id, AttachBpmnRequest(bpmn_xml=xml), owner=OWNER)
+    assert s.state == OnboardingState.BPMN_ATTACHED
+    assert "parallelGateway" in {d.kind for d in s.bpmn.documented_elements}
+
+
+async def test_attach_reference_yields_inference_draft(onboarding_service):
+    from pathlib import Path
+
+    xml = (Path(__file__).parent / "fixtures" / "wire-repair-agentic.reference.bpmn").read_text()
+    s = await onboarding_service.create(
+        CreateSessionRequest(pack_key="ref", version="1.0.0", title="Ref", default_domain="payment"), owner=OWNER)
+    s = await onboarding_service.attach_bpmn(s.session_id, AttachBpmnRequest(bpmn_xml=xml), owner=OWNER)
+    assert s.state == OnboardingState.BPMN_ATTACHED
+
+    # semantic summary on the inventory
+    assert len(s.bpmn.lanes) == 3
+    assert any(p.is_external for p in s.bpmn.pools)                       # P_Core / P_Cpty
+    assert any(gc.variable == "beneficiary.repair_verdict" for gc in s.bpmn.gateway_conditions)
+
+    inf = s.inferred
+    assert inf is not None
+    # roles: one per named lane
+    assert {r.role_id for r in inf.roles} == {
+        "role.payment.ai_agent_runtime", "role.payment.ops_analyst", "role.payment.ops_approver"}
+    # binding scaffold per task with lane-derived role + heuristic HITL
+    bmap = {b.element_id: b for b in inf.bindings}
+    assert bmap["Enrich"].executor_type == "capability"
+    assert bmap["Enrich"].suggested_role == "role.payment.ai_agent_runtime"
+    assert bmap["ApproveRepair"].executor_type == "human"
+    assert bmap["ApproveRepair"].suggested_role == "role.payment.ops_approver"
+    assert bmap["ApproveRepair"].suggested_hitl_mode == "manual"
+    assert "ClassifyReason" not in bmap                                   # businessRuleTask is documented, not bound
+    # gateway variable from the condition
+    assert any(gv.gateway_id == "GwRepair" and gv.variable == "beneficiary.repair_verdict"
+               for gv in inf.gateway_variables)
+    # capability candidates for serviceTasks + external message flows
+    assert {"Enrich", "Notify", "mf_enrich", "mf_notify"} <= {c.source for c in inf.capability_candidates}
+    # advisory annotations for timer / DMN / message constructs
+    assert {"sla_escalation_hint", "decision_capability_candidate", "external_integration_hint"} \
+        <= {a.code for a in inf.annotations}
+
+    # NOTHING staged — inference is advisory only
+    assert s.bindings == [] and s.roles == []
+
+
+async def test_attach_still_rejects_malformed_bpmn(onboarding_service):
+    # No start event → genuine structural error → still a hard 422.
+    s = await onboarding_service.create(CreateSessionRequest(pack_key="bad", version="1.0.0", title="t"), owner=OWNER)
+    xml = f"""<bpmn:definitions {_NS}>
+      <bpmn:process id="P" isExecutable="true">
+        <bpmn:serviceTask id="t"><bpmn:outgoing>f2</bpmn:outgoing></bpmn:serviceTask>
+        <bpmn:endEvent id="e"><bpmn:incoming>f2</bpmn:incoming></bpmn:endEvent>
+        <bpmn:sequenceFlow id="f2" sourceRef="t" targetRef="e"/>
+      </bpmn:process>
+    </bpmn:definitions>"""
     with pytest.raises(TransitionError) as ei:
-        await onboarding_service.attach_bpmn(s.session_id, AttachBpmnRequest(bpmn_xml=parallel), owner=OWNER)
+        await onboarding_service.attach_bpmn(s.session_id, AttachBpmnRequest(bpmn_xml=xml), owner=OWNER)
     assert ei.value.status_code == 422
+    codes = {f["code"] for f in ei.value.detail["findings"]}
+    assert "bpmn_start_event_count" in codes
 
 
 # --------------------------------------------------------------------------- #

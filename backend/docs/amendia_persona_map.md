@@ -21,7 +21,7 @@ A note on the role vocabulary: only `role.process.owner` and `role.platform.admi
 
 **Guardrails on her.** SoD-locked from approving work she influenced — rendered before she clicks, with the reason, and enforced server-side against her `usr-…` id. Her edits are re-validated against the pinned artifact schema.
 
-**Current friction.** Gate density on routine repairs (a pack-versioning tuning exercise); polling latency before new tasks appear; SLA due-dates display but nothing fires.
+**Current friction.** Gate density on routine repairs (a pack-versioning tuning exercise); polling latency before new tasks appear. *(Resolved — ADR-029/034: SLA due-dates now **fire** — a timer boundary event on a gate escalates to the diagram's escalation path when a human is late; the durable timer poller drives it, and the task shows a live SLA countdown / escalated state.)*
 
 ## Marcus — Operations Approver
 
@@ -35,7 +35,7 @@ A note on the role vocabulary: only `role.process.owner` and `role.platform.admi
 
 **Guardrails on him.** The same SoD machinery; closed decision sets per mode (a sanctions result cannot be edited, only accepted or rejected); identity and comment immutable on the record.
 
-**Current friction.** Comments are the only structured rationale (no rejection reason codes); no escalation targets behind *Escalate*.
+**Current friction.** Comments are the only structured rationale (no rejection reason codes). *(Resolved — ADR-030/031/034: escalation targets now exist — a rejection can route to a modeled **error-boundary** rework/return path, and a late gate escalates via its **SLA timer boundary** flow; a business message can wake a parked instance via `POST /messages`.)*
 
 ## Priya — Process Owner (+ Platform Admin in dev)
 

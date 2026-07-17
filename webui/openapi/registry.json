@@ -1,0 +1,5359 @@
+{
+  "components": {
+    "schemas": {
+      "AllPredicate-Input": {
+        "additionalProperties": false,
+        "properties": {
+          "all": {
+            "items": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/AllPredicate-Input"
+                },
+                {
+                  "$ref": "#/components/schemas/AnyPredicate-Input"
+                },
+                {
+                  "$ref": "#/components/schemas/NotPredicate-Input"
+                },
+                {
+                  "$ref": "#/components/schemas/LeafPredicate"
+                }
+              ]
+            },
+            "minItems": 1,
+            "title": "All",
+            "type": "array"
+          }
+        },
+        "required": [
+          "all"
+        ],
+        "title": "AllPredicate",
+        "type": "object"
+      },
+      "AllPredicate-Output": {
+        "additionalProperties": false,
+        "properties": {
+          "all": {
+            "items": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/AllPredicate-Output"
+                },
+                {
+                  "$ref": "#/components/schemas/AnyPredicate-Output"
+                },
+                {
+                  "$ref": "#/components/schemas/NotPredicate-Output"
+                },
+                {
+                  "$ref": "#/components/schemas/LeafPredicate"
+                }
+              ]
+            },
+            "minItems": 1,
+            "title": "All",
+            "type": "array"
+          }
+        },
+        "required": [
+          "all"
+        ],
+        "title": "AllPredicate",
+        "type": "object"
+      },
+      "AnyPredicate-Input": {
+        "additionalProperties": false,
+        "properties": {
+          "any": {
+            "items": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/AllPredicate-Input"
+                },
+                {
+                  "$ref": "#/components/schemas/AnyPredicate-Input"
+                },
+                {
+                  "$ref": "#/components/schemas/NotPredicate-Input"
+                },
+                {
+                  "$ref": "#/components/schemas/LeafPredicate"
+                }
+              ]
+            },
+            "minItems": 1,
+            "title": "Any",
+            "type": "array"
+          }
+        },
+        "required": [
+          "any"
+        ],
+        "title": "AnyPredicate",
+        "type": "object"
+      },
+      "AnyPredicate-Output": {
+        "additionalProperties": false,
+        "properties": {
+          "any": {
+            "items": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/AllPredicate-Output"
+                },
+                {
+                  "$ref": "#/components/schemas/AnyPredicate-Output"
+                },
+                {
+                  "$ref": "#/components/schemas/NotPredicate-Output"
+                },
+                {
+                  "$ref": "#/components/schemas/LeafPredicate"
+                }
+              ]
+            },
+            "minItems": 1,
+            "title": "Any",
+            "type": "array"
+          }
+        },
+        "required": [
+          "any"
+        ],
+        "title": "AnyPredicate",
+        "type": "object"
+      },
+      "ArtifactIO": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "required": {
+            "default": true,
+            "title": "Required",
+            "type": "boolean"
+          },
+          "schema": {
+            "description": "Versioned reference '<id>@<range-or-pin>'.",
+            "examples": [
+              "art.payment.draft_repair@^1.0.0"
+            ],
+            "title": "ArtifactRef",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "schema"
+        ],
+        "title": "ArtifactIO",
+        "type": "object"
+      },
+      "ArtifactSchemaRegistration": {
+        "additionalProperties": false,
+        "properties": {
+          "artifact_key": {
+            "pattern": "^art\\.[a-z0-9_]+\\.[a-z0-9_]+$",
+            "title": "Artifact Key",
+            "type": "string"
+          },
+          "compatibility": {
+            "$ref": "#/components/schemas/Compatibility",
+            "default": "backward"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "json_schema": {
+            "additionalProperties": true,
+            "title": "Json Schema",
+            "type": "object"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ArtifactStatus"
+          },
+          "tags": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tags"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          },
+          "version": {
+            "pattern": "^\\d+\\.\\d+\\.\\d+$",
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "artifact_key",
+          "version",
+          "title",
+          "json_schema",
+          "status"
+        ],
+        "title": "ArtifactSchemaRegistration",
+        "type": "object"
+      },
+      "ArtifactSeed": {
+        "properties": {
+          "source": {
+            "title": "Source",
+            "type": "string"
+          },
+          "suggested_artifact_key": {
+            "title": "Suggested Artifact Key",
+            "type": "string"
+          }
+        },
+        "required": [
+          "suggested_artifact_key",
+          "source"
+        ],
+        "title": "ArtifactSeed",
+        "type": "object"
+      },
+      "ArtifactStatus": {
+        "enum": [
+          "active",
+          "deprecated"
+        ],
+        "title": "ArtifactStatus",
+        "type": "string"
+      },
+      "AttachBpmnRequest": {
+        "properties": {
+          "bpmn_file": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bpmn File"
+          },
+          "bpmn_xml": {
+            "title": "Bpmn Xml",
+            "type": "string"
+          }
+        },
+        "required": [
+          "bpmn_xml"
+        ],
+        "title": "AttachBpmnRequest",
+        "type": "object"
+      },
+      "Basics": {
+        "properties": {
+          "default_domain": {
+            "default": "payment",
+            "title": "Default Domain",
+            "type": "string"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "pack_key": {
+            "title": "Pack Key",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "pack_key",
+          "version",
+          "title"
+        ],
+        "title": "Basics",
+        "type": "object"
+      },
+      "Binding": {
+        "additionalProperties": false,
+        "properties": {
+          "element_id": {
+            "title": "Element Id",
+            "type": "string"
+          },
+          "element_kind": {
+            "enum": [
+              "serviceTask",
+              "userTask",
+              "messageCatch",
+              "receiveTask",
+              "sendTask",
+              "scriptTask",
+              "manualTask",
+              "businessRuleTask"
+            ],
+            "title": "Element Kind",
+            "type": "string"
+          },
+          "executor": {
+            "discriminator": {
+              "mapping": {
+                "capability": "#/components/schemas/CapabilityExecutor",
+                "human": "#/components/schemas/HumanExecutor",
+                "message": "#/components/schemas/MessageExecutor"
+              },
+              "propertyName": "type"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/CapabilityExecutor"
+              },
+              {
+                "$ref": "#/components/schemas/HumanExecutor"
+              },
+              {
+                "$ref": "#/components/schemas/MessageExecutor"
+              }
+            ],
+            "title": "Executor"
+          },
+          "hitl": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Hitl"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "inputs": {
+            "items": {
+              "$ref": "#/components/schemas/ArtifactIO"
+            },
+            "title": "Inputs",
+            "type": "array"
+          },
+          "outputs": {
+            "items": {
+              "$ref": "#/components/schemas/ArtifactIO"
+            },
+            "title": "Outputs",
+            "type": "array"
+          }
+        },
+        "required": [
+          "element_id",
+          "element_kind",
+          "executor"
+        ],
+        "title": "Binding",
+        "type": "object"
+      },
+      "BindingInput": {
+        "properties": {
+          "assist_capability_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Assist Capability Ref"
+          },
+          "capability_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Capability Ref"
+          },
+          "element_id": {
+            "title": "Element Id",
+            "type": "string"
+          },
+          "element_kind": {
+            "title": "Element Kind",
+            "type": "string"
+          },
+          "executor_type": {
+            "title": "Executor Type",
+            "type": "string"
+          },
+          "hitl_mode": {
+            "default": "none",
+            "title": "Hitl Mode",
+            "type": "string"
+          },
+          "hitl_role": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hitl Role"
+          },
+          "role": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Role"
+          }
+        },
+        "required": [
+          "element_id",
+          "element_kind",
+          "executor_type"
+        ],
+        "title": "BindingInput",
+        "type": "object"
+      },
+      "BpmnInventory": {
+        "description": "Parsed BPMN topology the downstream steps hang off of, plus the ADR-027 coverage report.",
+        "properties": {
+          "bpmn_file": {
+            "title": "Bpmn File",
+            "type": "string"
+          },
+          "coverage_counts": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Coverage Counts",
+            "type": "object"
+          },
+          "data_objects": {
+            "items": {
+              "$ref": "#/components/schemas/DataObjectSummary"
+            },
+            "title": "Data Objects",
+            "type": "array"
+          },
+          "documented_elements": {
+            "items": {
+              "$ref": "#/components/schemas/DocumentedElement"
+            },
+            "title": "Documented Elements",
+            "type": "array"
+          },
+          "events": {
+            "items": {
+              "$ref": "#/components/schemas/EventSummary"
+            },
+            "title": "Events",
+            "type": "array"
+          },
+          "gateway_conditions": {
+            "items": {
+              "$ref": "#/components/schemas/GatewayConditionSummary"
+            },
+            "title": "Gateway Conditions",
+            "type": "array"
+          },
+          "gateways": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Gateways",
+            "type": "array"
+          },
+          "lanes": {
+            "items": {
+              "$ref": "#/components/schemas/LaneSummary"
+            },
+            "title": "Lanes",
+            "type": "array"
+          },
+          "message_flows": {
+            "items": {
+              "$ref": "#/components/schemas/MessageFlowSummary"
+            },
+            "title": "Message Flows",
+            "type": "array"
+          },
+          "pools": {
+            "items": {
+              "$ref": "#/components/schemas/PoolSummary"
+            },
+            "title": "Pools",
+            "type": "array"
+          },
+          "process_id": {
+            "title": "Process Id",
+            "type": "string"
+          },
+          "required_execution_profile": {
+            "default": "common_subset",
+            "title": "Required Execution Profile",
+            "type": "string"
+          },
+          "service_tasks": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Service Tasks",
+            "type": "array"
+          },
+          "sha256": {
+            "title": "Sha256",
+            "type": "string"
+          },
+          "subprocesses": {
+            "items": {
+              "$ref": "#/components/schemas/SubProcessSummary"
+            },
+            "title": "Subprocesses",
+            "type": "array"
+          },
+          "task_names": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Task Names",
+            "type": "object"
+          },
+          "user_tasks": {
+            "items": {
+              "type": "string"
+            },
+            "title": "User Tasks",
+            "type": "array"
+          }
+        },
+        "required": [
+          "process_id",
+          "bpmn_file",
+          "sha256"
+        ],
+        "title": "BpmnInventory",
+        "type": "object"
+      },
+      "CapabilityCandidate": {
+        "properties": {
+          "kind_hint": {
+            "default": "mcp",
+            "title": "Kind Hint",
+            "type": "string"
+          },
+          "needs_endpoint": {
+            "default": true,
+            "title": "Needs Endpoint",
+            "type": "boolean"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          },
+          "suggested_capability_id": {
+            "title": "Suggested Capability Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source",
+          "suggested_capability_id"
+        ],
+        "title": "CapabilityCandidate",
+        "type": "object"
+      },
+      "CapabilityDescriptor": {
+        "additionalProperties": false,
+        "properties": {
+          "capability_id": {
+            "pattern": "^cap\\.[a-z0-9_]+\\.[a-z0-9_]+$",
+            "title": "Capability Id",
+            "type": "string"
+          },
+          "config_schema": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Config Schema"
+          },
+          "constraints": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Constraints"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "descriptor_version": {
+            "const": "1.0",
+            "title": "Descriptor Version",
+            "type": "string"
+          },
+          "idempotent": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Idempotent"
+          },
+          "inputs": {
+            "items": {
+              "$ref": "#/components/schemas/SchemaIO"
+            },
+            "title": "Inputs",
+            "type": "array"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/CapabilityKind"
+          },
+          "outputs": {
+            "items": {
+              "$ref": "#/components/schemas/SchemaIO"
+            },
+            "title": "Outputs",
+            "type": "array"
+          },
+          "owner": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Owner"
+          },
+          "runtime": {
+            "discriminator": {
+              "mapping": {
+                "deep_agent": "#/components/schemas/DeepAgentRuntime",
+                "llm": "#/components/schemas/LlmRuntime",
+                "mcp": "#/components/schemas/McpRuntime",
+                "skill": "#/components/schemas/SkillRuntime"
+              },
+              "propertyName": "kind"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/SkillRuntime"
+              },
+              {
+                "$ref": "#/components/schemas/McpRuntime"
+              },
+              {
+                "$ref": "#/components/schemas/LlmRuntime"
+              },
+              {
+                "$ref": "#/components/schemas/DeepAgentRuntime"
+              }
+            ],
+            "title": "Runtime"
+          },
+          "side_effect": {
+            "$ref": "#/components/schemas/SideEffect"
+          },
+          "status": {
+            "$ref": "#/components/schemas/CapabilityStatus"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          },
+          "version": {
+            "pattern": "^\\d+\\.\\d+\\.\\d+$",
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "descriptor_version",
+          "capability_id",
+          "version",
+          "title",
+          "kind",
+          "side_effect",
+          "inputs",
+          "outputs",
+          "runtime",
+          "status"
+        ],
+        "title": "CapabilityDescriptor",
+        "type": "object"
+      },
+      "CapabilityExecutor": {
+        "additionalProperties": false,
+        "properties": {
+          "capability": {
+            "description": "Versioned reference '<id>@<range-or-pin>'.",
+            "examples": [
+              "cap.payment.draft_repair@^1.0.0"
+            ],
+            "title": "CapabilityRef",
+            "type": "string"
+          },
+          "type": {
+            "const": "capability",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "capability"
+        ],
+        "title": "CapabilityExecutor",
+        "type": "object"
+      },
+      "CapabilityKind": {
+        "enum": [
+          "skill",
+          "mcp",
+          "llm",
+          "deep_agent"
+        ],
+        "title": "CapabilityKind",
+        "type": "string"
+      },
+      "CapabilityStatus": {
+        "enum": [
+          "active",
+          "deprecated"
+        ],
+        "title": "CapabilityStatus",
+        "type": "string"
+      },
+      "CapabilityToolSelection": {
+        "description": "One selected MCP tool + operator-edited inferred ids and classification.",
+        "properties": {
+          "artifact_version": {
+            "default": "1.0.0",
+            "title": "Artifact Version",
+            "type": "string"
+          },
+          "capability_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Capability Id"
+          },
+          "capability_version": {
+            "default": "1.0.0",
+            "title": "Capability Version",
+            "type": "string"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "domain": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Domain"
+          },
+          "endpoint": {
+            "title": "Endpoint",
+            "type": "string"
+          },
+          "headers": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Headers",
+            "type": "object"
+          },
+          "idempotent": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Idempotent"
+          },
+          "input_artifact_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Input Artifact Key"
+          },
+          "input_schema": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Input Schema"
+          },
+          "min_hitl_mode": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Min Hitl Mode"
+          },
+          "output_artifact_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Output Artifact Key"
+          },
+          "output_schema": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Output Schema"
+          },
+          "side_effect": {
+            "default": "read_only",
+            "title": "Side Effect",
+            "type": "string"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "tool": {
+            "title": "Tool",
+            "type": "string"
+          },
+          "transport": {
+            "default": "streamable_http",
+            "title": "Transport",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tool",
+          "endpoint"
+        ],
+        "title": "CapabilityToolSelection",
+        "type": "object"
+      },
+      "CommitStep": {
+        "properties": {
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "status": {
+            "default": "pending",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "label"
+        ],
+        "title": "CommitStep",
+        "type": "object"
+      },
+      "Compatibility": {
+        "enum": [
+          "backward",
+          "none"
+        ],
+        "title": "Compatibility",
+        "type": "string"
+      },
+      "Constraints": {
+        "additionalProperties": false,
+        "properties": {
+          "max_retries": {
+            "default": 2,
+            "title": "Max Retries",
+            "type": "integer"
+          },
+          "min_hitl_mode": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/HitlMode"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "timeout_seconds": {
+            "default": 120,
+            "title": "Timeout Seconds",
+            "type": "integer"
+          }
+        },
+        "title": "Constraints",
+        "type": "object"
+      },
+      "CreateSessionRequest": {
+        "properties": {
+          "default_domain": {
+            "default": "payment",
+            "title": "Default Domain",
+            "type": "string"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "pack_key": {
+            "title": "Pack Key",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "pack_key",
+          "version",
+          "title"
+        ],
+        "title": "CreateSessionRequest",
+        "type": "object"
+      },
+      "DataObjectSummary": {
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "title": "DataObjectSummary",
+        "type": "object"
+      },
+      "DeepAgentBudget": {
+        "additionalProperties": false,
+        "description": "Hard budget caging a deep_agent loop (ADR-021).",
+        "properties": {
+          "max_steps": {
+            "default": 12,
+            "maximum": 200.0,
+            "minimum": 1.0,
+            "title": "Max Steps",
+            "type": "integer"
+          },
+          "max_tokens": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Tokens"
+          }
+        },
+        "title": "DeepAgentBudget",
+        "type": "object"
+      },
+      "DeepAgentRuntime": {
+        "additionalProperties": false,
+        "description": "A bounded Deep Agents Code loop. ``tools`` is the **whitelisted** toolset (MCP tool\nids and/or named worker functions); the harness may use nothing else. ``model_config_key``\nshould resolve to a managed/``nemoclaw`` ref. ``structured_output`` requires the harness\nto emit an object validating against the declared output artifact schema (host-validated).",
+        "properties": {
+          "budget": {
+            "$ref": "#/components/schemas/DeepAgentBudget"
+          },
+          "kind": {
+            "const": "deep_agent",
+            "title": "Kind",
+            "type": "string"
+          },
+          "model_config_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Config Key"
+          },
+          "prompt_key": {
+            "title": "Prompt Key",
+            "type": "string"
+          },
+          "structured_output": {
+            "default": true,
+            "title": "Structured Output",
+            "type": "boolean"
+          },
+          "tools": {
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "title": "Tools",
+            "type": "array"
+          }
+        },
+        "required": [
+          "kind",
+          "prompt_key",
+          "tools"
+        ],
+        "title": "DeepAgentRuntime",
+        "type": "object"
+      },
+      "DocumentedElement": {
+        "description": "A retained BPMN element outside the executable set (ADR-027 coverage overlay).",
+        "properties": {
+          "element_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Element Id"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "tier": {
+            "title": "Tier",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "tier"
+        ],
+        "title": "DocumentedElement",
+        "type": "object"
+      },
+      "EventSummary": {
+        "properties": {
+          "attached_to": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Attached To"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "subtype": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subtype"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "title": "EventSummary",
+        "type": "object"
+      },
+      "GatewayConditionSummary": {
+        "properties": {
+          "flow_id": {
+            "title": "Flow Id",
+            "type": "string"
+          },
+          "gateway_id": {
+            "title": "Gateway Id",
+            "type": "string"
+          },
+          "raw": {
+            "title": "Raw",
+            "type": "string"
+          },
+          "variable": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Variable"
+          }
+        },
+        "required": [
+          "gateway_id",
+          "flow_id",
+          "raw"
+        ],
+        "title": "GatewayConditionSummary",
+        "type": "object"
+      },
+      "GatewayVariable": {
+        "additionalProperties": false,
+        "properties": {
+          "gateway_id": {
+            "title": "Gateway Id",
+            "type": "string"
+          },
+          "source_artifact": {
+            "pattern": "^art\\.",
+            "title": "Source Artifact",
+            "type": "string"
+          },
+          "variable": {
+            "description": "e.g. beneficiary.repair_verdict",
+            "title": "Variable",
+            "type": "string"
+          }
+        },
+        "required": [
+          "gateway_id",
+          "variable",
+          "source_artifact"
+        ],
+        "title": "GatewayVariable",
+        "type": "object"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "Hitl": {
+        "additionalProperties": false,
+        "properties": {
+          "mode": {
+            "$ref": "#/components/schemas/HitlMode"
+          },
+          "role": {
+            "anyOf": [
+              {
+                "pattern": "^role\\.[a-z0-9_.]+$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Role"
+          }
+        },
+        "required": [
+          "mode"
+        ],
+        "title": "Hitl",
+        "type": "object"
+      },
+      "HitlMode": {
+        "enum": [
+          "none",
+          "review_after",
+          "approve_result",
+          "approve_actions",
+          "manual"
+        ],
+        "title": "HitlMode",
+        "type": "string"
+      },
+      "HumanExecutor": {
+        "additionalProperties": false,
+        "properties": {
+          "assist_capability": {
+            "anyOf": [
+              {
+                "description": "Versioned reference '<id>@<range-or-pin>'.",
+                "examples": [
+                  "cap.payment.draft_repair@^1.0.0"
+                ],
+                "title": "CapabilityRef",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Assist Capability"
+          },
+          "role": {
+            "pattern": "^role\\.[a-z0-9_.]+$",
+            "title": "Role",
+            "type": "string"
+          },
+          "type": {
+            "const": "human",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "role"
+        ],
+        "title": "HumanExecutor",
+        "type": "object"
+      },
+      "InferenceAnnotation": {
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "element_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Element Id"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "InferenceAnnotation",
+        "type": "object"
+      },
+      "InferenceDraft": {
+        "properties": {
+          "annotations": {
+            "items": {
+              "$ref": "#/components/schemas/InferenceAnnotation"
+            },
+            "title": "Annotations",
+            "type": "array"
+          },
+          "artifact_seeds": {
+            "items": {
+              "$ref": "#/components/schemas/ArtifactSeed"
+            },
+            "title": "Artifact Seeds",
+            "type": "array"
+          },
+          "bindings": {
+            "items": {
+              "$ref": "#/components/schemas/InferredBinding"
+            },
+            "title": "Bindings",
+            "type": "array"
+          },
+          "capability_candidates": {
+            "items": {
+              "$ref": "#/components/schemas/CapabilityCandidate"
+            },
+            "title": "Capability Candidates",
+            "type": "array"
+          },
+          "gateway_variables": {
+            "items": {
+              "$ref": "#/components/schemas/InferredGatewayVariable"
+            },
+            "title": "Gateway Variables",
+            "type": "array"
+          },
+          "roles": {
+            "items": {
+              "$ref": "#/components/schemas/InferredRole"
+            },
+            "title": "Roles",
+            "type": "array"
+          },
+          "sod_candidates": {
+            "items": {
+              "$ref": "#/components/schemas/SodCandidate"
+            },
+            "title": "Sod Candidates",
+            "type": "array"
+          }
+        },
+        "title": "InferenceDraft",
+        "type": "object"
+      },
+      "InferredBinding": {
+        "properties": {
+          "element_id": {
+            "title": "Element Id",
+            "type": "string"
+          },
+          "element_kind": {
+            "title": "Element Kind",
+            "type": "string"
+          },
+          "executor_type": {
+            "title": "Executor Type",
+            "type": "string"
+          },
+          "source_lane": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Lane"
+          },
+          "suggested_hitl_mode": {
+            "default": "none",
+            "title": "Suggested Hitl Mode",
+            "type": "string"
+          },
+          "suggested_role": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Suggested Role"
+          }
+        },
+        "required": [
+          "element_id",
+          "element_kind",
+          "executor_type"
+        ],
+        "title": "InferredBinding",
+        "type": "object"
+      },
+      "InferredGatewayVariable": {
+        "properties": {
+          "gateway_id": {
+            "title": "Gateway Id",
+            "type": "string"
+          },
+          "variable": {
+            "title": "Variable",
+            "type": "string"
+          }
+        },
+        "required": [
+          "gateway_id",
+          "variable"
+        ],
+        "title": "InferredGatewayVariable",
+        "type": "object"
+      },
+      "InferredRole": {
+        "properties": {
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "role_id": {
+            "title": "Role Id",
+            "type": "string"
+          },
+          "source_lane": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Lane"
+          }
+        },
+        "required": [
+          "role_id",
+          "label"
+        ],
+        "title": "InferredRole",
+        "type": "object"
+      },
+      "IntrospectMcpRequest": {
+        "properties": {
+          "domain": {
+            "default": "payment",
+            "title": "Domain",
+            "type": "string"
+          },
+          "endpoint": {
+            "title": "Endpoint",
+            "type": "string"
+          },
+          "headers": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Headers",
+            "type": "object"
+          },
+          "transport": {
+            "default": "streamable_http",
+            "title": "Transport",
+            "type": "string"
+          }
+        },
+        "required": [
+          "endpoint"
+        ],
+        "title": "IntrospectMcpRequest",
+        "type": "object"
+      },
+      "IntrospectMcpResponse": {
+        "properties": {
+          "endpoint": {
+            "title": "Endpoint",
+            "type": "string"
+          },
+          "tools": {
+            "items": {
+              "$ref": "#/components/schemas/IntrospectedTool"
+            },
+            "title": "Tools",
+            "type": "array"
+          },
+          "transport": {
+            "title": "Transport",
+            "type": "string"
+          }
+        },
+        "required": [
+          "endpoint",
+          "transport"
+        ],
+        "title": "IntrospectMcpResponse",
+        "type": "object"
+      },
+      "IntrospectedTool": {
+        "properties": {
+          "compliance": {
+            "$ref": "#/components/schemas/ToolCompliance"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "input_schema": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Input Schema"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "output_schema": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Output Schema"
+          },
+          "suggested_capability_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Suggested Capability Id"
+          },
+          "suggested_input_artifact_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Suggested Input Artifact Key"
+          },
+          "suggested_output_artifact_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Suggested Output Artifact Key"
+          }
+        },
+        "required": [
+          "name",
+          "compliance"
+        ],
+        "title": "IntrospectedTool",
+        "type": "object"
+      },
+      "LaneSummary": {
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "member_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Member Ids",
+            "type": "array"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "title": "LaneSummary",
+        "type": "object"
+      },
+      "LeafOp": {
+        "enum": [
+          "eq",
+          "ne",
+          "in",
+          "starts_with",
+          "intersects",
+          "exists",
+          "gt",
+          "gte",
+          "lt",
+          "lte"
+        ],
+        "title": "LeafOp",
+        "type": "string"
+      },
+      "LeafPredicate": {
+        "additionalProperties": false,
+        "properties": {
+          "field": {
+            "title": "Field",
+            "type": "string"
+          },
+          "op": {
+            "$ref": "#/components/schemas/LeafOp"
+          },
+          "value": {
+            "title": "Value"
+          }
+        },
+        "required": [
+          "field",
+          "op"
+        ],
+        "title": "LeafPredicate",
+        "type": "object"
+      },
+      "LlmRuntime": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "const": "llm",
+            "title": "Kind",
+            "type": "string"
+          },
+          "model_config_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Config Key"
+          },
+          "prompt_key": {
+            "title": "Prompt Key",
+            "type": "string"
+          },
+          "structured_output": {
+            "default": true,
+            "title": "Structured Output",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "kind",
+          "prompt_key"
+        ],
+        "title": "LlmRuntime",
+        "type": "object"
+      },
+      "McpRuntime": {
+        "additionalProperties": false,
+        "description": "Self-descriptive MCP server binding (ADR-024). The connection details live directly on\nthe capability descriptor \u2014 no config-forge/registry indirection.",
+        "properties": {
+          "endpoint": {
+            "title": "Endpoint",
+            "type": "string"
+          },
+          "headers": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Headers",
+            "type": "object"
+          },
+          "kind": {
+            "const": "mcp",
+            "title": "Kind",
+            "type": "string"
+          },
+          "tools": {
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "title": "Tools",
+            "type": "array"
+          },
+          "transport": {
+            "$ref": "#/components/schemas/McpTransport",
+            "default": "streamable_http"
+          }
+        },
+        "required": [
+          "kind",
+          "endpoint",
+          "tools"
+        ],
+        "title": "McpRuntime",
+        "type": "object"
+      },
+      "McpTransport": {
+        "enum": [
+          "streamable_http",
+          "stdio",
+          "sse"
+        ],
+        "title": "McpTransport",
+        "type": "string"
+      },
+      "MessageExecutor": {
+        "additionalProperties": false,
+        "description": "ADR-031 (Phase 2.4): the \"executor\" of a message catch / receive element is the external\nworld. ``message_name`` is the business message this element awaits; correlation is by business\nanchor (exception_id / correlation_id) + this name \u2014 no per-pack correlation expressions.",
+        "properties": {
+          "message_name": {
+            "title": "Message Name",
+            "type": "string"
+          },
+          "type": {
+            "const": "message",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "message_name"
+        ],
+        "title": "MessageExecutor",
+        "type": "object"
+      },
+      "MessageFlowSummary": {
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source"
+          },
+          "target": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "title": "MessageFlowSummary",
+        "type": "object"
+      },
+      "NotPredicate-Input": {
+        "additionalProperties": false,
+        "properties": {
+          "not": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AllPredicate-Input"
+              },
+              {
+                "$ref": "#/components/schemas/AnyPredicate-Input"
+              },
+              {
+                "$ref": "#/components/schemas/NotPredicate-Input"
+              },
+              {
+                "$ref": "#/components/schemas/LeafPredicate"
+              }
+            ],
+            "title": "Not"
+          }
+        },
+        "required": [
+          "not"
+        ],
+        "title": "NotPredicate",
+        "type": "object"
+      },
+      "NotPredicate-Output": {
+        "additionalProperties": false,
+        "properties": {
+          "not": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AllPredicate-Output"
+              },
+              {
+                "$ref": "#/components/schemas/AnyPredicate-Output"
+              },
+              {
+                "$ref": "#/components/schemas/NotPredicate-Output"
+              },
+              {
+                "$ref": "#/components/schemas/LeafPredicate"
+              }
+            ],
+            "title": "Not"
+          }
+        },
+        "required": [
+          "not"
+        ],
+        "title": "NotPredicate",
+        "type": "object"
+      },
+      "OnboardingSession": {
+        "properties": {
+          "basics": {
+            "$ref": "#/components/schemas/Basics"
+          },
+          "bindings": {
+            "items": {
+              "$ref": "#/components/schemas/StagedBinding"
+            },
+            "title": "Bindings",
+            "type": "array"
+          },
+          "bpmn": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BpmnInventory"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "commit_progress": {
+            "items": {
+              "$ref": "#/components/schemas/CommitStep"
+            },
+            "title": "Commit Progress",
+            "type": "array"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "created_by": {
+            "title": "Created By",
+            "type": "string"
+          },
+          "dry_run_report": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dry Run Report"
+          },
+          "gateway_variables": {
+            "items": {
+              "$ref": "#/components/schemas/StagedGatewayVariable"
+            },
+            "title": "Gateway Variables",
+            "type": "array"
+          },
+          "inferred": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/InferenceDraft"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "last_cleared": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Last Cleared",
+            "type": "array"
+          },
+          "result_pack": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Result Pack"
+          },
+          "reused_capability_refs": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Reused Capability Refs",
+            "type": "array"
+          },
+          "role_meta": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/RoleMeta"
+            },
+            "title": "Role Meta",
+            "type": "object"
+          },
+          "roles": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Roles",
+            "type": "array"
+          },
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          },
+          "sod_policies": {
+            "items": {
+              "$ref": "#/components/schemas/StagedSod"
+            },
+            "title": "Sod Policies",
+            "type": "array"
+          },
+          "staged_artifacts": {
+            "items": {
+              "$ref": "#/components/schemas/StagedArtifact"
+            },
+            "title": "Staged Artifacts",
+            "type": "array"
+          },
+          "staged_capabilities": {
+            "items": {
+              "$ref": "#/components/schemas/StagedCapability"
+            },
+            "title": "Staged Capabilities",
+            "type": "array"
+          },
+          "state": {
+            "$ref": "#/components/schemas/OnboardingState",
+            "default": "initiated"
+          },
+          "triage_rules": {
+            "items": {
+              "$ref": "#/components/schemas/StagedTriageRule"
+            },
+            "title": "Triage Rules",
+            "type": "array"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "session_id",
+          "created_by",
+          "basics"
+        ],
+        "title": "OnboardingSession",
+        "type": "object"
+      },
+      "OnboardingState": {
+        "description": "Explicit state machine. Each transition endpoint advances (or, on an upstream\nedit, regresses) this. The pack lifecycle (draft\u2192validated\u2192active) is separate \u2014\nthe pack does not exist until ``commit``.",
+        "enum": [
+          "initiated",
+          "bpmn_attached",
+          "capabilities_resolved",
+          "bindings_set",
+          "triage_set",
+          "policies_set",
+          "assembled",
+          "completed"
+        ],
+        "title": "OnboardingState",
+        "type": "string"
+      },
+      "PackStatus": {
+        "enum": [
+          "draft",
+          "validated",
+          "active",
+          "deprecated"
+        ],
+        "title": "PackStatus",
+        "type": "string"
+      },
+      "Policies": {
+        "additionalProperties": false,
+        "properties": {
+          "separation_of_duties": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/SeparationOfDuties"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Separation Of Duties"
+          }
+        },
+        "title": "Policies",
+        "type": "object"
+      },
+      "PoolSummary": {
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "is_external": {
+            "default": false,
+            "title": "Is External",
+            "type": "boolean"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "title": "PoolSummary",
+        "type": "object"
+      },
+      "ProcessPackManifest-Input": {
+        "additionalProperties": false,
+        "properties": {
+          "artifacts": {
+            "items": {
+              "description": "Versioned reference '<id>@<range-or-pin>'.",
+              "examples": [
+                "art.payment.draft_repair@^1.0.0"
+              ],
+              "title": "ArtifactRef",
+              "type": "string"
+            },
+            "title": "Artifacts",
+            "type": "array"
+          },
+          "bindings": {
+            "items": {
+              "$ref": "#/components/schemas/Binding"
+            },
+            "minItems": 1,
+            "title": "Bindings",
+            "type": "array"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "created_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created By"
+          },
+          "deep_agent_justifications": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Deep Agent Justifications",
+            "type": "object"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "gateway_variables": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/GatewayVariable"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gateway Variables"
+          },
+          "manifest_version": {
+            "const": "1.0",
+            "title": "Manifest Version",
+            "type": "string"
+          },
+          "pack_key": {
+            "pattern": "^[a-z][a-z0-9-]*$",
+            "title": "Pack Key",
+            "type": "string"
+          },
+          "policies": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Policies"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "process": {
+            "$ref": "#/components/schemas/ProcessRef"
+          },
+          "requires_capabilities": {
+            "items": {
+              "$ref": "#/components/schemas/RequiresCapability"
+            },
+            "title": "Requires Capabilities",
+            "type": "array"
+          },
+          "status": {
+            "$ref": "#/components/schemas/PackStatus"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "triage_rules": {
+            "items": {
+              "$ref": "#/components/schemas/TriageRule-Input"
+            },
+            "minItems": 1,
+            "title": "Triage Rules",
+            "type": "array"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          },
+          "version": {
+            "pattern": "^\\d+\\.\\d+\\.\\d+$",
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "manifest_version",
+          "pack_key",
+          "version",
+          "title",
+          "process",
+          "triage_rules",
+          "requires_capabilities",
+          "artifacts",
+          "bindings",
+          "status"
+        ],
+        "title": "ProcessPackManifest",
+        "type": "object"
+      },
+      "ProcessPackManifest-Output": {
+        "additionalProperties": false,
+        "properties": {
+          "artifacts": {
+            "items": {
+              "description": "Versioned reference '<id>@<range-or-pin>'.",
+              "examples": [
+                "art.payment.draft_repair@^1.0.0"
+              ],
+              "title": "ArtifactRef",
+              "type": "string"
+            },
+            "title": "Artifacts",
+            "type": "array"
+          },
+          "bindings": {
+            "items": {
+              "$ref": "#/components/schemas/Binding"
+            },
+            "minItems": 1,
+            "title": "Bindings",
+            "type": "array"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "created_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created By"
+          },
+          "deep_agent_justifications": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Deep Agent Justifications",
+            "type": "object"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "gateway_variables": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/GatewayVariable"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gateway Variables"
+          },
+          "manifest_version": {
+            "const": "1.0",
+            "title": "Manifest Version",
+            "type": "string"
+          },
+          "pack_key": {
+            "pattern": "^[a-z][a-z0-9-]*$",
+            "title": "Pack Key",
+            "type": "string"
+          },
+          "policies": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Policies"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "process": {
+            "$ref": "#/components/schemas/ProcessRef"
+          },
+          "requires_capabilities": {
+            "items": {
+              "$ref": "#/components/schemas/RequiresCapability"
+            },
+            "title": "Requires Capabilities",
+            "type": "array"
+          },
+          "status": {
+            "$ref": "#/components/schemas/PackStatus"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "triage_rules": {
+            "items": {
+              "$ref": "#/components/schemas/TriageRule-Output"
+            },
+            "minItems": 1,
+            "title": "Triage Rules",
+            "type": "array"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          },
+          "version": {
+            "pattern": "^\\d+\\.\\d+\\.\\d+$",
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "manifest_version",
+          "pack_key",
+          "version",
+          "title",
+          "process",
+          "triage_rules",
+          "requires_capabilities",
+          "artifacts",
+          "bindings",
+          "status"
+        ],
+        "title": "ProcessPackManifest",
+        "type": "object"
+      },
+      "ProcessRef": {
+        "additionalProperties": false,
+        "properties": {
+          "bpmn_file": {
+            "title": "Bpmn File",
+            "type": "string"
+          },
+          "bpmn_sha256": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Bpmn Sha256",
+            "type": "string"
+          },
+          "process_id": {
+            "title": "Process Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "bpmn_file",
+          "process_id",
+          "bpmn_sha256"
+        ],
+        "title": "ProcessRef",
+        "type": "object"
+      },
+      "RequiresCapability": {
+        "additionalProperties": false,
+        "properties": {
+          "ref": {
+            "description": "Versioned reference '<id>@<range-or-pin>'.",
+            "examples": [
+              "cap.payment.draft_repair@^1.0.0"
+            ],
+            "title": "CapabilityRef",
+            "type": "string"
+          },
+          "resolved": {
+            "anyOf": [
+              {
+                "description": "Versioned reference '<id>@<range-or-pin>'.",
+                "examples": [
+                  "cap.payment.draft_repair@^1.0.0"
+                ],
+                "title": "CapabilityRef",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pinned by the registry at activation; absent while draft",
+            "title": "Resolved"
+          }
+        },
+        "required": [
+          "ref"
+        ],
+        "title": "RequiresCapability",
+        "type": "object"
+      },
+      "ResolveRequest": {
+        "properties": {
+          "envelope": {
+            "additionalProperties": true,
+            "title": "Envelope",
+            "type": "object"
+          }
+        },
+        "required": [
+          "envelope"
+        ],
+        "title": "ResolveRequest",
+        "type": "object"
+      },
+      "ResolveResponse": {
+        "properties": {
+          "pack_key": {
+            "title": "Pack Key",
+            "type": "string"
+          },
+          "pack_version": {
+            "title": "Pack Version",
+            "type": "string"
+          },
+          "resolved_at": {
+            "format": "date-time",
+            "title": "Resolved At",
+            "type": "string"
+          },
+          "rule_id": {
+            "title": "Rule Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "pack_key",
+          "pack_version",
+          "rule_id"
+        ],
+        "title": "ResolveResponse",
+        "type": "object"
+      },
+      "RoleInUse": {
+        "properties": {
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Label"
+          },
+          "role_id": {
+            "title": "Role Id",
+            "type": "string"
+          },
+          "sources": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Sources",
+            "type": "array"
+          }
+        },
+        "required": [
+          "role_id"
+        ],
+        "title": "RoleInUse",
+        "type": "object"
+      },
+      "RoleMeta": {
+        "description": "Operator-authored label/description for a pack-local role id (UX/governance only).",
+        "properties": {
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Label"
+          }
+        },
+        "title": "RoleMeta",
+        "type": "object"
+      },
+      "SchemaIO": {
+        "additionalProperties": false,
+        "description": "A named input/output bound to a versioned artifact schema.",
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "required": {
+            "default": true,
+            "title": "Required",
+            "type": "boolean"
+          },
+          "schema": {
+            "description": "Versioned reference '<id>@<range-or-pin>'.",
+            "examples": [
+              "art.payment.draft_repair@^1.0.0"
+            ],
+            "title": "ArtifactRef",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "schema"
+        ],
+        "title": "SchemaIO",
+        "type": "object"
+      },
+      "SeparationOfDuties": {
+        "additionalProperties": false,
+        "properties": {
+          "constraint": {
+            "const": "distinct_actor",
+            "title": "Constraint",
+            "type": "string"
+          },
+          "elements": {
+            "items": {
+              "type": "string"
+            },
+            "minItems": 2,
+            "title": "Elements",
+            "type": "array"
+          }
+        },
+        "required": [
+          "constraint",
+          "elements"
+        ],
+        "title": "SeparationOfDuties",
+        "type": "object"
+      },
+      "SetBindingsRequest": {
+        "properties": {
+          "bindings": {
+            "items": {
+              "$ref": "#/components/schemas/BindingInput"
+            },
+            "title": "Bindings",
+            "type": "array"
+          }
+        },
+        "title": "SetBindingsRequest",
+        "type": "object"
+      },
+      "SetCapabilitiesRequest": {
+        "properties": {
+          "reused_capability_refs": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Reused Capability Refs",
+            "type": "array"
+          },
+          "tools": {
+            "items": {
+              "$ref": "#/components/schemas/CapabilityToolSelection"
+            },
+            "title": "Tools",
+            "type": "array"
+          }
+        },
+        "title": "SetCapabilitiesRequest",
+        "type": "object"
+      },
+      "SetPoliciesRequest": {
+        "properties": {
+          "gateway_variables": {
+            "items": {
+              "$ref": "#/components/schemas/StagedGatewayVariable"
+            },
+            "title": "Gateway Variables",
+            "type": "array"
+          },
+          "role_meta": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/RoleMeta"
+            },
+            "title": "Role Meta",
+            "type": "object"
+          },
+          "roles": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Roles",
+            "type": "array"
+          },
+          "sod_policies": {
+            "items": {
+              "$ref": "#/components/schemas/StagedSod"
+            },
+            "title": "Sod Policies",
+            "type": "array"
+          }
+        },
+        "title": "SetPoliciesRequest",
+        "type": "object"
+      },
+      "SetTriageRequest": {
+        "properties": {
+          "triage_rules": {
+            "items": {
+              "$ref": "#/components/schemas/StagedTriageRule"
+            },
+            "title": "Triage Rules",
+            "type": "array"
+          }
+        },
+        "title": "SetTriageRequest",
+        "type": "object"
+      },
+      "SideEffect": {
+        "enum": [
+          "read_only",
+          "side_effectful"
+        ],
+        "title": "SideEffect",
+        "type": "string"
+      },
+      "SkillRuntime": {
+        "additionalProperties": false,
+        "properties": {
+          "entrypoint": {
+            "title": "Entrypoint",
+            "type": "string"
+          },
+          "kind": {
+            "const": "skill",
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "entrypoint"
+        ],
+        "title": "SkillRuntime",
+        "type": "object"
+      },
+      "SodCandidate": {
+        "properties": {
+          "elements": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Elements",
+            "type": "array"
+          },
+          "rationale": {
+            "title": "Rationale",
+            "type": "string"
+          }
+        },
+        "required": [
+          "rationale"
+        ],
+        "title": "SodCandidate",
+        "type": "object"
+      },
+      "StagedArtifact": {
+        "description": "A to-be-registered artifact schema, inferred from an MCP tool's in/out schema.",
+        "properties": {
+          "artifact_key": {
+            "title": "Artifact Key",
+            "type": "string"
+          },
+          "compatibility": {
+            "default": "backward",
+            "title": "Compatibility",
+            "type": "string"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "json_schema": {
+            "additionalProperties": true,
+            "title": "Json Schema",
+            "type": "object"
+          },
+          "source_tool": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Tool"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "artifact_key",
+          "version",
+          "title",
+          "json_schema"
+        ],
+        "title": "StagedArtifact",
+        "type": "object"
+      },
+      "StagedBinding": {
+        "properties": {
+          "assist_capability_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Assist Capability Ref"
+          },
+          "capability_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Capability Ref"
+          },
+          "element_id": {
+            "title": "Element Id",
+            "type": "string"
+          },
+          "element_kind": {
+            "title": "Element Kind",
+            "type": "string"
+          },
+          "executor_type": {
+            "title": "Executor Type",
+            "type": "string"
+          },
+          "hitl_mode": {
+            "default": "none",
+            "title": "Hitl Mode",
+            "type": "string"
+          },
+          "hitl_role": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hitl Role"
+          },
+          "inputs": {
+            "items": {
+              "$ref": "#/components/schemas/StagedBindingIO"
+            },
+            "title": "Inputs",
+            "type": "array"
+          },
+          "outputs": {
+            "items": {
+              "$ref": "#/components/schemas/StagedBindingIO"
+            },
+            "title": "Outputs",
+            "type": "array"
+          },
+          "role": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Role"
+          }
+        },
+        "required": [
+          "element_id",
+          "element_kind",
+          "executor_type"
+        ],
+        "title": "StagedBinding",
+        "type": "object"
+      },
+      "StagedBindingIO": {
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "required": {
+            "default": true,
+            "title": "Required",
+            "type": "boolean"
+          },
+          "schema_ref": {
+            "title": "Schema Ref",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "schema_ref"
+        ],
+        "title": "StagedBindingIO",
+        "type": "object"
+      },
+      "StagedCapability": {
+        "description": "A to-be-registered ``kind: mcp`` capability inferred from one MCP tool.\n\n``input_artifact_key`` / ``output_artifact_key`` reference two ``StagedArtifact``s\nby key (same session).",
+        "properties": {
+          "capability_id": {
+            "title": "Capability Id",
+            "type": "string"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "endpoint": {
+            "title": "Endpoint",
+            "type": "string"
+          },
+          "headers": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Headers",
+            "type": "object"
+          },
+          "idempotent": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Idempotent"
+          },
+          "input_artifact_key": {
+            "title": "Input Artifact Key",
+            "type": "string"
+          },
+          "input_name": {
+            "title": "Input Name",
+            "type": "string"
+          },
+          "min_hitl_mode": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Min Hitl Mode"
+          },
+          "output_artifact_key": {
+            "title": "Output Artifact Key",
+            "type": "string"
+          },
+          "output_name": {
+            "title": "Output Name",
+            "type": "string"
+          },
+          "side_effect": {
+            "default": "read_only",
+            "title": "Side Effect",
+            "type": "string"
+          },
+          "source_tool": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Tool"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "tool": {
+            "title": "Tool",
+            "type": "string"
+          },
+          "transport": {
+            "default": "streamable_http",
+            "title": "Transport",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "capability_id",
+          "version",
+          "title",
+          "input_name",
+          "input_artifact_key",
+          "output_name",
+          "output_artifact_key",
+          "endpoint",
+          "tool"
+        ],
+        "title": "StagedCapability",
+        "type": "object"
+      },
+      "StagedGatewayVariable": {
+        "properties": {
+          "gateway_id": {
+            "title": "Gateway Id",
+            "type": "string"
+          },
+          "source_artifact": {
+            "title": "Source Artifact",
+            "type": "string"
+          },
+          "variable": {
+            "title": "Variable",
+            "type": "string"
+          }
+        },
+        "required": [
+          "gateway_id",
+          "variable",
+          "source_artifact"
+        ],
+        "title": "StagedGatewayVariable",
+        "type": "object"
+      },
+      "StagedSod": {
+        "properties": {
+          "elements": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Elements",
+            "type": "array"
+          }
+        },
+        "title": "StagedSod",
+        "type": "object"
+      },
+      "StagedTriageRule": {
+        "properties": {
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "priority": {
+            "default": 100,
+            "title": "Priority",
+            "type": "integer"
+          },
+          "rule_id": {
+            "title": "Rule Id",
+            "type": "string"
+          },
+          "when": {
+            "additionalProperties": true,
+            "title": "When",
+            "type": "object"
+          }
+        },
+        "required": [
+          "rule_id",
+          "when"
+        ],
+        "title": "StagedTriageRule",
+        "type": "object"
+      },
+      "SubProcessSummary": {
+        "description": "ADR-032 Phase 2.6: an embedded sub-process for the coverage overlay + bindings grouping.",
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "member_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Member Ids",
+            "type": "array"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "title": "SubProcessSummary",
+        "type": "object"
+      },
+      "ToolCompliance": {
+        "properties": {
+          "compliant": {
+            "title": "Compliant",
+            "type": "boolean"
+          },
+          "reasons": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Reasons",
+            "type": "array"
+          }
+        },
+        "required": [
+          "compliant"
+        ],
+        "title": "ToolCompliance",
+        "type": "object"
+      },
+      "TriageRule-Input": {
+        "additionalProperties": false,
+        "properties": {
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "priority": {
+            "description": "Lower number wins when multiple packs match",
+            "title": "Priority",
+            "type": "integer"
+          },
+          "rule_id": {
+            "title": "Rule Id",
+            "type": "string"
+          },
+          "when": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AllPredicate-Input"
+              },
+              {
+                "$ref": "#/components/schemas/AnyPredicate-Input"
+              },
+              {
+                "$ref": "#/components/schemas/NotPredicate-Input"
+              },
+              {
+                "$ref": "#/components/schemas/LeafPredicate"
+              }
+            ],
+            "title": "When"
+          }
+        },
+        "required": [
+          "rule_id",
+          "priority",
+          "when"
+        ],
+        "title": "TriageRule",
+        "type": "object"
+      },
+      "TriageRule-Output": {
+        "additionalProperties": false,
+        "properties": {
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "priority": {
+            "description": "Lower number wins when multiple packs match",
+            "title": "Priority",
+            "type": "integer"
+          },
+          "rule_id": {
+            "title": "Rule Id",
+            "type": "string"
+          },
+          "when": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AllPredicate-Output"
+              },
+              {
+                "$ref": "#/components/schemas/AnyPredicate-Output"
+              },
+              {
+                "$ref": "#/components/schemas/NotPredicate-Output"
+              },
+              {
+                "$ref": "#/components/schemas/LeafPredicate"
+              }
+            ],
+            "title": "When"
+          }
+        },
+        "required": [
+          "rule_id",
+          "priority",
+          "when"
+        ],
+        "title": "TriageRule",
+        "type": "object"
+      },
+      "ValidationError": {
+        "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
+      }
+    },
+    "securitySchemes": {
+      "HTTPBearer": {
+        "scheme": "bearer",
+        "type": "http"
+      }
+    }
+  },
+  "info": {
+    "title": "Amendia \u2014 Process Registry",
+    "version": "0.1.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/artifact-schemas": {
+      "get": {
+        "operationId": "list_artifact_schemas_artifact_schemas_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ArtifactSchemaRegistration"
+                  },
+                  "title": "Response List Artifact Schemas Artifact Schemas Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Artifact Schemas",
+        "tags": [
+          "artifact-schemas"
+        ]
+      },
+      "post": {
+        "operationId": "register_artifact_schema_artifact_schemas_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ArtifactSchemaRegistration"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArtifactSchemaRegistration"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Register Artifact Schema",
+        "tags": [
+          "artifact-schemas"
+        ]
+      }
+    },
+    "/artifact-schemas/{artifact_key}": {
+      "get": {
+        "operationId": "list_artifact_schema_versions_artifact_schemas__artifact_key__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "artifact_key",
+            "required": true,
+            "schema": {
+              "title": "Artifact Key",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ArtifactSchemaRegistration"
+                  },
+                  "title": "Response List Artifact Schema Versions Artifact Schemas  Artifact Key  Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Artifact Schema Versions",
+        "tags": [
+          "artifact-schemas"
+        ]
+      }
+    },
+    "/artifact-schemas/{artifact_key}/{version}": {
+      "get": {
+        "operationId": "get_artifact_schema_artifact_schemas__artifact_key___version__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "artifact_key",
+            "required": true,
+            "schema": {
+              "title": "Artifact Key",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "version",
+            "required": true,
+            "schema": {
+              "title": "Version",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArtifactSchemaRegistration"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Artifact Schema",
+        "tags": [
+          "artifact-schemas"
+        ]
+      }
+    },
+    "/artifact-schemas/{artifact_key}/{version}/deprecate": {
+      "post": {
+        "operationId": "deprecate_artifact_schema_artifact_schemas__artifact_key___version__deprecate_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "artifact_key",
+            "required": true,
+            "schema": {
+              "title": "Artifact Key",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "version",
+            "required": true,
+            "schema": {
+              "title": "Version",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArtifactSchemaRegistration"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Deprecate Artifact Schema",
+        "tags": [
+          "artifact-schemas"
+        ]
+      }
+    },
+    "/capabilities": {
+      "get": {
+        "operationId": "list_capabilities_capabilities_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "in": "query",
+            "name": "kind",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kind"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/CapabilityDescriptor"
+                  },
+                  "title": "Response List Capabilities Capabilities Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Capabilities",
+        "tags": [
+          "capabilities"
+        ]
+      },
+      "post": {
+        "operationId": "register_capability_capabilities_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CapabilityDescriptor"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CapabilityDescriptor"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Register Capability",
+        "tags": [
+          "capabilities"
+        ]
+      }
+    },
+    "/capabilities/introspect-mcp": {
+      "post": {
+        "operationId": "introspect_mcp_capabilities_introspect_mcp_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IntrospectMcpRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntrospectMcpResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Introspect Mcp",
+        "tags": [
+          "onboarding"
+        ]
+      }
+    },
+    "/capabilities/{capability_id}": {
+      "get": {
+        "operationId": "list_capability_versions_capabilities__capability_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "capability_id",
+            "required": true,
+            "schema": {
+              "title": "Capability Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/CapabilityDescriptor"
+                  },
+                  "title": "Response List Capability Versions Capabilities  Capability Id  Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Capability Versions",
+        "tags": [
+          "capabilities"
+        ]
+      }
+    },
+    "/capabilities/{capability_id}/{version}": {
+      "get": {
+        "operationId": "get_capability_capabilities__capability_id___version__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "capability_id",
+            "required": true,
+            "schema": {
+              "title": "Capability Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "version",
+            "required": true,
+            "schema": {
+              "title": "Version",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CapabilityDescriptor"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Capability",
+        "tags": [
+          "capabilities"
+        ]
+      }
+    },
+    "/capabilities/{capability_id}/{version}/deprecate": {
+      "post": {
+        "operationId": "deprecate_capability_capabilities__capability_id___version__deprecate_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "capability_id",
+            "required": true,
+            "schema": {
+              "title": "Capability Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "version",
+            "required": true,
+            "schema": {
+              "title": "Version",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CapabilityDescriptor"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Deprecate Capability",
+        "tags": [
+          "capabilities"
+        ]
+      }
+    },
+    "/health": {
+      "get": {
+        "operationId": "health_health_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Health",
+        "tags": [
+          "health"
+        ]
+      }
+    },
+    "/onboarding": {
+      "get": {
+        "operationId": "list_sessions_onboarding_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/OnboardingSession"
+                  },
+                  "title": "Response List Sessions Onboarding Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Sessions",
+        "tags": [
+          "onboarding"
+        ]
+      },
+      "post": {
+        "operationId": "create_session_onboarding_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateSessionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OnboardingSession"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Create Session",
+        "tags": [
+          "onboarding"
+        ]
+      }
+    },
+    "/onboarding/{session_id}": {
+      "delete": {
+        "operationId": "delete_session_onboarding__session_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Delete Session",
+        "tags": [
+          "onboarding"
+        ]
+      },
+      "get": {
+        "operationId": "get_session_onboarding__session_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OnboardingSession"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Session",
+        "tags": [
+          "onboarding"
+        ]
+      }
+    },
+    "/onboarding/{session_id}/assemble": {
+      "post": {
+        "operationId": "assemble_onboarding__session_id__assemble_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OnboardingSession"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Assemble",
+        "tags": [
+          "onboarding"
+        ]
+      }
+    },
+    "/onboarding/{session_id}/bindings": {
+      "put": {
+        "operationId": "set_bindings_onboarding__session_id__bindings_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetBindingsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OnboardingSession"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Set Bindings",
+        "tags": [
+          "onboarding"
+        ]
+      }
+    },
+    "/onboarding/{session_id}/bpmn": {
+      "put": {
+        "operationId": "attach_bpmn_onboarding__session_id__bpmn_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AttachBpmnRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OnboardingSession"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Attach Bpmn",
+        "tags": [
+          "onboarding"
+        ]
+      }
+    },
+    "/onboarding/{session_id}/capabilities": {
+      "post": {
+        "operationId": "set_capabilities_onboarding__session_id__capabilities_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetCapabilitiesRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OnboardingSession"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Set Capabilities",
+        "tags": [
+          "onboarding"
+        ]
+      }
+    },
+    "/onboarding/{session_id}/commit": {
+      "post": {
+        "operationId": "commit_onboarding__session_id__commit_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OnboardingSession"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Commit",
+        "tags": [
+          "onboarding"
+        ]
+      }
+    },
+    "/onboarding/{session_id}/policies": {
+      "put": {
+        "operationId": "set_policies_onboarding__session_id__policies_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetPoliciesRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OnboardingSession"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Set Policies",
+        "tags": [
+          "onboarding"
+        ]
+      }
+    },
+    "/onboarding/{session_id}/triage": {
+      "put": {
+        "operationId": "set_triage_onboarding__session_id__triage_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetTriageRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OnboardingSession"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Set Triage",
+        "tags": [
+          "onboarding"
+        ]
+      }
+    },
+    "/packs": {
+      "get": {
+        "operationId": "list_packs_packs_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ProcessPackManifest-Output"
+                  },
+                  "title": "Response List Packs Packs Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Packs",
+        "tags": [
+          "packs"
+        ]
+      },
+      "post": {
+        "operationId": "submit_pack_packs_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProcessPackManifest-Input"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProcessPackManifest-Output"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Submit Pack",
+        "tags": [
+          "packs"
+        ]
+      }
+    },
+    "/packs/{pack_key}": {
+      "get": {
+        "operationId": "list_pack_versions_packs__pack_key__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pack_key",
+            "required": true,
+            "schema": {
+              "title": "Pack Key",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ProcessPackManifest-Output"
+                  },
+                  "title": "Response List Pack Versions Packs  Pack Key  Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Pack Versions",
+        "tags": [
+          "packs"
+        ]
+      }
+    },
+    "/packs/{pack_key}/{version}": {
+      "get": {
+        "operationId": "get_pack_packs__pack_key___version__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pack_key",
+            "required": true,
+            "schema": {
+              "title": "Pack Key",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "version",
+            "required": true,
+            "schema": {
+              "title": "Version",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProcessPackManifest-Output"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Pack",
+        "tags": [
+          "packs"
+        ]
+      }
+    },
+    "/packs/{pack_key}/{version}/activate": {
+      "post": {
+        "operationId": "activate_pack_packs__pack_key___version__activate_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pack_key",
+            "required": true,
+            "schema": {
+              "title": "Pack Key",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "version",
+            "required": true,
+            "schema": {
+              "title": "Version",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProcessPackManifest-Output"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Activate Pack",
+        "tags": [
+          "packs"
+        ]
+      }
+    },
+    "/packs/{pack_key}/{version}/bpmn": {
+      "get": {
+        "operationId": "get_pack_bpmn_packs__pack_key___version__bpmn_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pack_key",
+            "required": true,
+            "schema": {
+              "title": "Pack Key",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "version",
+            "required": true,
+            "schema": {
+              "title": "Version",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Pack Bpmn",
+        "tags": [
+          "packs"
+        ]
+      },
+      "put": {
+        "operationId": "upload_bpmn_packs__pack_key___version__bpmn_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pack_key",
+            "required": true,
+            "schema": {
+              "title": "Pack Key",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "version",
+            "required": true,
+            "schema": {
+              "title": "Version",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Upload Bpmn",
+        "tags": [
+          "packs"
+        ]
+      }
+    },
+    "/packs/{pack_key}/{version}/deprecate": {
+      "post": {
+        "operationId": "deprecate_pack_packs__pack_key___version__deprecate_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pack_key",
+            "required": true,
+            "schema": {
+              "title": "Pack Key",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "version",
+            "required": true,
+            "schema": {
+              "title": "Version",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProcessPackManifest-Output"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Deprecate Pack",
+        "tags": [
+          "packs"
+        ]
+      }
+    },
+    "/packs/{pack_key}/{version}/resolution": {
+      "get": {
+        "operationId": "get_pack_resolution_packs__pack_key___version__resolution_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pack_key",
+            "required": true,
+            "schema": {
+              "title": "Pack Key",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "version",
+            "required": true,
+            "schema": {
+              "title": "Version",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Pack Resolution",
+        "tags": [
+          "packs"
+        ]
+      }
+    },
+    "/packs/{pack_key}/{version}/validate": {
+      "post": {
+        "operationId": "validate_pack_packs__pack_key___version__validate_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pack_key",
+            "required": true,
+            "schema": {
+              "title": "Pack Key",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "version",
+            "required": true,
+            "schema": {
+              "title": "Version",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Validate Pack",
+        "tags": [
+          "packs"
+        ]
+      }
+    },
+    "/packs/{pack_key}/{version}/validation-report": {
+      "get": {
+        "operationId": "get_validation_report_packs__pack_key___version__validation_report_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pack_key",
+            "required": true,
+            "schema": {
+              "title": "Pack Key",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "version",
+            "required": true,
+            "schema": {
+              "title": "Version",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Validation Report",
+        "tags": [
+          "packs"
+        ]
+      }
+    },
+    "/resolve": {
+      "post": {
+        "operationId": "resolve_resolve_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResolveRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResolveResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Resolve",
+        "tags": [
+          "resolve"
+        ]
+      }
+    },
+    "/roles": {
+      "get": {
+        "operationId": "list_roles_roles_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/RoleInUse"
+                  },
+                  "title": "Response List Roles Roles Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Roles",
+        "tags": [
+          "roles"
+        ]
+      }
+    }
+  }
+}

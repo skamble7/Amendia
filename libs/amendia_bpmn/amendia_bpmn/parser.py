@@ -16,24 +16,102 @@ from typing import Dict, List, Optional, Set, Tuple
 from xml.etree import ElementTree as ET
 
 from amendia_bpmn.model import (
+    EXECUTABLE_KINDS,
+    EXTENDED_TASK_KINDS,
     IGNORE_CHILDREN,
     NODE_KINDS,
+    RECOGNIZED_NON_EXECUTABLE,
     TASK_KINDS,
+    BoundaryTimer,
     BpmnModel,
+    ClassifiedElement,
+    ErrorBoundary,
     Finding,
     Flow,
+    SubProcess,
+    TimerDef,
     local_name,
 )
+from amendia_bpmn.compilability import normalize_profile
+from amendia_bpmn.timers import timer_is_supported
+
+# Sentinel: a boundaryEvent carries an errorEventDefinition with no errorRef → a catch-all boundary.
+_CATCH_ALL = object()
 
 
-def parse(xml: str, expected_process_id: str) -> Tuple[Optional[BpmnModel], List[Finding]]:
+def _error_ref(el):
+    """If a flow node carries an ``errorEventDefinition``, return its ``errorRef`` (or ``_CATCH_ALL``
+    when it has none). Returns ``None`` when there is no error definition (so non-error boundary
+    events fall through to their own handling)."""
+    eed = next((c for c in el if local_name(c.tag) == "errorEventDefinition"), None)
+    if eed is None:
+        return None
+    return eed.get("errorRef") or _CATCH_ALL
+
+
+def _has_message_def(el) -> bool:
+    """True iff a flow node carries a ``messageEventDefinition`` (ADR-031)."""
+    return any(local_name(c.tag) == "messageEventDefinition" for c in el)
+
+
+def _message_ref(el) -> Optional[str]:
+    """The ``messageRef`` on a node's ``messageEventDefinition`` (or the node's own ``messageRef``
+    attr for a receiveTask), used to look up the BPMN ``<bpmn:message name>``. Advisory only."""
+    for c in el:
+        if local_name(c.tag) == "messageEventDefinition" and c.get("messageRef"):
+            return c.get("messageRef")
+    return el.get("messageRef")
+
+
+def _timer_def(el) -> Optional[TimerDef]:
+    """A flow node's ``timerEventDefinition`` schedule, or ``None`` if it carries no timer definition
+    (so non-timer catch/boundary events fall through to the ``documented`` classification)."""
+    ted = next((c for c in el if local_name(c.tag) == "timerEventDefinition"), None)
+    if ted is None:
+        return None
+    for spec in ted:
+        ln = local_name(spec.tag)
+        if ln == "timeDuration":
+            return TimerDef("duration", (spec.text or "").strip() or None)
+        if ln == "timeDate":
+            return TimerDef("date", (spec.text or "").strip() or None)
+        if ln == "timeCycle":
+            return TimerDef("cycle", (spec.text or "").strip() or None)
+    return TimerDef(None, None)
+
+
+def select_process_id(xml: str) -> str:
+    """Pick the ``<process>`` id to parse/execute from raw BPMN: prefer an executable process
+    (``isExecutable="true"``), else the first ``<process>`` with an id. Shared by the onboarding
+    wizard and any other auto-detection so selection is identical everywhere (ADR-027). Raises
+    ``ET.ParseError`` on unparseable XML; returns "" when there is no ``<process>``."""
+    root = ET.fromstring(xml)
+    best = ""
+    for el in root.iter():
+        if local_name(el.tag) == "process":
+            pid = el.get("id") or ""
+            if el.get("isExecutable") == "true" and pid:
+                return pid
+            best = best or pid
+    return best
+
+
+def parse(
+    xml: str, expected_process_id: str, *, profile: str = "common_subset"
+) -> Tuple[Optional[BpmnModel], List[Finding]]:
     """Parse + run structural checks.
+
+    ``profile`` (ADR-027 Phase 2) tunes only the executability *tier* of elements the parser
+    already recognizes — under ``"parallel"`` a ``parallelGateway`` classifies ``executable``
+    rather than ``documented`` for the coverage report. It does not change the parsed topology
+    (the compiler + ``compilability_findings`` gate what actually runs).
 
     Returns ``(model, findings)``. ``model`` is ``None`` on a hard failure
     (unparseable XML or missing process). ``findings`` is a list of error-level
     ``Finding`` objects using stable codes shared with the registry.
     """
     findings: List[Finding] = []
+    profile = normalize_profile(profile)  # ADR-034: retired granular values → common_executable
 
     try:
         root = ET.fromstring(xml)
@@ -52,26 +130,91 @@ def parse(xml: str, expected_process_id: str) -> Tuple[Optional[BpmnModel], List
         return None, findings
 
     model = BpmnModel(process_id=expected_process_id)
+    # ADR-027 Phase 2.2: boundary timers are wired post-loop (once their outgoing flow is known).
+    # raw: boundary id -> (attached_to, cancel_activity, TimerDef).
+    boundary_raw: Dict[str, Tuple[Optional[str], bool, TimerDef]] = {}
+    # ADR-030 Phase 2.3: error boundaries, likewise wired post-loop.
+    # raw: boundary id -> (attached_to, errorRef | _CATCH_ALL).
+    error_boundary_raw: Dict[str, Tuple[Optional[str], object]] = {}
+    # ``<bpmn:error id=.. errorCode=..>`` definitions live at the definitions level (siblings of the
+    # process), so scan the whole document: errorRef → the business error_code the boundary matches.
+    error_defs: Dict[str, str] = {
+        el.get("id"): (el.get("errorCode") or "")
+        for el in root.iter() if local_name(el.tag) == "error" and el.get("id")
+    }
+    # ADR-031: <bpmn:message id=.. name=..> definitions (definitions level) → messageRef → name.
+    message_defs: Dict[str, str] = {
+        el.get("id"): (el.get("name") or "")
+        for el in root.iter() if local_name(el.tag) == "message" and el.get("id")
+    }
 
-    for child in list(match):
-        name = local_name(child.tag)
-        if name in IGNORE_CHILDREN:
-            continue
-        node_id = child.get("id")
-        if name == "sequenceFlow":
-            src, tgt = child.get("sourceRef"), child.get("targetRef")
-            cond_el = next((gc for gc in child if local_name(gc.tag) == "conditionExpression"), None)
-            has_cond = cond_el is not None
-            cond_text = (cond_el.text or "").strip() if cond_el is not None else None
-            model.flows.append(Flow(
-                id=node_id, source=src, target=tgt, has_condition=has_cond,
-                condition_expr=cond_text, name=child.get("name"),
-            ))
-            continue
+    def _msg_name(el) -> Optional[str]:
+        ref = _message_ref(el)
+        return message_defs.get(ref) or ref if ref else None
+
+    # ADR-032 Phase 2.6: start/end are counted PER SCOPE (the top-level process needs exactly one
+    # start; each embedded sub-process needs its own single start + ≥1 end). A nested start must NOT
+    # inflate the top-level start count.
+    scope_starts: Dict[str, List[str]] = {}
+    scope_ends: Dict[str, List[str]] = {}
+
+    def _record(node_id: str, scope_id: str) -> None:
+        model.element_scope[node_id] = scope_id
+        if scope_id in model.subprocesses:
+            model.subprocesses[scope_id].member_ids.append(node_id)
+
+    def walk(container, scope_id: str) -> None:
+        """Process the flow nodes + sequence flows of one scope (process or subProcess), recursing
+        into embedded sub-processes. Element ids are globally unique in BPMN, so flattening the nested
+        scopes into the shared model collections never collides."""
+        for child in list(container):
+            name = local_name(child.tag)
+            if name in IGNORE_CHILDREN:
+                continue
+            node_id = child.get("id")
+            if name == "sequenceFlow":
+                src, tgt = child.get("sourceRef"), child.get("targetRef")
+                cond_el = next((gc for gc in child if local_name(gc.tag) == "conditionExpression"), None)
+                has_cond = cond_el is not None
+                cond_text = (cond_el.text or "").strip() if cond_el is not None else None
+                model.flows.append(Flow(
+                    id=node_id, source=src, target=tgt, has_condition=has_cond,
+                    condition_expr=cond_text, name=child.get("name"),
+                ))
+                continue
+            if name == "subProcess":
+                # An embedded sub-process container: structural, not a task. Record + recurse.
+                model.node_ids.add(node_id)
+                model.subprocesses[node_id] = SubProcess(
+                    id=node_id, name=child.get("name"), parent_scope=scope_id)
+                _record(node_id, scope_id)
+                tier = "executable" if profile == "common_executable" else "documented"
+                model.elements.append(ClassifiedElement(id=node_id, kind=name, tier=tier))
+                walk(child, node_id)
+                continue
+            if name == "callActivity":
+                # Deferred (cross-pack composition — separate design). Compilability refuses it.
+                model.node_ids.add(node_id)
+                model.call_activities.append(node_id)
+                _record(node_id, scope_id)
+                model.elements.append(ClassifiedElement(id=node_id, kind=name, tier="documented"))
+                continue
+            _record(node_id, scope_id)
+            _walk_node(child, name, node_id, scope_id, scope_starts, scope_ends,
+                       boundary_raw, error_boundary_raw, _msg_name, model, findings, profile)
+
+    def _walk_node(child, name, node_id, scope_id, scope_starts, scope_ends,
+                   boundary_raw, error_boundary_raw, _msg_name, model, findings, profile):
         if name in NODE_KINDS:
             model.node_ids.add(node_id)
             if name in TASK_KINDS:
                 model.tasks[node_id] = name
+                if name == "businessRuleTask":  # advisory decisionRef (inference only — no DMN eval)
+                    ref = child.get("calledDecision") or child.get("decisionRef")
+                    if ref:
+                        model.decision_refs[node_id] = ref
+                elif name == "scriptTask" and any(local_name(c.tag) == "script" for c in child):
+                    model.inline_scripts.append(node_id)  # inline body NOT executed (refused)
             elif name == "exclusiveGateway":
                 model.exclusive_gateways.append(node_id)
                 if child.get("default"):
@@ -79,15 +222,169 @@ def parse(xml: str, expected_process_id: str) -> Tuple[Optional[BpmnModel], List
             elif name == "parallelGateway":
                 model.parallel_gateways.append(node_id)
             elif name == "startEvent":
-                model.start_events.append(node_id)
+                scope_starts.setdefault(scope_id, []).append(node_id)
+                if scope_id != model.process_id:
+                    model.nested_starts.add(node_id)
             elif name == "endEvent":
-                model.end_events.append(node_id)
-        else:
+                scope_ends.setdefault(scope_id, []).append(node_id)
+                if scope_id != model.process_id:
+                    model.nested_ends.add(node_id)
+            # Retain for coverage (ADR-027). A NODE_KIND is executable under common_subset unless it is
+            # promoted by a profile: parallelGateway under "parallel" (Phase 2.1); the extended task
+            # kinds (sendTask/scriptTask/manualTask/businessRuleTask) under "tasks" (Phase 2.7).
+            executable = (name in EXECUTABLE_KINDS
+                          or (profile == "common_executable" and name == "parallelGateway")
+                          or (profile == "common_executable" and name in EXTENDED_TASK_KINDS))
+            tier = "executable" if executable else "documented"
+            model.elements.append(ClassifiedElement(id=node_id, kind=name, tier=tier))
+        elif name == "intermediateCatchEvent" and _timer_def(child) is not None:
+            # Timer intermediate catch — an execution construct under the "timers" profile (Phase 2.2):
+            # the instance parks for the duration then auto-proceeds. Captured regardless of profile
+            # (like parallel_gateways); the profile only decides the coverage tier + activation gate.
+            td = _timer_def(child)
+            model.node_ids.add(node_id)
+            model.timer_catch_events[node_id] = td
+            tier = "executable" if profile == "common_executable" else "documented"
+            model.elements.append(ClassifiedElement(id=node_id, kind=name, tier=tier))
+        elif name == "boundaryEvent" and _timer_def(child) is not None:
+            # Timer boundary — wired post-loop (needs its outgoing flow). Only a wired boundary
+            # (schedule + escalation target) becomes an execution construct; otherwise documented.
+            boundary_raw[node_id] = (
+                child.get("attachedToRef"), child.get("cancelActivity") != "false", _timer_def(child),
+            )
+        elif name == "boundaryEvent" and _error_ref(child) is not None:
+            # Error boundary (Phase 2.3) — wired post-loop. A modeled business error on the host task
+            # routes here instead of failing the instance. errorRef → error_code via the <bpmn:error>
+            # defs (or _CATCH_ALL for no errorRef).
+            error_boundary_raw[node_id] = (child.get("attachedToRef"), _error_ref(child))
+        elif name == "intermediateCatchEvent" and _has_message_def(child):
+            # Message intermediate catch (Phase 2.4): parks WAITING_MESSAGE until a correlated inbound
+            # message is delivered. Bindable (needs a manifest message binding for its message_name).
+            model.node_ids.add(node_id)
+            model.message_catch_events[node_id] = _msg_name(child)
+            tier = "executable" if profile == "common_executable" else "documented"
+            model.elements.append(ClassifiedElement(id=node_id, kind=name, tier=tier))
+        elif name == "receiveTask":
+            # Receive task (Phase 2.4): same as a message catch, modeled as a task.
+            model.node_ids.add(node_id)
+            model.receive_tasks[node_id] = _msg_name(child)
+            tier = "executable" if profile == "common_executable" else "documented"
+            model.elements.append(ClassifiedElement(id=node_id, kind=name, tier=tier))
+        elif name == "eventBasedGateway":
+            # Event-based gateway (Phase 2.4 capstone): waits for the FIRST of its arm catch events
+            # (timer and/or message). Arms are its outgoing flow targets (resolved post-loop).
+            model.node_ids.add(node_id)
+            model.event_based_gateways[node_id] = []  # arms filled in after flows are known
+            tier = "executable" if profile == "common_executable" else "documented"
+            model.elements.append(ClassifiedElement(id=node_id, kind=name, tier=tier))
+        elif name in RECOGNIZED_NON_EXECUTABLE:
+            # Classify, don't reject: recognized standard BPMN outside the executable set.
+            model.elements.append(ClassifiedElement(id=node_id, kind=name, tier="documented"))
             findings.append(Finding(
-                "bpmn_unsupported_element",
-                f"unsupported BPMN element '{name}'" + (f" (id={node_id})" if node_id else ""),
-                element_id=node_id,
+                "bpmn_documented_element",
+                f"'{name}' is recognized BPMN but not executable today; documented only"
+                + (f" (id={node_id})" if node_id else ""),
+                element_id=node_id, severity="warning",
             ))
+        else:
+            # Not a recognized BPMN element at all (typos, vendor extensions).
+            model.elements.append(ClassifiedElement(id=node_id, kind=name, tier="unknown"))
+            findings.append(Finding(
+                "bpmn_unknown_element",
+                f"unrecognized BPMN element '{name}'" + (f" (id={node_id})" if node_id else ""),
+                element_id=node_id, severity="info",
+            ))
+
+    # Walk the whole diagram (top-level process, recursing into embedded sub-processes).
+    walk(match, expected_process_id)
+    model.start_events = list(scope_starts.get(expected_process_id, []))
+    model.end_events = list(scope_ends.get(expected_process_id, []))
+    # Per-scope start/end for sub-processes; also fill each sub's start_id/end_ids + incoming/outgoing.
+    for sub in model.subprocesses.values():
+        sub_starts = scope_starts.get(sub.id, [])
+        sub.start_id = sub_starts[0] if sub_starts else None
+        sub.end_ids = list(scope_ends.get(sub.id, []))
+        inc = next((f for f in model.flows if f.target == sub.id), None)
+        out = next((f for f in model.flows if f.source == sub.id), None)
+        sub.incoming_flow = inc.id if inc else None
+        sub.outgoing_flow = out.id if out else None
+
+    # ADR-027 Phase 2.2: wire timer boundary events. A boundary's outgoing sequenceFlow is NOT a
+    # normal edge (its source is the attached-event, not a task) — pull it out of model.flows so the
+    # task-arity/edge logic never sees it, and record the boundary→escalation target. Reachability is
+    # augmented below (host → target) so an escalation node reached only via the boundary is not a
+    # false "unreachable". A boundary with no outgoing flow or an empty timer stays documented.
+    for bid, (attached_to, cancel, td) in boundary_raw.items():
+        out_flow = next((f for f in model.flows if f.source == bid), None)
+        if out_flow is not None:
+            model.flows = [f for f in model.flows if f is not out_flow]  # not a normal edge
+        target = out_flow.target if out_flow is not None else None
+        if attached_to in model.subprocesses:  # ADR-032: boundary on a sub-process is deferred
+            model.subprocess_boundaries.append(bid)
+            model.elements.append(ClassifiedElement(id=bid, kind="boundaryEvent", tier="documented"))
+            continue
+        wired = target is not None and attached_to is not None and timer_is_supported(td)
+        if wired:
+            model.boundary_timers[attached_to] = BoundaryTimer(
+                id=bid, attached_to=attached_to, timer=td, cancel_activity=cancel, target=target,
+            )
+            tier = "executable" if profile == "common_executable" else "documented"
+            model.elements.append(ClassifiedElement(id=bid, kind="boundaryEvent", tier=tier))
+        else:
+            # Documented-only boundary (off the live path / unsupported timer): classify + warn,
+            # matching the RECOGNIZED_NON_EXECUTABLE path so existing behavior is preserved.
+            model.elements.append(ClassifiedElement(id=bid, kind="boundaryEvent", tier="documented"))
+            findings.append(Finding(
+                "bpmn_documented_element",
+                f"'boundaryEvent' is recognized BPMN but not executable today; documented only (id={bid})",
+                element_id=bid, severity="warning",
+            ))
+
+    # ADR-030 Phase 2.3: wire error boundary events (same shape as timer boundaries). error_code is
+    # the <bpmn:error errorCode> the boundary's errorRef points at; a catch-all (_CATCH_ALL) → None.
+    for bid, (attached_to, ref) in error_boundary_raw.items():
+        out_flow = next((f for f in model.flows if f.source == bid), None)
+        if out_flow is not None:
+            model.flows = [f for f in model.flows if f is not out_flow]
+        target = out_flow.target if out_flow is not None else None
+        if attached_to in model.subprocesses:  # ADR-032: boundary on a sub-process is deferred
+            model.subprocess_boundaries.append(bid)
+            model.elements.append(ClassifiedElement(id=bid, kind="boundaryEvent", tier="documented"))
+            continue
+        wired = target is not None and attached_to is not None
+        if wired:
+            code = None if ref is _CATCH_ALL else (error_defs.get(ref) or str(ref))
+            model.error_boundaries.setdefault(attached_to, []).append(
+                ErrorBoundary(id=bid, attached_to=attached_to, error_code=code, target=target)
+            )
+            tier = "executable" if profile == "common_executable" else "documented"
+            model.elements.append(ClassifiedElement(id=bid, kind="boundaryEvent", tier=tier))
+        else:
+            model.elements.append(ClassifiedElement(id=bid, kind="boundaryEvent", tier="documented"))
+            findings.append(Finding(
+                "bpmn_documented_element",
+                f"'boundaryEvent' is recognized BPMN but not executable today; documented only (id={bid})",
+                element_id=bid, severity="warning",
+            ))
+
+    # ADR-031: an event-based gateway's arms are its outgoing flow targets (each an arm catch event).
+    for gw in model.event_based_gateways:
+        model.event_based_gateways[gw] = [f.target for f in model.outgoing(gw)]
+
+    # ADR-033 Phase 2.7: a FULLY-ISOLATED extended-task-kind (no incoming/outgoing flow) is decorative
+    # documentation, not an executable node — reclassify it (mirrors wired-vs-documented for boundary
+    # events) so a floating sendTask/businessRuleTask attaches without a false unreachable-node error.
+    # A connected one stays an executable task node (reachability then validates it normally).
+    _flow_ends = {f.source for f in model.flows} | {f.target for f in model.flows}
+    for tid in [t for t, k in model.tasks.items() if k in EXTENDED_TASK_KINDS and t not in _flow_ends]:
+        del model.tasks[tid]
+        model.node_ids.discard(tid)
+        model.decision_refs.pop(tid, None)
+        if tid in model.inline_scripts:
+            model.inline_scripts.remove(tid)
+        for e in model.elements:
+            if e.id == tid:
+                e.tier = "documented"
 
     # dangling flow refs
     for fl in model.flows:
@@ -104,7 +401,7 @@ def parse(xml: str, expected_process_id: str) -> Tuple[Optional[BpmnModel], List
                 element_id=fl.id,
             ))
 
-    # exactly one start, at least one end
+    # exactly one TOP-LEVEL start, at least one top-level end (scoped — nested starts don't count).
     if len(model.start_events) != 1:
         findings.append(Finding(
             "bpmn_start_event_count",
@@ -113,13 +410,55 @@ def parse(xml: str, expected_process_id: str) -> Tuple[Optional[BpmnModel], List
     if not model.end_events:
         findings.append(Finding("bpmn_no_end_event", "no endEvent found"))
 
-    # reachability (forward from start, backward to any end)
+    # ADR-032 Phase 2.6: each embedded sub-process needs its own single start + ≥1 end, and (simple
+    # case) exactly one incoming + one outgoing at the parent level.
+    for sub in model.subprocesses.values():
+        n_start = len(scope_starts.get(sub.id, []))
+        if n_start != 1:
+            findings.append(Finding("bpmn_subprocess_start_count",
+                                    f"sub-process '{sub.id}' must have exactly one start event, found {n_start}",
+                                    element_id=sub.id))
+        if not sub.end_ids:
+            findings.append(Finding("bpmn_subprocess_no_end",
+                                    f"sub-process '{sub.id}' has no end event", element_id=sub.id))
+        n_in = sum(1 for f in model.flows if f.target == sub.id)
+        n_out = sum(1 for f in model.flows if f.source == sub.id)
+        if n_in != 1 or n_out != 1:
+            findings.append(Finding("bpmn_subprocess_arity",
+                                    f"sub-process '{sub.id}' must have exactly one incoming and one outgoing "
+                                    f"flow at the parent level, found {n_in} in / {n_out} out",
+                                    element_id=sub.id))
+
+    # reachability (forward from start, backward to any end) — on the FLATTENED graph: entering a
+    # sub-process box runs its start, and each internal end continues after the box (2.6.c inline).
     adj: Dict[str, List[str]] = {n: [] for n in model.node_ids}
     radj: Dict[str, List[str]] = {n: [] for n in model.node_ids}
     for fl in model.flows:
         if fl.source in adj and fl.target in adj:
             adj[fl.source].append(fl.target)
             radj[fl.target].append(fl.source)
+    for sub in model.subprocesses.values():
+        out_target = next((f.target for f in model.flows if f.source == sub.id), None)
+        if sub.start_id and sub.id in adj:            # box → its internal start
+            adj[sub.id].append(sub.start_id)
+            radj[sub.start_id].append(sub.id)
+        for eid in sub.end_ids:                        # internal end → continue after the box
+            if out_target and eid in adj and out_target in adj:
+                adj[eid].append(out_target)
+                radj[out_target].append(eid)
+    # ADR-027 Phase 2.2: a timer boundary lets its host reach the escalation target — model that as
+    # a host→target reachability edge so an escalation node reached only via the boundary is not a
+    # false "unreachable from start" (the boundary flow itself was removed from model.flows above).
+    for host, bt in model.boundary_timers.items():
+        if host in adj and bt.target in adj:
+            adj[host].append(bt.target)
+            radj[bt.target].append(host)
+    # ADR-030 Phase 2.3: same for error boundaries — the host can reach each error target.
+    for host, ebs in model.error_boundaries.items():
+        for eb in ebs:
+            if host in adj and eb.target in adj:
+                adj[host].append(eb.target)
+                radj[eb.target].append(host)
 
     if model.start_events:
         reachable = _bfs(adj, model.start_events[0])

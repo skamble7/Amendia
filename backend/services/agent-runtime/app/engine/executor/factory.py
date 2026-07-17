@@ -18,6 +18,7 @@ from typing import Any, Optional
 
 from app.engine.executor.base import Executor
 from app.engine.executor.dispatch import InProcessExecutor, _run_blocking
+from app.engine.executor.memo import InMemoryMemoStore
 from app.engine.executor.openshell import (
     BrokerOpenShellClient,
     FakeOpenShellClient,
@@ -54,16 +55,26 @@ def build_executor(settings, *, client: Optional[OpenShellClient] = None,
                    memo: Optional[Any] = None) -> Executor:
     """Return the executor for ``settings.EXECUTION_MODE``.
 
-    ``client`` and ``memo`` are injectable for tests. Memoization (ADR-019) is enabled by
-    default in ``nemoclaw`` mode and, in ``native`` mode, when
-    ``AGENTRT_MEMOIZE_CAPABILITIES`` is set — but only takes effect when a ``memo`` store is
-    provided (``main.py`` wires the Mongo store; tests inject an in-memory one). With no
-    store, ``native`` stays byte-for-byte.
+    ``client`` and ``memo`` are injectable for tests. Memoization (ADR-019) is on by default in
+    **both** ``native`` and ``nemoclaw`` modes (ADR-027 Phase 2.0) — the native path defaults a
+    process-local store when none is injected, so the resume-replay hazard is closed out of the
+    box. ``main.py`` injects the durable Mongo store; tests inject/get an in-memory one. Set
+    ``AGENTRT_MEMOIZE_CAPABILITIES=false`` for byte-identical replay (no memoization).
     """
     mode = getattr(settings, "EXECUTION_MODE", "native")
-    native_memoize = bool(getattr(settings, "MEMOIZE_CAPABILITIES", False))
+    native_memoize = bool(getattr(settings, "MEMOIZE_CAPABILITIES", True))
+
+    def _native() -> InProcessExecutor:
+        # ADR-027 Phase 2.0: default a process-local memo store when memoization is on and none was
+        # injected, so the resume-replay hazard is closed even if wiring is forgotten. `main.py`
+        # injects the durable Mongo store; tests get InMemory. With memoize off → byte-identical.
+        store = memo
+        if native_memoize and store is None:
+            store = InMemoryMemoStore()
+        return InProcessExecutor(memo=store, memoize=native_memoize)
+
     if mode == "native":
-        return InProcessExecutor(memo=memo, memoize=native_memoize)
+        return _native()
     if mode != "nemoclaw":
         raise ValueError(f"unknown AGENTRT_EXECUTION_MODE '{mode}' (expected native|nemoclaw)")
 
@@ -78,7 +89,7 @@ def build_executor(settings, *, client: Optional[OpenShellClient] = None,
             "OpenShell gateway unreachable — degrading to native execution "
             "(AGENTRT_NEMOCLAW_REQUIRED=false)"
         )
-        return InProcessExecutor(memo=memo, memoize=native_memoize)
+        return _native()
 
     logger.info("execution mode: nemoclaw — SandboxedExecutor over %s", type(client).__name__)
     # nemoclaw defaults memoization on (effective only when a memo store is provided).

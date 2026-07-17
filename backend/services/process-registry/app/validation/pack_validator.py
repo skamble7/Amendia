@@ -11,6 +11,7 @@ from typing import Dict, List, Optional, Tuple
 
 from packaging.version import Version
 
+from amendia_bpmn import TASK_EXECUTOR_CATEGORY, compilability_findings
 from amendia_contracts.capability import CapabilityDescriptor
 from amendia_contracts.common import HitlMode, hitl_mode_at_least
 from amendia_contracts.process_pack import ProcessPackManifest
@@ -43,9 +44,13 @@ def _forward_reach(model: BpmnModel) -> Dict[str, set]:
 
 
 class PackValidator:
-    def __init__(self, cap_repo: CapabilityRepository, schema_repo: ArtifactSchemaRepository) -> None:
+    def __init__(
+        self, cap_repo: CapabilityRepository, schema_repo: ArtifactSchemaRepository,
+        *, profile: str = "common_subset",
+    ) -> None:
         self.caps = cap_repo
         self.schemas = schema_repo
+        self.profile = profile  # ADR-027 Phase 2: which BPMN constructs may activate
 
     async def validate(
         self,
@@ -89,42 +94,54 @@ class PackValidator:
         if not bpmn_xml:
             report.error("bpmn_missing", stage=1, message="no BPMN uploaded for this pack")
             return None
-        return parse_and_validate(
+        model = parse_and_validate(
             bpmn_xml,
             expected_process_id=manifest.process.process_id,
             expected_sha256=manifest.process.bpmn_sha256,
             report=report,
+            profile=self.profile,
         )
+        # ADR-027 §1a / Phase 2: block *activation* of packs the runtime compiler cannot run under
+        # this profile (parallel/chained gateways, bad task/start arity) — the same structural gate
+        # the compiler raises off. Attach stays permissive (onboarding surfaces these as coverage).
+        if model is not None:
+            for f in compilability_findings(model, profile=self.profile):
+                report.error(f.code, stage=1, element_id=f.element_id, message=f.message)
+        return model
 
     # ------------------------------------------------------------------ #
     # Stage 2 — binding ↔ task bijection
     # ------------------------------------------------------------------ #
     def _stage2_bijection(self, manifest: ProcessPackManifest, model: BpmnModel, report: ValidationReport) -> None:
         binding_ids = [b.element_id for b in manifest.bindings]
+        # ADR-031/033: bindable elements include message catch / receive + the full task set. The
+        # shared TASK_EXECUTOR_CATEGORY map drives the executor-kind check for every task kind.
+        bindable = model.bindable_elements()
+        expected_executor = TASK_EXECUTOR_CATEGORY
         seen = set()
         for b in manifest.bindings:
             if b.element_id in seen:
                 report.error("duplicate_binding", stage=2, element_id=b.element_id,
                              message=f"more than one binding for element '{b.element_id}'")
             seen.add(b.element_id)
-            kind = model.tasks.get(b.element_id)
+            kind = bindable.get(b.element_id)
             if kind is None:
                 report.error("orphan_binding", stage=2, element_id=b.element_id,
-                             message=f"binding references '{b.element_id}' which is not a BPMN service/user task")
+                             message=f"binding references '{b.element_id}' which is not a bindable BPMN element")
                 continue
             if kind != b.element_kind:
                 report.error("binding_kind_mismatch", stage=2, element_id=b.element_id,
                              message=f"binding element_kind '{b.element_kind}' != BPMN kind '{kind}'")
             etype = b.executor.type
-            if kind == "serviceTask" and etype != "capability":
+            if etype != expected_executor.get(kind):
                 report.error("executor_kind_mismatch", stage=2, element_id=b.element_id,
-                             message="serviceTask must bind a capability executor")
-            if kind == "userTask" and etype != "human":
-                report.error("executor_kind_mismatch", stage=2, element_id=b.element_id,
-                             message="userTask must bind a human executor")
-        for task_id in sorted(set(model.tasks) - set(binding_ids)):
-            report.error("unbound_task", stage=2, element_id=task_id,
-                         message=f"BPMN task '{task_id}' has no binding")
+                             message=f"{kind} must bind a {expected_executor.get(kind)} executor, got '{etype}'")
+            if etype == "message" and not getattr(b.executor, "message_name", None):
+                report.error("message_name_missing", stage=2, element_id=b.element_id,
+                             message="message binding requires a non-empty message_name")
+        for el_id in sorted(set(bindable) - set(binding_ids)):
+            report.error("unbound_task", stage=2, element_id=el_id,
+                         message=f"BPMN element '{el_id}' ({bindable[el_id]}) has no binding")
 
     # ------------------------------------------------------------------ #
     # Stage 3 — capability resolution
@@ -186,6 +203,8 @@ class PackValidator:
         self, manifest: ProcessPackManifest, resolved: Dict[str, CapabilityDescriptor], report: ValidationReport
     ) -> None:
         for b in manifest.bindings:
+            if b.hitl is None:  # ADR-031: message bindings have no HITL gate — nothing to check here
+                continue
             mode = b.hitl.mode
             if mode is not HitlMode.NONE and b.hitl.role is None:
                 report.error("hitl_role_missing", stage=4, element_id=b.element_id,

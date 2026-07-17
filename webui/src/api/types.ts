@@ -47,7 +47,7 @@ export type Attachment = StubComponents["schemas"]["Attachment"];
 export type PaymentDetails = StubComponents["schemas"]["PaymentDetails"];
 
 // --- enums / literals we lean on across the UI (kept narrow, mirrors contracts) ---
-export type InstanceStatus = "created" | "running" | "waiting_hitl" | "completed" | "failed" | "cancelled";
+export type InstanceStatus = "created" | "running" | "waiting_hitl" | "waiting_timer" | "waiting_message" | "completed" | "failed" | "cancelled";
 export type IngestionStatus = "received" | "dispatched" | "accepted" | "rejected" | "no_process";
 
 /**

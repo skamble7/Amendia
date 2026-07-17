@@ -26,6 +26,15 @@ class ProcessState(TypedDict, total=False):
     pack: Dict[str, Any]
     outcome: Optional[str]
     last_error: Optional[str]
+    # ADR-027 Phase 2.2/2.3: element_id -> the boundary event a node was left through, if any. The
+    # post-node conditional edge reads it to route to the boundary target instead of the normal flow:
+    #   {"kind": "timer"}                     — an interrupting SLA timer boundary fired (Phase 2.2.d)
+    #   {"kind": "error", "code": "<CODE>"}   — the capability signalled a modeled business error (2.3)
+    # dict-merge so concurrent branches don't clobber each other's boundary marks.
+    boundary: Annotated[Dict[str, Dict[str, Any]], merge_dicts]
+    # ADR-031 Phase 2.4: element_id -> the untyped payload of a delivered message, when the message
+    # binding declares no output artifact (a pure signal). Typed messages commit into `artifacts`.
+    messages: Annotated[Dict[str, Any], merge_dicts]
 
 
 def now_iso() -> str:
@@ -55,4 +64,6 @@ def initial_state(*, envelope: Dict[str, Any], trace: Dict[str, Any], pack: Dict
         "pack": pack,
         "outcome": None,
         "last_error": None,
+        "boundary": {},
+        "messages": {},
     }

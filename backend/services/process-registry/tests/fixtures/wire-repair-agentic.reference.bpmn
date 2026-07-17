@@ -1,0 +1,90 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- ADR-027 Phase 1 reference: documented-RICH (lanes, external pools + message flows, a message
+     start event, a timer boundary event, a DMN business-rule task, a data object) but with a
+     VALID executable core (start -> serviceTask -> exclusiveGateway -> ... -> end, exclusive only).
+     The documented constructs sit OFF the live sequence-flow path, so it attaches cleanly and the
+     coverage report + inference draft can be derived from it. -->
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
+                  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                  id="Defs_WireRepairAgentic" targetNamespace="http://amendia.example/wire-repair-agentic">
+  <bpmn:collaboration id="Collab">
+    <bpmn:participant id="P_Bank" name="Bank — Payment Operations" processRef="Process_WireRepairAgentic"/>
+    <bpmn:participant id="P_Core" name="Core Banking / Payment Rails"/>
+    <bpmn:participant id="P_Cpty" name="Counterparty Banks"/>
+    <bpmn:messageFlow id="mf_enrich" name="fetch payment" sourceRef="Enrich" targetRef="P_Core"/>
+    <bpmn:messageFlow id="mf_notify" name="pacs.008 advice" sourceRef="Notify" targetRef="P_Cpty"/>
+  </bpmn:collaboration>
+  <bpmn:process id="Process_WireRepairAgentic" name="Wire Transfer Exception — Repair / Return" isExecutable="false">
+    <bpmn:laneSet id="LaneSet">
+      <bpmn:lane id="Lane_Agent" name="AI Agent Runtime">
+        <bpmn:flowNodeRef>Enrich</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Assess</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>GwRepair</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>DraftRepair</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>ApplyRepair</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Notify</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane id="Lane_Analyst" name="Ops Analyst">
+        <bpmn:flowNodeRef>ObtainInfo</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane id="Lane_Approver" name="Ops Approver">
+        <bpmn:flowNodeRef>ApproveRepair</bpmn:flowNodeRef>
+      </bpmn:lane>
+    </bpmn:laneSet>
+
+    <bpmn:startEvent id="Start" name="Wire exception received">
+      <bpmn:outgoing>f0</bpmn:outgoing>
+      <bpmn:messageEventDefinition id="med"/>
+    </bpmn:startEvent>
+    <bpmn:serviceTask id="Enrich" name="Enrich investigation">
+      <bpmn:incoming>f0</bpmn:incoming><bpmn:outgoing>f1</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:serviceTask id="Assess" name="Assess beneficiary">
+      <bpmn:incoming>f1</bpmn:incoming><bpmn:incoming>f7</bpmn:incoming><bpmn:outgoing>f2</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:exclusiveGateway id="GwRepair" name="Repairable?" default="f_ni">
+      <bpmn:incoming>f2</bpmn:incoming>
+      <bpmn:outgoing>f_rep</bpmn:outgoing><bpmn:outgoing>f_un</bpmn:outgoing><bpmn:outgoing>f_ni</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:serviceTask id="DraftRepair" name="Draft repair">
+      <bpmn:incoming>f_rep</bpmn:incoming><bpmn:outgoing>f3</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:userTask id="ApproveRepair" name="Approve repair (four-eyes)">
+      <bpmn:incoming>f3</bpmn:incoming><bpmn:outgoing>f4</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:serviceTask id="ApplyRepair" name="Apply repair and release payment">
+      <bpmn:incoming>f4</bpmn:incoming><bpmn:outgoing>f5</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:serviceTask id="Notify" name="Notify parties">
+      <bpmn:incoming>f5</bpmn:incoming><bpmn:outgoing>f6</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:userTask id="ObtainInfo" name="Obtain missing information">
+      <bpmn:incoming>f_ni</bpmn:incoming><bpmn:outgoing>f7</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:endEvent id="EndResolved" name="Exception resolved"><bpmn:incoming>f6</bpmn:incoming></bpmn:endEvent>
+    <bpmn:endEvent id="EndReturned" name="Funds returned"><bpmn:incoming>f_un</bpmn:incoming></bpmn:endEvent>
+
+    <!-- documented, off the live path: SLA timer, DMN decision, data object -->
+    <bpmn:boundaryEvent id="BndSla" name="SLA breach" attachedToRef="ApproveRepair" cancelActivity="true">
+      <bpmn:timerEventDefinition id="ted"/>
+    </bpmn:boundaryEvent>
+    <bpmn:businessRuleTask id="ClassifyReason" name="Classify reason code" calledDecision="Decision_ReasonCode"/>
+    <bpmn:dataObject id="Dossier" name="investigation dossier"/>
+
+    <bpmn:sequenceFlow id="f0" sourceRef="Start" targetRef="Enrich"/>
+    <bpmn:sequenceFlow id="f1" sourceRef="Enrich" targetRef="Assess"/>
+    <bpmn:sequenceFlow id="f2" sourceRef="Assess" targetRef="GwRepair"/>
+    <bpmn:sequenceFlow id="f_rep" name="repairable" sourceRef="GwRepair" targetRef="DraftRepair">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">beneficiary.repair_verdict = "repairable"</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="f_un" name="unrepairable" sourceRef="GwRepair" targetRef="EndReturned">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">beneficiary.repair_verdict = "unrepairable"</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="f_ni" name="needs info" sourceRef="GwRepair" targetRef="ObtainInfo"/>
+    <bpmn:sequenceFlow id="f3" sourceRef="DraftRepair" targetRef="ApproveRepair"/>
+    <bpmn:sequenceFlow id="f4" sourceRef="ApproveRepair" targetRef="ApplyRepair"/>
+    <bpmn:sequenceFlow id="f5" sourceRef="ApplyRepair" targetRef="Notify"/>
+    <bpmn:sequenceFlow id="f6" sourceRef="Notify" targetRef="EndResolved"/>
+    <bpmn:sequenceFlow id="f7" sourceRef="ObtainInfo" targetRef="Assess"/>
+  </bpmn:process>
+</bpmn:definitions>

@@ -78,6 +78,7 @@
   ],
   "users": [
     {
+      "id": "915900c9-7d26-5247-b5db-ece8151e79df",
       "username": "riya",
       "enabled": true,
       "emailVerified": true,
@@ -85,10 +86,15 @@
       "firstName": "Riya",
       "lastName": "Sharma",
       "credentials": [
-        {"type": "password", "value": "dev-password", "temporary": false}
+        {
+          "type": "password",
+          "value": "dev-password",
+          "temporary": false
+        }
       ]
     },
     {
+      "id": "a2cf6f3c-a57b-5735-b534-0982906aa2ab",
       "username": "marcus",
       "enabled": true,
       "emailVerified": true,
@@ -96,10 +102,15 @@
       "firstName": "Marcus",
       "lastName": "Bianchi",
       "credentials": [
-        {"type": "password", "value": "dev-password", "temporary": false}
+        {
+          "type": "password",
+          "value": "dev-password",
+          "temporary": false
+        }
       ]
     },
     {
+      "id": "fb64fb97-3bcd-55f9-a4b2-ac2096c6ee50",
       "username": "priya",
       "enabled": true,
       "emailVerified": true,
@@ -107,10 +118,15 @@
       "firstName": "Priya",
       "lastName": "Nair",
       "credentials": [
-        {"type": "password", "value": "dev-password", "temporary": false}
+        {
+          "type": "password",
+          "value": "dev-password",
+          "temporary": false
+        }
       ]
     },
     {
+      "id": "650cbd9f-4b46-5903-a433-aa9355ab01ec",
       "username": "alex",
       "enabled": true,
       "emailVerified": true,
@@ -118,10 +134,15 @@
       "firstName": "Alex",
       "lastName": "Okafor",
       "credentials": [
-        {"type": "password", "value": "dev-password", "temporary": false}
+        {
+          "type": "password",
+          "value": "dev-password",
+          "temporary": false
+        }
       ]
     },
     {
+      "id": "87b6d69b-11a7-5401-b5e2-5b12d4938ee9",
       "username": "sam",
       "enabled": true,
       "emailVerified": true,
@@ -129,7 +150,11 @@
       "firstName": "Sam",
       "lastName": "Delgado",
       "credentials": [
-        {"type": "password", "value": "dev-password", "temporary": false}
+        {
+          "type": "password",
+          "value": "dev-password",
+          "temporary": false
+        }
       ]
     }
   ]

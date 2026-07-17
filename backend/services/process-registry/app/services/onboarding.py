@@ -15,7 +15,9 @@ import uuid
 from typing import Any, Dict, List, Optional, Tuple
 from xml.etree import ElementTree as ET
 
-from amendia_bpmn.parser import parse as parse_bpmn
+from amendia_bpmn import extract_semantics, parse as parse_bpmn, required_profile, select_process_id
+
+from app.services.inference import build_semantic_summary, infer_draft
 
 from amendia_contracts.artifact_schema import ArtifactSchemaRegistration
 from amendia_contracts.capability import CapabilityDescriptor
@@ -116,10 +118,12 @@ class OnboardingService:
         bpmn_repo: BpmnRepository,
         introspector: McpIntrospector,
         sample_envelopes: Optional[List[dict]] = None,
+        profile: str = "common_subset",
     ) -> None:
         self.sessions = onboarding_repo
         self.caps = cap_repo
         self.schemas = schema_repo
+        self.profile = profile  # ADR-027 Phase 2: which BPMN constructs may activate
         self.packs = pack_repo
         self.bpmn = bpmn_repo
         self.introspector = introspector
@@ -218,11 +222,19 @@ class OnboardingService:
         bpmn_file = req.bpmn_file or f"{s.basics.pack_key}.bpmn"
         # Persist the XML on the session's staging key so commit can re-upload it.
         await self.bpmn.upsert(self._staging_pk(s), s.basics.version, xml=xml, sha256=sha)
+        # Phase 1: read the whole diagram (semantics) and derive the advisory inference draft.
+        sem = extract_semantics(xml, process_id)
         s.bpmn = BpmnInventory(
             process_id=process_id, bpmn_file=bpmn_file, sha256=sha,
             service_tasks=inventory["service_tasks"], user_tasks=inventory["user_tasks"],
             gateways=inventory["gateways"], task_names=inventory["task_names"],
+            subprocesses=inventory.get("subprocesses", []),
+            documented_elements=inventory.get("documented_elements", []),
+            coverage_counts=inventory.get("coverage_counts", {}),
+            required_execution_profile=inventory.get("required_execution_profile", "common_subset"),
+            **build_semantic_summary(sem),
         )
+        s.inferred = infer_draft(sem, s.basics.default_domain)
         # Re-attaching BPMN re-derives inventory and invalidates everything that referenced
         # task/gateway ids (bindings, gateway variables, SoD) plus the dry-run.
         cleared = self._clear(s, {"bindings", "gateway_variables", "sod_policies", "dry_run"})
@@ -436,7 +448,7 @@ class OnboardingService:
         manifest, staged_descs, staged_regs = self._compose(s)
         cap_overlay = _CapOverlay(self.caps, staged_descs)
         schema_overlay = _SchemaOverlay(self.schemas, staged_regs)
-        validator = PackValidator(cap_overlay, schema_overlay)  # type: ignore[arg-type]
+        validator = PackValidator(cap_overlay, schema_overlay, profile=self.profile)  # type: ignore[arg-type]
         bpmn_xml = await self.bpmn.get_xml(self._staging_pk(s), s.basics.version)
         report = await validator.validate(manifest, bpmn_xml, sample_envelopes=self._samples)
 
@@ -532,7 +544,7 @@ class OnboardingService:
         # 5) validate (real repos)
         _mark("validate", "running")
         manifest = await self.packs.get(pk, ver)  # reload with current sha/status
-        validator = PackValidator(self.caps, self.schemas)
+        validator = PackValidator(self.caps, self.schemas, profile=self.profile)
         report = await validator.validate(manifest, bpmn_xml, sample_envelopes=self._samples)
         await self.packs.save_validation_report(pk, ver, report.model_dump(mode="json"))
         s.dry_run_report = report.model_dump(mode="json")
@@ -547,7 +559,11 @@ class OnboardingService:
 
         # 6) activate (pins ranges → exact, writes resolution sidecar)
         _mark("activate", "running")
-        resolution, resolved_caps = await resolve_pins(manifest, self.caps, self.schemas)
+        # ADR-027 Phase 2.5: pin the BPMN-derived minimum execution profile into resolution.
+        _model, _ = parse_bpmn(bpmn_xml, manifest.process.process_id)
+        prof = required_profile(_model) if _model is not None else "common_subset"
+        resolution, resolved_caps = await resolve_pins(
+            manifest, self.caps, self.schemas, required_execution_profile=prof)
         await self.packs.activate(pk, ver, resolved_caps=resolved_caps, resolution=resolution.to_doc())
         # Per-pack role metadata sidecar: enrich every derived role id with the operator's
         # authored label/description (falling back to a humanized label). Read by GET /roles.
@@ -605,58 +621,51 @@ class OnboardingService:
             cleared.append("dry_run_report")
         return cleared
 
-    # -- BPMN parse + onboarding-strict checks -- #
+    # -- BPMN parse + classification (ADR-027: classify, don't reject) -- #
     def _parse_and_check_bpmn(self, xml: str) -> Tuple[str, List[dict], Dict[str, Any]]:
+        """Returns ``(process_id, hard_errors, inventory)``. Only genuinely-malformed input is a
+        hard error (→ 422); documented/unknown elements — and parallel/chained gateways, which are
+        an *activation*-time gate the runtime compiler still enforces — are non-blocking
+        annotations surfaced via the coverage report on the inventory."""
         try:
-            process_id = self._extract_process_id(xml)
+            process_id = select_process_id(xml)  # shared selection (prefers isExecutable=true)
         except Exception as exc:  # noqa: BLE001
             return "", [{"code": "bpmn_parse_error", "message": f"could not read BPMN: {exc}"}], {}
         if not process_id:
             return "", [{"code": "bpmn_process_not_found", "message": "no <process> with an id"}], {}
 
         model, findings = parse_bpmn(xml, process_id)
-        errs = [{"code": f.code, "element_id": f.element_id, "message": f.message} for f in findings]
+        # Only error-severity findings block; documented (warning) / unknown (info) never do.
+        hard_errors = [{"code": f.code, "element_id": f.element_id, "message": f.message}
+                       for f in findings if f.severity == "error"]
         if model is None:
-            return process_id, errs or [{"code": "bpmn_parse_error", "message": "unparseable BPMN"}], {}
-
-        # Onboarding is stricter than the generic parser: exclusive gateways only, and no
-        # gateway-to-gateway chaining.
-        gateways = set(model.exclusive_gateways) | set(getattr(model, "parallel_gateways", []))
-        for pg in getattr(model, "parallel_gateways", []):
-            errs.append({"code": "bpmn_parallel_gateway_unsupported", "element_id": pg,
-                         "message": "parallel gateways are not supported; use exclusive (XOR) gateways only"})
-        for flow in model.flows:
-            if flow.source in gateways and flow.target in gateways:
-                errs.append({"code": "bpmn_chained_gateway_unsupported", "element_id": flow.source,
-                             "message": f"gateway '{flow.source}' flows directly into gateway '{flow.target}'; "
-                                        f"chained gateways are not supported"})
-        if errs:
-            return process_id, errs, {}
+            return process_id, hard_errors or [{"code": "bpmn_parse_error", "message": "unparseable BPMN"}], {}
+        if hard_errors:
+            return process_id, hard_errors, {}
 
         service_tasks = [t for t, k in model.tasks.items() if k == "serviceTask"]
         user_tasks = [t for t, k in model.tasks.items() if k == "userTask"]
-        names = self._task_names(xml)
+        cov = model.coverage()
+        documented = [{"element_id": e.id, "kind": e.kind, "tier": e.tier}
+                      for e in (cov["documented"] + cov["unknown"])]
         return process_id, [], {
             "service_tasks": sorted(service_tasks),
             "user_tasks": sorted(user_tasks),
             "gateways": sorted(model.exclusive_gateways),
-            "task_names": names,
+            "task_names": self._task_names(xml),
+            "documented_elements": documented,
+            "coverage_counts": cov["counts"],
+            # ADR-027 Phase 2.5: the min profile this diagram needs, derived here so the Review step
+            # can flag "requires parallel profile" pre-activation (same value pinned at activation).
+            "required_execution_profile": required_profile(model),
+            # ADR-032 Phase 2.6: embedded sub-processes (id -> members) for the coverage grouping.
+            "subprocesses": [{"id": s.id, "name": s.name, "member_ids": s.member_ids}
+                             for s in model.subprocesses.values()],
         }
 
     @staticmethod
     def _local(tag: str) -> str:
         return tag.rsplit("}", 1)[-1]
-
-    def _extract_process_id(self, xml: str) -> str:
-        root = ET.fromstring(xml)
-        best = ""
-        for el in root.iter():
-            if self._local(el.tag) == "process":
-                pid = el.get("id") or ""
-                if el.get("isExecutable") == "true" and pid:
-                    return pid
-                best = best or pid
-        return best
 
     def _task_names(self, xml: str) -> Dict[str, str]:
         names: Dict[str, str] = {}

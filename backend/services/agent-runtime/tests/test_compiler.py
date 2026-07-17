@@ -70,14 +70,28 @@ def test_unparseable_condition_rejected(bundle):
         compile_graph(bad, InProcessExecutor(), simulation=True, checkpointer=_saver())
 
 
-def test_unsupported_element_reported_by_parser():
+def test_documented_element_is_warning_not_error():
+    # ADR-027: a boundary event is documented (warning), not a hard-error unsupported element.
     xml = """<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL">
       <bpmn:process id="P">
         <bpmn:startEvent id="s"><bpmn:outgoing>f1</bpmn:outgoing></bpmn:startEvent>
-        <bpmn:boundaryEvent id="b"/>
+        <bpmn:boundaryEvent id="b" attachedToRef="s"/>
         <bpmn:endEvent id="e"><bpmn:incoming>f1</bpmn:incoming></bpmn:endEvent>
         <bpmn:sequenceFlow id="f1" sourceRef="s" targetRef="e"/>
       </bpmn:process>
     </bpmn:definitions>"""
-    _, findings = parse(xml, "P")
-    assert any(f.code == "bpmn_unsupported_element" for f in findings)
+    model, findings = parse(xml, "P")
+    assert model is not None
+    assert [f for f in findings if f.severity == "error"] == []   # runtime reject filter → empty
+    assert any(f.code == "bpmn_documented_element" and f.severity == "warning" for f in findings)
+
+
+def test_documented_element_ignored_by_compiler(bundle):
+    # An off-path documented element is retained on the model but never touched by the compiler.
+    from amendia_bpmn import ClassifiedElement
+
+    b = copy.copy(bundle)
+    b.bpmn_model = copy.deepcopy(bundle.bpmn_model)
+    b.bpmn_model.elements.append(ClassifiedElement(id="Lane_X", kind="laneSet", tier="documented"))
+    app = compile_graph(b, InProcessExecutor(), simulation=True, checkpointer=_saver())
+    assert app is not None

@@ -14,7 +14,12 @@ from typing import Any, ClassVar, Dict, List, Literal, Optional
 from pydantic import Field, StringConstraints, model_validator
 from typing_extensions import Annotated
 
-from amendia_common.events import HITL_TASK_CREATED, HITL_TASK_DECIDED, Service
+from amendia_common.events import (
+    HITL_TASK_CREATED,
+    HITL_TASK_DECIDED,
+    HITL_TASK_EXPIRED,
+    Service,
+)
 from amendia_contracts.common import (
     ContractModel,
     EventBase,
@@ -111,6 +116,10 @@ class HitlTask(ContractModel, TimestampsMixin):
     allowed_decisions: List[Decision] = Field(..., min_length=1)
     status: TaskStatus
     decision: Optional[DecisionRecord] = None
+    # ADR-027 Phase 2.1: the LangGraph interrupt id this task corresponds to. Required to resume
+    # exactly this gate when a parallel superstep raises several concurrent interrupts (they must
+    # be resolved one at a time via ``Command(resume={id: decision})``). Absent for legacy tasks.
+    interrupt_id: Optional[str] = None
 
     @model_validator(mode="after")
     def _decided_requires_valid_decision(self) -> "HitlTask":
@@ -152,3 +161,19 @@ class HitlTaskDecidedEvent(EventBase):
     role: RoleId
     decision: Decision
     decided_by: str
+
+
+class HitlTaskExpiredEvent(EventBase):
+    """ADR-027 Phase 2.2: a HITL gate breached its SLA and was escalated via its timer boundary
+    event. The task is now ``expired``; the process routed to the boundary's escalation target."""
+
+    _service: ClassVar[Service] = Service.AGENT_RUNTIME
+    _event_name: ClassVar[str] = HITL_TASK_EXPIRED
+
+    schema_version: Literal["pin.platform.hitl_task_expired/1.0"] = "pin.platform.hitl_task_expired/1.0"
+    task_id: str
+    exception_id: str
+    process_instance_id: str
+    element_id: str
+    role: RoleId
+    escalated_to: Optional[str] = None   # the boundary's escalation target element id

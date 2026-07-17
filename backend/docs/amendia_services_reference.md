@@ -126,6 +126,12 @@ collections) + instance/task reads + the **HITL decision API**. Execution itself
 | `POST` | `/hitl-tasks/{task_id}/claim` | Claim a task — **no body**; the actor is the bearer's resolved identity. 409 unless `open`; 403 if SoD-excluded or the task's role ∉ the caller's roles. |
 | `POST` | `/hitl-tasks/{task_id}/decide` | Decide — body `{decision, comment?, edits?, approved_action_ids?}` (identity from the bearer). Enforces claim ownership + allowed-decisions + SoD, re-validates `edit_and_approve` edits against the pinned schema, then resumes the graph. |
 
+### Inbound messages (ADR-031)
+
+| Method | Path | Description |
+|---|---|---|
+| `POST` | `/messages` | Deliver an inbound business message — body `{message_name, exception_id?\|correlation_id?, payload?}` (exactly one business anchor). Correlates by anchor + `message_name` to a parked instance and resumes it exactly once. Guarded by `principal_or_internal` (external systems / `mcp_stub` use `X-Amendia-Internal`; an operator may use a bearer). Responses: `202` delivered, `404` no_matching_subscription (buffered for the ordering race), `409` already_consumed, `422` invalid payload (a declared output artifact that fails its pinned schema is never committed). |
+
 ### Catalog reads (mirror of registry-owned collections)
 
 | Method | Path | Description |
@@ -139,9 +145,21 @@ collections) + instance/task reads + the **HITL decision API**. Execution itself
 
 **Events** — consumes `ingestor.exception_dispatched.v1`. Publishes, all `agent_runtime.*.v1`:
 `dispatch_accepted`, `dispatch_rejected`, `hitl_task_created`, `hitl_task_decided`,
-`process_completed`, `process_failed`. In `nemoclaw` mode also publishes
-`agent_runtime.capability_exec_request.v1` (job → capability-worker) and awaits the correlated
-`capability_exec_result` reply (ADR-020).
+`hitl_task_expired` (SLA breach → escalated), `timer_fired`, `message_received`, `process_completed`,
+`process_failed`. In `nemoclaw` mode also publishes `agent_runtime.capability_exec_request.v1` (job →
+capability-worker) and awaits the correlated `capability_exec_result` reply (ADR-020).
+
+**Execution conformance level (ADR-034).** `AGENTRT_EXECUTION_PROFILE` selects the BPMN conformance
+level: **`common_executable`** (default — parallel gateways, timers + **SLA timer boundaries**, error
+boundaries, inbound messages + event-based gateways, embedded sub-processes, the full task set) or the
+conservative **`common_subset`**. A pack's minimum level is **derived from its BPMN** at activation and
+pinned in the resolution sidecar (`required_execution_profile`); the runtime refuses a pack it can't run
+at **load** (not mid-flight) with a distinct `pack_requires_profile` dispatch-rejection reason. Retired
+granular values (`parallel`/`timers`/…) normalize to `common_executable`.
+
+**Durable timer poller.** A lifespan task (`AGENTRT_TIMER_POLL_SECONDS`, default 15s) wakes on due
+timers in the Mongo `timers` collection and resumes the parked instance — no delayed-message broker;
+crash-safe (re-fires anything due on restart). This is what makes an SLA `due_at` **fire**.
 
 ## 4. process-registry (`:8084`)
 

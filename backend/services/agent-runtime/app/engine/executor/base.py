@@ -17,7 +17,23 @@ from amendia_contracts.capability import CapabilityDescriptor
 
 
 class CapabilityError(Exception):
-    """A capability failed to execute (bad descriptor, import error, runtime raise)."""
+    """A capability failed to execute (bad descriptor, import error, runtime raise).
+
+    This is a **technical** failure — the instance fails/retries (existing behaviour). Distinct from
+    :class:`CapabilityBusinessError`, which is a *modeled* outcome routed to an error boundary."""
+
+
+class CapabilityBusinessError(Exception):
+    """ADR-030 (Phase 2.3): a capability signalled a **modeled business error** — a legitimate,
+    diagram-anticipated outcome (payment rejected, screening hit, insufficient info), NOT a technical
+    failure. The task runner routes it to the matching (or catch-all) BPMN error boundary event and
+    the instance stays running. ``error_code`` matches a boundary's ``errorRef``/``<bpmn:error
+    errorCode>``; ``detail`` is optional context. Any OTHER exception stays a technical failure."""
+
+    def __init__(self, error_code: str, detail: Optional[Dict[str, Any]] = None) -> None:
+        self.error_code = error_code
+        self.detail = detail or {}
+        super().__init__(f"business error: {error_code}")
 
 
 def _run_blocking(coro: Any) -> Any:

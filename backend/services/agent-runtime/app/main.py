@@ -24,13 +24,18 @@ from app.dal.dispatch_repo import DispatchLogRepository
 from app.dal.hitl_task_repo import HitlTaskRepository
 from app.dal.instance_repo import ProcessInstanceRepository
 from app.dal.pack_repo import ProcessPackRepository
+from app.dal.message_repo import MessageSubscriptionRepository, PendingMessageRepository
+from app.dal.timer_repo import TimerRepository
 from app.db.mongo import (
     ARTIFACT_SCHEMAS,
     CAPABILITIES,
     DISPATCH_LOG,
     HITL_TASKS,
+    MESSAGE_SUBSCRIPTIONS,
+    PENDING_MESSAGES,
     PROCESS_INSTANCES,
     PROCESS_PACKS,
+    TIMERS,
     MongoClient,
 )
 from app.engine.engine import ProcessEngine
@@ -41,10 +46,21 @@ from app.events.publisher import RabbitPublisher
 from app.events.rabbit import RabbitConnection
 from app.logging_conf import configure_logging
 from app.middleware.request_id import RequestIDMiddleware
-from app.routers import admin, artifact_schemas, capabilities, health, hitl_tasks, instances, packs
+from app.routers import (
+    admin,
+    artifact_schemas,
+    capabilities,
+    health,
+    hitl_tasks,
+    instances,
+    messages,
+    packs,
+)
 from app.seeding.load import SeedLoader
 from app.services.dispatch_service import DispatchService
 from app.services.hitl_service import HitlDecisionService
+from app.services.message_service import MessageSubscriptionService
+from app.services.timer_service import TimerService
 
 logger = logging.getLogger(__name__)
 
@@ -95,9 +111,19 @@ async def lifespan(app: FastAPI):
     # is wired unconditionally; it is only *used* when memoization is enabled (nemoclaw, or
     # native + AGENTRT_MEMOIZE_CAPABILITIES), so native stays byte-for-byte otherwise.
     memo_store = build_mongo_memo_store(settings)
+    # ADR-027 Phase 2.2: durable timer substrate (real UTC clock in production).
+    timer_repo = TimerRepository(mongo.collection(TIMERS))
+    timer_service = TimerService(timer_repo)
+    app.state.timer_repo = timer_repo
+    # ADR-031 Phase 2.4: message subscription substrate + ordering buffer.
+    message_service = MessageSubscriptionService(
+        MessageSubscriptionRepository(mongo.collection(MESSAGE_SUBSCRIPTIONS)),
+        PendingMessageRepository(mongo.collection(PENDING_MESSAGES)),
+    )
     engine = ProcessEngine(
         registry=registry_client, instance_repo=instance_repo, hitl_repo=hitl_task_repo,
         publisher=publisher, settings=settings, executor=build_executor(settings, memo=memo_store),
+        timer_service=timer_service, message_service=message_service,
     )
     dispatch_service = DispatchService(
         engine=engine, instance_repo=instance_repo, dispatch_repo=dispatch_repo,
@@ -127,14 +153,31 @@ async def lifespan(app: FastAPI):
             logger.exception("recovery sweep error: %s", exc)
     recover_task = asyncio.create_task(_recover())
 
-    logger.info("agent-runtime ready (execution_mode=%s simulation=%s)",
-                settings.EXECUTION_MODE, settings.SIMULATION_MODE)
+    # ADR-027 Phase 2.2: durable-timer poller. Wakes every AGENTRT_TIMER_POLL_SECONDS, fires any due
+    # timers, and resumes the parked instance. Durable + guarded, so a restart re-fires anything due
+    # (crash-safe) and a fire that lost the race to a human decision is a no-op. Only wall-clock read.
+    async def _timer_poll():
+        while True:
+            try:
+                n = await engine.fire_due()
+                if n:
+                    logger.info("timer poller fired %d timer(s)", n)
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:  # noqa: BLE001
+                logger.exception("timer poll error: %s", exc)
+            await asyncio.sleep(settings.TIMER_POLL_SECONDS)
+    timer_task = asyncio.create_task(_timer_poll())
+
+    logger.info("agent-runtime ready (execution_mode=%s simulation=%s profile=%s)",
+                settings.EXECUTION_MODE, settings.SIMULATION_MODE, settings.EXECUTION_PROFILE)
     try:
         yield
     finally:
         await consumer.stop()
         consumer_task.cancel()
         recover_task.cancel()
+        timer_task.cancel()
         await publisher.close()
         await http.aclose()
         await rabbit.close()
@@ -163,6 +206,8 @@ def create_app() -> FastAPI:
     app.include_router(artifact_schemas.router, dependencies=guarded)
     app.include_router(instances.router, dependencies=guarded)
     app.include_router(hitl_tasks.router, dependencies=guarded)
+    # /messages carries its own principal_or_internal guard (external systems / mcp_stub post here).
+    app.include_router(messages.router)
     app.include_router(admin.router, dependencies=guarded)
     return app
 

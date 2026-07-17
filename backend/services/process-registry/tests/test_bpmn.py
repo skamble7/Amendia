@@ -56,11 +56,39 @@ def test_process_not_found_returns_none():
     assert "bpmn_process_not_found" in _codes(rep)
 
 
-def test_unsupported_element():
+def _warnings(rep):
+    return {f.code for f in rep.findings if f.severity.value == "warning"}
+
+
+def _infos(rep):
+    return {f.code for f in rep.findings if f.severity.value == "info"}
+
+
+def test_documented_element_is_warning_not_error():
+    # ADR-027: a boundary event (recognized BPMN, not executable) is a WARNING, not a rejection.
     xml = f"""<bpmn:definitions {NS}>
       <bpmn:process id="P">
         <bpmn:startEvent id="s"><bpmn:outgoing>f1</bpmn:outgoing></bpmn:startEvent>
-        <bpmn:boundaryEvent id="b"/>
+        <bpmn:boundaryEvent id="b" attachedToRef="t"/>
+        <bpmn:laneSet id="ls"/>
+        <bpmn:serviceTask id="t"><bpmn:incoming>f1</bpmn:incoming><bpmn:outgoing>f2</bpmn:outgoing></bpmn:serviceTask>
+        <bpmn:endEvent id="e"><bpmn:incoming>f2</bpmn:incoming></bpmn:endEvent>
+        <bpmn:sequenceFlow id="f1" sourceRef="s" targetRef="t"/>
+        <bpmn:sequenceFlow id="f2" sourceRef="t" targetRef="e"/>
+      </bpmn:process>
+    </bpmn:definitions>"""
+    model, rep = _run(xml)
+    assert model is not None
+    assert rep.ok  # documented elements never flip ok
+    assert "bpmn_unsupported_element" not in _codes(rep)
+    assert "bpmn_documented_element" in _warnings(rep)
+
+
+def test_unknown_element_is_info():
+    xml = f"""<bpmn:definitions {NS}>
+      <bpmn:process id="P">
+        <bpmn:startEvent id="s"><bpmn:outgoing>f1</bpmn:outgoing></bpmn:startEvent>
+        <bpmn:vendorThing id="v"/>
         <bpmn:serviceTask id="t"><bpmn:incoming>f1</bpmn:incoming><bpmn:outgoing>f2</bpmn:outgoing></bpmn:serviceTask>
         <bpmn:endEvent id="e"><bpmn:incoming>f2</bpmn:incoming></bpmn:endEvent>
         <bpmn:sequenceFlow id="f1" sourceRef="s" targetRef="t"/>
@@ -68,7 +96,8 @@ def test_unsupported_element():
       </bpmn:process>
     </bpmn:definitions>"""
     _, rep = _run(xml)
-    assert "bpmn_unsupported_element" in _codes(rep)
+    assert rep.ok
+    assert "bpmn_unknown_element" in _infos(rep)
 
 
 def test_unreachable_node():

@@ -151,3 +151,22 @@ async def test_reject_pack_not_active(repos):
     await svc.handle(_event())
     rej = [e for rk, e in pub.events if "dispatch_rejected" in rk]
     assert rej and rej[0]["reason"] == "pack_not_active"
+
+
+async def test_reject_pack_requires_profile(repos):
+    # ADR-027 Phase 2.5: a common_subset runtime handed a parallel-profile pack refuses at load
+    # with a distinct reason (not a generic unknown_pack / compiler error).
+    from app.engine.engine import PackRequiresProfile
+    pub = FakePublisher()
+    svc, instance_repo = _svc(
+        repos,
+        engine=FakeEngine(load_error=PackRequiresProfile(
+            "wire-repair-standard", "1.0.0", "parallel", "common_subset")),
+        publisher=pub,
+    )
+    await svc.handle(_event())
+    rej = [e for rk, e in pub.events if "dispatch_rejected" in rk]
+    assert rej and rej[0]["reason"] == "pack_requires_profile"
+    assert "parallel" in rej[0]["detail"]
+    # refused before any instance was created
+    assert await instance_repo.list(exception_id="EXC-D1") == []

@@ -92,7 +92,19 @@ class HumanExecutor(ContractModel):
     assist_capability: Optional[CapabilityRef] = None
 
 
-Executor = Union[CapabilityExecutor, HumanExecutor]
+class MessageExecutor(ContractModel):
+    """ADR-031 (Phase 2.4): the "executor" of a message catch / receive element is the external
+    world. ``message_name`` is the business message this element awaits; correlation is by business
+    anchor (exception_id / correlation_id) + this name — no per-pack correlation expressions."""
+
+    type: Literal["message"]
+    message_name: str
+
+
+Executor = Union[CapabilityExecutor, HumanExecutor, MessageExecutor]
+
+# element kinds that bind a MessageExecutor (no capability, no HITL).
+_MESSAGE_KINDS = ("messageCatch", "receiveTask")
 
 
 class Hitl(ContractModel):
@@ -114,11 +126,32 @@ class ArtifactIO(ContractModel):
 
 class Binding(ContractModel):
     element_id: str
-    element_kind: Literal["serviceTask", "userTask"]
+    # ADR-033 (Phase 2.7): the full standard BPMN task set (each routes to an executor category).
+    element_kind: Literal[
+        "serviceTask", "userTask", "messageCatch", "receiveTask",
+        "sendTask", "scriptTask", "manualTask", "businessRuleTask",
+    ]
     executor: Executor = Field(..., discriminator="type")
-    hitl: Hitl
+    # HITL is required for capability/human executors; a message element has no human gate (ADR-031).
+    hitl: Optional[Hitl] = None
     inputs: List[ArtifactIO] = Field(default_factory=list)
+    # A message binding's outputs are OPTIONAL: if declared, the delivered payload validates against
+    # the pinned artifact schema and commits as that artifact; if absent, the message is a pure signal.
     outputs: List[ArtifactIO] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _executor_matches_kind(self) -> "Binding":
+        etype = self.executor.type
+        if etype == "message":
+            if self.element_kind not in _MESSAGE_KINDS:
+                raise ValueError(f"message executor requires element_kind in {_MESSAGE_KINDS}, "
+                                 f"got '{self.element_kind}'")
+        else:
+            if self.element_kind in _MESSAGE_KINDS:
+                raise ValueError(f"element_kind '{self.element_kind}' requires a message executor")
+            if self.hitl is None:
+                raise ValueError(f"hitl is required for a '{etype}' executor binding")
+        return self
 
 
 # --------------------------------------------------------------------------- #

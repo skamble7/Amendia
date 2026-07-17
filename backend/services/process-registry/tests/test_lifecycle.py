@@ -5,6 +5,42 @@ PK, PV = "wire-repair-standard", "1.0.0"
 XML_HEADERS = {"content-type": "application/xml"}
 
 
+async def test_activation_pins_parallel_profile_from_bpmn(cap_repo, schema_repo):
+    # ADR-027 Phase 2.5: activation derives the min execution profile FROM the BPMN and pins it into
+    # the resolution sidecar — this is exactly the parse → required_profile → resolve_pins chain that
+    # packs.activate_pack / onboarding.commit run. A diagram with parallel gateways pins "parallel".
+    from amendia_bpmn import parse, required_profile
+    from app.services.activation import resolve_pins
+
+    manifest = load_manifest()
+    pid = manifest.process.process_id
+    parallel_xml = (
+        '<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL">'
+        f'<bpmn:process id="{pid}" isExecutable="true">'
+        '<bpmn:startEvent id="S"><bpmn:outgoing>f1</bpmn:outgoing></bpmn:startEvent>'
+        '<bpmn:parallelGateway id="Fork"><bpmn:incoming>f1</bpmn:incoming><bpmn:outgoing>fa</bpmn:outgoing><bpmn:outgoing>fb</bpmn:outgoing></bpmn:parallelGateway>'
+        '<bpmn:serviceTask id="A"><bpmn:incoming>fa</bpmn:incoming><bpmn:outgoing>aj</bpmn:outgoing></bpmn:serviceTask>'
+        '<bpmn:serviceTask id="B"><bpmn:incoming>fb</bpmn:incoming><bpmn:outgoing>bj</bpmn:outgoing></bpmn:serviceTask>'
+        '<bpmn:parallelGateway id="Join"><bpmn:incoming>aj</bpmn:incoming><bpmn:incoming>bj</bpmn:incoming><bpmn:outgoing>je</bpmn:outgoing></bpmn:parallelGateway>'
+        '<bpmn:endEvent id="E"><bpmn:incoming>je</bpmn:incoming></bpmn:endEvent>'
+        '<bpmn:sequenceFlow id="f1" sourceRef="S" targetRef="Fork"/>'
+        '<bpmn:sequenceFlow id="fa" sourceRef="Fork" targetRef="A"/>'
+        '<bpmn:sequenceFlow id="fb" sourceRef="Fork" targetRef="B"/>'
+        '<bpmn:sequenceFlow id="aj" sourceRef="A" targetRef="Join"/>'
+        '<bpmn:sequenceFlow id="bj" sourceRef="B" targetRef="Join"/>'
+        '<bpmn:sequenceFlow id="je" sourceRef="Join" targetRef="E"/>'
+        '</bpmn:process></bpmn:definitions>'
+    )
+    model, _ = parse(parallel_xml, pid, profile="parallel")
+    assert required_profile(model) == "common_executable"
+
+    resolution, _ = await resolve_pins(
+        manifest, cap_repo, schema_repo, required_execution_profile=required_profile(model))
+    assert resolution.required_execution_profile == "common_executable"
+    # and the sidecar doc that gets stored carries it (what GET /resolution returns)
+    assert resolution.to_doc()["required_execution_profile"] == "common_executable"
+
+
 def _manifest_json():
     return load_manifest().model_dump(mode="json", by_alias=True)
 
@@ -44,6 +80,9 @@ async def test_full_lifecycle(client, registered):
     resolution = (await client.get(f"/packs/{PK}/{PV}/resolution")).json()
     assert resolution["capabilities"]["cap.payment.apply_repair"] == "1.0.0"
     assert resolution["artifacts"]["art.payment.repair_verdict"] == "1.0.0"
+    # ADR-027 Phase 2.5: the BPMN-derived min execution profile is pinned into the sidecar. The seed
+    # has no parallel gateways → common_subset.
+    assert resolution["required_execution_profile"] == "common_subset"
 
     # validation report persisted
     assert (await client.get(f"/packs/{PK}/{PV}/validation-report")).status_code == 200

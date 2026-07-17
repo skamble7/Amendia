@@ -24,7 +24,7 @@ from langchain_core.runnables import RunnableConfig
 from langgraph.types import interrupt
 
 from amendia_contracts.capability import CapabilityDescriptor
-from app.engine.executor import CapabilityError, ExecutionContext, Executor
+from app.engine.executor import CapabilityBusinessError, CapabilityError, ExecutionContext, Executor
 from app.engine.state import actor_entry
 
 logger = logging.getLogger(__name__)
@@ -67,6 +67,9 @@ class NodeContext:
     inputs: List[IOSpec] = field(default_factory=list)
     outputs: List[OutputSpec] = field(default_factory=list)
     title: str = ""
+    # ADR-031 (Phase 2.4): the business message a message catch / receive element awaits (message
+    # executor only). Correlation anchor is the instance's exception_id/correlation_id + this name.
+    message_name: Optional[str] = None
 
 
 def make_task_node(ctx: NodeContext, executor: Executor, *, simulation: bool) -> Callable:
@@ -75,7 +78,21 @@ def make_task_node(ctx: NodeContext, executor: Executor, *, simulation: bool) ->
     # memoization off (native default) it is unused.
     def node(state: Dict[str, Any], config: Optional[RunnableConfig] = None) -> Dict[str, Any]:
         pid = ((config or {}).get("configurable") or {}).get("thread_id")
-        return _run_node(ctx, executor, simulation, state, pid)
+        try:
+            return _run_node(ctx, executor, simulation, state, pid)
+        except CapabilityBusinessError as exc:
+            # ADR-030 (Phase 2.3): a MODELED business error. Mark the error boundary so the post-node
+            # conditional edge routes to the matching (or catch-all) boundary target; the instance
+            # stays running. An unmodeled code (no matching/catch-all boundary) falls through to
+            # FAILURE_SINK — last_error carries the code. Record the capability + code in the log.
+            return {
+                "boundary": {ctx.element_id: {"kind": "error", "code": exc.error_code}},
+                "last_error": f"business error: {exc.error_code}",
+                "actor_log": [actor_entry(
+                    ctx.element_id, _cap_id(ctx), "capability",
+                    meta={"business_error": exc.error_code, **(exc.detail or {})},
+                )],
+            }
     node.__name__ = f"node_{ctx.element_id}"
     return node
 
@@ -271,6 +288,12 @@ def _decision(resume: Any) -> Dict[str, Any]:
     return resume
 
 
+def _is_timeout(resume: Any) -> bool:
+    """True when the engine resumed this gate because its SLA timer boundary fired (Phase 2.2),
+    rather than because a human decided."""
+    return isinstance(resume, dict) and bool(resume.get("__timeout__"))
+
+
 # --------------------------------------------------------------------------- #
 def _run_reviewed(ctx, executor, simulation, envelope, inputs, pid=None) -> Dict[str, Any]:
     """review_after / approve_result: run, hold output, gate before commit."""
@@ -374,6 +397,12 @@ def _run_manual(ctx, executor, simulation, envelope, inputs, state, pid=None) ->
         gate_arts.append({"name": name, "schema": schema_ref, "data": data, "draft": True})
 
     resume = interrupt(_gate_payload(ctx, artifacts=gate_arts))
+    if _is_timeout(resume):
+        # ADR-027 Phase 2.2: the interrupting SLA timer boundary fired while this gate was parked.
+        # Do NOT commit any output; mark the timer boundary so the post-gate conditional edge routes
+        # to the escalation target, and record the timer as the actor (not a human) in the audit log.
+        return {"boundary": {ctx.element_id: {"kind": "timer"}},
+                "actor_log": [actor_entry(ctx.element_id, "timer", "timer")]}
     d = _decision(resume)
     decision = d["decision"]
     user = d.get("decided_by", "unknown")

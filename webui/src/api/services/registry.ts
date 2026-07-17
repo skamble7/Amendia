@@ -1,4 +1,5 @@
 import { request, requestText } from "../client";
+import type { components } from "../gen/registry";
 import type {
   ProcessPackManifest,
   CapabilityDescriptor,
@@ -34,6 +35,9 @@ export interface PackResolution {
   capabilities: Record<string, string>;
   artifacts: Record<string, string>;
   bindings: Record<string, unknown>;
+  // ADR-027 Phase 2.5: the minimum execution profile this pack needs, derived from its BPMN at
+  // activation and pinned here. Older packs (pre-2.5) omit it → treat as "common_subset".
+  required_execution_profile?: string;
 }
 
 // ---- roles in use (derived from active packs' bindings + per-pack metadata sidecar) ----
@@ -156,69 +160,62 @@ export function resolve(body: ResolveRequest): Promise<ResolveResponse> {
 }
 
 // ---------------- Onboarding sessions (thin state-machine renderer) ----------------
-// The backend OnboardingSession is a registry-owned authoring scratch doc; the webui only
-// renders it. Shapes mirror app/models/onboarding.py — kept in sync by hand (like the
-// ValidationReport types above), not hand-authored elsewhere.
+// Types are GENERATED from the process-registry OpenAPI (webui/openapi/registry.json → gen/registry.ts;
+// ADR-027 §5 / Phase 1.4) and aliased here so call sites keep their familiar names. openapi-typescript
+// marks defaulted response fields optional; `Require<>` restores the collection fields the API always
+// serializes so access stays ergonomic. `dry_run_report` is an untyped server-side dict (not a component),
+// so it's re-typed to the hand-kept ValidationReport above. Drift is gated by `gen:api:check` (gen ↔
+// snapshot) plus the process-registry `test_openapi_snapshot` (snapshot ↔ live app).
 
-export type OnboardingState =
-  | "initiated" | "bpmn_attached" | "capabilities_resolved" | "bindings_set"
-  | "triage_set" | "policies_set" | "assembled" | "completed";
+type _Schemas = components["schemas"];
+type Require<T, K extends keyof T> = Omit<T, K> & { [P in K]-?: NonNullable<T[P]> };
 
-export interface OnbBasics { pack_key: string; version: string; title: string; description?: string | null; default_domain: string; }
-export interface OnbBpmnInventory {
-  process_id: string; bpmn_file: string; sha256: string;
-  service_tasks: string[]; user_tasks: string[]; gateways: string[]; task_names: Record<string, string>;
-}
-export interface OnbStagedArtifact { artifact_key: string; version: string; title: string; json_schema: Record<string, unknown>; source_tool?: string | null; }
-export interface OnbStagedCapability {
-  capability_id: string; version: string; title: string; side_effect: string; idempotent?: boolean | null;
-  min_hitl_mode?: string | null; input_artifact_key: string; output_artifact_key: string;
-  endpoint: string; tool: string; transport: string;
-}
-export interface OnbBindingIO { name: string; schema_ref: string; required: boolean; }
-export interface OnbStagedBinding {
-  element_id: string; element_kind: string; executor_type: string; capability_ref?: string | null;
-  role?: string | null; hitl_mode: string; hitl_role?: string | null;
-  inputs: OnbBindingIO[]; outputs: OnbBindingIO[];
-}
-export interface OnbTriageRule { rule_id: string; priority: number; description?: string | null; when: Record<string, unknown>; }
-export interface OnbGatewayVariable { gateway_id: string; variable: string; source_artifact: string; }
-export interface OnbSod { elements: string[]; }
-export interface OnbRoleMeta { label?: string | null; description?: string | null; }
-export interface OnbCommitStep { key: string; label: string; status: string; detail?: string | null; }
+export type OnboardingState = _Schemas["OnboardingState"];
+export type OnbBasics = _Schemas["Basics"];
+export type DocumentedElement = _Schemas["DocumentedElement"];
+export type OnbLane = _Schemas["LaneSummary"];
+export type OnbPool = _Schemas["PoolSummary"];
+export type OnbMessageFlow = _Schemas["MessageFlowSummary"];
+export type OnbEvent = _Schemas["EventSummary"];
+export type OnbGatewayCondition = _Schemas["GatewayConditionSummary"];
+export type OnbDataObject = _Schemas["DataObjectSummary"];
+export type OnbBpmnInventory = Require<_Schemas["BpmnInventory"], "service_tasks" | "user_tasks" | "gateways" | "task_names">;
 
-export interface OnboardingSession {
-  session_id: string; created_by: string; created_at: string; updated_at: string; state: OnboardingState;
-  basics: OnbBasics; bpmn?: OnbBpmnInventory | null;
-  staged_artifacts: OnbStagedArtifact[]; staged_capabilities: OnbStagedCapability[]; reused_capability_refs: string[];
-  bindings: OnbStagedBinding[]; triage_rules: OnbTriageRule[]; gateway_variables: OnbGatewayVariable[];
-  sod_policies: OnbSod[]; roles: string[]; role_meta?: Record<string, OnbRoleMeta>;
-  dry_run_report?: ValidationReport | null; commit_progress: OnbCommitStep[];
-  result_pack?: string | null; last_cleared: string[];
-}
+export type InferredRole = _Schemas["InferredRole"];
+export type InferredBinding = _Schemas["InferredBinding"];
+export type InferredGatewayVariable = _Schemas["InferredGatewayVariable"];
+export type CapabilityCandidate = _Schemas["CapabilityCandidate"];
+export type ArtifactSeed = _Schemas["ArtifactSeed"];
+export type SodCandidate = _Schemas["SodCandidate"];
+export type InferenceAnnotation = _Schemas["InferenceAnnotation"];
+export type InferenceDraft = Require<_Schemas["InferenceDraft"],
+  "roles" | "bindings" | "gateway_variables" | "capability_candidates" | "artifact_seeds" | "sod_candidates" | "annotations">;
 
-export interface ToolCompliance { compliant: boolean; reasons: string[]; }
-export interface IntrospectedTool {
-  name: string; description?: string | null;
-  input_schema?: Record<string, unknown> | null; output_schema?: Record<string, unknown> | null;
-  compliance: ToolCompliance;
-  suggested_input_artifact_key?: string | null;
-  suggested_output_artifact_key?: string | null;
-  suggested_capability_id?: string | null;
-}
-export interface IntrospectMcpResponse { endpoint: string; transport: string; tools: IntrospectedTool[]; }
+export type OnbStagedArtifact = _Schemas["StagedArtifact"];
+export type OnbStagedCapability = _Schemas["StagedCapability"];
+export type OnbBindingIO = _Schemas["StagedBindingIO"];
+export type OnbStagedBinding = _Schemas["StagedBinding"];
+export type OnbTriageRule = _Schemas["StagedTriageRule"];
+export type OnbGatewayVariable = _Schemas["StagedGatewayVariable"];
+export type OnbSod = _Schemas["StagedSod"];
+export type OnbRoleMeta = _Schemas["RoleMeta"];
+export type OnbCommitStep = _Schemas["CommitStep"];
 
-export interface CapabilityToolSelection {
-  tool: string; endpoint: string; transport?: string; headers?: Record<string, string>; domain?: string;
-  input_artifact_key?: string; output_artifact_key?: string; capability_id?: string;
-  artifact_version?: string; capability_version?: string; side_effect?: string; idempotent?: boolean | null;
-  min_hitl_mode?: string | null; input_schema?: Record<string, unknown> | null; output_schema?: Record<string, unknown> | null;
-  title?: string; description?: string;
-}
-export interface BindingInput {
-  element_id: string; element_kind: string; executor_type: string; capability_ref?: string | null;
-  role?: string | null; assist_capability_ref?: string | null; hitl_mode: string; hitl_role?: string | null;
-}
+type _Sess = Require<_Schemas["OnboardingSession"],
+  "staged_artifacts" | "staged_capabilities" | "reused_capability_refs" | "bindings"
+  | "triage_rules" | "gateway_variables" | "sod_policies" | "roles" | "commit_progress" | "last_cleared">;
+// dry_run_report is an untyped dict server-side; bpmn/inferred need the collection-required aliases.
+export type OnboardingSession = Omit<_Sess, "dry_run_report" | "bpmn" | "inferred"> & {
+  dry_run_report?: ValidationReport | null;
+  bpmn?: OnbBpmnInventory | null;
+  inferred?: InferenceDraft | null;
+};
+
+export type ToolCompliance = Require<_Schemas["ToolCompliance"], "reasons">;
+export type IntrospectedTool = _Schemas["IntrospectedTool"];
+export type IntrospectMcpResponse = Require<_Schemas["IntrospectMcpResponse"], "tools">;
+export type CapabilityToolSelection = _Schemas["CapabilityToolSelection"];
+export type BindingInput = _Schemas["BindingInput"];
 
 // -- reads --
 export function listOnboardingSessions(signal?: AbortSignal): Promise<OnboardingSession[]> {
