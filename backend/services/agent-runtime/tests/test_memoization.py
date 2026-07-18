@@ -149,6 +149,84 @@ def test_reject_then_rerun_genuinely_reinvokes_capability():
     assert r["outcome"] == "End_Resolved"
 
 
+class NonDeterministicExecutor:
+    """Makes the draft_repair output vary per call by tagging its free-text ``justification`` with
+    the call number (schema-valid, unlike an extra key). So a re-invoke on resume would commit a
+    DIFFERENT artifact than the human reviewed — making the replay hazard observable (the
+    deterministic simulation hides it). Phase 2.0."""
+
+    def __init__(self, memo=None, memoize=True) -> None:
+        self._inner = InProcessExecutor()
+        self._memo = memo
+        self._memoize = memoize and memo is not None
+        self.calls: Dict[str, int] = {}
+
+    def execute(self, descriptor, inputs, ctx: ExecutionContext) -> Dict[str, Any]:
+        from app.engine.executor.memo import memoized_execute
+
+        def run():
+            eid = (ctx.extras or {}).get("element_id", descriptor.capability_id)
+            n = self.calls[eid] = self.calls.get(eid, 0) + 1
+            base = self._inner.execute(descriptor, inputs, ctx)
+            outs = {}
+            for k, v in (base.get("outputs") or {}).items():
+                if isinstance(v, dict) and isinstance(v.get("justification"), str):
+                    outs[k] = {**v, "justification": f"{v['justification']} [draft #{n}]"}
+                else:
+                    outs[k] = v
+            return {**base, "outputs": outs}
+
+        return memoized_execute(memo=self._memo, enabled=self._memoize, inputs=inputs, ctx=ctx, run=run)
+
+
+def test_native_memoization_on_by_default():
+    # ADR-027 Phase 2.0: the native executor memoizes out of the box (store auto-defaulted).
+    from app.engine.executor import build_executor
+
+    ex = build_executor(settings.model_copy(update={"EXECUTION_MODE": "native", "MEMOIZE_CAPABILITIES": True}))
+    assert getattr(ex, "_memoize") is True
+    assert getattr(ex, "_memo") is not None
+
+
+def test_nondeterministic_capability_resume_commits_reviewed_artifact():
+    memo = InMemoryMemoStore()
+    ex = NonDeterministicExecutor(memo=memo, memoize=True)
+    app = _graph(ex)
+    cfg = {"configurable": {"thread_id": "pi-nondet"}}
+
+    payload, r = _first_gate_of(app, cfg, _initial(), "Task_DraftRepair")
+    reviewed = payload["artifacts"][0]["data"]
+    assert "[draft #1]" in reviewed["justification"]
+
+    r = app.invoke(Command(resume={"decision": "approve", "decided_by": role_user(payload.get("role"))}), cfg)
+    while "__interrupt__" in r:
+        p = r["__interrupt__"][0].value
+        r = app.invoke(Command(resume=default_decision(p)), cfg)
+
+    # Memo served the reviewed (#1) artifact — NOT a re-invoked (#2) one.
+    assert "[draft #1]" in r["artifacts"]["repair"]["justification"]
+    assert ex.calls["Task_DraftRepair"] == 1
+
+
+def test_nondeterministic_reject_reruns_and_commits_new_artifact():
+    memo = InMemoryMemoStore()
+    ex = NonDeterministicExecutor(memo=memo, memoize=True)
+    app = _graph(ex)
+    cfg = {"configurable": {"thread_id": "pi-nondet-rej"}}
+
+    payload, r = _first_gate_of(app, cfg, _initial(), "Task_DraftRepair")
+    r = app.invoke(Command(resume={"decision": "reject", "decided_by": role_user(payload.get("role"))}), cfg)
+    assert ex.calls["Task_DraftRepair"] == 2  # reject genuinely re-ran (fresh attempt)
+
+    while "__interrupt__" in r:
+        p = r["__interrupt__"][0].value
+        if p["element_id"] == "Task_DraftRepair":
+            r = app.invoke(Command(resume={"decision": "approve", "decided_by": role_user(p.get("role"))}), cfg)
+        else:
+            r = app.invoke(Command(resume=default_decision(p)), cfg)
+    assert "[draft #2]" in r["artifacts"]["repair"]["justification"]  # the re-produced artifact committed
+
+
 def test_memo_is_scoped_per_instance():
     memo = InMemoryMemoStore()
     # Same element + inputs but different process_instance_id must not collide.

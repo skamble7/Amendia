@@ -5,7 +5,10 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Literal, Optional
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from amendia_bpmn import normalize_profile
 
 from amendia_auth import AuthSettings, load_auth_settings
 
@@ -45,6 +48,23 @@ class Settings(BaseSettings):
     # ``native`` (default) is byte-for-byte today's in-process executor. ``nemoclaw`` routes
     # ``llm``/``mcp`` capability execution through NemoClaw's OpenShell sandbox (Phase 1).
     EXECUTION_MODE: Literal["native", "nemoclaw"] = "native"
+    # Which BPMN conformance level the runtime executes (ADR-034 / Phase 2.8). Two spec levels:
+    # "common_executable" (DEFAULT) runs the full built construct set — parallel, timers, error
+    # boundary, messages, sub-process, and every task kind; "common_subset" runs only the Phase-0/1
+    # base subset (a deliberately conservative envelope). Must be ≥ a pack's pinned
+    # required_execution_profile for it to load (a common_subset runtime refuses a common_executable
+    # pack with pack_requires_profile). A retired granular env value (parallel/timers/…) normalizes
+    # to common_executable. Consulted by the compiler + compilability gate.
+    EXECUTION_PROFILE: Literal["common_subset", "common_executable"] = "common_executable"
+
+    @field_validator("EXECUTION_PROFILE", mode="before")
+    @classmethod
+    def _normalize_profile(cls, v):
+        return normalize_profile(v) if isinstance(v, str) else v
+    # Timer substrate (ADR-027 Phase 2.2): the durable-timer poller wakes every N seconds, fires any
+    # due timers, and resumes the parked instance. No delayed-message broker / external scheduler —
+    # timers live in Mongo and the poller re-fires anything due on restart (crash-safe).
+    TIMER_POLL_SECONDS: float = 15.0
     # OpenShell gateway endpoint (sandbox dispatch, secret brokering, OTLP). When unset in
     # ``nemoclaw`` mode a deterministic in-process fake client is used, so the sandboxed path
     # is exercisable in dev/CI with no live gateway.
@@ -64,7 +84,10 @@ class Settings(BaseSettings):
     # capability/model is not re-invoked on HITL resume. Enabled by default in ``nemoclaw``
     # mode; this flag also enables it in ``native``. Default False keeps ``native``
     # byte-for-byte.
-    MEMOIZE_CAPABILITIES: bool = False
+    # On by default (ADR-027 Phase 2.0): LangGraph replays the interrupted node from the top on
+    # HITL resume, so without a memo a non-deterministic capability above a gate would re-invoke
+    # and commit an artifact the human never reviewed. Set false only for byte-identical replay.
+    MEMOIZE_CAPABILITIES: bool = True
 
     # Integration-test gate for the real OpenShell / worker / MCP round-trips. When unset
     # (default), those tests skip and CI runs entirely on the deterministic fake.

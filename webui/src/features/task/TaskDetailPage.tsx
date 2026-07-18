@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate, useParams, Link } from "react-router-dom";
-import { ArrowLeft, Lock, UserCheck } from "lucide-react";
+import { ArrowLeft, Lock, UserCheck, Clock, TimerOff } from "lucide-react";
 import { PageHeader } from "@/app/AppShell";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -25,6 +25,49 @@ const VARIANT_COMPONENT: Record<HitlTaskMode, ComponentType<VariantProps>> = {
   approve_actions: AuthorizeActionsVariant,
   manual: ManualVariant,
 };
+
+/** ADR-027 Phase 2.2: humanize the remaining time until an SLA timer boundary escalates this gate. */
+function slaRemaining(dueAt: string): string {
+  const ms = new Date(dueAt).getTime() - Date.now();
+  if (ms <= 0) return "escalation imminent";
+  const mins = Math.round(ms / 60000);
+  if (mins < 60) return `in ${mins}m`;
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  return m ? `in ${h}h ${m}m` : `in ${h}h`;
+}
+
+/** SLA banner: a live gate with a timer boundary counts down to escalation; an expired gate shows
+ * it breached and was escalated via the diagram's boundary path (ADR-027 Phase 2.2). */
+function SlaBanner({ status, dueAt }: { status: string; dueAt?: string | null }) {
+  if (status === "expired") {
+    return (
+      <Card className="border-danger/40 bg-danger-muted/20">
+        <CardContent className="flex items-start gap-3 p-4">
+          <TimerOff className="mt-0.5 size-5 text-danger" />
+          <div>
+            <p className="font-medium text-danger">SLA breached — escalated</p>
+            <p className="text-sm text-muted-foreground">
+              This gate’s deadline elapsed before a decision; the process routed to its escalation path.
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+  if (!dueAt || (status !== "open" && status !== "claimed")) return null;
+  return (
+    <Card className="border-attention/40 bg-attention-muted/20">
+      <CardContent className="flex items-center gap-3 p-4">
+        <Clock className="size-5 text-attention" />
+        <p className="text-sm">
+          <span className="font-medium">SLA · escalates {slaRemaining(dueAt)}</span>{" "}
+          <span className="text-muted-foreground">({new Date(dueAt).toLocaleString()})</span>
+        </p>
+      </CardContent>
+    </Card>
+  );
+}
 
 export function TaskDetailPage() {
   const { taskId } = useParams();
@@ -85,6 +128,9 @@ export function TaskDetailPage() {
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_320px]">
         <div className="space-y-4">
+          {/* ADR-027 Phase 2.2: SLA countdown / escalation banner */}
+          <SlaBanner status={task.status} dueAt={task.due_at} />
+
           {/* SoD / role lock banner */}
           {!elig.canAct && !isDecided && (
             <Card className="border-danger/40 bg-danger-muted/20">

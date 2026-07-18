@@ -34,6 +34,10 @@ class Resolution(BaseModel):
     capabilities: Dict[str, str] = Field(default_factory=dict)   # capability_id -> pinned version
     artifacts: Dict[str, str] = Field(default_factory=dict)      # artifact_key  -> pinned version
     bindings: List[ResolvedBinding] = Field(default_factory=list)
+    # ADR-027 Phase 2.5: the MINIMUM execution profile this pack needs, DERIVED from its BPMN at
+    # activation and pinned here (a derived pin — the resolution sidecar's home, not the immutable
+    # manifest). The runtime refuses to load a pack whose required profile exceeds its own.
+    required_execution_profile: str = "common_subset"
 
     def to_doc(self) -> dict:
         return self.model_dump(mode="json", by_alias=True)

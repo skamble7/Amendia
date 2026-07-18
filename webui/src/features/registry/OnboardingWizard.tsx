@@ -13,7 +13,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { BpmnViewer } from "./BpmnViewer";
+import { BpmnViewer, type BpmnMarker } from "./BpmnViewer";
 import { ApiError } from "@/api/client";
 import { groupByStage, countBySeverity, SEVERITY_VARIANT } from "@/lib/validation";
 import { cn } from "@/lib/utils";
@@ -22,7 +22,8 @@ import {
   getOnboardingSession, introspectMcp, setOnboardingBindings, setOnboardingCapabilities,
   setOnboardingPolicies, setOnboardingTriage,
   type BindingInput, type CapabilityToolSelection, type IntrospectedTool, type OnbTriageRule,
-  type OnboardingSession, type OnboardingState, type ValidationReport,
+  type OnbBpmnInventory, type OnboardingSession, type OnboardingState, type ValidationReport,
+  type InferenceDraft,
 } from "@/api/services/registry";
 import { useCapabilities, useOnboardingSessions } from "./queries";
 
@@ -237,6 +238,17 @@ function BasicsStep({ session, onNext }: { session: OnboardingSession; onNext: (
 }
 
 // -- Step 2: BPMN --------------------------------------------------------------
+/** ADR-027: coverage markers from the server classification (never a client set-diff). */
+function coverageMarkers(inv: OnbBpmnInventory): BpmnMarker[] {
+  const exec: BpmnMarker[] = [...inv.service_tasks, ...inv.user_tasks, ...inv.gateways].map(
+    (id) => ({ elementId: id, state: "executable" }),
+  );
+  const docs: BpmnMarker[] = (inv.documented_elements ?? [])
+    .filter((d) => d.element_id)
+    .map((d) => ({ elementId: d.element_id!, state: d.tier === "unknown" ? "unknown" : "documented" }));
+  return [...exec, ...docs];
+}
+
 function BpmnStep({ session, onDone }: { session: OnboardingSession; onDone: (s: OnboardingSession) => void }) {
   const [xml, setXml] = useState("");
   const [fileName, setFileName] = useState("");
@@ -244,18 +256,22 @@ function BpmnStep({ session, onDone }: { session: OnboardingSession; onDone: (s:
   const [dragOver, setDragOver] = useState(false);
   const [findings, setFindings] = useState<any[]>([]);
   const [general, setGeneral] = useState("");
+  // The parsed session + the XML it was parsed from — shown as a coverage preview before advancing.
+  const [result, setResult] = useState<OnboardingSession | null>(session.bpmn ? session : null);
+  const [attachedXml, setAttachedXml] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
 
   async function loadFile(file: File | undefined | null) {
     if (!file) return;
     const text = await file.text();
-    setXml(text); setFileName(file.name); setFindings([]); setGeneral("");
+    setXml(text); setFileName(file.name); setFindings([]); setGeneral(""); setResult(null);
   }
 
   async function submit() {
-    setBusy(true); setFindings([]); setGeneral("");
+    setBusy(true); setFindings([]); setGeneral(""); setResult(null);
     try {
-      onDone(await attachOnboardingBpmn(session.session_id, { bpmn_xml: xml, bpmn_file: fileName || undefined }));
+      const s = await attachOnboardingBpmn(session.session_id, { bpmn_xml: xml, bpmn_file: fileName || undefined });
+      setResult(s); setAttachedXml(xml);
     } catch (e) {
       const x = extractErrors(e);
       setFindings(x.findings); setGeneral(x.general);
@@ -279,7 +295,7 @@ function BpmnStep({ session, onDone }: { session: OnboardingSession; onDone: (s:
           </Dialog>
         </CardHeader>
         <CardContent className="space-y-3">
-          <Label>Upload or paste a BPMN 2.0 XML. The server parses it and returns the task &amp; gateway inventory (exclusive gateways only).</Label>
+          <Label>Upload or paste a BPMN 2.0 XML. Full BPMN is accepted — anything outside the executable subset is kept as <span className="font-medium">documented</span> and shown in the coverage report below.</Label>
 
           {/* Upload zone (drag-drop + file picker) */}
           <input
@@ -305,7 +321,7 @@ function BpmnStep({ session, onDone }: { session: OnboardingSession; onDone: (s:
               <>
                 <Upload className="size-6 text-muted-foreground" />
                 <div className="text-sm font-medium">Drag &amp; drop a .bpmn file</div>
-                <div className="text-xs text-muted-foreground">or use the picker · BPMN 2.0, exclusive gateways only</div>
+                <div className="text-xs text-muted-foreground">or use the picker · full BPMN 2.0</div>
                 <Button variant="secondary" size="sm" className="mt-1" onClick={() => inputRef.current?.click()}>
                   <Upload className="mr-1 size-4" /> Choose file
                 </Button>
@@ -315,13 +331,13 @@ function BpmnStep({ session, onDone }: { session: OnboardingSession; onDone: (s:
 
           <Textarea
             id="bpmn" value={xml}
-            onChange={(e) => { setXml(e.target.value); setFileName(""); }}
+            onChange={(e) => { setXml(e.target.value); setFileName(""); setResult(null); }}
             rows={12} className="font-mono text-xs" placeholder="…or paste <bpmn:definitions …> here"
           />
           {general && <p className="text-sm text-danger">{general}</p>}
           {findings.length > 0 && (
             <div className="rounded-md border border-danger/40 bg-danger-muted/20 p-3">
-              <p className="mb-1 text-sm font-medium text-danger">BPMN rejected</p>
+              <p className="mb-1 text-sm font-medium text-danger">BPMN rejected — fix these to continue</p>
               <ul className="space-y-1 text-sm">
                 {findings.map((f, i) => (
                   <li key={i} className="flex items-start gap-2">
@@ -333,17 +349,48 @@ function BpmnStep({ session, onDone }: { session: OnboardingSession; onDone: (s:
             </div>
           )}
           <div className="flex justify-end">
-            <Button disabled={busy || !xml.trim()} onClick={submit}>{busy ? <><Loader2 className="mr-1 size-4 animate-spin" /> Parsing…</> : "Parse & continue"}</Button>
+            <Button disabled={busy || !xml.trim()} onClick={submit}>{busy ? <><Loader2 className="mr-1 size-4 animate-spin" /> Parsing…</> : "Parse & preview coverage"}</Button>
           </div>
         </CardContent>
       </Card>
-      {session.bpmn && <InventoryCard session={session} />}
+      {result?.bpmn && <CoverageCard inv={result.bpmn} inferred={result.inferred ?? null} xml={attachedXml} onContinue={() => onDone(result)} />}
     </div>
   );
 }
 
-function InventoryCard({ session }: { session: OnboardingSession }) {
-  const b = session.bpmn!;
+/** The BPMN conformance level this diagram needs (derived server-side, ADR-034). Two levels:
+ * `common_executable` (uses parallel / timers / error boundaries / messages / sub-processes / the
+ * full task set) vs the conservative `common_subset`. Retired granular values normalize to
+ * `common_executable`. */
+const _EXECUTABLE = "Uses beyond-subset BPMN (parallel, timers/SLA, error boundaries, messages, "
+  + "sub-processes, or the full task set) — runs only on a runtime at the common_executable level.";
+
+function ProfileBadge({ profile }: { profile?: string }) {
+  const p = profile ?? "common_subset";
+  if (p !== "common_subset") {
+    return (
+      <Badge variant="process" className="text-[11px]" title={_EXECUTABLE}>
+        Requires common_executable
+      </Badge>
+    );
+  }
+  return (
+    <Badge variant="outline" className="text-[11px] text-muted-foreground" title="Runs on the conservative common_subset level (Phase-0/1 base subset).">
+      common_subset
+    </Badge>
+  );
+}
+
+const COVERAGE_TIERS: { key: string; label: string; dot: string; hint: string }[] = [
+  { key: "executable", label: "Executable", dot: "bg-success", hint: "runs today" },
+  { key: "documented", label: "Documented", dot: "bg-attention", hint: "accepted, not executed yet" },
+  { key: "unknown", label: "Unknown", dot: "bg-muted-foreground", hint: "unrecognized element" },
+];
+
+function CoverageCard({ inv, inferred, xml, onContinue }: { inv: OnbBpmnInventory; inferred: InferenceDraft | null; xml: string; onContinue: () => void }) {
+  const counts = inv.coverage_counts ?? {};
+  const markers = useMemo(() => coverageMarkers(inv), [inv]);
+  const docs = inv.documented_elements ?? [];
   const group = (label: string, ids: string[], variant: any) => (
     <div>
       <p className="mb-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">{label} · {ids.length}</p>
@@ -355,11 +402,97 @@ function InventoryCard({ session }: { session: OnboardingSession }) {
   );
   return (
     <Card>
-      <CardHeader><CardTitle>Current inventory · {b.process_id}</CardTitle></CardHeader>
-      <CardContent className="grid grid-cols-3 gap-4">
-        {group("Service tasks", b.service_tasks, "agent")}
-        {group("User tasks", b.user_tasks, "attention")}
-        {group("Gateways", b.gateways, "process")}
+      <CardHeader className="flex-row items-center justify-between">
+        <div className="flex items-center gap-2">
+          <CardTitle>Coverage · {inv.process_id}</CardTitle>
+          <ProfileBadge profile={inv.required_execution_profile} />
+        </div>
+        <Button size="sm" onClick={onContinue}>Continue to capabilities <ArrowRight className="ml-1 size-4" /></Button>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {/* legend + counts */}
+        <div className="flex flex-wrap gap-4 text-xs">
+          {COVERAGE_TIERS.map((t) => (
+            <span key={t.key} className="flex items-center gap-1.5">
+              <span className={cn("size-2.5 rounded-full", t.dot)} />
+              <span className="font-medium">{t.label}</span>
+              <span className="tabular-nums text-muted-foreground">{counts[t.key] ?? 0}</span>
+              <span className="text-muted-foreground/70">· {t.hint}</span>
+            </span>
+          ))}
+        </div>
+
+        {xml && <BpmnViewer xml={xml} markers={markers} className="h-[420px]" />}
+
+        <div className="grid grid-cols-3 gap-4">
+          {group("Service tasks", inv.service_tasks, "agent")}
+          {group("User tasks", inv.user_tasks, "attention")}
+          {group("Gateways", inv.gateways, "process")}
+        </div>
+
+        {/* ADR-032 Phase 2.6: embedded sub-processes rendered as executable groups (members nested). */}
+        {(inv.subprocesses ?? []).length > 0 && (
+          <div>
+            <p className="mb-1.5 flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              <Boxes className="size-3.5" /> Sub-processes · {(inv.subprocesses ?? []).length}
+            </p>
+            <div className="space-y-2">
+              {(inv.subprocesses ?? []).map((sp) => (
+                <div key={sp.id} className="rounded-md border border-process/30 bg-process/5 p-2">
+                  <p className="mb-1 text-xs font-medium">{sp.name || sp.id} <span className="text-muted-foreground">(inlined)</span></p>
+                  <div className="flex flex-wrap gap-1">
+                    {(sp.member_ids ?? []).map((id) => (
+                      <Badge key={id} variant="outline" className="font-mono text-[10px]">{id}</Badge>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {inferred && (inferred.roles.length > 0 || inferred.bindings.length > 0 || inferred.annotations.length > 0) && (
+          <div className="rounded-md border border-agent/30 bg-agent/5 p-3">
+            <p className="mb-1.5 flex items-center gap-1.5 text-sm font-medium text-agent">
+              <Boxes className="size-4" /> Inferred from your diagram
+            </p>
+            <p className="text-xs text-muted-foreground">
+              {inferred.roles.length} role{inferred.roles.length === 1 ? "" : "s"} (from lanes) ·
+              {" "}{inferred.bindings.length} binding scaffold{inferred.bindings.length === 1 ? "" : "s"} ·
+              {" "}{inferred.gateway_variables.length} gateway variable{inferred.gateway_variables.length === 1 ? "" : "s"} ·
+              {" "}{inferred.capability_candidates.length} capability candidate{inferred.capability_candidates.length === 1 ? "" : "s"}.
+              These pre-fill the next steps — every value shows its source and stays editable; nothing is committed until you submit each step.
+            </p>
+            {inferred.annotations.length > 0 && (
+              <ul className="mt-2 space-y-1 text-xs text-muted-foreground">
+                {inferred.annotations.map((a, i) => (
+                  <li key={i} className="flex items-start gap-1.5">
+                    <Info className="mt-0.5 size-3 shrink-0" />
+                    <span>{a.message}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
+
+        {docs.length > 0 && (
+          <div>
+            <p className="mb-1.5 flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              <Info className="size-3.5" /> Documented — not executed today (ADR-027)
+            </p>
+            <div className="flex flex-wrap gap-1.5">
+              {docs.map((d, i) => (
+                <Badge key={i} variant={d.tier === "unknown" ? "outline" : "attention"} className="font-mono text-[11px]">
+                  {d.kind}{d.element_id ? ` · ${d.element_id}` : ""}
+                </Badge>
+              ))}
+            </div>
+            <p className="mt-1.5 text-xs text-muted-foreground">
+              These are kept for documentation. If any sits on the live sequence-flow path it will block activation until execution grows to cover it.
+            </p>
+          </div>
+        )}
       </CardContent>
     </Card>
   );
@@ -403,6 +536,7 @@ function CapabilitiesStep({ session, onDone }: { session: OnboardingSession; onD
         tool: d.name, endpoint, transport, domain: session.basics.default_domain,
         input_artifact_key: d.input_artifact_key, output_artifact_key: d.output_artifact_key,
         capability_id: d.capability_id, side_effect: d.side_effect, idempotent: d.idempotent,
+        artifact_version: "1.0.0", capability_version: "1.0.0",
         input_schema: d.input_schema ?? undefined, output_schema: d.output_schema ?? undefined,
       }));
       onDone(await setOnboardingCapabilities(session.session_id, { tools, reused_capability_refs: reused }));
@@ -417,6 +551,22 @@ function CapabilitiesStep({ session, onDone }: { session: OnboardingSession; onD
 
   return (
     <div className="space-y-4">
+      {(session.inferred?.capability_candidates?.length ?? 0) > 0 && (
+        <Card>
+          <CardHeader className="pb-2"><CardTitle className="flex items-center gap-1.5 text-sm"><Boxes className="size-4 text-agent" /> Your diagram expects capabilities here</CardTitle></CardHeader>
+          <CardContent className="space-y-1.5">
+            <p className="text-xs text-muted-foreground">Introspect an MCP server or reuse a catalog capability for each. Inference suggests the id; the endpoint + schemas come from introspection.</p>
+            <div className="flex flex-wrap gap-1.5">
+              {session.inferred!.capability_candidates.map((c, i) => (
+                <Badge key={i} variant="outline" className="font-mono text-[10px]" title={`from ${c.source}`}>{c.suggested_capability_id}</Badge>
+              ))}
+            </div>
+            {(session.inferred?.artifact_seeds?.length ?? 0) > 0 && (
+              <p className="pt-1 text-xs text-muted-foreground">Artifact seeds: {session.inferred!.artifact_seeds.map((a) => a.suggested_artifact_key).join(", ")}</p>
+            )}
+          </CardContent>
+        </Card>
+      )}
       <Card>
         <CardHeader><CardTitle>Create capabilities from an MCP server</CardTitle></CardHeader>
         <CardContent className="space-y-4">
@@ -447,7 +597,7 @@ function CapabilitiesStep({ session, onDone }: { session: OnboardingSession; onD
                   {d.description && <p className="mt-0.5 text-sm text-muted-foreground">{d.description}</p>}
                   {!d.compliance.compliant && (
                     <p className="mt-1 text-xs text-attention">
-                      {d.compliance.reasons.join("; ")} · see the MCP Implementor Guideline.
+                      {(d.compliance.reasons ?? []).join("; ")} · see the MCP Implementor Guideline.
                     </p>
                   )}
                   {d.selected && d.compliance.compliant && (
@@ -529,13 +679,31 @@ function BindingsStep({ session, onDone }: { session: OnboardingSession; onDone:
   const sideEffectOf = (ref?: string | null) => policyByCap[capIdOf(ref) ?? ""]?.side_effect;
   const floorOf = (ref?: string | null) => policyByCap[capIdOf(ref) ?? ""]?.floor ?? 0;
 
+  // ADR-027 Phase 1: inferred binding scaffolds pre-fill rows (executor type + lane role + HITL).
+  const inferredBind = useMemo(
+    () => Object.fromEntries((session.inferred?.bindings ?? []).map((b) => [b.element_id, b])),
+    [session.inferred],
+  );
+  const roleLabelOf = useMemo(
+    () => Object.fromEntries((session.inferred?.roles ?? []).map((r) => [r.role_id, r.label])),
+    [session.inferred],
+  );
   const [rows, setRows] = useState<Record<string, BindingInput>>(() => {
     const init: Record<string, BindingInput> = {};
     for (const t of tasks) {
       const existing = session.bindings.find((b) => b.element_id === t.id);
-      init[t.id] = existing
-        ? { element_id: t.id, element_kind: t.kind, executor_type: existing.executor_type, capability_ref: existing.capability_ref, role: existing.role, hitl_mode: existing.hitl_mode, hitl_role: existing.hitl_role }
-        : { element_id: t.id, element_kind: t.kind, executor_type: t.kind === "serviceTask" ? "capability" : "human", hitl_mode: "none" };
+      if (existing) {
+        init[t.id] = { element_id: t.id, element_kind: t.kind, executor_type: existing.executor_type, capability_ref: existing.capability_ref, role: existing.role, hitl_mode: existing.hitl_mode, hitl_role: existing.hitl_role };
+        continue;
+      }
+      const inf = inferredBind[t.id];
+      const execType = inf?.executor_type ?? (t.kind === "serviceTask" ? "capability" : "human");
+      const hitl = inf?.suggested_hitl_mode ?? "none";
+      init[t.id] = {
+        element_id: t.id, element_kind: t.kind, executor_type: execType, hitl_mode: hitl,
+        role: execType === "human" ? (inf?.suggested_role ?? undefined) : undefined,
+        hitl_role: execType === "capability" && hitl !== "none" ? (inf?.suggested_role ?? undefined) : undefined,
+      };
     }
     return init;
   });
@@ -585,10 +753,15 @@ function BindingsStep({ session, onDone }: { session: OnboardingSession; onDone:
         return (
           <Card key={t.id} className={cn(fieldErrs[t.id] && "border-danger/60")}>
             <CardContent className="pt-5">
-              <div className="mb-3 flex items-center gap-2">
+              <div className="mb-3 flex flex-wrap items-center gap-2">
                 <span className="font-mono text-sm font-medium">{t.id}</span>
                 <Badge variant="outline" className="text-[10px]">{t.kind}</Badge>
                 <span className="text-xs text-muted-foreground">{session.bpmn!.task_names[t.id]}</span>
+                {inferredBind[t.id]?.suggested_role && (
+                  <Badge variant="agent" className="text-[10px]" title="Pre-filled from the BPMN lane — editable">
+                    from lane: {roleLabelOf[inferredBind[t.id]!.suggested_role!] ?? inferredBind[t.id]!.suggested_role}
+                  </Badge>
+                )}
               </div>
               <div className="grid grid-cols-3 gap-3">
                 <Field label="Executor">
@@ -655,6 +828,10 @@ function TriageStep({ session, onDone }: { session: OnboardingSession; onDone: (
 
   return (
     <div className="space-y-4">
+      <p className="flex items-start gap-1.5 rounded-md border border-border bg-surface/40 p-3 text-xs text-muted-foreground">
+        <Info className="mt-0.5 size-3.5 shrink-0" />
+        Triage rules describe which exceptions this pack handles — they match the incoming exception <span className="font-medium">envelope</span>, not the diagram, so they are not derivable from the BPMN. Author at least one below.
+      </p>
       <Card>
         <CardHeader><CardTitle>Triage rule</CardTitle></CardHeader>
         <CardContent className="space-y-4">
@@ -716,24 +893,34 @@ function PoliciesStep({ session, onDone }: { session: OnboardingSession; onDone:
   const gateways = session.bpmn!.gateways;
   const tasks = [...session.bpmn!.service_tasks, ...session.bpmn!.user_tasks];
   const artifacts = Array.from(new Set(session.staged_artifacts.map((a) => a.artifact_key)));
+  // ADR-027 Phase 1: pre-fill gateway variables from inferred conditions (operator adds source_artifact).
+  const inferredGv = Object.fromEntries((session.inferred?.gateway_variables ?? []).map((g) => [g.gateway_id, g.variable]));
   const [gvars, setGvars] = useState<Record<string, { variable: string; source_artifact: string }>>(
     () => Object.fromEntries(gateways.map((g) => {
       const ex = session.gateway_variables.find((v) => v.gateway_id === g);
-      return [g, { variable: ex?.variable ?? "", source_artifact: ex?.source_artifact ?? "" }];
+      return [g, { variable: ex?.variable ?? inferredGv[g] ?? "", source_artifact: ex?.source_artifact ?? "" }];
     })),
   );
-  const [sod, setSod] = useState<string[][]>(session.sod_policies.map((s) => s.elements));
-  // Seed roles with any id the bindings already reference so the operator can author names
-  // for them here (the backend re-derives the authoritative set from bindings at save time).
+  const [sod, setSod] = useState<string[][]>(
+    session.sod_policies.length
+      ? session.sod_policies.map((s) => s.elements ?? [])
+      : (session.inferred?.sod_candidates ?? []).map((c) => c.elements ?? []),
+  );
+  // Seed roles from bindings + inferred lane roles so the operator can name them here
+  // (the backend re-derives the authoritative set from bindings at save time).
   const bindingRoles = [
     ...session.bindings.map((b) => b.hitl_role).filter(Boolean),
     ...session.bindings.filter((b) => b.executor_type === "human").map((b) => b.role).filter(Boolean),
   ] as string[];
-  const [roles, setRoles] = useState<string[]>(() => Array.from(new Set([...session.roles, ...bindingRoles])));
+  const inferredRoles = (session.inferred?.roles ?? []).map((r) => r.role_id);
+  const [roles, setRoles] = useState<string[]>(() => Array.from(new Set([...session.roles, ...bindingRoles, ...inferredRoles])));
   const [roleMeta, setRoleMeta] = useState<Record<string, { label: string; description: string }>>(
-    () => Object.fromEntries(
-      Object.entries(session.role_meta ?? {}).map(([id, m]) => [id, { label: m?.label ?? "", description: m?.description ?? "" }]),
-    ),
+    () => {
+      const seed: Record<string, { label: string; description: string }> = {};
+      for (const r of session.inferred?.roles ?? []) seed[r.role_id] = { label: r.label, description: "" };
+      for (const [id, m] of Object.entries(session.role_meta ?? {})) seed[id] = { label: m?.label ?? "", description: m?.description ?? "" };
+      return seed;
+    },
   );
   const [roleInput, setRoleInput] = useState("");
   const [busy, setBusy] = useState(false);
@@ -904,6 +1091,13 @@ function ReviewStep({ session, onChange, goStep }: { session: OnboardingSession;
           <ReadRow label="Pack" value={`${session.basics.pack_key}@${session.basics.version}`} mono />
           <ReadRow label="BPMN · tasks" value={`${session.bpmn?.bpmn_file ?? "—"} · ${(session.bpmn?.service_tasks.length ?? 0) + (session.bpmn?.user_tasks.length ?? 0)} bound`} />
           <ReadRow label="Dependencies" value={`${session.staged_capabilities.length + session.reused_capability_refs.length} caps · ${session.staged_artifacts.length} new artifacts`} />
+          <div className="col-span-3 flex items-center gap-2 text-sm">
+            <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Execution profile</span>
+            <ProfileBadge profile={session.bpmn?.required_execution_profile} />
+            {session.bpmn?.required_execution_profile && session.bpmn.required_execution_profile !== "common_subset" && (
+              <span className="text-xs text-muted-foreground">— this pack loads only on a runtime at the <span className="font-mono">{session.bpmn.required_execution_profile}</span> profile.</span>
+            )}
+          </div>
           <details className="col-span-3">
             <summary className="cursor-pointer text-sm text-agent">View manifest JSON</summary>
             <pre className="mt-2 overflow-auto rounded-md bg-surface p-3 text-[11px]">{JSON.stringify(manifestPreview(session), null, 2)}</pre>

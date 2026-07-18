@@ -68,8 +68,120 @@ class Basics(BaseModel):
     default_domain: str = "payment"
 
 
+class DocumentedElement(BaseModel):
+    """A retained BPMN element outside the executable set (ADR-027 coverage overlay)."""
+
+    element_id: Optional[str] = None
+    kind: str                                                  # BPMN local-name
+    tier: str                                                  # documented | unknown
+
+
+# -- Semantic summary (ADR-027 Phase 1.1): the diagram's meaning, for the UI + inference -- #
+
+class LaneSummary(BaseModel):
+    id: str
+    name: Optional[str] = None
+    member_ids: List[str] = Field(default_factory=list)
+
+
+class PoolSummary(BaseModel):
+    id: str
+    name: Optional[str] = None
+    is_external: bool = False
+
+
+class MessageFlowSummary(BaseModel):
+    id: str
+    name: Optional[str] = None
+    source: Optional[str] = None
+    target: Optional[str] = None
+
+
+class EventSummary(BaseModel):
+    id: str
+    name: Optional[str] = None
+    subtype: Optional[str] = None                             # message | timer | error | ...
+    attached_to: Optional[str] = None                         # boundaryEvent host
+
+
+class GatewayConditionSummary(BaseModel):
+    gateway_id: str
+    flow_id: str
+    variable: Optional[str] = None                            # leading dot-path of the condition
+    raw: str
+
+
+class DataObjectSummary(BaseModel):
+    id: str
+    name: Optional[str] = None
+
+
+# -- Inference draft (ADR-027 Phase 1.2): ADVISORY pre-fills derived from the diagram. Never
+#    authoritative — the operator's step submissions write the staged_* fields. -- #
+
+class InferredRole(BaseModel):
+    role_id: str
+    label: str
+    source_lane: Optional[str] = None
+
+
+class InferredBinding(BaseModel):
+    element_id: str
+    element_kind: str                                         # serviceTask | userTask
+    executor_type: str                                        # capability | human
+    suggested_role: Optional[str] = None
+    suggested_hitl_mode: str = "none"
+    source_lane: Optional[str] = None
+
+
+class InferredGatewayVariable(BaseModel):
+    gateway_id: str
+    variable: str
+
+
+class CapabilityCandidate(BaseModel):
+    source: str                                               # element id or message-flow id
+    suggested_capability_id: str
+    kind_hint: str = "mcp"
+    needs_endpoint: bool = True
+
+
+class ArtifactSeed(BaseModel):
+    suggested_artifact_key: str
+    source: str
+
+
+class SodCandidate(BaseModel):
+    elements: List[str] = Field(default_factory=list)
+    rationale: str
+
+
+class InferenceAnnotation(BaseModel):
+    code: str
+    element_id: Optional[str] = None
+    message: str
+
+
+class InferenceDraft(BaseModel):
+    roles: List[InferredRole] = Field(default_factory=list)
+    bindings: List[InferredBinding] = Field(default_factory=list)
+    gateway_variables: List[InferredGatewayVariable] = Field(default_factory=list)
+    capability_candidates: List[CapabilityCandidate] = Field(default_factory=list)
+    artifact_seeds: List[ArtifactSeed] = Field(default_factory=list)
+    sod_candidates: List[SodCandidate] = Field(default_factory=list)
+    annotations: List[InferenceAnnotation] = Field(default_factory=list)
+
+
+class SubProcessSummary(BaseModel):
+    """ADR-032 Phase 2.6: an embedded sub-process for the coverage overlay + bindings grouping."""
+
+    id: str
+    name: Optional[str] = None
+    member_ids: List[str] = Field(default_factory=list)
+
+
 class BpmnInventory(BaseModel):
-    """Parsed BPMN topology the downstream steps hang off of."""
+    """Parsed BPMN topology the downstream steps hang off of, plus the ADR-027 coverage report."""
 
     process_id: str
     bpmn_file: str
@@ -78,6 +190,22 @@ class BpmnInventory(BaseModel):
     user_tasks: List[str] = Field(default_factory=list)
     gateways: List[str] = Field(default_factory=list)          # exclusive gateways
     task_names: Dict[str, str] = Field(default_factory=dict)   # id -> human name (best effort)
+    # ADR-032 Phase 2.6: embedded sub-processes (id -> members) for grouping nested tasks in the UI.
+    subprocesses: List[SubProcessSummary] = Field(default_factory=list)
+    # Coverage (Phase 0): what will execute vs what is documented-only. Phase 1 deepens topology.
+    documented_elements: List[DocumentedElement] = Field(default_factory=list)
+    coverage_counts: Dict[str, int] = Field(default_factory=dict)  # {executable, documented, unknown}
+    # ADR-027 Phase 2.5: the minimum execution profile this diagram needs (derived: "parallel" iff it
+    # has parallel gateways, else "common_subset"). Pinned into the resolution sidecar at activation;
+    # surfaced here pre-activation so the onboarding Review step can flag "requires parallel profile".
+    required_execution_profile: str = "common_subset"
+    # Semantic summary (Phase 1.1): the diagram's meaning the UI renders + inference consumes.
+    lanes: List[LaneSummary] = Field(default_factory=list)
+    pools: List[PoolSummary] = Field(default_factory=list)
+    message_flows: List[MessageFlowSummary] = Field(default_factory=list)
+    events: List[EventSummary] = Field(default_factory=list)
+    gateway_conditions: List[GatewayConditionSummary] = Field(default_factory=list)
+    data_objects: List[DataObjectSummary] = Field(default_factory=list)
 
 
 class StagedArtifact(BaseModel):
@@ -190,6 +318,7 @@ class OnboardingSession(BaseModel):
     sod_policies: List[StagedSod] = Field(default_factory=list)
     roles: List[str] = Field(default_factory=list)
     role_meta: Dict[str, RoleMeta] = Field(default_factory=dict)  # role_id -> label/description
+    inferred: Optional[InferenceDraft] = None                    # ADR-027 Phase 1: advisory pre-fills
 
     dry_run_report: Optional[Dict[str, Any]] = None
     commit_progress: List[CommitStep] = Field(default_factory=list)

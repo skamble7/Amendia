@@ -3,8 +3,12 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Literal
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from amendia_bpmn import normalize_profile
 
 from amendia_auth import AuthSettings, load_auth_settings
 
@@ -25,6 +29,18 @@ class Settings(BaseSettings):
 
     # /resolve active-pack cache TTL (seconds)
     RESOLVE_CACHE_TTL: float = 30.0
+
+    # Which BPMN conformance level may be activated (ADR-034 / Phase 2.8). "common_executable"
+    # (DEFAULT) accepts the full built construct set; "common_subset" gates everything beyond the
+    # Phase-0/1 base subset out. Derived required_profile is pinned at activation; the runtime's
+    # AGENTRT_EXECUTION_PROFILE must be ≥ this for an activated pack to load. A retired granular env
+    # value normalizes to common_executable.
+    EXECUTION_PROFILE: Literal["common_subset", "common_executable"] = "common_executable"
+
+    @field_validator("EXECUTION_PROFILE", mode="before")
+    @classmethod
+    def _normalize_profile(cls, v):
+        return normalize_profile(v) if isinstance(v, str) else v
 
     # Service
     HOST: str = "0.0.0.0"

@@ -12,7 +12,8 @@
 // NOT emitted here — they are hand-written in src/api/services/runtime.ts and
 // must be kept in sync with backend/services/agent-runtime/app/routers/instances.py.
 
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import path from "node:path";
 import openapiTS, { astToString } from "openapi-typescript";
@@ -29,6 +30,21 @@ export const SERVICES = {
   identity: process.env.VITE_IDENTITY_URL ?? "http://localhost:8086",
 };
 
+// Services with a committed OpenAPI snapshot generate OFFLINE from the file (no stack needed).
+// The snapshot is produced by `backend/services/<svc>/scripts/dump_openapi.py` and its freshness
+// vs the live app is gated by that service's Python test suite (ADR-027 §5, Phase 1.4).
+export const SNAPSHOTS = {
+  registry: path.resolve(__dirname, "../openapi/registry.json"),
+};
+
+async function loadSource(name, base) {
+  const snap = SNAPSHOTS[name];
+  if (snap && existsSync(snap)) {
+    return { source: JSON.parse(await readFile(snap, "utf8")), label: path.relative(process.cwd(), snap) };
+  }
+  return { source: new URL(`${base}/openapi.json`), label: `${base}/openapi.json` };
+}
+
 // Env-independent header (no host URL) so the output is byte-stable across
 // machines/ports — that stability is what makes `gen:api:check` a reliable gate.
 function bannerFor(name) {
@@ -44,14 +60,16 @@ export async function generate(outDir = DEFAULT_OUT_DIR) {
   await mkdir(outDir, { recursive: true });
   let failures = 0;
   for (const [name, base] of Object.entries(SERVICES)) {
-    const url = `${base}/openapi.json`;
+    let label = `${base}/openapi.json`;
     try {
-      const ast = await openapiTS(new URL(url));
+      const src = await loadSource(name, base);
+      label = src.label;
+      const ast = await openapiTS(src.source);
       await writeFile(path.join(outDir, `${name}.ts`), bannerFor(name) + astToString(ast));
-      console.log(`✓ ${name.padEnd(9)} ${url}`);
+      console.log(`✓ ${name.padEnd(9)} ${label}`);
     } catch (err) {
       failures++;
-      console.error(`✗ ${name.padEnd(9)} ${url}\n    ${err?.message ?? err}`);
+      console.error(`✗ ${name.padEnd(9)} ${label}\n    ${err?.message ?? err}`);
     }
   }
   return failures;

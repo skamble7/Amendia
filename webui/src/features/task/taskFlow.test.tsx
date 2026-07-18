@@ -89,6 +89,22 @@ describe("Task detail — review_after decide flow", () => {
   });
 });
 
+describe("Task detail — SLA timer boundary (ADR-027 Phase 2.2)", () => {
+  it("shows an SLA countdown for a live gate with a due_at, and the escalated state once expired", async () => {
+    const live = synthTask({ task_id: "sla1", status: "open", due_at: "2099-01-01T00:00:00Z" });
+    server.use(...railHandlers(), http.get(`${R}/hitl-tasks/sla1`, () => HttpResponse.json(live)));
+    renderApp("/inbox/sla1", "analyst-1");
+    expect(await screen.findByText(/SLA · escalates/i)).toBeInTheDocument();
+  });
+
+  it("shows the SLA-breached / escalated banner for an expired task", async () => {
+    const expired = synthTask({ task_id: "sla2", status: "expired", due_at: "2000-01-01T00:00:00Z" });
+    server.use(...railHandlers(), http.get(`${R}/hitl-tasks/sla2`, () => HttpResponse.json(expired)));
+    renderApp("/inbox/sla2", "analyst-1");
+    expect(await screen.findByText(/SLA breached — escalated/i)).toBeInTheDocument();
+  });
+});
+
 describe("Task detail — backend 403 on claim", () => {
   afterEach(() => vi.restoreAllMocks());
 

@@ -312,6 +312,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/messages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Post Message */
+        post: operations["post_message_messages_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin/seed": {
         parameters: {
             query?: never;
@@ -396,10 +413,10 @@ export interface components {
              * Element Kind
              * @enum {string}
              */
-            element_kind: "serviceTask" | "userTask";
+            element_kind: "serviceTask" | "userTask" | "messageCatch" | "receiveTask" | "sendTask" | "scriptTask" | "manualTask" | "businessRuleTask";
             /** Executor */
-            executor: components["schemas"]["CapabilityExecutor"] | components["schemas"]["HumanExecutor"];
-            hitl: components["schemas"]["Hitl"];
+            executor: components["schemas"]["CapabilityExecutor"] | components["schemas"]["HumanExecutor"] | components["schemas"]["MessageExecutor"];
+            hitl?: components["schemas"]["Hitl"] | null;
             /** Inputs */
             inputs?: components["schemas"]["ArtifactIO"][];
             /** Outputs */
@@ -437,7 +454,7 @@ export interface components {
                 [key: string]: unknown;
             } | null;
             /** Runtime */
-            runtime: components["schemas"]["SkillRuntime"] | components["schemas"]["McpRuntime"] | components["schemas"]["LlmRuntime"];
+            runtime: components["schemas"]["SkillRuntime"] | components["schemas"]["McpRuntime"] | components["schemas"]["LlmRuntime"] | components["schemas"]["DeepAgentRuntime"];
             constraints?: components["schemas"]["Constraints"] | null;
             /** Owner */
             owner?: string | null;
@@ -461,7 +478,7 @@ export interface components {
          * CapabilityKind
          * @enum {string}
          */
-        CapabilityKind: "skill" | "mcp" | "llm";
+        CapabilityKind: "skill" | "mcp" | "llm" | "deep_agent";
         /**
          * CapabilityStatus
          * @enum {string}
@@ -522,6 +539,45 @@ export interface components {
             } | null;
             /** Approved Action Ids */
             approved_action_ids?: string[] | null;
+        };
+        /**
+         * DeepAgentBudget
+         * @description Hard budget caging a deep_agent loop (ADR-021).
+         */
+        DeepAgentBudget: {
+            /**
+             * Max Steps
+             * @default 12
+             */
+            max_steps: number;
+            /** Max Tokens */
+            max_tokens?: number | null;
+        };
+        /**
+         * DeepAgentRuntime
+         * @description A bounded Deep Agents Code loop. ``tools`` is the **whitelisted** toolset (MCP tool
+         *     ids and/or named worker functions); the harness may use nothing else. ``model_config_key``
+         *     should resolve to a managed/``nemoclaw`` ref. ``structured_output`` requires the harness
+         *     to emit an object validating against the declared output artifact schema (host-validated).
+         */
+        DeepAgentRuntime: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "deep_agent";
+            /** Prompt Key */
+            prompt_key: string;
+            /** Model Config Key */
+            model_config_key?: string | null;
+            /** Tools */
+            tools: string[];
+            /**
+             * Structured Output
+             * @default true
+             */
+            structured_output: boolean;
+            budget?: components["schemas"]["DeepAgentBudget"];
         };
         /** GatewayVariable */
         GatewayVariable: {
@@ -588,6 +644,8 @@ export interface components {
             allowed_decisions: components["schemas"]["Decision"][];
             status: components["schemas"]["TaskStatus"];
             decision?: components["schemas"]["DecisionRecord"] | null;
+            /** Interrupt Id */
+            interrupt_id?: string | null;
         };
         /**
          * HitlTaskMode
@@ -610,7 +668,7 @@ export interface components {
          * InstanceStatus
          * @enum {string}
          */
-        InstanceStatus: "created" | "running" | "waiting_hitl" | "completed" | "failed" | "cancelled";
+        InstanceStatus: "created" | "running" | "waiting_hitl" | "waiting_timer" | "waiting_message" | "completed" | "failed" | "cancelled";
         /**
          * LeafOp
          * @enum {string}
@@ -641,25 +699,61 @@ export interface components {
              */
             structured_output: boolean;
         };
-        /** McpRuntime */
+        /**
+         * McpRuntime
+         * @description Self-descriptive MCP server binding (ADR-024). The connection details live directly on
+         *     the capability descriptor — no config-forge/registry indirection.
+         */
         McpRuntime: {
             /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
              */
             kind: "mcp";
-            /** Server Key */
-            server_key: string;
+            /** Endpoint */
+            endpoint: string;
             /** Tools */
             tools: string[];
             /** @default streamable_http */
             transport: components["schemas"]["McpTransport"];
+            /** Headers */
+            headers?: {
+                [key: string]: string;
+            };
         };
         /**
          * McpTransport
          * @enum {string}
          */
         McpTransport: "streamable_http" | "stdio" | "sse";
+        /**
+         * MessageExecutor
+         * @description ADR-031 (Phase 2.4): the "executor" of a message catch / receive element is the external
+         *     world. ``message_name`` is the business message this element awaits; correlation is by business
+         *     anchor (exception_id / correlation_id) + this name — no per-pack correlation expressions.
+         */
+        MessageExecutor: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "message";
+            /** Message Name */
+            message_name: string;
+        };
+        /** MessageIn */
+        MessageIn: {
+            /** Message Name */
+            message_name: string;
+            /** Exception Id */
+            exception_id?: string | null;
+            /** Correlation Id */
+            correlation_id?: string | null;
+            /** Payload */
+            payload?: {
+                [key: string]: unknown;
+            } | null;
+        };
         /** NotPredicate */
         NotPredicate: {
             /** Not */
@@ -750,6 +844,10 @@ export interface components {
             /** Gateway Variables */
             gateway_variables?: components["schemas"]["GatewayVariable"][] | null;
             policies?: components["schemas"]["Policies"] | null;
+            /** Deep Agent Justifications */
+            deep_agent_justifications?: {
+                [key: string]: string;
+            };
             status: components["schemas"]["PackStatus"];
             /** Created By */
             created_by?: string | null;
@@ -1456,6 +1554,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HitlTask"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    post_message_messages_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MessageIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
             /** @description Validation Error */

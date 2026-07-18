@@ -2,10 +2,14 @@ import { useEffect, useRef, useState } from "react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 
-/** Per-element execution state painted onto the diagram (see index.css `.bpmn-state-*`). */
+/**
+ * Per-element overlay state painted onto the diagram (see index.css `.bpmn-state-*`).
+ * `done|current|pending|failed` are live-execution states (ProcessDiagramView); `executable|
+ * documented|unknown` are the ADR-027 coverage tiers (onboarding wizard).
+ */
 export interface BpmnMarker {
   elementId: string;
-  state: "done" | "current" | "pending" | "failed";
+  state: "done" | "current" | "pending" | "failed" | "executable" | "documented" | "unknown";
 }
 
 interface BpmnCanvas {

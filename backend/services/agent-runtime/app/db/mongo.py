@@ -41,6 +41,24 @@ async def create_indexes(db: AsyncIOMotorDatabase) -> None:
 
     await db[SAMPLE_EXCEPTIONS].create_index("exception_id", unique=True)
 
+    # ADR-027 Phase 2.2 timer substrate. Idempotent re-register: unique on (instance, element, kind)
+    # so re-entering a node (crash replay) upserts rather than duplicating. The poller scans by
+    # (status, fire_at) for due pending timers.
+    await db[TIMERS].create_index(
+        [("process_instance_id", ASCENDING), ("element_id", ASCENDING), ("kind", ASCENDING)],
+        unique=True,
+    )
+    await db[TIMERS].create_index([("status", ASCENDING), ("fire_at", ASCENDING)])
+
+    # ADR-031 Phase 2.4 message substrate. Idempotent re-register unique on (instance, element); fast
+    # delivery lookup by (message_name, anchor). Pending buffer holds unmatched inbound messages (TTL).
+    await db[MESSAGE_SUBSCRIPTIONS].create_index(
+        [("process_instance_id", ASCENDING), ("element_id", ASCENDING)], unique=True)
+    await db[MESSAGE_SUBSCRIPTIONS].create_index([("message_name", ASCENDING), ("exception_id", ASCENDING)])
+    await db[MESSAGE_SUBSCRIPTIONS].create_index([("message_name", ASCENDING), ("correlation_id", ASCENDING)])
+    await db[PENDING_MESSAGES].create_index([("message_name", ASCENDING), ("correlation_id", ASCENDING)])
+    await db[PENDING_MESSAGES].create_index("created_at", expireAfterSeconds=3600)  # TTL buffer
+
     for coll in (PROCESS_PACKS, CAPABILITIES, ARTIFACT_SCHEMAS, PROCESS_INSTANCES, HITL_TASKS, DISPATCH_LOG):
         await db[coll].create_index([("created_at", DESCENDING)])
 
@@ -51,6 +69,9 @@ ARTIFACT_SCHEMAS = "artifact_schemas"
 PROCESS_INSTANCES = "process_instances"
 HITL_TASKS = "hitl_tasks"
 DISPATCH_LOG = "dispatch_log"
+TIMERS = "timers"                        # ADR-027 Phase 2.2 durable timer substrate
+MESSAGE_SUBSCRIPTIONS = "message_subscriptions"  # ADR-031 Phase 2.4 message substrate
+PENDING_MESSAGES = "pending_messages"    # ADR-031 Phase 2.4 ordering buffer (TTL'd)
 SAMPLE_EXCEPTIONS = "sample_exceptions"  # seed-only helper collection
 
 

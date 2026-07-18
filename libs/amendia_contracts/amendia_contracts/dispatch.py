@@ -66,6 +66,9 @@ class DispatchRejectionReason(str, Enum):
     FETCH_FAILED = "fetch_failed"
     ENVELOPE_INVALID = "envelope_invalid"
     CAPACITY = "capacity"
+    # ADR-027 Phase 2.5: this runtime's execution profile is lower-ranked than the pack requires
+    # (e.g. a common_subset runtime handed a pack that needs the parallel profile). Refused at load.
+    PACK_REQUIRES_PROFILE = "pack_requires_profile"
 
 
 class DispatchRejectedEvent(EventBase):

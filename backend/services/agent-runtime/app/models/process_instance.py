@@ -21,6 +21,14 @@ class InstanceStatus(str, Enum):
     CREATED = "created"
     RUNNING = "running"
     WAITING_HITL = "waiting_hitl"
+    # ADR-027 Phase 2.2: parked on a timer intermediate-catch event, waiting for a duration to
+    # elapse. Like WAITING_HITL it is a durable, crash-safe park (no thread running) — the timer
+    # poller resumes it when the timer fires; the startup recovery sweep leaves it alone.
+    WAITING_TIMER = "waiting_timer"
+    # ADR-031 Phase 2.4: parked on a message catch / receive task / event-based gateway, waiting for
+    # a correlated inbound business message (delivered via POST /messages). Durable + crash-safe like
+    # the others; the recovery sweep leaves it alone — a delivery resumes it.
+    WAITING_MESSAGE = "waiting_message"
     COMPLETED = "completed"
     FAILED = "failed"
     CANCELLED = "cancelled"

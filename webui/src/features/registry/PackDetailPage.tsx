@@ -98,6 +98,18 @@ export function PackDetailPage() {
               <CardHeader><CardTitle>Pinned resolution</CardTitle></CardHeader>
               <CardContent className="space-y-3">
                 <p className="text-xs text-muted-foreground">On activation every version range was pinned to the highest active version.</p>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Execution profile</span>
+                  {(resolution.required_execution_profile ?? "common_subset") !== "common_subset" ? (
+                    <Badge variant="process" className="text-[11px]" title={`Runs only on a runtime at the ${resolution.required_execution_profile} execution profile.`}>
+                      requires {resolution.required_execution_profile} profile
+                    </Badge>
+                  ) : (
+                    <Badge variant="outline" className="text-[11px] text-muted-foreground" title="Runs on the default (common_subset) execution profile.">
+                      common_subset
+                    </Badge>
+                  )}
+                </div>
                 <div>
                   <p className="mb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">Capabilities</p>
                   <div className="flex flex-wrap gap-1">

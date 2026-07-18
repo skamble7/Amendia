@@ -113,7 +113,7 @@ class HitlDecisionService:
             }
             logger.info("hitl task %s decided '%s' by %s → resuming instance %s",
                         task_id, decision, actor_id, task.process_instance_id)
-            await self._engine.resume(task.process_instance_id, payload)
+            await self._engine.resume(task.process_instance_id, payload, interrupt_id=task.interrupt_id)
         finally:
             exception_id_ctx.reset(token)
         return updated

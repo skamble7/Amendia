@@ -36,6 +36,8 @@ async def resolve_pins(
     manifest: ProcessPackManifest,
     cap_repo: CapabilityRepository,
     schema_repo: ArtifactSchemaRepository,
+    *,
+    required_execution_profile: str = "common_subset",
 ) -> Tuple[Resolution, Dict[str, str]]:
     caps: Dict[str, str] = {}
     arts: Dict[str, str] = {}
@@ -81,4 +83,8 @@ async def resolve_pins(
             assist_capability=assist, inputs=inputs, outputs=outputs,
         ))
 
-    return Resolution(capabilities=caps, artifacts=arts, bindings=bindings), dict(caps)
+    return (
+        Resolution(capabilities=caps, artifacts=arts, bindings=bindings,
+                   required_execution_profile=required_execution_profile),
+        dict(caps),
+    )

@@ -23,7 +23,7 @@ from amendia_contracts.wire_exception import WireExceptionEnvelope
 
 from app.clients.registry_client import ExceptionStoreClient, RegistryError, RegistryNotFound
 from app.dal.base import DuplicateError
-from app.engine.engine import PackNotActive, ProcessEngine
+from app.engine.engine import PackNotActive, PackRequiresProfile, ProcessEngine
 from app.logging_conf import exception_id_ctx
 from app.models.process_instance import ProcessInstance, compute_idempotency_key
 
@@ -104,6 +104,9 @@ class DispatchService:
             return
         except PackNotActive as exc:
             await self._reject(event, DispatchRejectionReason.PACK_NOT_ACTIVE, str(exc), correlation_id)
+            return
+        except PackRequiresProfile as exc:
+            await self._reject(event, DispatchRejectionReason.PACK_REQUIRES_PROFILE, str(exc), correlation_id)
             return
         except (RegistryError, ValueError) as exc:
             await self._reject(event, DispatchRejectionReason.UNKNOWN_PACK,

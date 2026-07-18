@@ -42,6 +42,12 @@ class PackBundle:
     def pack_version(self) -> str:
         return self.manifest.version
 
+    @property
+    def required_execution_profile(self) -> str:
+        """The minimum execution profile this pack needs, pinned in resolution at activation
+        (ADR-027 Phase 2.5). Older packs with no pin default to the conservative common_subset."""
+        return self.resolution.get("required_execution_profile", "common_subset")
+
     # ---- resolution helpers ----
     def resolved_binding(self, element_id: str) -> Dict[str, Any]:
         for b in self.resolution.get("bindings", []):
@@ -61,8 +67,10 @@ class PackBundle:
         manifest = ProcessPackManifest.model_validate(json.loads((root / "manifest.json").read_text()))
         bpmn_xml = (root / manifest.process.bpmn_file).read_text()
         bpmn_model, findings = parse(bpmn_xml, manifest.process.process_id)
-        if findings:
-            raise ValueError(f"seed BPMN did not parse cleanly: {[f.code for f in findings]}")
+        # ADR-027: documented/unknown elements are warning/info — reject only on error severity.
+        errors = [f for f in findings if f.severity == "error"]
+        if errors:
+            raise ValueError(f"seed BPMN did not parse cleanly: {[f.code for f in errors]}")
 
         descriptors: Dict[str, CapabilityDescriptor] = {}
         cap_versions: Dict[str, str] = {}
@@ -123,8 +131,14 @@ def build_node_contexts(bundle: PackBundle) -> Dict[str, NodeContext]:
     contexts: Dict[str, NodeContext] = {}
     for element_id, mb in manifest_bindings.items():
         rb = bundle.resolved_binding(element_id)
-        hitl_mode = mb.hitl.mode.value if hasattr(mb.hitl.mode, "value") else str(mb.hitl.mode)
         executor_type = getattr(mb.executor, "type", "capability")
+        # ADR-031: a message binding has no HITL gate; hitl is None → treat as mode "none", no role.
+        hitl_mode = "none"
+        role = None
+        if mb.hitl is not None:
+            hitl_mode = mb.hitl.mode.value if hasattr(mb.hitl.mode, "value") else str(mb.hitl.mode)
+            role = mb.hitl.role
+        message_name = getattr(mb.executor, "message_name", None)
 
         descriptor = None
         if rb.get("executor_capability"):
@@ -148,12 +162,13 @@ def build_node_contexts(bundle: PackBundle) -> Dict[str, NodeContext]:
             element_id=element_id,
             element_kind=mb.element_kind,
             hitl_mode=hitl_mode,
-            role=mb.hitl.role,
+            role=role,
             executor_type=executor_type,
             descriptor=descriptor,
             assist_descriptor=assist_descriptor,
             inputs=inputs,
             outputs=outputs,
             title=element_id,
+            message_name=message_name,
         )
     return contexts

@@ -22,6 +22,12 @@ DISPATCH_ACCEPTED = "dispatch_accepted"
 DISPATCH_REJECTED = "dispatch_rejected"
 HITL_TASK_CREATED = "hitl_task_created"
 HITL_TASK_DECIDED = "hitl_task_decided"
+# ADR-027 Phase 2.2 timers: a HITL gate breached its SLA and was escalated via its boundary timer;
+# an intermediate-catch timer elapsed and the parked instance auto-proceeded.
+HITL_TASK_EXPIRED = "hitl_task_expired"
+TIMER_FIRED = "timer_fired"
+# ADR-031 Phase 2.4: a correlated inbound business message was delivered to a parked instance.
+MESSAGE_RECEIVED = "message_received"
 PROCESS_COMPLETED = "process_completed"
 PROCESS_FAILED = "process_failed"
 # In-sandbox capability execution over the broker (ADR-020): the host publishes a job on the

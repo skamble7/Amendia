@@ -138,8 +138,30 @@ page — assign the roles there instead.
   (e.g. after an IdP migration) is done through the identity service's API; there is no UI for it.
 - **Live updates poll.** Inbox and instance status refresh on an interval; the push
   (SSE/notification-service) fan-out is a later step.
-- **No parallel gateways / timers.** The executed process is linear (the reference pack was
-  linearized); parallel branches, timers, and escalation are out of the supported subset.
+
+## 7a. BPMN conformance — what executes (the two profiles)
+
+Amendia ingests **Full BPMN** (upload any diagram) and executes the **Common Executable** conformance
+level. Onboarding **classifies** each element rather than rejecting the diagram, and a coverage report
+shows what will run vs what is documentation-only.
+
+- **`common_executable` (the default runtime level).** Parallel gateways (fork/join), **timers**
+  (intermediate-catch delays and **SLA timer boundary events** that escalate a HITL gate when a human
+  is late), **error boundary events** (a modeled business rejection routes to a rework/return path
+  instead of failing), **inbound messages** (a message-catch / receive task parked and resumed by a
+  correlated business message; an **event-based gateway** waits for the first of a message vs a timer),
+  **embedded sub-processes**, and the **full BPMN task set** (`serviceTask`, `userTask`, `sendTask`,
+  `receiveTask`, `scriptTask`, `manualTask`, `businessRuleTask` — each routed to a capability, a human,
+  or a message) all execute.
+- **`common_subset` (a deliberately conservative envelope).** A deployment may run only the Phase-0/1
+  base subset (`start`/`end`, `serviceTask`/`userTask`, `exclusiveGateway`, conditional flow). Such a
+  runtime **refuses** a pack that needs beyond-subset constructs, with a clear `pack_requires_profile`
+  reason.
+- **Documentation-only elements** (lanes/personas, external-system pools, message flows, an inline
+  DMN decision table, a `callActivity`, an inline `<script>` body) are **kept and shown as
+  `documented`** in the coverage report — they enrich onboarding inference but are not executed.
+  Business-rule tasks execute via a **bound decision capability** (native DMN evaluation is a separate
+  feature track); inline scripts and `callActivity` are refused for execution.
 
 ## 8. Changelog
 

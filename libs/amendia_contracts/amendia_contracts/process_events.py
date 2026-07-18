@@ -8,7 +8,13 @@ from __future__ import annotations
 
 from typing import ClassVar, Literal, Optional
 
-from amendia_common.events import PROCESS_COMPLETED, PROCESS_FAILED, Service
+from amendia_common.events import (
+    MESSAGE_RECEIVED,
+    PROCESS_COMPLETED,
+    PROCESS_FAILED,
+    TIMER_FIRED,
+    Service,
+)
 from amendia_contracts.common import EventBase
 from amendia_contracts.dispatch import Trace
 
@@ -37,4 +43,33 @@ class ProcessFailedEvent(EventBase):
     pack_version: str
     reason: str
     detail: Optional[str] = None
+    trace: Trace
+
+
+class TimerFiredEvent(EventBase):
+    """ADR-027 Phase 2.2: a timer intermediate-catch elapsed and the parked instance auto-proceeded."""
+
+    _service: ClassVar[Service] = Service.AGENT_RUNTIME
+    _event_name: ClassVar[str] = TIMER_FIRED
+
+    schema_version: Literal["pin.platform.timer_fired/1.0"] = "pin.platform.timer_fired/1.0"
+    process_instance_id: str
+    exception_id: str
+    element_id: str
+    kind: str            # intermediate | boundary
+    trace: Trace
+
+
+class MessageReceivedEvent(EventBase):
+    """ADR-031 Phase 2.4: a correlated inbound message resumed a parked instance. Ids/labels only —
+    NO payload (same security boundary as the notification signals)."""
+
+    _service: ClassVar[Service] = Service.AGENT_RUNTIME
+    _event_name: ClassVar[str] = MESSAGE_RECEIVED
+
+    schema_version: Literal["pin.platform.message_received/1.0"] = "pin.platform.message_received/1.0"
+    process_instance_id: str
+    exception_id: str
+    element_id: str
+    message_name: str
     trace: Trace

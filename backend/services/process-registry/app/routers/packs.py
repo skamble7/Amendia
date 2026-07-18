@@ -121,7 +121,12 @@ async def activate_pack(
         await repo.set_status(pack_key, version, "draft")
         raise HTTPException(status_code=422, detail={"message": "re-validation failed", "errors": report.error_codes()})
 
-    resolution, resolved_caps = await resolve_pins(manifest, cap_repo, schema_repo)
+    # ADR-027 Phase 2.5: derive the pack's minimum required execution profile from its BPMN and pin
+    # it in the resolution sidecar so the runtime can refuse a pack it can't run (at load, not mid-flight).
+    from amendia_bpmn import parse as _parse, required_profile as _required_profile
+    _model, _ = _parse(bpmn_xml, manifest.process.process_id)
+    prof = _required_profile(_model) if _model is not None else "common_subset"
+    resolution, resolved_caps = await resolve_pins(manifest, cap_repo, schema_repo, required_execution_profile=prof)
     activated = await repo.activate(pack_key, version, resolved_caps=resolved_caps, resolution=resolution.to_doc())
     resolver.invalidate()
     return activated

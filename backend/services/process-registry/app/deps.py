@@ -48,7 +48,8 @@ def get_bpmn_repo(request: Request) -> BpmnRepository:
 
 
 def get_validator(request: Request) -> PackValidator:
-    return PackValidator(request.app.state.capability_repo, request.app.state.artifact_schema_repo)
+    return PackValidator(request.app.state.capability_repo, request.app.state.artifact_schema_repo,
+                         profile=settings.EXECUTION_PROFILE)
 
 
 def get_resolver(request: Request) -> ResolveService:
@@ -65,4 +66,5 @@ def get_onboarding_service(request: Request) -> OnboardingService:
         st.onboarding_repo, st.capability_repo, st.artifact_schema_repo,
         st.pack_repo, st.bpmn_repo, st.mcp_introspector,
         sample_envelopes=load_sample_envelopes(),
+        profile=settings.EXECUTION_PROFILE,
     )

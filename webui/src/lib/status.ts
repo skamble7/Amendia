@@ -2,11 +2,14 @@ import type { BadgeProps } from "@/components/ui/badge";
 
 type Variant = NonNullable<BadgeProps["variant"]>;
 
-/** Instance statuses: created, running, waiting_hitl, completed, failed, cancelled. */
+/** Instance statuses: created, running, waiting_hitl, waiting_timer (ADR-029),
+ * waiting_message (ADR-031), completed, failed, cancelled. */
 export const INSTANCE_STATUS: Record<string, { label: string; variant: Variant }> = {
   created: { label: "Created", variant: "outline" },
   running: { label: "Running", variant: "agent" },
   waiting_hitl: { label: "Waiting on human", variant: "attention" },
+  waiting_timer: { label: "Waiting on timer", variant: "process" },
+  waiting_message: { label: "Waiting for message", variant: "process" },
   completed: { label: "Completed", variant: "success" },
   failed: { label: "Failed", variant: "danger" },
   cancelled: { label: "Cancelled", variant: "default" },

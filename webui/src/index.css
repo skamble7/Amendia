@@ -146,3 +146,17 @@
   stroke: hsl(var(--danger)) !important;
   fill: hsl(var(--danger) / 0.14) !important;
 }
+/* ADR-027 coverage overlay: executable (runs today) vs documented / unknown (not executed yet). */
+.bpmn-state-executable .djs-visual > :nth-child(1) {
+  stroke: hsl(var(--success)) !important;
+  fill: hsl(var(--success) / 0.12) !important;
+}
+.bpmn-state-documented .djs-visual > :nth-child(1) {
+  stroke: hsl(var(--attention)) !important;
+  fill: hsl(var(--attention) / 0.14) !important;
+}
+.bpmn-state-unknown .djs-visual > :nth-child(1) {
+  stroke: hsl(var(--muted-foreground)) !important;
+  fill: hsl(var(--muted-foreground) / 0.12) !important;
+  stroke-dasharray: 4 3 !important;
+}
