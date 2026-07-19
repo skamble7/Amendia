@@ -6,14 +6,16 @@ capability_id→version map used to fill ``requires_capabilities[].resolved``.
 """
 from __future__ import annotations
 
-from typing import Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 from packaging.version import Version
 
+from amendia_bpmn import normalize_profile, profile_rank
 from amendia_contracts.process_pack import ProcessPackManifest
+from amendia_contracts.semver import satisfies
 from app.dal.artifact_schema_repo import ArtifactSchemaRepository
 from app.dal.capability_repo import CapabilityRepository
-from app.models.registry import ResolvedBinding, ResolvedIO, Resolution
+from app.models.registry import ResolvedBinding, ResolvedCall, ResolvedIO, Resolution
 
 
 async def _pin_capability(repo: CapabilityRepository, ref) -> Optional[str]:
@@ -22,6 +24,17 @@ async def _pin_capability(repo: CapabilityRepository, ref) -> Optional[str]:
     if not active:
         return None
     return max(active, key=lambda v: Version(v.version)).version
+
+
+async def _pin_pack(pack_repo: Any, pack_key: str, spec: str) -> Optional[str]:
+    """ADR-039: pin a callee pack ``pack_key@spec`` to the highest **active** version satisfying the
+    range (mirrors ``_pin_capability``). ``None`` when nothing active satisfies it → the caller sees
+    ``call_activity_pack_unresolved``."""
+    active = [m for m in await pack_repo.list_versions(pack_key)
+              if m.status.value == "active" and satisfies(m.version, spec)]
+    if not active:
+        return None
+    return max(active, key=lambda m: Version(m.version)).version
 
 
 async def _pin_artifact(repo: ArtifactSchemaRepository, ref) -> Optional[str]:
@@ -38,6 +51,7 @@ async def resolve_pins(
     schema_repo: ArtifactSchemaRepository,
     *,
     required_execution_profile: str = "common_subset",
+    pack_repo: Any = None,
 ) -> Tuple[Resolution, Dict[str, str]]:
     caps: Dict[str, str] = {}
     arts: Dict[str, str] = {}
@@ -83,8 +97,26 @@ async def resolve_pins(
             assist_capability=assist, inputs=inputs, outputs=outputs,
         ))
 
+    # ADR-039: pin each callActivity's callee pack@range → the active exact version, and lift the
+    # composite required profile to max(caller, callee…) so the runtime's profile guard still holds.
+    call_activities = []
+    prof = required_execution_profile
+    for b in manifest.bindings:
+        if b.executor.type != "call":
+            continue
+        cpack, cspec = b.executor.pack, b.executor.version
+        cver = await _pin_pack(pack_repo, cpack, cspec) if pack_repo is not None else None
+        if cver and pack_repo is not None:
+            callee_res = await pack_repo.get_resolution(cpack, cver) or {}
+            callee_prof = callee_res.get("required_execution_profile", "common_subset")
+            if profile_rank(callee_prof) > profile_rank(prof):
+                prof = normalize_profile(callee_prof)
+        call_activities.append(ResolvedCall(
+            element=b.element_id, pack_key=cpack, version=cver or "",
+            input_map=dict(b.executor.input_map), output_map=dict(b.executor.output_map)))
+
     return (
         Resolution(capabilities=caps, artifacts=arts, bindings=bindings,
-                   required_execution_profile=required_execution_profile),
+                   call_activities=call_activities, required_execution_profile=prof),
         dict(caps),
     )

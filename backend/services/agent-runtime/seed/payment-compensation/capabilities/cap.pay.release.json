@@ -1,0 +1,14 @@
+{
+  "descriptor_version": "1.0",
+  "capability_id": "cap.pay.release",
+  "version": "1.0.0",
+  "title": "Release payment",
+  "kind": "skill",
+  "side_effect": "side_effectful",
+  "idempotent": false,
+  "inputs": [],
+  "outputs": [{"name": "rel", "schema": "art.pay.val@^1.0.0"}],
+  "runtime": {"kind": "skill", "entrypoint": "app.capabilities.payment_comp:release"},
+  "constraints": {"timeout_seconds": 30, "max_retries": 0, "min_hitl_mode": "approve_actions"},
+  "owner": "platform", "status": "active"
+}

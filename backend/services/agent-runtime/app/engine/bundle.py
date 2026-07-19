@@ -147,6 +147,15 @@ def build_node_contexts(bundle: PackBundle) -> Dict[str, NodeContext]:
         if rb.get("assist_capability"):
             assist_descriptor = bundle.descriptors[_bare(rb["assist_capability"])]
 
+        # ADR-035: the wired error boundary codes attached to this element (catch-all — error_code
+        # None — dropped, since it needs no legal-code hint). Threaded into the executor so a real
+        # llm/mcp/deep_agent capability can emit/label a modeled business error.
+        error_codes = [
+            eb.error_code
+            for eb in bundle.bpmn_model.error_boundaries.get(element_id, [])
+            if eb.error_code
+        ]
+
         inputs = [IOSpec(name=io["name"], schema_ref=io["schema"]) for io in rb.get("inputs", [])]
         outputs: List[OutputSpec] = []
         for io in rb.get("outputs", []):
@@ -170,5 +179,6 @@ def build_node_contexts(bundle: PackBundle) -> Dict[str, NodeContext]:
             outputs=outputs,
             title=element_id,
             message_name=message_name,
+            error_codes=error_codes,
         )
     return contexts

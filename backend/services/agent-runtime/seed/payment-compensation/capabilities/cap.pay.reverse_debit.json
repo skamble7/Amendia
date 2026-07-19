@@ -1,0 +1,14 @@
+{
+  "descriptor_version": "1.0",
+  "capability_id": "cap.pay.reverse_debit",
+  "version": "1.0.0",
+  "title": "Reverse debit (compensation)",
+  "kind": "skill",
+  "side_effect": "side_effectful",
+  "idempotent": false,
+  "inputs": [],
+  "outputs": [],
+  "runtime": {"kind": "skill", "entrypoint": "app.capabilities.payment_comp:reverse_debit"},
+  "constraints": {"timeout_seconds": 30, "max_retries": 0, "min_hitl_mode": "approve_actions"},
+  "owner": "platform", "status": "active"
+}

@@ -42,6 +42,7 @@ class CapabilityRunSpec:
     inputs: Dict[str, Any]
     envelope: Dict[str, Any]
     output_schemas: Dict[str, Any] = field(default_factory=dict)   # artifact_key -> json schema
+    error_codes: List[str] = field(default_factory=list)           # ADR-035: legal boundary codes
     mode: str = "execute"                      # execute | propose
     approved_action_ids: Optional[List[str]] = None
     model_config_ref: Optional[str] = None     # ConfigForge ref — a reference, never a secret
@@ -124,7 +125,7 @@ class FakeOpenShellClient:
             targets = [(akey, spec.output_schemas.get(akey)) for akey in spec.output_schemas]
             produced, provider, model = run_real_llm(
                 capability_id=spec.capability_id, targets=targets, ref=spec.model_config_ref,
-                inputs=spec.inputs, envelope=spec.envelope,
+                inputs=spec.inputs, envelope=spec.envelope, error_codes=spec.error_codes,
             )
             return SandboxResult(outputs=produced, otlp_trace_id=trace, provider=provider, model=model)
 

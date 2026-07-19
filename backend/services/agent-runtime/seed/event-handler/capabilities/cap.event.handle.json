@@ -1,0 +1,27 @@
+{
+  "descriptor_version": "1.0",
+  "capability_id": "cap.event.handle",
+  "version": "1.0.0",
+  "title": "cap.event.handle",
+  "kind": "skill",
+  "side_effect": "read_only",
+  "idempotent": true,
+  "inputs": [],
+  "outputs": [
+    {
+      "name": "hnd",
+      "schema": "art.compose.val@^1.0.0"
+    }
+  ],
+  "runtime": {
+    "kind": "skill",
+    "entrypoint": "app.capabilities.composition:event_handle"
+  },
+  "constraints": {
+    "timeout_seconds": 30,
+    "max_retries": 0,
+    "min_hitl_mode": "none"
+  },
+  "owner": "platform",
+  "status": "active"
+}

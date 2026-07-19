@@ -94,25 +94,46 @@ def test_refused_under_lower_profiles():
     assert "bpmn_subprocess_unsupported" in _codes(m, "common_subset")
 
 
-def test_call_activity_deferred():
+def test_call_activity_executable_under_common_executable():
+    # ADR-039: callActivity is now inline-compiled cross-pack composition — executable under
+    # common_executable, refused only under common_subset (see tests/test_call_activity.py).
     inner = (
         '<bpmn:startEvent id="S"><bpmn:outgoing>f1</bpmn:outgoing></bpmn:startEvent>'
         '<bpmn:callActivity id="Call" calledElement="OtherProcess"><bpmn:incoming>f1</bpmn:incoming><bpmn:outgoing>f2</bpmn:outgoing></bpmn:callActivity>'
         '<bpmn:endEvent id="E"><bpmn:incoming>f2</bpmn:incoming></bpmn:endEvent>'
         '<bpmn:sequenceFlow id="f1" sourceRef="S" targetRef="Call"/>'
         '<bpmn:sequenceFlow id="f2" sourceRef="Call" targetRef="E"/>')
-    m, _ = parse(_doc(inner), "P", profile="subprocess")
-    assert "Call" in m.call_activities
-    assert "bpmn_call_activity_unsupported" in _codes(m, "subprocess")
+    m, _ = parse(_doc(inner), "P", profile="common_executable")
+    assert "Call" in m.call_activities and m.call_activities["Call"].target_pack == "OtherProcess"
+    assert "bpmn_call_activity_unsupported" not in _codes(m, "common_executable")
+    assert "bpmn_call_activity_unsupported" in _codes(m, "common_subset")
 
 
-def test_subprocess_boundary_deferred():
+def test_subprocess_error_boundary_now_wired():
+    # ADR-041: an error boundary on a subProcess is a scope-level routing fallback — wired into
+    # error_boundaries keyed by the subProcess id.
+    err = ('<bpmn:error id="Err" errorCode="SCOPE_FAIL"/>')
+    boundary = ('<bpmn:boundaryEvent id="Bnd" attachedToRef="Sub"><bpmn:errorEventDefinition errorRef="Err"/>'
+                '</bpmn:boundaryEvent><bpmn:sequenceFlow id="fb" sourceRef="Bnd" targetRef="E"/>')
+    xml = _embedded(sub_extra="").replace("</bpmn:process>", boundary + "</bpmn:process>")
+    xml = xml.replace("</bpmn:definitions>", err + "</bpmn:definitions>")
+    m, _ = parse(xml, "P", profile="common_executable")
+    ebs = m.error_boundaries.get("Sub", [])
+    assert len(ebs) == 1 and ebs[0].error_code == "SCOPE_FAIL" and ebs[0].target == "E"
+    assert "bpmn_subprocess_boundary_unsupported" not in _codes(m, "common_executable")
+
+
+def test_subprocess_timer_boundary_now_wired():
+    # ADR-041: a timer boundary on a subProcess is now a scope-wide SLA (was refused) — wired into
+    # boundary_timers keyed by the subProcess id, not the deferred subprocess_boundaries list.
     boundary = ('<bpmn:boundaryEvent id="Bnd" attachedToRef="Sub"><bpmn:timerEventDefinition>'
                 '<bpmn:timeDuration>PT1H</bpmn:timeDuration></bpmn:timerEventDefinition></bpmn:boundaryEvent>'
                 '<bpmn:sequenceFlow id="fb" sourceRef="Bnd" targetRef="E"/>')
-    m, _ = parse(_embedded(sub_extra="").replace("</bpmn:process>", boundary + "</bpmn:process>"), "P", profile="subprocess")
-    assert m.subprocess_boundaries == ["Bnd"]
-    assert "bpmn_subprocess_boundary_unsupported" in _codes(m, "subprocess")
+    m, _ = parse(_embedded(sub_extra="").replace("</bpmn:process>", boundary + "</bpmn:process>"), "P", profile="common_executable")
+    assert "Sub" in m.boundary_timers and m.boundary_timers["Sub"].target == "E"
+    assert m.subprocess_boundaries == []
+    assert "bpmn_subprocess_boundary_unsupported" not in _codes(m, "common_executable")
+    assert "bpmn_timer_boundary_host_unsupported" not in _codes(m, "common_executable")
 
 
 def test_substrate_constructs_flatten_inside_a_subprocess():

@@ -190,6 +190,16 @@ class ProcessEngine:
         if key in self._graphs:
             return self._graphs[key]
         bundle = await self.load_bundle(pack_key, version)
+        # ADR-039: pre-fetch every pinned callActivity callee bundle (recursively) so the pure/sync
+        # compiler can resolve them through an in-memory provider and inline-splice them.
+        await self._prefetch_callees(bundle, set())
+
+        def provider(pk: str, ver: str) -> PackBundle:
+            b = self._bundles.get((pk, ver))
+            if b is None:
+                raise KeyError(f"callee bundle {pk}@{ver} was not prefetched")
+            return b
+
         async with self._lock:
             if key in self._graphs:
                 return self._graphs[key]
@@ -197,9 +207,20 @@ class ProcessEngine:
                 bundle, self._executor,
                 simulation=self._settings.SIMULATION_MODE, checkpointer=self._checkpointer,
                 profile=getattr(self._settings, "EXECUTION_PROFILE", "common_subset"),
+                bundle_provider=provider,
             )
             self._graphs[key] = graph
             return graph
+
+    async def _prefetch_callees(self, bundle: PackBundle, seen: set) -> None:
+        """Recursively load a composite pack's pinned callee bundles into the bundle cache (ADR-039)."""
+        for ca in bundle.resolution.get("call_activities", []) or []:
+            pk, ver = ca.get("pack_key"), ca.get("version")
+            if not pk or not ver or (pk, ver) in seen:
+                continue
+            seen.add((pk, ver))
+            callee = await self.load_bundle(pk, ver)  # applies the PackNotActive / profile guards too
+            await self._prefetch_callees(callee, seen)
 
     def cached_bundle(self, pack_key: str, version: str) -> Optional[PackBundle]:
         return self._bundles.get((pack_key, version))

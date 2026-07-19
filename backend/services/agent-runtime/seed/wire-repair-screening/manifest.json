@@ -1,0 +1,96 @@
+{
+  "manifest_version": "1.0",
+  "pack_key": "wire-repair-screening",
+  "version": "1.0.0",
+  "title": "Wire Transfer Exception \u2014 Multi-party Screening + Reduce",
+  "description": "Demonstrates the multi-instance \u2192 reduce \u2192 gateway pattern (ADR-038): screen each party, reduce the list of party results to a hit summary, and branch a gateway on whether any party is a hit.",
+  "process": {
+    "bpmn_file": "wire-repair-screening.bpmn",
+    "process_id": "Process_WireRepairScreening",
+    "bpmn_sha256": "fc7f0de1f12cb5d34e7b0b65261b6c671a0a5233bcf4e7af5ab8d2d2eb192546"
+  },
+  "triage_rules": [
+    {
+      "rule_id": "wire-screening-demo",
+      "priority": 210,
+      "description": "Unable-to-apply pacs.008 wires routed through the multi-party screening demo pack.",
+      "when": {
+        "all": [
+          {
+            "field": "exception_type",
+            "op": "eq",
+            "value": "unable_to_apply"
+          },
+          {
+            "field": "payment.msg_type",
+            "op": "starts_with",
+            "value": "pacs.008"
+          }
+        ]
+      }
+    }
+  ],
+  "requires_capabilities": [
+    {
+      "ref": "cap.screening.screen_party@^1.0.0"
+    },
+    {
+      "ref": "cap.screening.reduce_hits@^1.0.0"
+    }
+  ],
+  "artifacts": [
+    "art.screening.party_result@^1.0.0",
+    "art.screening.summary@^1.0.0"
+  ],
+  "bindings": [
+    {
+      "element_id": "Task_Screen",
+      "element_kind": "serviceTask",
+      "executor": {
+        "type": "capability",
+        "capability": "cap.screening.screen_party@^1.0.0"
+      },
+      "hitl": {
+        "mode": "none"
+      },
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "screening",
+          "schema": "art.screening.party_result@^1.0.0"
+        }
+      ]
+    },
+    {
+      "element_id": "Task_Reduce",
+      "element_kind": "serviceTask",
+      "executor": {
+        "type": "capability",
+        "capability": "cap.screening.reduce_hits@^1.0.0"
+      },
+      "hitl": {
+        "mode": "none"
+      },
+      "inputs": [
+        {
+          "name": "screening",
+          "schema": "art.screening.party_result@^1.0.0"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "summary",
+          "schema": "art.screening.summary@^1.0.0"
+        }
+      ]
+    }
+  ],
+  "gateway_variables": [
+    {
+      "gateway_id": "Gateway_Hit",
+      "variable": "summary.matched",
+      "source_artifact": "art.screening.summary"
+    }
+  ],
+  "status": "draft"
+}

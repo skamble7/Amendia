@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:amendia="http://amendia.example/bpmn" id="Defs_Process_ComposeLeaf" targetNamespace="http://amendia.example/processes/Process_ComposeLeaf">
+  <bpmn:process id="Process_ComposeLeaf" isExecutable="true">
+    <bpmn:startEvent id="S"><bpmn:outgoing>f1</bpmn:outgoing></bpmn:startEvent>
+    <bpmn:serviceTask id="Task_Leaf" name="Leaf"><bpmn:incoming>f1</bpmn:incoming><bpmn:outgoing>f2</bpmn:outgoing></bpmn:serviceTask>
+    <bpmn:endEvent id="E"><bpmn:incoming>f2</bpmn:incoming></bpmn:endEvent>
+
+    <bpmn:sequenceFlow id="f1" sourceRef="S" targetRef="Task_Leaf"/>
+    <bpmn:sequenceFlow id="f2" sourceRef="Task_Leaf" targetRef="E"/>
+
+  </bpmn:process>
+</bpmn:definitions>

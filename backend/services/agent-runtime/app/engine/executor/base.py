@@ -36,6 +36,50 @@ class CapabilityBusinessError(Exception):
         super().__init__(f"business error: {error_code}")
 
 
+def business_error_from_object(obj: Any) -> Optional[CapabilityBusinessError]:
+    """ADR-035: detect the discriminated ``{"business_error": {"code": ..., "detail": {...}}}``
+    shape a *real* ``llm`` / ``deep_agent`` capability may return **in place of its artifact** to
+    signal a modeled business error, and build the matching :class:`CapabilityBusinessError`.
+
+    Returns ``None`` when ``obj`` is a normal artifact (not the discriminated shape) — the caller
+    then treats it as the produced output. ``code`` must be a non-empty string (a boundary
+    ``errorRef``); a malformed ``business_error`` (missing/blank code) is ignored (``None``) so a
+    capability cannot accidentally hijack the boundary channel with a half-formed object."""
+    if not isinstance(obj, dict):
+        return None
+    be = obj.get("business_error")
+    if not isinstance(be, dict):
+        return None
+    code = be.get("code")
+    if not isinstance(code, str) or not code.strip():
+        return None
+    detail = be.get("detail")
+    return CapabilityBusinessError(code, detail if isinstance(detail, dict) else {})
+
+
+class CancellationToken:
+    """ADR-040: a cooperative cancellation signal threaded to a capability under an in-process SLA
+    deadline (an interrupting timer boundary on a running ``serviceTask``).
+
+    LangGraph nodes are atomic supersteps — a running node cannot be externally preempted — so this is
+    **cooperative self-cancellation**: the node arms a deadline and, on breach, ``set()``s the token and
+    stops waiting for the capability (discarding its result). A well-behaved capability checks
+    :attr:`cancelled` at its natural checkpoints (between LLM turns / around a tool call) and returns
+    early; a runaway thread leaks until it finishes but its output is ignored. The flag is a plain bool
+    (single writer on breach, readers poll) — no lock needed."""
+
+    def __init__(self, deadline_seconds: Optional[float] = None) -> None:
+        self._cancelled = False
+        self.deadline_seconds = deadline_seconds
+
+    def set(self) -> None:
+        self._cancelled = True
+
+    @property
+    def cancelled(self) -> bool:
+        return self._cancelled
+
+
 def _run_blocking(coro: Any) -> Any:
     """Run an async coroutine to completion from sync code (the ADR-016 sync↔async bridge).
 
@@ -69,6 +113,10 @@ class ExecutionContext:
     approved_action_ids: Optional[List[str]] = None
     simulation: bool = True
     extras: Dict[str, Any] = field(default_factory=dict)
+    # ADR-040: a cooperative cancellation token when the host serviceTask carries an interrupting timer
+    # boundary (an in-process SLA deadline). ``None`` on the ordinary path (byte-unchanged). The real
+    # executor paths poll ``cancel.cancelled`` at their checkpoints; the sim path ignores it.
+    cancel: Optional[CancellationToken] = None
 
 
 @runtime_checkable

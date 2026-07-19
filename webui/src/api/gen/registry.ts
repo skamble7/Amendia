@@ -626,9 +626,9 @@ export interface components {
              * Element Kind
              * @enum {string}
              */
-            element_kind: "serviceTask" | "userTask" | "messageCatch" | "receiveTask" | "sendTask" | "scriptTask" | "manualTask" | "businessRuleTask";
+            element_kind: "serviceTask" | "userTask" | "messageCatch" | "receiveTask" | "sendTask" | "scriptTask" | "manualTask" | "businessRuleTask" | "callActivity";
             /** Executor */
-            executor: components["schemas"]["CapabilityExecutor"] | components["schemas"]["HumanExecutor"] | components["schemas"]["MessageExecutor"];
+            executor: components["schemas"]["CapabilityExecutor"] | components["schemas"]["HumanExecutor"] | components["schemas"]["MessageExecutor"] | components["schemas"]["CallExecutor"];
             hitl?: components["schemas"]["Hitl"] | null;
             /** Inputs */
             inputs?: components["schemas"]["ArtifactIO"][];
@@ -704,6 +704,38 @@ export interface components {
             /** User Tasks */
             user_tasks?: string[];
         };
+        /**
+         * CallExecutor
+         * @description ADR-039: a ``callActivity`` invokes **another pack** as a reusable sub-process (inline-compiled).
+         *     ``pack`` is the callee ``pack_key``; ``version`` a semver range pinned to an exact callee version at
+         *     activation (reproducible forever after). ``input_map`` maps each callee **input binding name** → a
+         *     dotpath into CALLER state (the source must be produced upstream); ``output_map`` maps a **caller
+         *     artifact name** → a callee **output binding name**. No HITL of its own (the callee's own HITL/SoD
+         *     run inline, in the caller instance); ``side_effect`` is derived from the callee (composition is as
+         *     side-effectful as what it calls).
+         */
+        CallExecutor: {
+            /** Input Map */
+            input_map?: {
+                [key: string]: string;
+            };
+            /** Output Map */
+            output_map?: {
+                [key: string]: string;
+            };
+            /** Pack */
+            pack: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "call";
+            /**
+             * Version
+             * @default ^1.0.0
+             */
+            version: string;
+        };
         /** CapabilityCandidate */
         CapabilityCandidate: {
             /**
@@ -749,7 +781,7 @@ export interface components {
             /** Owner */
             owner?: string | null;
             /** Runtime */
-            runtime: components["schemas"]["SkillRuntime"] | components["schemas"]["McpRuntime"] | components["schemas"]["LlmRuntime"] | components["schemas"]["DeepAgentRuntime"];
+            runtime: components["schemas"]["SkillRuntime"] | components["schemas"]["McpRuntime"] | components["schemas"]["LlmRuntime"] | components["schemas"]["DeepAgentRuntime"] | components["schemas"]["DecisionRuntime"] | components["schemas"]["ReduceRuntime"];
             side_effect: components["schemas"]["SideEffect"];
             status: components["schemas"]["CapabilityStatus"];
             /** Title */
@@ -777,7 +809,7 @@ export interface components {
          * CapabilityKind
          * @enum {string}
          */
-        CapabilityKind: "skill" | "mcp" | "llm" | "deep_agent";
+        CapabilityKind: "skill" | "mcp" | "llm" | "deep_agent" | "decision" | "reduce";
         /**
          * CapabilityStatus
          * @enum {string}
@@ -896,6 +928,26 @@ export interface components {
             id: string;
             /** Name */
             name?: string | null;
+        };
+        /**
+         * DecisionRuntime
+         * @description A native DMN decision (ADR-037). The decision **table** travels inline (normalized JSON),
+         *     pinned with the capability at activation — self-descriptive, like the ``mcp`` runtime (ADR-024),
+         *     so no separate DMN registry. Shape: ``{hit_policy, inputs:[{expression,type?}], outputs:[{name,
+         *     type?,priority_order?}], rules:[{when:[unary_test…], then:[value…], priority?}]}``. The table is
+         *     parsed + structurally validated by the shared evaluator (``amendia_bpmn.dmn``) — the registry
+         *     surfaces its findings as ``dmn_*`` codes, the runtime evaluates it against the bound inputs.
+         */
+        DecisionRuntime: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "decision";
+            /** Table */
+            table: {
+                [key: string]: unknown;
+            };
         };
         /**
          * DeepAgentBudget
@@ -1390,6 +1442,28 @@ export interface components {
             bpmn_sha256: string;
             /** Process Id */
             process_id: string;
+        };
+        /**
+         * ReduceRuntime
+         * @description A collection-reduction / summary capability (ADR-038). Collapses a **list** input artifact into
+         *     a scalar/summary output artifact a gateway can branch on — closing the ADR-036/037 "any/all over a
+         *     list" gap. The ``config`` travels inline (normalized JSON), pinned like any capability. Shape:
+         *     ``{op, source?, item_path?, predicate?, output_field}`` where ``op`` ∈ quantifiers (``any``/``all``/
+         *     ``none``), ``count``, numeric (``sum``/``min``/``max``/``avg``), positional (``first``/``last``); the
+         *     per-item ``predicate`` reuses the bounded DMN unary-test surface (``amendia_bpmn.dmn``) — one FEEL
+         *     surface, no new mini-language. The registry surfaces its findings as ``reduce_*`` codes; the runtime
+         *     evaluates it against the bound list input.
+         */
+        ReduceRuntime: {
+            /** Config */
+            config: {
+                [key: string]: unknown;
+            };
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "reduce";
         };
         /** RequiresCapability */
         RequiresCapability: {

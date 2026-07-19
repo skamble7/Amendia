@@ -347,7 +347,8 @@
               "sendTask",
               "scriptTask",
               "manualTask",
-              "businessRuleTask"
+              "businessRuleTask",
+              "callActivity"
             ],
             "title": "Element Kind",
             "type": "string"
@@ -355,6 +356,7 @@
           "executor": {
             "discriminator": {
               "mapping": {
+                "call": "#/components/schemas/CallExecutor",
                 "capability": "#/components/schemas/CapabilityExecutor",
                 "human": "#/components/schemas/HumanExecutor",
                 "message": "#/components/schemas/MessageExecutor"
@@ -370,6 +372,9 @@
               },
               {
                 "$ref": "#/components/schemas/MessageExecutor"
+              },
+              {
+                "$ref": "#/components/schemas/CallExecutor"
               }
             ],
             "title": "Executor"
@@ -599,6 +604,47 @@
         "title": "BpmnInventory",
         "type": "object"
       },
+      "CallExecutor": {
+        "additionalProperties": false,
+        "description": "ADR-039: a ``callActivity`` invokes **another pack** as a reusable sub-process (inline-compiled).\n``pack`` is the callee ``pack_key``; ``version`` a semver range pinned to an exact callee version at\nactivation (reproducible forever after). ``input_map`` maps each callee **input binding name** \u2192 a\ndotpath into CALLER state (the source must be produced upstream); ``output_map`` maps a **caller\nartifact name** \u2192 a callee **output binding name**. No HITL of its own (the callee's own HITL/SoD\nrun inline, in the caller instance); ``side_effect`` is derived from the callee (composition is as\nside-effectful as what it calls).",
+        "properties": {
+          "input_map": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Input Map",
+            "type": "object"
+          },
+          "output_map": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Output Map",
+            "type": "object"
+          },
+          "pack": {
+            "pattern": "^[a-z][a-z0-9-]*$",
+            "title": "Pack",
+            "type": "string"
+          },
+          "type": {
+            "const": "call",
+            "title": "Type",
+            "type": "string"
+          },
+          "version": {
+            "default": "^1.0.0",
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "pack"
+        ],
+        "title": "CallExecutor",
+        "type": "object"
+      },
       "CapabilityCandidate": {
         "properties": {
           "kind_hint": {
@@ -727,9 +773,11 @@
           "runtime": {
             "discriminator": {
               "mapping": {
+                "decision": "#/components/schemas/DecisionRuntime",
                 "deep_agent": "#/components/schemas/DeepAgentRuntime",
                 "llm": "#/components/schemas/LlmRuntime",
                 "mcp": "#/components/schemas/McpRuntime",
+                "reduce": "#/components/schemas/ReduceRuntime",
                 "skill": "#/components/schemas/SkillRuntime"
               },
               "propertyName": "kind"
@@ -746,6 +794,12 @@
               },
               {
                 "$ref": "#/components/schemas/DeepAgentRuntime"
+              },
+              {
+                "$ref": "#/components/schemas/DecisionRuntime"
+              },
+              {
+                "$ref": "#/components/schemas/ReduceRuntime"
               }
             ],
             "title": "Runtime"
@@ -822,7 +876,9 @@
           "skill",
           "mcp",
           "llm",
-          "deep_agent"
+          "deep_agent",
+          "decision",
+          "reduce"
         ],
         "title": "CapabilityKind",
         "type": "string"
@@ -1123,6 +1179,28 @@
           "id"
         ],
         "title": "DataObjectSummary",
+        "type": "object"
+      },
+      "DecisionRuntime": {
+        "additionalProperties": false,
+        "description": "A native DMN decision (ADR-037). The decision **table** travels inline (normalized JSON),\npinned with the capability at activation \u2014 self-descriptive, like the ``mcp`` runtime (ADR-024),\nso no separate DMN registry. Shape: ``{hit_policy, inputs:[{expression,type?}], outputs:[{name,\ntype?,priority_order?}], rules:[{when:[unary_test\u2026], then:[value\u2026], priority?}]}``. The table is\nparsed + structurally validated by the shared evaluator (``amendia_bpmn.dmn``) \u2014 the registry\nsurfaces its findings as ``dmn_*`` codes, the runtime evaluates it against the bound inputs.",
+        "properties": {
+          "kind": {
+            "const": "decision",
+            "title": "Kind",
+            "type": "string"
+          },
+          "table": {
+            "additionalProperties": true,
+            "title": "Table",
+            "type": "object"
+          }
+        },
+        "required": [
+          "kind",
+          "table"
+        ],
+        "title": "DecisionRuntime",
         "type": "object"
       },
       "DeepAgentBudget": {
@@ -2585,6 +2663,28 @@
           "bpmn_sha256"
         ],
         "title": "ProcessRef",
+        "type": "object"
+      },
+      "ReduceRuntime": {
+        "additionalProperties": false,
+        "description": "A collection-reduction / summary capability (ADR-038). Collapses a **list** input artifact into\na scalar/summary output artifact a gateway can branch on \u2014 closing the ADR-036/037 \"any/all over a\nlist\" gap. The ``config`` travels inline (normalized JSON), pinned like any capability. Shape:\n``{op, source?, item_path?, predicate?, output_field}`` where ``op`` \u2208 quantifiers (``any``/``all``/\n``none``), ``count``, numeric (``sum``/``min``/``max``/``avg``), positional (``first``/``last``); the\nper-item ``predicate`` reuses the bounded DMN unary-test surface (``amendia_bpmn.dmn``) \u2014 one FEEL\nsurface, no new mini-language. The registry surfaces its findings as ``reduce_*`` codes; the runtime\nevaluates it against the bound list input.",
+        "properties": {
+          "config": {
+            "additionalProperties": true,
+            "title": "Config",
+            "type": "object"
+          },
+          "kind": {
+            "const": "reduce",
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "config"
+        ],
+        "title": "ReduceRuntime",
         "type": "object"
       },
       "RequiresCapability": {

@@ -1,0 +1,72 @@
+{
+  "manifest_version": "1.0",
+  "pack_key": "payment-compensation",
+  "version": "1.0.0",
+  "title": "Payment compensation demo",
+  "description": "ADR-043 compensation (explicit compensate-throw + reverse-order undo) demo.",
+  "process": {
+    "bpmn_file": "payment-compensation.bpmn",
+    "process_id": "Process_PaymentComp",
+    "bpmn_sha256": "c7b3e19e146d6bf72e383b6e8244f5eddc70ff56a07748987eee46a4f0435eed"
+  },
+  "triage_rules": [
+    {
+      "rule_id": "payment-comp-rule",
+      "priority": 300,
+      "description": "demo",
+      "when": {
+        "all": [
+          {
+            "field": "exception_type",
+            "op": "eq",
+            "value": "unable_to_apply"
+          }
+        ]
+      }
+    }
+  ],
+  "requires_capabilities": [
+    {"ref": "cap.pay.release@^1.0.0"},
+    {"ref": "cap.pay.debit@^1.0.0"},
+    {"ref": "cap.pay.reverse_release@^1.0.0"},
+    {"ref": "cap.pay.reverse_debit@^1.0.0"}
+  ],
+  "artifacts": [
+    "art.pay.val@^1.0.0"
+  ],
+  "bindings": [
+    {
+      "element_id": "Release",
+      "element_kind": "serviceTask",
+      "executor": {"type": "capability", "capability": "cap.pay.release@^1.0.0"},
+      "hitl": {"mode": "approve_actions", "role": "role.payments.ops_approver"},
+      "inputs": [],
+      "outputs": [{"name": "rel", "schema": "art.pay.val@^1.0.0"}]
+    },
+    {
+      "element_id": "Debit",
+      "element_kind": "serviceTask",
+      "executor": {"type": "capability", "capability": "cap.pay.debit@^1.0.0"},
+      "hitl": {"mode": "approve_actions", "role": "role.payments.ops_approver"},
+      "inputs": [],
+      "outputs": [{"name": "dbt", "schema": "art.pay.val@^1.0.0"}]
+    },
+    {
+      "element_id": "ReverseRelease",
+      "element_kind": "serviceTask",
+      "executor": {"type": "capability", "capability": "cap.pay.reverse_release@^1.0.0"},
+      "hitl": {"mode": "approve_actions", "role": "role.payments.ops_approver"},
+      "inputs": [],
+      "outputs": []
+    },
+    {
+      "element_id": "ReverseDebit",
+      "element_kind": "serviceTask",
+      "executor": {"type": "capability", "capability": "cap.pay.reverse_debit@^1.0.0"},
+      "hitl": {"mode": "approve_actions", "role": "role.payments.ops_approver"},
+      "inputs": [],
+      "outputs": []
+    }
+  ],
+  "status": "draft"
+}

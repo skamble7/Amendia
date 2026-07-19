@@ -1,0 +1,32 @@
+{
+  "descriptor_version": "1.0",
+  "capability_id": "cap.compose.leaf",
+  "version": "1.0.0",
+  "title": "cap.compose.leaf",
+  "kind": "skill",
+  "side_effect": "read_only",
+  "idempotent": true,
+  "inputs": [
+    {
+      "name": "inp",
+      "schema": "art.compose.val@^1.0.0"
+    }
+  ],
+  "outputs": [
+    {
+      "name": "leafout",
+      "schema": "art.compose.val@^1.0.0"
+    }
+  ],
+  "runtime": {
+    "kind": "skill",
+    "entrypoint": "app.capabilities.composition:leaf"
+  },
+  "constraints": {
+    "timeout_seconds": 30,
+    "max_retries": 0,
+    "min_hitl_mode": "none"
+  },
+  "owner": "platform",
+  "status": "active"
+}

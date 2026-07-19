@@ -1,0 +1,99 @@
+{
+  "manifest_version": "1.0",
+  "pack_key": "scope-sla",
+  "version": "1.0.0",
+  "title": "Scope SLA demo",
+  "description": "ADR-041 subProcess timer/error boundary demo.",
+  "process": {
+    "bpmn_file": "scope-sla.bpmn",
+    "process_id": "Process_ScopeSla",
+    "bpmn_sha256": "1afb7497bcb7e1b7036390cd8a936d008f552b8d689858f297b083e096b30db8"
+  },
+  "triage_rules": [
+    {
+      "rule_id": "scope-sla-rule",
+      "priority": 300,
+      "description": "demo",
+      "when": {
+        "all": [
+          {
+            "field": "exception_type",
+            "op": "eq",
+            "value": "unable_to_apply"
+          }
+        ]
+      }
+    }
+  ],
+  "requires_capabilities": [
+    {
+      "ref": "cap.scope.sa@^1.0.0"
+    },
+    {
+      "ref": "cap.scope.sb@^1.0.0"
+    },
+    {
+      "ref": "cap.scope.sc@^1.0.0"
+    }
+  ],
+  "artifacts": [
+    "art.compose.val@^1.0.0"
+  ],
+  "bindings": [
+    {
+      "element_id": "TaskA",
+      "element_kind": "serviceTask",
+      "executor": {
+        "type": "capability",
+        "capability": "cap.scope.sa@^1.0.0"
+      },
+      "hitl": {
+        "mode": "none"
+      },
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "a",
+          "schema": "art.compose.val@^1.0.0"
+        }
+      ]
+    },
+    {
+      "element_id": "TaskB",
+      "element_kind": "serviceTask",
+      "executor": {
+        "type": "capability",
+        "capability": "cap.scope.sb@^1.0.0"
+      },
+      "hitl": {
+        "mode": "none"
+      },
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "b",
+          "schema": "art.compose.val@^1.0.0"
+        }
+      ]
+    },
+    {
+      "element_id": "TaskC",
+      "element_kind": "serviceTask",
+      "executor": {
+        "type": "capability",
+        "capability": "cap.scope.sc@^1.0.0"
+      },
+      "hitl": {
+        "mode": "none"
+      },
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "c",
+          "schema": "art.compose.val@^1.0.0"
+        }
+      ]
+    }
+  ],
+  "status": "draft"
+}

@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" id="Defs_EventHandler" targetNamespace="http://amendia.example/processes/event-handler">
+  <bpmn:process id="Process_EventHandler" isExecutable="true">
+    <bpmn:startEvent id="S"><bpmn:outgoing>f1</bpmn:outgoing></bpmn:startEvent>
+    <bpmn:serviceTask id="Screen" name="Screen"><bpmn:incoming>f1</bpmn:incoming><bpmn:outgoing>f2</bpmn:outgoing></bpmn:serviceTask>
+    <bpmn:endEvent id="End_Done"><bpmn:incoming>f2</bpmn:incoming></bpmn:endEvent>
+    <bpmn:sequenceFlow id="f1" sourceRef="S" targetRef="Screen"/>
+    <bpmn:sequenceFlow id="f2" sourceRef="Screen" targetRef="End_Done"/>
+    <bpmn:subProcess id="ESP" name="On SLA breach" triggeredByEvent="true">
+      <bpmn:startEvent id="eS"><bpmn:timerEventDefinition><bpmn:timeDuration>PT2H</bpmn:timeDuration></bpmn:timerEventDefinition><bpmn:outgoing>ef1</bpmn:outgoing></bpmn:startEvent>
+      <bpmn:serviceTask id="Handle" name="Handle"><bpmn:incoming>ef1</bpmn:incoming><bpmn:outgoing>ef2</bpmn:outgoing></bpmn:serviceTask>
+      <bpmn:endEvent id="eEnd"><bpmn:incoming>ef2</bpmn:incoming></bpmn:endEvent>
+      <bpmn:sequenceFlow id="ef1" sourceRef="eS" targetRef="Handle"/>
+      <bpmn:sequenceFlow id="ef2" sourceRef="Handle" targetRef="eEnd"/>
+    </bpmn:subProcess>
+  </bpmn:process>
+</bpmn:definitions>

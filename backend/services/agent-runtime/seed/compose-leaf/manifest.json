@@ -1,0 +1,62 @@
+{
+  "manifest_version": "1.0",
+  "pack_key": "compose-leaf",
+  "version": "1.0.0",
+  "title": "Composition demo \u2014 compose-leaf",
+  "description": "ADR-039 cross-pack composition demo pack.",
+  "process": {
+    "bpmn_file": "compose-leaf.bpmn",
+    "process_id": "Process_ComposeLeaf",
+    "bpmn_sha256": "e0e98cccbcabd0609d1302a98e942e21162d15ccaf4b105c464084db3eb3226f"
+  },
+  "triage_rules": [
+    {
+      "rule_id": "compose-leaf-rule",
+      "priority": 300,
+      "description": "demo",
+      "when": {
+        "all": [
+          {
+            "field": "exception_type",
+            "op": "eq",
+            "value": "unable_to_apply"
+          }
+        ]
+      }
+    }
+  ],
+  "requires_capabilities": [
+    {
+      "ref": "cap.compose.leaf@^1.0.0"
+    }
+  ],
+  "artifacts": [
+    "art.compose.val@^1.0.0"
+  ],
+  "bindings": [
+    {
+      "element_id": "Task_Leaf",
+      "element_kind": "serviceTask",
+      "executor": {
+        "type": "capability",
+        "capability": "cap.compose.leaf@^1.0.0"
+      },
+      "hitl": {
+        "mode": "none"
+      },
+      "inputs": [
+        {
+          "name": "inp",
+          "schema": "art.compose.val@^1.0.0"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "leafout",
+          "schema": "art.compose.val@^1.0.0"
+        }
+      ]
+    }
+  ],
+  "status": "draft"
+}

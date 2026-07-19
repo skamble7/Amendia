@@ -1,0 +1,18 @@
+{
+  "descriptor_version": "1.0",
+  "capability_id": "cap.screening.screen_party",
+  "version": "1.0.0",
+  "title": "Screen one party",
+  "description": "Read-only per-party screen (marker-based stub). Bound behind a multi-instance activity to screen each party, yielding a list of party_results.",
+  "kind": "skill",
+  "side_effect": "read_only",
+  "idempotent": true,
+  "inputs": [],
+  "outputs": [
+    { "name": "screening", "schema": "art.screening.party_result@^1.0.0" }
+  ],
+  "runtime": { "kind": "skill", "entrypoint": "app.capabilities.screening:screen_party" },
+  "constraints": { "timeout_seconds": 30, "max_retries": 0, "min_hitl_mode": "none" },
+  "owner": "platform",
+  "status": "active"
+}

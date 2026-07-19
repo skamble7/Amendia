@@ -16,6 +16,8 @@ pass.
 from __future__ import annotations
 
 import logging
+import time
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional
 
@@ -23,11 +25,22 @@ from jsonschema import Draft202012Validator
 from langchain_core.runnables import RunnableConfig
 from langgraph.types import interrupt
 
+from amendia_bpmn import parse_iso_duration
 from amendia_contracts.capability import CapabilityDescriptor
-from app.engine.executor import CapabilityBusinessError, CapabilityError, ExecutionContext, Executor
-from app.engine.state import actor_entry
+from app.engine.executor import (
+    CancellationToken,
+    CapabilityBusinessError,
+    CapabilityError,
+    ExecutionContext,
+    Executor,
+)
+from app.engine.state import actor_entry, now_iso
 
 logger = logging.getLogger(__name__)
+
+# ADR-040: how often (real seconds) the deadline loop re-reads the injected clock while waiting on a
+# running capability. Small enough to be responsive, large enough not to busy-spin.
+_DEADLINE_POLL_SECONDS = 0.02
 
 
 class NodeExecutionError(Exception):
@@ -70,16 +83,36 @@ class NodeContext:
     # ADR-031 (Phase 2.4): the business message a message catch / receive element awaits (message
     # executor only). Correlation anchor is the instance's exception_id/correlation_id + this name.
     message_name: Optional[str] = None
+    # ADR-035: the error boundary codes attached to this element (its wired errorRefs, catch-all
+    # dropped). Threaded into the executor (extras["error_codes"]) so a real llm/mcp/deep_agent path
+    # can emit/label a legal modeled business error. Empty when the element has no error boundary.
+    error_codes: List[str] = field(default_factory=list)
+    # ADR-043 (Item G): set on a COMPENSABLE primary — the id of its compensation handler activity + the
+    # enclosing scope. When such a node commits its side effect, ``_commit`` appends a compensation-log
+    # entry (so a later compensate throw can reverse it). ``None`` on a non-compensable node.
+    compensate_handler_id: Optional[str] = None
+    compensate_scope: Optional[str] = None
 
 
-def make_task_node(ctx: NodeContext, executor: Executor, *, simulation: bool) -> Callable:
+def make_task_node(ctx: NodeContext, executor: Executor, *, simulation: bool,
+                   boundary_timer: Optional[Any] = None,
+                   clock: Optional[Callable[[], float]] = None,
+                   scope_timers: Optional[List[Any]] = None) -> Callable:
     # ``config`` is injected by LangGraph; its thread id is the process_instance_id, which
     # the executor uses to scope per-instance memoization (ADR-019). Purely additive — with
     # memoization off (native default) it is unused.
+    # ADR-040: ``boundary_timer`` (set only for a capability serviceTask host with an interrupting
+    # timer boundary) arms an in-process SLA deadline on this node's own execution, measured by the
+    # injected ``clock``. ADR-041: ``scope_timers`` is a list of ``(scope_id, duration_seconds)`` for
+    # each enclosing subProcess timer boundary — the node also runs under the remaining scope budget
+    # (read from ``state.scope_deadlines``). ``None``/empty → the ordinary path (byte-unchanged).
+    _clock = clock or time.monotonic
+
     def node(state: Dict[str, Any], config: Optional[RunnableConfig] = None) -> Dict[str, Any]:
         pid = ((config or {}).get("configurable") or {}).get("thread_id")
         try:
-            return _run_node(ctx, executor, simulation, state, pid)
+            return _run_node(ctx, executor, simulation, state, pid,
+                             boundary_timer=boundary_timer, clock=_clock, scope_timers=scope_timers)
         except CapabilityBusinessError as exc:
             # ADR-030 (Phase 2.3): a MODELED business error. Mark the error boundary so the post-node
             # conditional edge routes to the matching (or catch-all) boundary target; the instance
@@ -99,7 +132,9 @@ def make_task_node(ctx: NodeContext, executor: Executor, *, simulation: bool) ->
 
 # --------------------------------------------------------------------------- #
 def _run_node(ctx: NodeContext, executor: Executor, simulation: bool, state: Dict[str, Any],
-              pid: Optional[str] = None) -> Dict[str, Any]:
+              pid: Optional[str] = None, *, boundary_timer: Optional[Any] = None,
+              clock: Optional[Callable[[], float]] = None,
+              scope_timers: Optional[List[Any]] = None) -> Dict[str, Any]:
     envelope = state["envelope"]
     inputs = _gather_inputs(ctx, state)
 
@@ -118,8 +153,59 @@ def _run_node(ctx: NodeContext, executor: Executor, simulation: bool, state: Dic
             f"{ctx.element_id}: deep_agent capability must be behind a HITL gate, not 'none'",
             reason="deep_agent_ungated",
         )
+    # ADR-040/041: an interrupting timer boundary on this running serviceTask (own) and/or the remaining
+    # budget of every enclosing subProcess timer scope → self-enforce the EARLIEST deadline. On breach:
+    # commit nothing, mark the boundary channel (own → element_id; scope → scope_id), route to the target.
+    _clock = clock or time.monotonic
+    deadlines: List[tuple] = []   # (absolute_deadline, breach_key, nominal_seconds)
+    if boundary_timer is not None:
+        dur = parse_iso_duration(boundary_timer.timer.value).total_seconds()
+        deadlines.append((_clock() + dur, ctx.element_id, dur))
+    for scope_id, scope_seconds in (scope_timers or []):
+        sd = (state.get("scope_deadlines") or {}).get(scope_id)
+        if sd is not None:
+            deadlines.append((sd, scope_id, scope_seconds))
+    if deadlines:
+        return _run_autonomous_with_deadline(ctx, executor, simulation, envelope, inputs, pid,
+                                             deadlines, _clock)
     committed, meta = _produce_outputs(ctx, executor, simulation, envelope, inputs, mode="execute", pid=pid)
     return _commit(ctx, committed, actor=_cap_id(ctx), kind="capability", cap_meta=meta)
+
+
+def _run_autonomous_with_deadline(ctx, executor, simulation, envelope, inputs, pid,
+                                  deadlines, clock) -> Dict[str, Any]:
+    """ADR-040/041: run the autonomous capability under the EARLIEST of the supplied deadlines
+    (``[(absolute, breach_key, seconds)]`` — a node's own timer boundary and/or its enclosing scope
+    budgets), measured by the injected ``clock``. Runs execute+validate (the retry loop shares the one
+    budget) in a worker; on breach, ``set()`` the cancellation token, **discard** the result
+    (all-or-nothing — no partial artifact), and write only ``boundary[breach_key] = {"kind":"timer"}``
+    (``breach_key`` = the node for its own boundary, the subProcess id for a scope) so the existing
+    router routes to the boundary handler. The abandoned thread is cooperative — a well-behaved
+    capability sees ``token.cancelled`` and returns early."""
+    deadline, breach_key, seconds = min(deadlines, key=lambda d: d[0])
+    token = CancellationToken(deadline_seconds=seconds)
+    is_scope = breach_key != ctx.element_id
+    pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix=f"sla-{ctx.element_id}")
+    try:
+        future = pool.submit(_produce_outputs, ctx, executor, simulation, envelope, inputs,
+                             mode="execute", pid=pid, token=token)
+        while True:
+            try:
+                committed, meta = future.result(timeout=_DEADLINE_POLL_SECONDS)
+                return _commit(ctx, committed, actor=_cap_id(ctx), kind="capability", cap_meta=meta)
+            except FuturesTimeout:
+                if clock() >= deadline:
+                    token.set()  # cooperative: the capability may see this and return early
+                    logger.warning("[%s] %s SLA timer boundary breached (~%.0fs) — cancelled, no commit",
+                                   ctx.element_id, "scope" if is_scope else "node", seconds)
+                    meta = {"scope": breach_key} if is_scope else {"sla_breach_seconds": seconds}
+                    return {
+                        "boundary": {breach_key: {"kind": "timer"}},
+                        "actor_log": [actor_entry(breach_key, "timer", "timer", meta=meta)],
+                    }
+    finally:
+        # Never block the graph on a runaway capability thread — its output is discarded either way.
+        pool.shutdown(wait=False)
 
 
 # --------------------------------------------------------------------------- #
@@ -149,9 +235,10 @@ def _is_deep_agent(ctx: NodeContext) -> bool:
 
 
 def _run_capability(ctx: NodeContext, descriptor, executor, simulation, envelope, inputs, *,
-                    mode, approved=None, pid=None, attempt=0):
+                    mode, approved=None, pid=None, attempt=0, token=None):
     exec_ctx = ExecutionContext(
         envelope=envelope, mode=mode, approved_action_ids=approved, simulation=simulation,
+        cancel=token,  # ADR-040: cooperative cancellation token (None on the ordinary path)
         # Hand the declared output JSON Schemas to the executor so the real LLM path
         # can constrain generation to schema-valid artifacts (ignored in simulation).
         # ``element_id`` lets a sandbox tag its OTLP trace to the element (nemoclaw mode);
@@ -161,6 +248,8 @@ def _run_capability(ctx: NodeContext, descriptor, executor, simulation, envelope
             "element_id": ctx.element_id,
             "process_instance_id": pid,
             "memo_attempt": attempt,
+            # ADR-035: the element's legal error boundary codes for the real llm/mcp/deep_agent path.
+            "error_codes": ctx.error_codes,
         },
     )
     return executor.execute(descriptor, inputs, exec_ctx)
@@ -176,7 +265,7 @@ def _validate(spec: OutputSpec, data: Any) -> Optional[str]:
 
 
 def _produce_outputs(ctx, executor, simulation, envelope, inputs, *, mode, approved=None,
-                     pid=None, memo_attempt=0):
+                     pid=None, memo_attempt=0, token=None):
     """Run execute + validate, retrying per the descriptor's idempotency policy.
 
     Returns ``({binding_output_name: data}, exec_meta_or_None)`` — ``exec_meta`` is the
@@ -198,7 +287,7 @@ def _produce_outputs(ctx, executor, simulation, envelope, inputs, *, mode, appro
     for attempt in range(exec_attempts):
         try:
             result = _run_capability(ctx, descriptor, executor, simulation, envelope, inputs,
-                                     mode=mode, approved=approved, pid=pid, attempt=memo_attempt)
+                                     mode=mode, approved=approved, pid=pid, attempt=memo_attempt, token=token)
         except CapabilityError as exc:
             last_err = str(exc)
             logger.warning("execute error for %s (attempt %d/%d): %s",
@@ -218,7 +307,7 @@ def _produce_outputs(ctx, executor, simulation, envelope, inputs, *, mode, appro
             logger.warning("output schema-invalid for %s; retrying once: %s", ctx.element_id, verr)
             try:
                 result = _run_capability(ctx, descriptor, executor, simulation, envelope, inputs,
-                                         mode=mode, approved=approved, pid=pid, attempt=memo_attempt)
+                                         mode=mode, approved=approved, pid=pid, attempt=memo_attempt, token=token)
             except CapabilityError as exc:
                 raise NodeExecutionError(f"{ctx.element_id}: {exc}", reason="execution_error") from exc
             committed, verr2 = _map_and_validate(ctx, result.get("outputs", {}) or {})
@@ -255,7 +344,20 @@ def _commit(ctx: NodeContext, committed: Dict[str, Any], *, actor: str, kind: st
     # entry only when it is the capability itself; human-primary paths pass the capability's
     # meta on its own ``extra_actors`` entry.
     log.append(actor_entry(ctx.element_id, actor, kind, meta=cap_meta if kind == "capability" else None))
-    return {"artifacts": committed, "actor_log": log}
+    delta: Dict[str, Any] = {"artifacts": committed, "actor_log": log}
+    # ADR-043 (Item G): a compensable primary appends a compensation-log entry on commit — the snapshot
+    # (its committed outputs) is what a later compensate throw hands the undo handler. Append-only, so a
+    # re-run of this node (idempotent capability) simply re-appends an identical entry keyed by
+    # activity_id; the throw driver de-dupes by activity via ``compensations_done``.
+    if ctx.compensate_handler_id is not None:
+        delta["compensation_log"] = [{
+            "activity_id": ctx.element_id,
+            "handler_id": ctx.compensate_handler_id,
+            "scope": ctx.compensate_scope,
+            "snapshot": committed,
+            "at": now_iso(),
+        }]
+    return delta
 
 
 # --------------------------------------------------------------------------- #

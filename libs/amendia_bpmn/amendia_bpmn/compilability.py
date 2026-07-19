@@ -34,6 +34,8 @@ EXECUTION_PROFILES: List[str] = [COMMON_SUBSET, COMMON_EXECUTABLE]
 # Retired granular levels → the top level. Aliases keep the per-construct predicates below reading
 # naturally (each ``needed = PARALLEL`` etc. resolves to ``common_executable``).
 PARALLEL = TIMERS = ERROR_BOUNDARY = MESSAGES = SUBPROCESS = TASKS = COMMON_EXECUTABLE
+MULTI_INSTANCE = COMMON_EXECUTABLE  # ADR-036 (Backlog #3) — MI activities run only at the top level
+CALL_ACTIVITY = COMMON_EXECUTABLE   # ADR-039 (Backlog #1) — cross-pack composition, inline-compiled
 _RETIRED = {"parallel", "timers", "error_boundary", "messages", "subprocess", "tasks"}
 
 
@@ -64,6 +66,10 @@ def required_profile(model: BpmnModel) -> str:
         or model.error_boundaries
         or model.message_catch_events or model.receive_tasks or model.event_based_gateways
         or model.subprocesses
+        or model.event_subprocesses
+        or model.multi_instance
+        or model.call_activities
+        or model.compensate_throws or model.compensation_handlers
         or any(k in EXTENDED_TASK_KINDS for k in model.tasks.values())
     )
     return COMMON_EXECUTABLE if beyond_subset else COMMON_SUBSET
@@ -134,13 +140,17 @@ def compilability_findings(model: BpmnModel, *, profile: str = COMMON_SUBSET) ->
             out.extend(_message_structure_findings(model))
 
     # Embedded sub-processes (Phase 2.6) run only under the "subprocess" profile (they inline into the
-    # parent graph). callActivity and sub-process boundary events are ALWAYS refused (deferred).
-    for ca in model.call_activities:
-        out.append(Finding(
-            "bpmn_call_activity_unsupported",
-            f"callActivity '{ca}' (reusable/called process) is not supported — cross-pack composition "
-            f"is a separate design (deferred)",
-            element_id=ca, severity="error"))
+    # parent graph). Sub-process boundary events are ALWAYS refused (deferred).
+    # callActivity (ADR-039) runs under common_executable — inline-compiled cross-pack composition.
+    if model.call_activities:
+        if profile_rank(profile) < profile_rank(CALL_ACTIVITY):
+            out.append(Finding(
+                "bpmn_call_activity_unsupported",
+                f"callActivity (cross-pack composition) not supported for execution under profile "
+                f"'{profile}' (requires the '{CALL_ACTIVITY}' profile): {sorted(model.call_activities)}",
+                element_id=next(iter(model.call_activities)), severity="error"))
+        else:
+            out.extend(_call_activity_findings(model))
     for bid in model.subprocess_boundaries:
         out.append(Finding(
             "bpmn_subprocess_boundary_unsupported",
@@ -153,6 +163,34 @@ def compilability_findings(model: BpmnModel, *, profile: str = COMMON_SUBSET) ->
             f"embedded sub-process not supported for execution under profile '{profile}' "
             f"(requires the '{SUBPROCESS}' profile): {sorted(model.subprocesses)}",
             element_id=next(iter(model.subprocesses)), severity="error"))
+
+    # Event sub-processes (ADR-042, Item F): a triggeredByEvent subProcess is a scope-wide handler.
+    # An interrupting error/timer start runs (its handler is registered onto the enclosing scope's
+    # boundary map by the parser, reusing ADR-041's router); a message/signal/escalation or a
+    # non-interrupting start is refused, and two handlers of the same trigger on one scope are
+    # ambiguous. These are always-refusals (like a sub-process boundary), independent of profile.
+    if model.event_subprocesses:
+        out.extend(_event_subprocess_findings(model))
+
+    # Compensation (ADR-043, Item G): explicit compensate-throw + reverse-order undo. The core is
+    # executable; the always-refusals cover the deferred variants (transaction/cancel auto-compensation,
+    # targeted activityRef, multi-instance), and a throw with nothing to compensate is a no-op warning.
+    if model.compensate_throws or model.compensation_handlers:
+        out.extend(_compensation_findings(model))
+
+    # Multi-instance activities (ADR-036) run only under common_executable. Under it, each must be
+    # structurally sound (bounded N; on a task, not a sub-process; not nested). callActivity/subprocess-
+    # boundary style ALWAYS-refusals for MI (on a sub-process, nested) are emitted by the findings below.
+    if model.multi_instance:
+        if profile_rank(profile) < profile_rank(MULTI_INSTANCE):
+            first = next(iter(model.multi_instance))
+            out.append(Finding(
+                "bpmn_multi_instance_unsupported",
+                f"multi-instance activities not supported for execution under profile '{profile}' "
+                f"(requires the '{MULTI_INSTANCE}' profile): {sorted(model.multi_instance)}",
+                element_id=first, severity="error"))
+        else:
+            out.extend(_multi_instance_findings(model))
 
     # Extended task kinds (Phase 2.7) run only under the "tasks" profile. An inline <script> body on a
     # scriptTask is ALWAYS refused (arbitrary code violates the capability/audit model — bind a skill).
@@ -181,8 +219,11 @@ def compilability_findings(model: BpmnModel, *, profile: str = COMMON_SUBSET) ->
                 element_id=fl.source, severity="error",
             ))
 
-    # Exactly one outgoing flow per task (the router/edge is single-valued).
+    # Exactly one outgoing flow per task (the router/edge is single-valued). ADR-043: a compensation
+    # handler activity is OFF the sequence flow (invoked by a compensate throw, not wired) — skip it.
     for tid in model.tasks:
+        if tid in model.compensation_handlers:
+            continue
         n = len(model.outgoing(tid))
         if n != 1:
             out.append(Finding(
@@ -226,13 +267,18 @@ def _timer_structure_findings(model: BpmnModel) -> List[Finding]:
                 f"timer boundary '{bt.id}' has no resolvable schedule "
                 f"(need timeDuration/timeDate; timeCycle is not supported)",
                 element_id=bt.id, severity="error"))
-        # The boundary guards a HITL gate — any human-category host (userTask or manualTask). A
-        # boundary on a capability serviceTask (interrupting a mid-flight capability) stays deferred.
-        if TASK_EXECUTOR_CATEGORY.get(model.tasks.get(host)) != "human":
+        # Supported host classes: a **HITL gate** (userTask/manualTask) uses the idle-park SLA
+        # (ADR-029); a **capability** serviceTask self-enforces an in-process running deadline (ADR-040);
+        # a **subProcess** self-enforces a scope-wide deadline (ADR-041); the **whole process** is the
+        # scope of a process-level timer event sub-process (ADR-042) — all restricted to
+        # ``read_only``/autonomous by the registry's cross-contract checks. A message host stays refused.
+        if (host not in model.subprocesses
+                and host != model.process_id  # ADR-042: process-level timer ESP scope
+                and TASK_EXECUTOR_CATEGORY.get(model.tasks.get(host)) not in ("human", "capability")):
             out.append(Finding(
                 "bpmn_timer_boundary_host_unsupported",
                 f"timer boundary '{bt.id}' attaches to '{host}' — only a HITL gate (userTask/manualTask) "
-                f"is supported (boundary on a serviceTask is a deferred limitation)",
+                f"or an autonomous read_only capability serviceTask is supported",
                 element_id=bt.id, severity="error"))
     return out
 
@@ -277,6 +323,167 @@ def _error_boundary_findings(model: BpmnModel) -> List[Finding]:
                 "bpmn_error_boundary_ambiguous",
                 f"host '{host}' has {catch_alls} catch-all error boundaries (at most one allowed)",
                 element_id=ebs[0].id, severity="error"))
+    return out
+
+
+def _call_activity_findings(model: BpmnModel) -> List[Finding]:
+    """Structural validation of callActivities under common_executable (ADR-039). The *cross-pack*
+    checks (callee resolvable/active, IO mapping, cycle, depth, profile) need the callee packs and live
+    in the registry validator + the compiler (which have the bundle provider); here we only cover what
+    a single model reveals: a missing target, and the deferred stretches (MI host, boundary — the
+    latter is captured as a ``subprocess_boundaries`` refusal by the parser)."""
+    out: List[Finding] = []
+    for aid, ca in model.call_activities.items():
+        if not ca.target_pack:
+            out.append(Finding(
+                "bpmn_call_activity_no_target",
+                f"callActivity '{aid}' has no calledElement (target pack) — cross-pack composition "
+                f"requires a callee pack key", element_id=aid, severity="error"))
+        if ca.is_multi_instance:
+            out.append(Finding(
+                "bpmn_call_activity_multi_instance_unsupported",
+                f"callActivity '{aid}' is a multi-instance host (call-a-pack-N-times) — not supported "
+                f"yet (deferred stretch)", element_id=aid, severity="error"))
+    return out
+
+
+def _multi_instance_findings(model: BpmnModel) -> List[Finding]:
+    """Structural validation of multi-instance activities under common_executable (ADR-036).
+
+    Refuses: MI on a sub-process (a deferred stretch — it compounds with the 2.6 inline-flatten);
+    nested MI (an MI activity inside another MI scope — the scoping compounds); and an *unbounded* MI
+    with neither a ``loopCardinality`` nor a collection (``loopDataInputRef``), so N is unknown. The
+    ``completionCondition`` expression's syntax is validated at graph-compile time (like flow
+    conditions), not here."""
+    out: List[Finding] = []
+    for host, mi in model.multi_instance.items():
+        if mi.on_subprocess or host in model.subprocesses:
+            out.append(Finding(
+                "bpmn_multi_instance_subprocess_unsupported",
+                f"multi-instance on sub-process '{host}' is not supported yet (deferred stretch — "
+                f"multi-instance on a task/activity only)",
+                element_id=host, severity="error"))
+        # Nested MI: walk the containing-scope chain; a MI scope ancestor means this MI is nested.
+        scope = model.element_scope.get(host)
+        seen: Set[str] = set()
+        while scope and scope != model.process_id and scope not in seen:
+            seen.add(scope)
+            if scope in model.multi_instance:
+                out.append(Finding(
+                    "bpmn_multi_instance_nested_unsupported",
+                    f"multi-instance activity '{host}' is nested inside multi-instance scope '{scope}' — "
+                    f"nested multi-instance is not supported",
+                    element_id=host, severity="error"))
+                break
+            scope = model.element_scope.get(scope)
+        if mi.cardinality is None and not mi.collection_ref:
+            out.append(Finding(
+                "bpmn_multi_instance_unbounded",
+                f"multi-instance activity '{host}' has neither a loopCardinality nor a collection "
+                f"(loopDataInputRef) — the iteration count N is unbounded",
+                element_id=host, severity="error"))
+    return out
+
+
+def _event_subprocess_findings(model: BpmnModel) -> List[Finding]:
+    """Structural validation of event sub-processes (ADR-042, Item F). Refuses:
+
+    - a **message/signal/escalation** start or a **non-interrupting** ESP (``unsupported`` set by the
+      parser) → ``bpmn_event_subprocess_unsupported`` (interrupting error/timer only this cut);
+    - a runnable ESP with **no body** (its trigger start has no outgoing flow) → same code;
+    - **two handlers of the same trigger on one scope** (two timer ESPs on a scope, or two error ESPs
+      catching the same code / both catch-all) → ``bpmn_event_subprocess_ambiguous`` — routing on the
+      trigger would be ambiguous (a runnable error ESP registers onto the enclosing scope's error map,
+      so the same-code case ALSO surfaces as ``bpmn_error_boundary_ambiguous`` — both are true)."""
+    out: List[Finding] = []
+    timers_by_scope: Dict[str, List[str]] = {}
+    errors_by_scope: Dict[str, Dict[str, List[str]]] = {}
+    for esp in model.event_subprocesses.values():
+        if esp.unsupported:
+            out.append(Finding(
+                "bpmn_event_subprocess_unsupported",
+                f"event sub-process '{esp.id}': {esp.unsupported}",
+                element_id=esp.id, severity="error"))
+            continue
+        if esp.body_start_successor is None:
+            out.append(Finding(
+                "bpmn_event_subprocess_unsupported",
+                f"event sub-process '{esp.id}' has no body — its trigger start event has no outgoing flow",
+                element_id=esp.id, severity="error"))
+            continue
+        if esp.trigger == "timer":
+            timers_by_scope.setdefault(esp.enclosing_scope, []).append(esp.id)
+        elif esp.trigger == "error":
+            key = esp.error_code if esp.error_code is not None else "*catch-all*"
+            errors_by_scope.setdefault(esp.enclosing_scope, {}).setdefault(key, []).append(esp.id)
+    for scope, ids in timers_by_scope.items():
+        if len(ids) > 1:
+            out.append(Finding(
+                "bpmn_event_subprocess_ambiguous",
+                f"scope '{scope}' has {len(ids)} timer event sub-processes {sorted(ids)} — "
+                f"at most one timer handler per scope",
+                element_id=sorted(ids)[0], severity="error"))
+    for scope, by_code in errors_by_scope.items():
+        for code, ids in by_code.items():
+            if len(ids) > 1:
+                out.append(Finding(
+                    "bpmn_event_subprocess_ambiguous",
+                    f"scope '{scope}' has {len(ids)} error event sub-processes catching '{code}' "
+                    f"{sorted(ids)} — the handler for a raised code would be ambiguous",
+                    element_id=sorted(ids)[0], severity="error"))
+    return out
+
+
+def _within_scope(model: BpmnModel, eid: str, scope_id: str) -> bool:
+    """True iff ``eid`` is within ``scope_id`` (its ``element_scope`` chain reaches it). The whole
+    process contains everything."""
+    if scope_id == model.process_id:
+        return True
+    s = model.element_scope.get(eid)
+    seen: Set[str] = set()
+    while s and s not in seen:
+        if s == scope_id:
+            return True
+        seen.add(s)
+        s = model.element_scope.get(s)
+    return False
+
+
+def _compensation_findings(model: BpmnModel) -> List[Finding]:
+    """Structural validation of compensation (ADR-043, Item G). The core — a compensate boundary pairing
+    a compensable primary to an ``isForCompensation`` undo handler, and a compensate-throw driving a
+    scope-wide reverse-order undo — is executable. Refuses the deferred variants: **transaction/cancel
+    auto-compensation** (this cut is an *explicit* throw), **targeted** compensation (``activityRef`` → one
+    activity; this cut is scope-wide), and **multi-instance** compensation. A throw with no compensable
+    activity in its scope is a no-op (**warning**). The side-effect / unbound-handler checks are
+    cross-contract (they need the binding's descriptor) and live in the registry validator."""
+    out: List[Finding] = []
+    if model.cancel_end_events and (model.compensate_throws or model.compensation_handlers):
+        out.append(Finding(
+            "bpmn_compensation_transaction_unsupported",
+            f"cancel end event(s) {sorted(model.cancel_end_events)} trigger automatic (transaction) "
+            f"compensation — not supported; use an explicit compensate throw (deferred stretch)",
+            element_id=model.cancel_end_events[0], severity="error"))
+    for tid, thr in model.compensate_throws.items():
+        if thr.activity_ref:
+            out.append(Finding(
+                "bpmn_compensation_targeted_unsupported",
+                f"compensate throw '{tid}' targets activity '{thr.activity_ref}' — targeted compensation "
+                f"is not supported (scope-wide only this cut; deferred stretch)",
+                element_id=tid, severity="error"))
+        if not any(_within_scope(model, p, thr.scope) for p in model.compensations):
+            out.append(Finding(
+                "bpmn_compensate_throw_no_handlers",
+                f"compensate throw '{tid}' has no compensable activities in its scope — it will be a no-op",
+                element_id=tid, severity="warning"))
+    for primary, handler in model.compensations.items():
+        mi_host = primary if primary in model.multi_instance else (
+            handler if handler in model.multi_instance else None)
+        if mi_host is not None:
+            out.append(Finding(
+                "bpmn_compensation_multi_instance_unsupported",
+                f"compensation involving multi-instance activity '{mi_host}' is not supported "
+                f"(deferred stretch)", element_id=primary, severity="error"))
     return out
 
 

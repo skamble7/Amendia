@@ -1,0 +1,78 @@
+{
+  "manifest_version": "1.0",
+  "pack_key": "event-handler",
+  "version": "1.0.0",
+  "title": "Event sub-process demo",
+  "description": "ADR-042 event sub-process (scope-wide interrupting error/timer handler) demo.",
+  "process": {
+    "bpmn_file": "event-handler.bpmn",
+    "process_id": "Process_EventHandler",
+    "bpmn_sha256": "0c7e98313a058003411275578c12cdba0f313428dd3cf5d787e853f35ecb1977"
+  },
+  "triage_rules": [
+    {
+      "rule_id": "event-handler-rule",
+      "priority": 300,
+      "description": "demo",
+      "when": {
+        "all": [
+          {
+            "field": "exception_type",
+            "op": "eq",
+            "value": "unable_to_apply"
+          }
+        ]
+      }
+    }
+  ],
+  "requires_capabilities": [
+    {
+      "ref": "cap.event.screen@^1.0.0"
+    },
+    {
+      "ref": "cap.event.handle@^1.0.0"
+    }
+  ],
+  "artifacts": [
+    "art.compose.val@^1.0.0"
+  ],
+  "bindings": [
+    {
+      "element_id": "Screen",
+      "element_kind": "serviceTask",
+      "executor": {
+        "type": "capability",
+        "capability": "cap.event.screen@^1.0.0"
+      },
+      "hitl": {
+        "mode": "none"
+      },
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "scr",
+          "schema": "art.compose.val@^1.0.0"
+        }
+      ]
+    },
+    {
+      "element_id": "Handle",
+      "element_kind": "serviceTask",
+      "executor": {
+        "type": "capability",
+        "capability": "cap.event.handle@^1.0.0"
+      },
+      "hitl": {
+        "mode": "none"
+      },
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "hnd",
+          "schema": "art.compose.val@^1.0.0"
+        }
+      ]
+    }
+  ],
+  "status": "draft"
+}

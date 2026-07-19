@@ -25,9 +25,46 @@ import json
 import logging
 from typing import Any, Dict, Optional, Protocol
 
+from app.engine.executor.base import CapabilityBusinessError
+
 logger = logging.getLogger(__name__)
 
 _SANCTION_MARKER = "SANCTIONED"
+
+# ADR-035: fallback code when a tool sets ``isError: true`` but carries no conventional
+# ``error_code``. Keeping it a *business* error (not technical) honours MCP semantics — an
+# ``isError`` result is a tool-level, domain outcome (distinct from a JSON-RPC transport error)
+# — so a catch-all error boundary can still catch it (else it falls through to FAILURE_SINK).
+_MCP_TOOL_ERROR = "MCP_TOOL_ERROR"
+
+
+def _raise_if_business_error(result: Dict[str, Any], tool: str) -> None:
+    """ADR-035: map an MCP ``tools/call`` **``result.isError == true``** into a modeled
+    :class:`CapabilityBusinessError`.
+
+    The MCP protocol distinguishes a *tool execution error* (``result.isError`` — the tool ran and
+    reported a domain failure: payment rejected, screening hit, insufficient info) from a *protocol
+    error* (a JSON-RPC ``error`` object / transport failure). The former is exactly a diagram-
+    anticipated business error and routes to the BPMN error boundary; the latter stays a technical
+    failure (handled by the caller, unchanged). The conventional ``error_code`` is read from
+    ``structuredContent.error_code`` (or, for an action-tool acknowledgement, the same field
+    alongside ``status: "rejected"``), else the first structured content block; absent any code we
+    fall back to :data:`_MCP_TOOL_ERROR` so the outcome is still modeled, never silently technical.
+
+    No-op when ``result`` is not an error result."""
+    if not (isinstance(result, dict) and result.get("isError")):
+        return
+    structured = result.get("structuredContent") or result.get("structured_content")
+    detail: Dict[str, Any] = structured if isinstance(structured, dict) else {}
+    code = detail.get("error_code") if isinstance(detail, dict) else None
+    if not code:
+        for block in result.get("content", []) or []:
+            if isinstance(block, dict) and isinstance(block.get("json"), dict):
+                jd = block["json"]
+                if jd.get("error_code"):
+                    code, detail = jd["error_code"], jd
+                    break
+    raise CapabilityBusinessError(str(code) if code else _MCP_TOOL_ERROR, detail=detail or None)
 
 
 def _screen_party_result(envelope: Dict[str, Any]) -> Dict[str, Any]:
@@ -51,15 +88,29 @@ class McpClient(Protocol):
         self, *, endpoint: str, tool: str, arguments: Dict[str, Any],
         transport: Optional[str], headers: Optional[Dict[str, str]] = None,
     ) -> Dict[str, Any]:
+        """Return the tool's structured artifact. **May raise** (ADR-035)
+        :class:`CapabilityBusinessError` when the MCP ``result.isError`` flag is set with a
+        conventional ``error_code`` (a modeled business error routed to a BPMN error boundary),
+        distinct from a protocol/transport error which stays a technical ``RuntimeError``."""
         ...
 
 
 class StubMcpClient:
-    """Deterministic in-process MCP stand-in (unit/dev). No network, no real list."""
+    """Deterministic in-process MCP stand-in (unit/dev). No network, no real list.
+
+    ``error_result`` (opt-in, default ``None``) is a full MCP ``result`` object (``isError: true``
+    + ``structuredContent.error_code``) the stub returns instead of a ``screening_result`` — it
+    exercises the ADR-035 business-error mapping (:func:`_raise_if_business_error`) without a
+    server. Left unset, behaviour is byte-identical to before."""
+
+    def __init__(self, *, error_result: Optional[Dict[str, Any]] = None) -> None:
+        self._error_result = error_result
 
     async def call_tool(self, *, endpoint, tool, arguments, transport, headers=None):
         envelope = (arguments or {}).get("envelope", {})
         logger.info("StubMcpClient: %s/%s (transport=%s) — stub list, no OFAC", endpoint, tool, transport)
+        if self._error_result is not None:
+            _raise_if_business_error(self._error_result, tool)  # raises CapabilityBusinessError
         return _screen_party_result(envelope)
 
 
@@ -89,10 +140,14 @@ class HttpMcpClient:
             resp.raise_for_status()
             body = resp.json()
         if "error" in body:
+            # JSON-RPC / protocol error → TECHNICAL failure (not a modeled business error).
             raise RuntimeError(f"MCP tool error: {body['error']}")
         # MCP tools/call returns result.structuredContent (or content[].json/text). We accept
         # a structured screening_result artifact. [confirm] exact result envelope per server.
         result = body.get("result", {})
+        # ADR-035: a tool-level error (result.isError) with a conventional error_code is a MODELED
+        # business error (routes to the BPMN error boundary), distinct from the transport error above.
+        _raise_if_business_error(result, tool)
         structured = result.get("structuredContent") or result.get("structured_content")
         if isinstance(structured, dict):
             return structured

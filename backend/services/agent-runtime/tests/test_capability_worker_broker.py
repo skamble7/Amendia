@@ -188,7 +188,7 @@ def test_worker_llm_routes_through_run_real_llm(monkeypatch):
     valid = __import__("app.capabilities.wire_repair.draft_repair", fromlist=["run"]).run(
         inputs={"beneficiary": {}}, envelope=make_envelope("AC01"))["outputs"]["art.payment.repair_instruction"]
 
-    def fake_run_real_llm(*, capability_id, targets, ref, inputs, envelope):
+    def fake_run_real_llm(*, capability_id, targets, ref, inputs, envelope, error_codes=None, cancel=None):
         return ({akey: valid for akey, _ in targets}, "nemoclaw", "nemotron-3-ultra")
 
     monkeypatch.setattr(dispatch, "run_real_llm", fake_run_real_llm)

@@ -51,6 +51,7 @@ def spec_to_job(spec: CapabilityRunSpec) -> Dict[str, Any]:
         "inputs": spec.inputs,
         "envelope": spec.envelope,
         "output_schemas": spec.output_schemas,
+        "error_codes": spec.error_codes,        # ADR-035: legal boundary codes
         "mode": spec.mode,
         "approved_action_ids": spec.approved_action_ids,
         "model_config_ref": spec.model_config_ref,

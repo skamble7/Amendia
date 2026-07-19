@@ -12,7 +12,7 @@ belongs to the registry caller (use ``compute_sha256`` for that).
 """
 from __future__ import annotations
 
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 from xml.etree import ElementTree as ET
 
 from amendia_bpmn.model import (
@@ -22,12 +22,18 @@ from amendia_bpmn.model import (
     NODE_KINDS,
     RECOGNIZED_NON_EXECUTABLE,
     TASK_KINDS,
+    DEFAULT_CALL_VERSION_RANGE,
     BoundaryTimer,
     BpmnModel,
+    CallActivity,
     ClassifiedElement,
+    CompensateThrow,
+    CompensationHandler,
     ErrorBoundary,
+    EventSubProcess,
     Finding,
     Flow,
+    MultiInstance,
     SubProcess,
     TimerDef,
     local_name,
@@ -54,6 +60,16 @@ def _has_message_def(el) -> bool:
     return any(local_name(c.tag) == "messageEventDefinition" for c in el)
 
 
+def _compensate_def(el):
+    """The ``compensateEventDefinition`` child of a boundary/throw event, or ``None`` (ADR-043)."""
+    return next((c for c in el if local_name(c.tag) == "compensateEventDefinition"), None)
+
+
+def _has_cancel_def(el) -> bool:
+    """True iff an event carries a ``cancelEventDefinition`` (a transaction cancel — deferred, ADR-043)."""
+    return any(local_name(c.tag) == "cancelEventDefinition" for c in el)
+
+
 def _message_ref(el) -> Optional[str]:
     """The ``messageRef`` on a node's ``messageEventDefinition`` (or the node's own ``messageRef``
     attr for a receiveTask), used to look up the BPMN ``<bpmn:message name>``. Advisory only."""
@@ -61,6 +77,54 @@ def _message_ref(el) -> Optional[str]:
         if local_name(c.tag) == "messageEventDefinition" and c.get("messageRef"):
             return c.get("messageRef")
     return el.get("messageRef")
+
+
+def _local_attr(el, name: str) -> Optional[str]:
+    """First attribute value whose *local* name equals ``name`` — namespace-agnostic so an Amendia
+    extension attribute (``amendia:aggregation``), a camunda one, or a bare attribute all resolve
+    (ElementTree keys namespaced attrs as ``{uri}name``)."""
+    for k, v in el.attrib.items():
+        if local_name(k) == name:
+            return v
+    return None
+
+
+def _multi_instance(el, host_id: str, *, on_subprocess: bool) -> Optional[MultiInstance]:
+    """Build a :class:`MultiInstance` from an activity's ``<multiInstanceLoopCharacteristics>`` child,
+    or ``None`` if the activity carries none (ADR-036). Reads ``isSequential``; ``loopCardinality`` /
+    ``loopDataInputRef`` (bound on N); ``inputDataItem``/``elementVariable`` (per-item var);
+    ``completionCondition``; and the ``amendia:aggregation`` ext attribute (``list`` default | ``indexed``)."""
+    mi_el = next((c for c in el if local_name(c.tag) == "multiInstanceLoopCharacteristics"), None)
+    if mi_el is None:
+        return None
+    cardinality: Optional[int] = None
+    collection_ref: Optional[str] = None
+    item_name: Optional[str] = None
+    completion: Optional[str] = None
+    for c in mi_el:
+        ln = local_name(c.tag)
+        if ln == "loopCardinality":
+            txt = (c.text or "").strip()
+            try:
+                cardinality = int(txt)
+            except (TypeError, ValueError):
+                cardinality = None
+        elif ln == "loopDataInputRef":
+            collection_ref = (c.text or "").strip() or None
+        elif ln == "inputDataItem":
+            item_name = c.get("name") or (c.text or "").strip() or None
+        elif ln == "completionCondition":
+            completion = (c.text or "").strip() or None
+    collection_ref = collection_ref or _local_attr(mi_el, "collection")
+    item_name = item_name or _local_attr(mi_el, "elementVariable")
+    agg = (_local_attr(mi_el, "aggregation") or _local_attr(el, "aggregation") or "list").lower()
+    if agg not in ("list", "indexed"):
+        agg = "list"
+    return MultiInstance(
+        attached_to=host_id, is_sequential=(mi_el.get("isSequential") == "true"),
+        cardinality=cardinality, collection_ref=collection_ref, item_name=item_name,
+        completion_condition=completion, aggregation=agg, on_subprocess=on_subprocess,
+    )
 
 
 def _timer_def(el) -> Optional[TimerDef]:
@@ -136,6 +200,15 @@ def parse(
     # ADR-030 Phase 2.3: error boundaries, likewise wired post-loop.
     # raw: boundary id -> (attached_to, errorRef | _CATCH_ALL).
     error_boundary_raw: Dict[str, Tuple[Optional[str], object]] = {}
+    # ADR-042 (Item F): event sub-processes (triggeredByEvent) — built post-loop once their body
+    # start/ends are known. raw: esp id -> (enclosing scope id, the ESP container element for trigger).
+    esp_raw: Dict[str, Tuple[str, Any]] = {}
+    # ADR-043 (Item G): compensation. Collected during the walk, paired post-loop.
+    associations: List[Tuple[Optional[str], Optional[str]]] = []   # (sourceRef, targetRef)
+    comp_boundary_raw: Dict[str, Optional[str]] = {}               # comp boundary id -> attachedToRef (primary)
+    comp_throw_raw: Dict[str, Tuple[bool, Optional[str]]] = {}     # throw id -> (is_end, activityRef)
+    comp_handler_ids: Set[str] = set()                             # isForCompensation activity ids (off-flow)
+    cancel_ends: List[str] = []                                    # endEvents carrying a cancelEventDefinition
     # ``<bpmn:error id=.. errorCode=..>`` definitions live at the definitions level (siblings of the
     # process), so scan the whole document: errorRef → the business error_code the boundary matches.
     error_defs: Dict[str, str] = {
@@ -182,22 +255,53 @@ def parse(
                     condition_expr=cond_text, name=child.get("name"),
                 ))
                 continue
+            if name == "association":
+                # ADR-043: an association links a compensation boundary → its handler activity (it is
+                # NOT a sequence flow). Collect it; the compensation pairing is resolved post-loop.
+                associations.append((child.get("sourceRef"), child.get("targetRef")))
+                model.elements.append(ClassifiedElement(id=node_id, kind=name, tier="documented"))
+                continue
             if name == "subProcess":
+                if child.get("triggeredByEvent") == "true":
+                    # ADR-042 (Item F): an EVENT sub-process is a scope-wide event handler, NOT a
+                    # flattened box — it sits on no sequence flow (no parent-level in/out), so it is
+                    # deliberately NOT added to node_ids. Record it raw (enclosing scope + container
+                    # for trigger extraction) and recurse to parse the body; the trigger detection +
+                    # handler registration happen post-loop.
+                    esp_raw[node_id] = (scope_id, child)
+                    _record(node_id, scope_id)
+                    tier = "executable" if profile == "common_executable" else "documented"
+                    model.elements.append(ClassifiedElement(id=node_id, kind=name, tier=tier))
+                    walk(child, node_id)
+                    continue
                 # An embedded sub-process container: structural, not a task. Record + recurse.
                 model.node_ids.add(node_id)
                 model.subprocesses[node_id] = SubProcess(
                     id=node_id, name=child.get("name"), parent_scope=scope_id)
+                # ADR-036: MI on a sub-process is a deferred stretch — capture it so the compilability
+                # gate refuses it (bpmn_multi_instance_subprocess_unsupported), don't build it here.
+                mi_sub = _multi_instance(child, node_id, on_subprocess=True)
+                if mi_sub is not None:
+                    model.multi_instance[node_id] = mi_sub
                 _record(node_id, scope_id)
                 tier = "executable" if profile == "common_executable" else "documented"
                 model.elements.append(ClassifiedElement(id=node_id, kind=name, tier=tier))
                 walk(child, node_id)
                 continue
             if name == "callActivity":
-                # Deferred (cross-pack composition — separate design). Compilability refuses it.
+                # ADR-039: cross-pack composition. Capture the callee target (calledElement = pack_key)
+                # + version range (amendia:calledVersion, else the policy default). The compiler
+                # inline-splices the pinned callee; compilability gates it (profile + structural).
                 model.node_ids.add(node_id)
-                model.call_activities.append(node_id)
+                target = child.get("calledElement") or _local_attr(child, "calledElement")
+                vrange = _local_attr(child, "calledVersion") or DEFAULT_CALL_VERSION_RANGE
+                has_mi = any(local_name(c.tag) == "multiInstanceLoopCharacteristics" for c in child)
+                model.call_activities[node_id] = CallActivity(
+                    id=node_id, target_pack=(target or None), version_range=vrange,
+                    parent_scope=scope_id, is_multi_instance=has_mi)
                 _record(node_id, scope_id)
-                model.elements.append(ClassifiedElement(id=node_id, kind=name, tier="documented"))
+                tier = "executable" if profile == "common_executable" else "documented"
+                model.elements.append(ClassifiedElement(id=node_id, kind=name, tier=tier))
                 continue
             _record(node_id, scope_id)
             _walk_node(child, name, node_id, scope_id, scope_starts, scope_ends,
@@ -207,6 +311,7 @@ def parse(
                    boundary_raw, error_boundary_raw, _msg_name, model, findings, profile):
         if name in NODE_KINDS:
             model.node_ids.add(node_id)
+            has_mi = False
             if name in TASK_KINDS:
                 model.tasks[node_id] = name
                 if name == "businessRuleTask":  # advisory decisionRef (inference only — no DMN eval)
@@ -215,6 +320,16 @@ def parse(
                         model.decision_refs[node_id] = ref
                 elif name == "scriptTask" and any(local_name(c.tag) == "script" for c in child):
                     model.inline_scripts.append(node_id)  # inline body NOT executed (refused)
+                # ADR-036: a multi-instance task runs N times — executable only under common_executable.
+                mi = _multi_instance(child, node_id, on_subprocess=False)
+                if mi is not None:
+                    model.multi_instance[node_id] = mi
+                    has_mi = True
+                # ADR-043 (Item G): a compensation handler activity is OFF the sequence flow (invoked only
+                # when its primary is compensated). Keep it a bound task, but track it so reachability +
+                # the single-outgoing arity check skip it (like an event sub-process body).
+                if child.get("isForCompensation") == "true":
+                    comp_handler_ids.add(node_id)
             elif name == "exclusiveGateway":
                 model.exclusive_gateways.append(node_id)
                 if child.get("default"):
@@ -229,12 +344,24 @@ def parse(
                 scope_ends.setdefault(scope_id, []).append(node_id)
                 if scope_id != model.process_id:
                     model.nested_ends.add(node_id)
+                # ADR-043: an endEvent carrying a compensateEventDefinition is a TERMINAL compensate
+                # throw — compensate the scope, then end. A cancelEventDefinition (transaction cancel) is
+                # the deferred auto-compensation trigger; record it so the gate can refuse.
+                ced = _compensate_def(child)
+                if ced is not None:
+                    comp_throw_raw[node_id] = (True, ced.get("activityRef"))
+                if _has_cancel_def(child):
+                    cancel_ends.append(node_id)
             # Retain for coverage (ADR-027). A NODE_KIND is executable under common_subset unless it is
             # promoted by a profile: parallelGateway under "parallel" (Phase 2.1); the extended task
             # kinds (sendTask/scriptTask/manualTask/businessRuleTask) under "tasks" (Phase 2.7).
             executable = (name in EXECUTABLE_KINDS
                           or (profile == "common_executable" and name == "parallelGateway")
                           or (profile == "common_executable" and name in EXTENDED_TASK_KINDS))
+            # ADR-036: a multi-instance task is executable only under common_executable, even though the
+            # base task kind (serviceTask/userTask) is otherwise common-subset executable.
+            if has_mi:
+                executable = (profile == "common_executable")
             tier = "executable" if executable else "documented"
             model.elements.append(ClassifiedElement(id=node_id, kind=name, tier=tier))
         elif name == "intermediateCatchEvent" and _timer_def(child) is not None:
@@ -257,6 +384,21 @@ def parse(
             # routes here instead of failing the instance. errorRef → error_code via the <bpmn:error>
             # defs (or _CATCH_ALL for no errorRef).
             error_boundary_raw[node_id] = (child.get("attachedToRef"), _error_ref(child))
+        elif name == "boundaryEvent" and _compensate_def(child) is not None:
+            # ADR-043 (Item G): a compensation boundary — attachedToRef is the compensable primary; the
+            # handler is linked by an <association> (resolved post-loop). It has NO outgoing sequence
+            # flow, so nothing to pull from model.flows.
+            comp_boundary_raw[node_id] = child.get("attachedToRef")
+            tier = "executable" if profile == "common_executable" else "documented"
+            model.elements.append(ClassifiedElement(id=node_id, kind=name, tier=tier))
+        elif name == "intermediateThrowEvent" and _compensate_def(child) is not None:
+            # ADR-043: an intermediate compensate throw — compensate the enclosing scope's completed
+            # compensable activities in reverse order, then continue via its single outgoing flow.
+            ced = _compensate_def(child)
+            model.node_ids.add(node_id)
+            comp_throw_raw[node_id] = (False, ced.get("activityRef"))
+            tier = "executable" if profile == "common_executable" else "documented"
+            model.elements.append(ClassifiedElement(id=node_id, kind=name, tier=tier))
         elif name == "intermediateCatchEvent" and _has_message_def(child):
             # Message intermediate catch (Phase 2.4): parks WAITING_MESSAGE until a correlated inbound
             # message is delivered. Bindable (needs a manifest message binding for its message_name).
@@ -319,7 +461,7 @@ def parse(
         if out_flow is not None:
             model.flows = [f for f in model.flows if f is not out_flow]  # not a normal edge
         target = out_flow.target if out_flow is not None else None
-        if attached_to in model.subprocesses:  # ADR-032: boundary on a sub-process is deferred
+        if attached_to in model.call_activities:  # ADR-039: callActivity boundary still deferred
             model.subprocess_boundaries.append(bid)
             model.elements.append(ClassifiedElement(id=bid, kind="boundaryEvent", tier="documented"))
             continue
@@ -347,7 +489,7 @@ def parse(
         if out_flow is not None:
             model.flows = [f for f in model.flows if f is not out_flow]
         target = out_flow.target if out_flow is not None else None
-        if attached_to in model.subprocesses:  # ADR-032: boundary on a sub-process is deferred
+        if attached_to in model.call_activities:  # ADR-039: callActivity boundary still deferred
             model.subprocess_boundaries.append(bid)
             model.elements.append(ClassifiedElement(id=bid, kind="boundaryEvent", tier="documented"))
             continue
@@ -366,6 +508,74 @@ def parse(
                 f"'boundaryEvent' is recognized BPMN but not executable today; documented only (id={bid})",
                 element_id=bid, severity="warning",
             ))
+
+    # ADR-042 (Item F): build each event sub-process. A triggeredByEvent subProcess is a scope-wide
+    # handler whose START event's trigger fires it from anywhere in enclosing_scope; the body is the
+    # inlined handler. Only an INTERRUPTING error/timer start runs — we register its handler onto the
+    # enclosing scope's boundary map so the compiler reuses ADR-041's scope router (generalized to a
+    # process-level scope). A message/signal/escalation or non-interrupting start is recorded
+    # unsupported for the compilability gate to refuse.
+    for esp_id, (enc, esp_el) in esp_raw.items():
+        start_el = next((c for c in esp_el if local_name(c.tag) == "startEvent"), None)
+        start_id = (scope_starts.get(esp_id) or [None])[0]
+        ends = list(scope_ends.get(esp_id, []))
+        body_succ = next(
+            (f.target for f in model.flows if start_id is not None and f.source == start_id), None)
+        is_interrupting = start_el is None or start_el.get("isInterrupting") != "false"
+        err = _error_ref(start_el) if start_el is not None else None
+        td = _timer_def(start_el) if start_el is not None else None
+        esp = EventSubProcess(
+            id=esp_id, enclosing_scope=enc, is_interrupting=is_interrupting,
+            start_id=start_id, body_start_successor=body_succ, end_ids=ends,
+        )
+        if not is_interrupting:
+            esp.unsupported = ("non-interrupting event sub-process (a concurrent handler) is not "
+                               "supported — interrupting error/timer start only")
+        elif err is not None:
+            esp.trigger = "error"
+            esp.error_code = None if err is _CATCH_ALL else (error_defs.get(err) or str(err))
+        elif td is not None and timer_is_supported(td):
+            esp.trigger = "timer"
+            esp.timer = td
+        else:
+            esp.unsupported = ("event sub-process start must be an interrupting error or timer "
+                               "trigger (message/signal/escalation start deferred)")
+        model.event_subprocesses[esp_id] = esp
+        # Register the runnable handler onto its enclosing scope, reusing ADR-041's boundary router:
+        # an error ESP is a scope-wide error fallback, a timer ESP a scope-wide SLA. The handler entry
+        # is the body's start-successor (the trigger start itself is plumbing, never a graph node).
+        if esp.unsupported is None and body_succ is not None:
+            if esp.trigger == "error":
+                model.error_boundaries.setdefault(enc, []).append(
+                    ErrorBoundary(id=esp_id, attached_to=enc, error_code=esp.error_code, target=body_succ))
+            else:  # timer
+                model.boundary_timers[enc] = BoundaryTimer(
+                    id=esp_id, attached_to=enc, timer=td, cancel_activity=True, target=body_succ)
+
+    # ADR-043 (Item G): resolve compensation pairings. Each compensate boundary (attachedTo = the
+    # compensable primary) links to its handler activity through an <association> (source = boundary id,
+    # target = the isForCompensation handler). Build the handler pairing + the primary→handler inverse.
+    assoc_by_source: Dict[str, List[str]] = {}
+    for src, tgt in associations:
+        if src and tgt:
+            assoc_by_source.setdefault(src, []).append(tgt)
+    for bid, primary in comp_boundary_raw.items():
+        handler = next((t for t in assoc_by_source.get(bid, []) if t in comp_handler_ids), None)
+        if handler is None or primary is None or primary not in model.tasks:
+            findings.append(Finding(
+                "bpmn_compensation_boundary_unwired",
+                f"compensation boundary '{bid}' must attach to a task and associate to an "
+                f"isForCompensation handler activity (attachedTo='{primary}')",
+                element_id=bid))
+            continue
+        model.compensation_handlers[handler] = CompensationHandler(
+            handler_id=handler, primary_id=primary, boundary_id=bid)
+        model.compensations[primary] = handler
+    # Compensate throw events → their enclosing scope (whose completed compensable activities they undo).
+    for tid, (is_end, aref) in comp_throw_raw.items():
+        model.compensate_throws[tid] = CompensateThrow(
+            id=tid, scope=model.element_scope.get(tid, model.process_id), is_end=is_end, activity_ref=aref)
+    model.cancel_end_events = list(cancel_ends)  # read by compilability for the transaction-cancel refusal
 
     # ADR-031: an event-based gateway's arms are its outgoing flow targets (each an arm catch event).
     for gw in model.event_based_gateways:
@@ -459,20 +669,42 @@ def parse(
             if host in adj and eb.target in adj:
                 adj[host].append(eb.target)
                 radj[eb.target].append(host)
+    # ADR-042 (Item F): an event sub-process's body is reached when its trigger fires anywhere in the
+    # enclosing scope — model that as (enclosing-scope entry) → the ESP trigger start (then start →
+    # body via the body's own internal flow). The enclosing-scope "entry" is the enclosing subProcess
+    # box, or the process start for a process-level ESP. The body's ends are TERMINAL (they end the
+    # instance), so seed the backward reachability from them below.
+    # Augment for every ESP (even an unsupported one) so its body never trips a generic reachability
+    # error — an unsupported ESP is refused cleanly by the compilability gate with its specific code.
+    esp_end_ids: Set[str] = set()
+    for esp in model.event_subprocesses.values():
+        if not esp.start_id:
+            continue
+        src = esp.enclosing_scope if esp.enclosing_scope in adj else (
+            model.start_events[0] if model.start_events else None)
+        if src is not None and esp.start_id in adj:
+            adj[src].append(esp.start_id)
+            radj[esp.start_id].append(src)
+        esp_end_ids.update(e for e in esp.end_ids if e in radj)
+
+    # ADR-043 (Item G): compensation handler activities are OFF the sequence flow (invoked only by a
+    # compensate throw, never reached from start / never continuing to an end) — exclude them from the
+    # reachability checks, exactly like an event sub-process body handler.
+    off_flow = set(model.compensation_handlers)
 
     if model.start_events:
         reachable = _bfs(adj, model.start_events[0])
-        for n in sorted(model.node_ids - reachable):
+        for n in sorted(model.node_ids - reachable - off_flow):
             findings.append(Finding(
                 "bpmn_unreachable_node",
                 f"node '{n}' is not reachable from the start event",
                 element_id=n,
             ))
-    if model.end_events:
+    if model.end_events or esp_end_ids:
         can_reach_end: Set[str] = set()
-        for e in model.end_events:
+        for e in list(model.end_events) + list(esp_end_ids):  # ADR-042: ESP body ends are terminal
             can_reach_end |= _bfs(radj, e)
-        for n in sorted(model.node_ids - can_reach_end):
+        for n in sorted(model.node_ids - can_reach_end - off_flow):
             findings.append(Finding(
                 "bpmn_no_path_to_end",
                 f"node '{n}' cannot reach an end event",

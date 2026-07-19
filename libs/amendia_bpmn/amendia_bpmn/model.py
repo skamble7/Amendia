@@ -45,6 +45,7 @@ TASK_EXECUTOR_CATEGORY = {
     "businessRuleTask": "capability",  # a bound decision capability; native DMN is deferred (ADR-033)
     "receiveTask": "message",       # Phase 2.4
     "messageCatch": "message",      # Phase 2.4 (binding element_kind, not a BPMN tag)
+    "callActivity": "call",         # ADR-039 — binds a cross-pack `call` executor (inline-compiled)
 }
 
 # Recognized standard BPMN elements outside the executable set (ADR-027 tier ``documented``).
@@ -150,6 +151,30 @@ class ErrorBoundary:
 
 
 @dataclass
+class MultiInstance:
+    """A ``multiInstanceLoopCharacteristics`` on a host activity (ADR-036 / Backlog #3). The activity
+    runs N times — ``is_sequential`` chooses a guarded loop vs a parallel ``Send`` fan-out. N is bound
+    by ``cardinality`` (``<loopCardinality>``) or the length of the ``collection_ref`` list artifact
+    (``loopDataInputRef``); ``item_name`` (``inputDataItem``) is the per-iteration input variable the
+    collection item is injected under. ``completion_condition`` (``completionCondition``) allows a
+    sequential early-exit (evaluated after each iteration; ignored for parallel — early-cancel deferred).
+    Each iteration's output is scoped by index and aggregated on join: ``aggregation="list"`` (default)
+    collects a single list artifact under the binding name; ``"indexed"`` keeps ``{binding}#i`` keys.
+
+    Captured for a *task* host (executable) and also a *subProcess* host (refused — deferred stretch),
+    so the compilability gate can distinguish and reject the latter."""
+
+    attached_to: str                 # host activity id
+    is_sequential: bool = False
+    cardinality: Optional[int] = None       # <loopCardinality> literal (bound on N)
+    collection_ref: Optional[str] = None    # loopDataInputRef → the list artifact iterated
+    item_name: Optional[str] = None         # inputDataItem → per-iteration input var name
+    completion_condition: Optional[str] = None  # raw <completionCondition> text (sequential early-exit)
+    aggregation: str = "list"               # "list" | "indexed" (amendia:aggregation ext attr; default list)
+    on_subprocess: bool = False             # host is a subProcess (deferred — refused by compilability)
+
+
+@dataclass
 class SubProcess:
     """An embedded ``subProcess`` — a nested scope with its own start/end and internal flow (ADR-032
     / Phase 2.6). The compiler *inlines* (flattens) it into the parent graph, so everything already
@@ -165,6 +190,85 @@ class SubProcess:
     member_ids: List[str] = field(default_factory=list)  # direct member node ids (incl nested subProcess ids)
     incoming_flow: Optional[str] = None  # parent-level flow id INTO the box (source → subProcess)
     outgoing_flow: Optional[str] = None  # parent-level flow id OUT of the box (subProcess → target)
+
+
+@dataclass
+class CallActivity:
+    """A ``callActivity`` invoking **another pack** as a reusable sub-process (ADR-039). The compiler
+    inline-compiles (splices) the pinned callee pack's graph in at this node — one instance, one
+    checkpoint, one audit trail (mirrors the ADR-032 sub-process flatten, across packs). ``target_pack``
+    is the callee's ``pack_key`` (``calledElement``); ``version_range`` is a semver range (Amendia
+    extension ``amendia:calledVersion``; absent → :data:`DEFAULT_CALL_VERSION_RANGE`). Nested-instance
+    execution is deferred (documented stretch). Captured regardless of profile; refused under
+    ``common_subset`` and for the deferred stretches (MI host / boundary on a callActivity)."""
+
+    id: str
+    target_pack: Optional[str]           # calledElement = callee pack_key (None = no target → refused)
+    version_range: str = "^1.0.0"        # amendia:calledVersion (a semver range; policy default below)
+    parent_scope: str = ""               # containing scope (process_id or a parent subProcess id)
+    is_multi_instance: bool = False      # a callActivity as a MI host is a deferred stretch (refused)
+
+
+# Policy default when a callActivity declares no ``amendia:calledVersion`` — the conservative "latest
+# compatible 1.x". Documented so a diagram without an explicit range still pins reproducibly (ADR-039).
+DEFAULT_CALL_VERSION_RANGE = "^1.0.0"
+
+
+@dataclass
+class EventSubProcess:
+    """An event ``subProcess`` (``triggeredByEvent="true"``) — a **scope-wide event handler** (ADR-042
+    / Backlog #5, Item F). Unlike a boundary on a subProcess (ADR-041), its trigger start event makes it
+    fire from **anywhere in its enclosing scope**, and that scope may be the whole **process** (which a
+    subProcess boundary cannot express). Only **interrupting** ``error``/``timer`` starts run: on trigger
+    the enclosing scope is cancelled (reusing ADR-041's scope machinery) and the ESP **body is inlined**
+    as the handler. It is therefore *not* a :class:`SubProcess` (no parent-level in/out flow, its body
+    ends are terminal); the compiler registers the handler as a scope boundary on ``enclosing_scope`` and
+    splices the body's start-successor as the handler entry.
+
+    ``trigger`` is ``"error"`` or ``"timer"`` when runnable; ``unsupported`` (set → refused by the
+    compilability gate) records why a message/signal/escalation start or a non-interrupting ESP cannot
+    run. ``error_code`` is the matched code (``None`` = catch-all); ``timer`` the schedule.
+    ``body_start_successor`` is the start event's single outgoing target — the inlined handler's first
+    node; ``end_ids`` are the body's terminal ends."""
+
+    id: str
+    enclosing_scope: str                 # process_id or the enclosing subProcess id (scope it guards)
+    trigger: Optional[str] = None        # "error" | "timer" (None when unsupported)
+    error_code: Optional[str] = None     # matched raised code; None = catch-all (error trigger)
+    timer: Optional["TimerDef"] = None   # schedule (timer trigger)
+    is_interrupting: bool = True         # isInterrupting != "false" (non-interrupting deferred)
+    start_id: Optional[str] = None       # the ESP's trigger start event id (plumbing, not a graph node)
+    body_start_successor: Optional[str] = None  # start's outgoing target = the inlined handler entry
+    end_ids: List[str] = field(default_factory=list)  # the body's terminal end events
+    unsupported: Optional[str] = None    # reason string when refused (message/signal/escalation, non-interrupting)
+
+
+@dataclass
+class CompensationHandler:
+    """A compensation handler pairing (ADR-043 / Backlog #4, Item G). A handler activity
+    (``isForCompensation="true"``, off the sequence flow, bound to an **undo** capability) is paired to
+    a **compensable primary** activity by a compensation ``boundaryEvent`` (a ``compensateEventDefinition``
+    whose ``attachedToRef`` is the primary) plus an ``association`` (boundary → handler). When a
+    compensate-throw fires, the primary's completed side effect is reversed by running ``handler_id``."""
+
+    handler_id: str                  # the isForCompensation activity (bound undo capability)
+    primary_id: str                  # the compensable activity whose side effect it reverses
+    boundary_id: str                 # the compensation boundaryEvent that pairs them
+
+
+@dataclass
+class CompensateThrow:
+    """A compensate throw event (ADR-043) — an ``intermediateThrowEvent``/``endEvent`` carrying a
+    ``compensateEventDefinition``. When reached it compensates its enclosing scope's completed
+    compensable activities in **reverse (LIFO) order**. This cut is **scope-wide**: a targeted throw
+    (``activityRef`` → one activity) is refused (deferred stretch). ``is_end`` distinguishes a terminal
+    end-event throw (compensate, then the instance ends) from an intermediate throw (compensate, then
+    continue via the outgoing flow)."""
+
+    id: str
+    scope: str                       # enclosing scope id (its compensable activities are compensated)
+    is_end: bool = False             # an endEvent throw (terminal) vs an intermediateThrowEvent
+    activity_ref: Optional[str] = None   # targeted compensation (deferred → refused); None = scope-wide
 
 
 @dataclass
@@ -200,11 +304,32 @@ class BpmnModel:
     # belongs to (element id -> scope id), nested start/end ids (plumbing, not graph nodes), and the
     # deferred constructs the compilability gate always refuses.
     subprocesses: Dict[str, "SubProcess"] = field(default_factory=dict)
+    # ADR-036 (Backlog #3): host activity id -> its multi-instance loop characteristics. Populated for
+    # task hosts (executable under common_executable) and subProcess hosts (refused — deferred stretch),
+    # regardless of profile (like the other construct dicts); the compilability gate decides runnability.
+    multi_instance: Dict[str, "MultiInstance"] = field(default_factory=dict)
     element_scope: Dict[str, str] = field(default_factory=dict)   # element id -> containing scope id
     nested_starts: Set[str] = field(default_factory=set)          # sub-process start-event ids
     nested_ends: Set[str] = field(default_factory=set)            # sub-process end-event ids
-    call_activities: List[str] = field(default_factory=list)      # deferred (bpmn_call_activity_unsupported)
+    # ADR-039: callActivity id -> its cross-pack target (calledElement + version range). Captured
+    # regardless of profile (like the other construct dicts); the compiler inline-splices the callee.
+    call_activities: Dict[str, "CallActivity"] = field(default_factory=dict)
     subprocess_boundaries: List[str] = field(default_factory=list)  # boundary attached to a subProcess (deferred)
+    # ADR-042 (Backlog #5, Item F): event sub-processes (triggeredByEvent="true") — scope-wide handlers
+    # keyed by their container id. A runnable ESP's handler is ALSO registered into boundary_timers /
+    # error_boundaries[enclosing_scope] (so the compiler reuses ADR-041's scope router); this dict is the
+    # authoritative record (trigger kind, refusal reason, body ends) the compiler + gate read.
+    event_subprocesses: Dict[str, "EventSubProcess"] = field(default_factory=dict)
+    # ADR-043 (Backlog #4, Item G): compensation. ``compensation_handlers`` (handler_id -> pairing) are
+    # the off-flow ``isForCompensation`` activities each paired via a compensate boundaryEvent+association
+    # to a compensable primary; ``compensations`` (primary_id -> handler_id) is the convenience inverse
+    # the compiler threads onto the primary's node (to log a compensation entry on commit).
+    # ``compensate_throws`` (throw_id -> CompensateThrow) are the compensate-throw events that drive the
+    # reverse-order undo. Off-flow handler activities are excluded from reachability/arity like an ESP body.
+    compensation_handlers: Dict[str, "CompensationHandler"] = field(default_factory=dict)
+    compensations: Dict[str, str] = field(default_factory=dict)   # primary_id -> handler_id
+    compensate_throws: Dict[str, "CompensateThrow"] = field(default_factory=dict)
+    cancel_end_events: List[str] = field(default_factory=list)    # endEvents with a cancelEventDefinition
     # ADR-033 (Phase 2.7): businessRuleTask id -> its advisory decisionRef/calledDecision (inference
     # only — native DMN is NOT evaluated); scriptTask ids that carry an inline <script> body (refused).
     decision_refs: Dict[str, str] = field(default_factory=dict)
@@ -225,6 +350,8 @@ class BpmnModel:
             out[cid] = "messageCatch"
         for rid in self.receive_tasks:
             out[rid] = "receiveTask"
+        for aid in self.call_activities:        # ADR-039 — a callActivity binds a `call` executor
+            out[aid] = "callActivity"
         return out
 
     def coverage(self) -> Dict[str, Any]:

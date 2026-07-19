@@ -126,7 +126,8 @@ async def activate_pack(
     from amendia_bpmn import parse as _parse, required_profile as _required_profile
     _model, _ = _parse(bpmn_xml, manifest.process.process_id)
     prof = _required_profile(_model) if _model is not None else "common_subset"
-    resolution, resolved_caps = await resolve_pins(manifest, cap_repo, schema_repo, required_execution_profile=prof)
+    resolution, resolved_caps = await resolve_pins(manifest, cap_repo, schema_repo,
+                                                   required_execution_profile=prof, pack_repo=repo)
     activated = await repo.activate(pack_key, version, resolved_caps=resolved_caps, resolution=resolution.to_doc())
     resolver.invalidate()
     return activated

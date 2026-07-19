@@ -1,0 +1,96 @@
+{
+  "manifest_version": "1.0",
+  "pack_key": "wire-repair-dmn",
+  "version": "1.0.0",
+  "title": "Wire Transfer Exception \u2014 Native DMN Repair Decision",
+  "description": "A minimal pack demonstrating a native DMN decision (ADR-037): a businessRuleTask evaluates an inline decision table mapping the investigation dossier to a repair verdict, and a gateway routes on the verdict.",
+  "process": {
+    "bpmn_file": "wire-repair-dmn.bpmn",
+    "process_id": "Process_WireRepairDmn",
+    "bpmn_sha256": "05db183cf6b9b88c2a61db5d0d051c8b7b4200062747c4d3b31629c8c1652c3d"
+  },
+  "triage_rules": [
+    {
+      "rule_id": "wire-dmn-demo",
+      "priority": 200,
+      "description": "Unable-to-apply pacs.008 wires routed through the native-DMN demo pack.",
+      "when": {
+        "all": [
+          {
+            "field": "exception_type",
+            "op": "eq",
+            "value": "unable_to_apply"
+          },
+          {
+            "field": "payment.msg_type",
+            "op": "starts_with",
+            "value": "pacs.008"
+          }
+        ]
+      }
+    }
+  ],
+  "requires_capabilities": [
+    {
+      "ref": "cap.payment.enrich_investigation@^1.0.0"
+    },
+    {
+      "ref": "cap.dmn.repair_decision@^1.0.0"
+    }
+  ],
+  "artifacts": [
+    "art.payment.investigation_dossier@^1.0.0",
+    "art.dmn.repair_decision@^1.0.0"
+  ],
+  "bindings": [
+    {
+      "element_id": "Task_Enrich",
+      "element_kind": "serviceTask",
+      "executor": {
+        "type": "capability",
+        "capability": "cap.payment.enrich_investigation@^1.0.0"
+      },
+      "hitl": {
+        "mode": "none"
+      },
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "dossier",
+          "schema": "art.payment.investigation_dossier@^1.0.0"
+        }
+      ]
+    },
+    {
+      "element_id": "Task_Decide",
+      "element_kind": "businessRuleTask",
+      "executor": {
+        "type": "capability",
+        "capability": "cap.dmn.repair_decision@^1.0.0"
+      },
+      "hitl": {
+        "mode": "none"
+      },
+      "inputs": [
+        {
+          "name": "dossier",
+          "schema": "art.payment.investigation_dossier@^1.0.0"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "decision",
+          "schema": "art.dmn.repair_decision@^1.0.0"
+        }
+      ]
+    }
+  ],
+  "gateway_variables": [
+    {
+      "gateway_id": "Gateway_Decide",
+      "variable": "decision.verdict",
+      "source_artifact": "art.dmn.repair_decision"
+    }
+  ],
+  "status": "draft"
+}

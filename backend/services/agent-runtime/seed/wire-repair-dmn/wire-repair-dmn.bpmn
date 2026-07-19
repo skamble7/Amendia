@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
+                  id="Definitions_WireRepairDmn"
+                  targetNamespace="http://amendia.example/processes/wire-repair-dmn"
+                  exporter="Amendia" exporterVersion="0.1">
+  <bpmn:process id="Process_WireRepairDmn"
+                name="Wire Transfer Exception - Native DMN Repair Decision"
+                isExecutable="true">
+    <bpmn:documentation>A minimal pack exercising a native DMN decision (ADR-037): enrich the payment
+    into a dossier, then a businessRuleTask evaluates a DMN decision table (gpi status + amount →
+    repair verdict), and an exclusive gateway routes on the verdict.</bpmn:documentation>
+
+    <bpmn:startEvent id="Start_DMN">
+      <bpmn:outgoing>Flow_Start_Enrich</bpmn:outgoing>
+    </bpmn:startEvent>
+
+    <bpmn:serviceTask id="Task_Enrich" name="Enrich &amp; investigate">
+      <bpmn:incoming>Flow_Start_Enrich</bpmn:incoming>
+      <bpmn:outgoing>Flow_Enrich_Decide</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <bpmn:businessRuleTask id="Task_Decide" name="Decide repair verdict">
+      <bpmn:incoming>Flow_Enrich_Decide</bpmn:incoming>
+      <bpmn:outgoing>Flow_Decide_Gw</bpmn:outgoing>
+    </bpmn:businessRuleTask>
+
+    <bpmn:exclusiveGateway id="Gateway_Decide" name="Verdict?" default="Flow_Review">
+      <bpmn:incoming>Flow_Decide_Gw</bpmn:incoming>
+      <bpmn:outgoing>Flow_Auto</bpmn:outgoing>
+      <bpmn:outgoing>Flow_Reject</bpmn:outgoing>
+      <bpmn:outgoing>Flow_Review</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+
+    <bpmn:endEvent id="End_Auto"><bpmn:incoming>Flow_Auto</bpmn:incoming></bpmn:endEvent>
+    <bpmn:endEvent id="End_Reject"><bpmn:incoming>Flow_Reject</bpmn:incoming></bpmn:endEvent>
+    <bpmn:endEvent id="End_Review"><bpmn:incoming>Flow_Review</bpmn:incoming></bpmn:endEvent>
+
+    <bpmn:sequenceFlow id="Flow_Start_Enrich" sourceRef="Start_DMN" targetRef="Task_Enrich"/>
+    <bpmn:sequenceFlow id="Flow_Enrich_Decide" sourceRef="Task_Enrich" targetRef="Task_Decide"/>
+    <bpmn:sequenceFlow id="Flow_Decide_Gw" sourceRef="Task_Decide" targetRef="Gateway_Decide"/>
+    <bpmn:sequenceFlow id="Flow_Auto" sourceRef="Gateway_Decide" targetRef="End_Auto">
+      <bpmn:conditionExpression>decision.verdict == "auto_repair"</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_Reject" sourceRef="Gateway_Decide" targetRef="End_Reject">
+      <bpmn:conditionExpression>decision.verdict == "reject"</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_Review" sourceRef="Gateway_Decide" targetRef="End_Review"/>
+  </bpmn:process>
+</bpmn:definitions>

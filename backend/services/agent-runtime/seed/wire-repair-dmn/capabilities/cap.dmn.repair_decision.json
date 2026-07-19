@@ -1,0 +1,38 @@
+{
+  "descriptor_version": "1.0",
+  "capability_id": "cap.dmn.repair_decision",
+  "version": "1.0.0",
+  "title": "Repair decision (native DMN table)",
+  "description": "Maps the investigation dossier (gpi status + settlement amount) to a repair verdict via an auditable DMN decision table — no code (ADR-037).",
+  "kind": "decision",
+  "side_effect": "read_only",
+  "idempotent": true,
+  "inputs": [
+    { "name": "dossier", "schema": "art.payment.investigation_dossier@^1.0.0" }
+  ],
+  "outputs": [
+    { "name": "decision", "schema": "art.dmn.repair_decision@^1.0.0" }
+  ],
+  "runtime": {
+    "kind": "decision",
+    "table": {
+      "hit_policy": "FIRST",
+      "inputs": [
+        { "expression": "dossier.gpi_status.status", "type": "string" },
+        { "expression": "dossier.payment_snapshot.settlement_amount.value", "type": "number" }
+      ],
+      "outputs": [
+        { "name": "verdict", "type": "string" }
+      ],
+      "rules": [
+        { "when": ["\"returned\"", "-"], "then": ["reject"] },
+        { "when": ["-", ">= 1000000"], "then": ["manual_review"] },
+        { "when": ["\"stopped_at_beneficiary\"", "< 1000000"], "then": ["auto_repair"] },
+        { "when": ["-", "-"], "then": ["manual_review"] }
+      ]
+    }
+  },
+  "constraints": { "timeout_seconds": 30, "max_retries": 0, "min_hitl_mode": "none" },
+  "owner": "platform",
+  "status": "active"
+}
