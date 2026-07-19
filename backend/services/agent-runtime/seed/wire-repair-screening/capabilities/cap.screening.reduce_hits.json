@@ -1,0 +1,29 @@
+{
+  "descriptor_version": "1.0",
+  "capability_id": "cap.screening.reduce_hits",
+  "version": "1.0.0",
+  "title": "Reduce party screens → hit summary",
+  "description": "Collapses the list of per-party screening results into a summary a gateway can branch on: the first party whose verdict is a 'hit' (or null when none is) — the 'is any party a hit?' reducer (ADR-038).",
+  "kind": "reduce",
+  "side_effect": "read_only",
+  "idempotent": true,
+  "inputs": [
+    { "name": "screening", "schema": "art.screening.party_result@^1.0.0" }
+  ],
+  "outputs": [
+    { "name": "summary", "schema": "art.screening.summary@^1.0.0" }
+  ],
+  "runtime": {
+    "kind": "reduce",
+    "config": {
+      "op": "first",
+      "source": "screening",
+      "item_path": "verdict",
+      "predicate": "= \"hit\"",
+      "output_field": "matched"
+    }
+  },
+  "constraints": { "timeout_seconds": 30, "max_retries": 0, "min_hitl_mode": "none" },
+  "owner": "platform",
+  "status": "active"
+}

@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:amendia="http://amendia.example/bpmn" id="Defs_Process_ComposeCaller" targetNamespace="http://amendia.example/processes/Process_ComposeCaller">
+  <bpmn:process id="Process_ComposeCaller" isExecutable="true">
+    <bpmn:startEvent id="S"><bpmn:outgoing>f1</bpmn:outgoing></bpmn:startEvent>
+    <bpmn:serviceTask id="Task_Seed" name="Seed"><bpmn:incoming>f1</bpmn:incoming><bpmn:outgoing>f2</bpmn:outgoing></bpmn:serviceTask>
+    <bpmn:callActivity id="CA_Leaf" calledElement="compose-leaf" amendia:calledVersion="^1.0.0"><bpmn:incoming>f2</bpmn:incoming><bpmn:outgoing>f3</bpmn:outgoing></bpmn:callActivity>
+    <bpmn:serviceTask id="Task_Finish" name="Finish"><bpmn:incoming>f3</bpmn:incoming><bpmn:outgoing>f4</bpmn:outgoing></bpmn:serviceTask>
+    <bpmn:endEvent id="E"><bpmn:incoming>f4</bpmn:incoming></bpmn:endEvent>
+
+    <bpmn:sequenceFlow id="f1" sourceRef="S" targetRef="Task_Seed"/>
+    <bpmn:sequenceFlow id="f2" sourceRef="Task_Seed" targetRef="CA_Leaf"/>
+    <bpmn:sequenceFlow id="f3" sourceRef="CA_Leaf" targetRef="Task_Finish"/>
+    <bpmn:sequenceFlow id="f4" sourceRef="Task_Finish" targetRef="E"/>
+
+  </bpmn:process>
+</bpmn:definitions>

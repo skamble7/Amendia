@@ -1,0 +1,46 @@
+{
+  "manifest_version": "1.0",
+  "pack_key": "compose-cyc-b",
+  "version": "1.0.0",
+  "title": "Composition demo \u2014 compose-cyc-b",
+  "description": "ADR-039 cross-pack composition demo pack.",
+  "process": {
+    "bpmn_file": "compose-cyc-b.bpmn",
+    "process_id": "Process_ComposeCycB",
+    "bpmn_sha256": "12b4fec487c3f71c3e7269e3763c23d345618359c297dcd0f2e6b7b6aeb1fc28"
+  },
+  "triage_rules": [
+    {
+      "rule_id": "compose-cyc-b-rule",
+      "priority": 300,
+      "description": "demo",
+      "when": {
+        "all": [
+          {
+            "field": "exception_type",
+            "op": "eq",
+            "value": "unable_to_apply"
+          }
+        ]
+      }
+    }
+  ],
+  "requires_capabilities": [],
+  "artifacts": [],
+  "bindings": [
+    {
+      "element_id": "CA_X",
+      "element_kind": "callActivity",
+      "executor": {
+        "type": "call",
+        "pack": "compose-cyc-a",
+        "version": "^1.0.0",
+        "input_map": {},
+        "output_map": {}
+      },
+      "inputs": [],
+      "outputs": []
+    }
+  ],
+  "status": "draft"
+}

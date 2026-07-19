@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
+                  id="Definitions_WireRepairScreening"
+                  targetNamespace="http://amendia.example/processes/wire-repair-screening"
+                  exporter="Amendia" exporterVersion="0.1">
+  <bpmn:process id="Process_WireRepairScreening"
+                name="Wire Transfer Exception - Multi-party Screening + Reduce"
+                isExecutable="true">
+    <bpmn:documentation>Demonstrates the multi-instance → reduce → gateway pattern (ADR-036/037/038):
+    screen each party (a multi-instance serviceTask yielding a list of party_results), reduce that list
+    to a summary (is any party a hit?), and an exclusive gateway routes on the summary.</bpmn:documentation>
+
+    <bpmn:startEvent id="Start_Screening">
+      <bpmn:outgoing>Flow_Start_Screen</bpmn:outgoing>
+    </bpmn:startEvent>
+
+    <bpmn:serviceTask id="Task_Screen" name="Screen each party">
+      <bpmn:incoming>Flow_Start_Screen</bpmn:incoming>
+      <bpmn:outgoing>Flow_Screen_Reduce</bpmn:outgoing>
+      <bpmn:multiInstanceLoopCharacteristics>
+        <bpmn:loopCardinality>3</bpmn:loopCardinality>
+      </bpmn:multiInstanceLoopCharacteristics>
+    </bpmn:serviceTask>
+
+    <bpmn:serviceTask id="Task_Reduce" name="Reduce screens → hit summary">
+      <bpmn:incoming>Flow_Screen_Reduce</bpmn:incoming>
+      <bpmn:outgoing>Flow_Reduce_Gw</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <bpmn:exclusiveGateway id="Gateway_Hit" name="Any hit?" default="Flow_Clean">
+      <bpmn:incoming>Flow_Reduce_Gw</bpmn:incoming>
+      <bpmn:outgoing>Flow_Hit</bpmn:outgoing>
+      <bpmn:outgoing>Flow_Clean</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+
+    <bpmn:endEvent id="End_Hit"><bpmn:incoming>Flow_Hit</bpmn:incoming></bpmn:endEvent>
+    <bpmn:endEvent id="End_Clean"><bpmn:incoming>Flow_Clean</bpmn:incoming></bpmn:endEvent>
+
+    <bpmn:sequenceFlow id="Flow_Start_Screen" sourceRef="Start_Screening" targetRef="Task_Screen"/>
+    <bpmn:sequenceFlow id="Flow_Screen_Reduce" sourceRef="Task_Screen" targetRef="Task_Reduce"/>
+    <bpmn:sequenceFlow id="Flow_Reduce_Gw" sourceRef="Task_Reduce" targetRef="Gateway_Hit"/>
+    <bpmn:sequenceFlow id="Flow_Hit" sourceRef="Gateway_Hit" targetRef="End_Hit">
+      <bpmn:conditionExpression>summary.matched == "hit"</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_Clean" sourceRef="Gateway_Hit" targetRef="End_Clean"/>
+  </bpmn:process>
+</bpmn:definitions>

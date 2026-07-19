@@ -113,6 +113,7 @@ class SandboxedExecutor:
             inputs=inputs,
             envelope=ctx.envelope,
             output_schemas=output_schemas,
+            error_codes=list(extras.get("error_codes") or []),  # ADR-035
             mode=ctx.mode,
             approved_action_ids=ctx.approved_action_ids,
             model_config_ref=ref,

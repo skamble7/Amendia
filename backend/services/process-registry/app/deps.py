@@ -49,7 +49,7 @@ def get_bpmn_repo(request: Request) -> BpmnRepository:
 
 def get_validator(request: Request) -> PackValidator:
     return PackValidator(request.app.state.capability_repo, request.app.state.artifact_schema_repo,
-                         profile=settings.EXECUTION_PROFILE)
+                         profile=settings.EXECUTION_PROFILE, pack_repo=request.app.state.pack_repo)
 
 
 def get_resolver(request: Request) -> ResolveService:

@@ -1,0 +1,100 @@
+{
+  "manifest_version": "1.0",
+  "pack_key": "compose-caller",
+  "version": "1.0.0",
+  "title": "Composition demo \u2014 compose-caller",
+  "description": "ADR-039 cross-pack composition demo pack.",
+  "process": {
+    "bpmn_file": "compose-caller.bpmn",
+    "process_id": "Process_ComposeCaller",
+    "bpmn_sha256": "9ac17460d2037a3db70ecf1013c7cc30a3d5b0084484b0c96bd788955b4efbdc"
+  },
+  "triage_rules": [
+    {
+      "rule_id": "compose-caller-rule",
+      "priority": 300,
+      "description": "demo",
+      "when": {
+        "all": [
+          {
+            "field": "exception_type",
+            "op": "eq",
+            "value": "unable_to_apply"
+          }
+        ]
+      }
+    }
+  ],
+  "requires_capabilities": [
+    {
+      "ref": "cap.compose.seed@^1.0.0"
+    },
+    {
+      "ref": "cap.compose.finish@^1.0.0"
+    }
+  ],
+  "artifacts": [
+    "art.compose.val@^1.0.0"
+  ],
+  "bindings": [
+    {
+      "element_id": "Task_Seed",
+      "element_kind": "serviceTask",
+      "executor": {
+        "type": "capability",
+        "capability": "cap.compose.seed@^1.0.0"
+      },
+      "hitl": {
+        "mode": "none"
+      },
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "seed",
+          "schema": "art.compose.val@^1.0.0"
+        }
+      ]
+    },
+    {
+      "element_id": "CA_Leaf",
+      "element_kind": "callActivity",
+      "executor": {
+        "type": "call",
+        "pack": "compose-leaf",
+        "version": "^1.0.0",
+        "input_map": {
+          "inp": "seed"
+        },
+        "output_map": {
+          "got": "leafout"
+        }
+      },
+      "inputs": [],
+      "outputs": []
+    },
+    {
+      "element_id": "Task_Finish",
+      "element_kind": "serviceTask",
+      "executor": {
+        "type": "capability",
+        "capability": "cap.compose.finish@^1.0.0"
+      },
+      "hitl": {
+        "mode": "none"
+      },
+      "inputs": [
+        {
+          "name": "got",
+          "schema": "art.compose.val@^1.0.0"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "final",
+          "schema": "art.compose.val@^1.0.0"
+        }
+      ]
+    }
+  ],
+  "status": "draft"
+}

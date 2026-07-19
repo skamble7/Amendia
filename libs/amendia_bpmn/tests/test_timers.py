@@ -169,9 +169,13 @@ def test_wellformed_timers_pass_under_timers_profile():
     assert compilability_findings(parse(_boundary_xml(), "P", profile="timers")[0], profile="timers") == []
 
 
-def test_boundary_on_service_task_is_rejected():
+def test_boundary_on_service_task_now_allowed():
+    # ADR-040: a timer boundary on a capability serviceTask self-enforces an in-process running
+    # deadline (was refused with bpmn_timer_boundary_host_unsupported; that host refusal is retired
+    # for capability hosts — the read_only safety check lives in the registry validator).
     m, _ = parse(_boundary_xml(host_kind="serviceTask"), "P", profile="timers")
-    assert "bpmn_timer_boundary_host_unsupported" in _codes(m, "timers")
+    assert "bpmn_timer_boundary_host_unsupported" not in _codes(m, "timers")
+    assert "Approve" in m.boundary_timers  # captured as a running-deadline host
 
 
 def test_empty_catch_schedule_is_rejected_under_timers():

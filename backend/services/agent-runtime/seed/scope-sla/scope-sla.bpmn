@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" id="Defs_ScopeSla" targetNamespace="http://amendia.example/processes/scope-sla">
+  <bpmn:process id="Process_ScopeSla" isExecutable="true">
+    <bpmn:startEvent id="S"><bpmn:outgoing>f1</bpmn:outgoing></bpmn:startEvent>
+    <bpmn:subProcess id="Sub_Timer" name="Screen scope">
+      <bpmn:incoming>f1</bpmn:incoming><bpmn:outgoing>f2</bpmn:outgoing>
+      <bpmn:startEvent id="iS"><bpmn:outgoing>if1</bpmn:outgoing></bpmn:startEvent>
+      <bpmn:serviceTask id="TaskA" name="A"><bpmn:incoming>if1</bpmn:incoming><bpmn:outgoing>if2</bpmn:outgoing></bpmn:serviceTask>
+      <bpmn:serviceTask id="TaskB" name="B"><bpmn:incoming>if2</bpmn:incoming><bpmn:outgoing>if3</bpmn:outgoing></bpmn:serviceTask>
+      <bpmn:serviceTask id="TaskC" name="C"><bpmn:incoming>if3</bpmn:incoming><bpmn:outgoing>if4</bpmn:outgoing></bpmn:serviceTask>
+      <bpmn:endEvent id="iE"><bpmn:incoming>if4</bpmn:incoming></bpmn:endEvent>
+      <bpmn:sequenceFlow id="if1" sourceRef="iS" targetRef="TaskA"/>
+      <bpmn:sequenceFlow id="if2" sourceRef="TaskA" targetRef="TaskB"/>
+      <bpmn:sequenceFlow id="if3" sourceRef="TaskB" targetRef="TaskC"/>
+      <bpmn:sequenceFlow id="if4" sourceRef="TaskC" targetRef="iE"/>
+    </bpmn:subProcess>
+    <bpmn:boundaryEvent id="Sla" attachedToRef="Sub_Timer"><bpmn:timerEventDefinition><bpmn:timeDuration>PT2H</bpmn:timeDuration></bpmn:timerEventDefinition></bpmn:boundaryEvent>
+    <bpmn:endEvent id="End_Done"><bpmn:incoming>f2</bpmn:incoming></bpmn:endEvent>
+    <bpmn:endEvent id="End_SLA"><bpmn:incoming>f_sla</bpmn:incoming></bpmn:endEvent>
+    <bpmn:sequenceFlow id="f1" sourceRef="S" targetRef="Sub_Timer"/>
+    <bpmn:sequenceFlow id="f2" sourceRef="Sub_Timer" targetRef="End_Done"/>
+    <bpmn:sequenceFlow id="f_sla" sourceRef="Sla" targetRef="End_SLA"/>
+  </bpmn:process>
+</bpmn:definitions>

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:amendia="http://amendia.example/bpmn" id="Defs_Process_ComposeMid" targetNamespace="http://amendia.example/processes/Process_ComposeMid">
+  <bpmn:process id="Process_ComposeMid" isExecutable="true">
+    <bpmn:startEvent id="S"><bpmn:outgoing>f1</bpmn:outgoing></bpmn:startEvent>
+    <bpmn:serviceTask id="Task_MidBump" name="MidBump"><bpmn:incoming>f1</bpmn:incoming><bpmn:outgoing>f2</bpmn:outgoing></bpmn:serviceTask>
+    <bpmn:callActivity id="CA_MidLeaf" calledElement="compose-leaf" amendia:calledVersion="^1.0.0"><bpmn:incoming>f2</bpmn:incoming><bpmn:outgoing>f3</bpmn:outgoing></bpmn:callActivity>
+    <bpmn:endEvent id="E"><bpmn:incoming>f3</bpmn:incoming></bpmn:endEvent>
+
+    <bpmn:sequenceFlow id="f1" sourceRef="S" targetRef="Task_MidBump"/>
+    <bpmn:sequenceFlow id="f2" sourceRef="Task_MidBump" targetRef="CA_MidLeaf"/>
+    <bpmn:sequenceFlow id="f3" sourceRef="CA_MidLeaf" targetRef="E"/>
+
+  </bpmn:process>
+</bpmn:definitions>

@@ -101,7 +101,23 @@ class MessageExecutor(ContractModel):
     message_name: str
 
 
-Executor = Union[CapabilityExecutor, HumanExecutor, MessageExecutor]
+class CallExecutor(ContractModel):
+    """ADR-039: a ``callActivity`` invokes **another pack** as a reusable sub-process (inline-compiled).
+    ``pack`` is the callee ``pack_key``; ``version`` a semver range pinned to an exact callee version at
+    activation (reproducible forever after). ``input_map`` maps each callee **input binding name** → a
+    dotpath into CALLER state (the source must be produced upstream); ``output_map`` maps a **caller
+    artifact name** → a callee **output binding name**. No HITL of its own (the callee's own HITL/SoD
+    run inline, in the caller instance); ``side_effect`` is derived from the callee (composition is as
+    side-effectful as what it calls)."""
+
+    type: Literal["call"]
+    pack: PackKey
+    version: str = "^1.0.0"                                    # semver range (pinned at activation)
+    input_map: Dict[str, str] = Field(default_factory=dict)    # callee_input_binding -> caller dotpath
+    output_map: Dict[str, str] = Field(default_factory=dict)   # caller_artifact -> callee_output_binding
+
+
+Executor = Union[CapabilityExecutor, HumanExecutor, MessageExecutor, CallExecutor]
 
 # element kinds that bind a MessageExecutor (no capability, no HITL).
 _MESSAGE_KINDS = ("messageCatch", "receiveTask")
@@ -130,6 +146,7 @@ class Binding(ContractModel):
     element_kind: Literal[
         "serviceTask", "userTask", "messageCatch", "receiveTask",
         "sendTask", "scriptTask", "manualTask", "businessRuleTask",
+        "callActivity",
     ]
     executor: Executor = Field(..., discriminator="type")
     # HITL is required for capability/human executors; a message element has no human gate (ADR-031).
@@ -146,9 +163,17 @@ class Binding(ContractModel):
             if self.element_kind not in _MESSAGE_KINDS:
                 raise ValueError(f"message executor requires element_kind in {_MESSAGE_KINDS}, "
                                  f"got '{self.element_kind}'")
+        elif etype == "call":
+            # ADR-039: a callActivity binds a `call` executor; its callee runs inline (no HITL of its
+            # own — the callee's own gates run in the caller instance).
+            if self.element_kind != "callActivity":
+                raise ValueError(f"call executor requires element_kind 'callActivity', "
+                                 f"got '{self.element_kind}'")
         else:
             if self.element_kind in _MESSAGE_KINDS:
                 raise ValueError(f"element_kind '{self.element_kind}' requires a message executor")
+            if self.element_kind == "callActivity":
+                raise ValueError("element_kind 'callActivity' requires a call executor")
             if self.hitl is None:
                 raise ValueError(f"hitl is required for a '{etype}' executor binding")
         return self

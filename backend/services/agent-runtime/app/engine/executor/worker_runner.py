@@ -49,6 +49,7 @@ def run_job(job: Dict[str, Any], *, mcp_client: Optional[Any] = None) -> Dict[st
                 "element_id": spec.get("element_id"),
                 "process_instance_id": spec.get("process_instance_id"),
                 "memo_attempt": spec.get("memo_attempt", 0),
+                "error_codes": spec.get("error_codes", []),   # ADR-035
             },
         )
         kind = spec.get("kind")

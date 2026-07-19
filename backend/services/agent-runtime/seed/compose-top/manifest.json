@@ -1,0 +1,74 @@
+{
+  "manifest_version": "1.0",
+  "pack_key": "compose-top",
+  "version": "1.0.0",
+  "title": "Composition demo \u2014 compose-top",
+  "description": "ADR-039 cross-pack composition demo pack.",
+  "process": {
+    "bpmn_file": "compose-top.bpmn",
+    "process_id": "Process_ComposeTop",
+    "bpmn_sha256": "b2ee66f64d5b29745df16314704add182acd1b870bcc11d94bc44ac06bf534a9"
+  },
+  "triage_rules": [
+    {
+      "rule_id": "compose-top-rule",
+      "priority": 300,
+      "description": "demo",
+      "when": {
+        "all": [
+          {
+            "field": "exception_type",
+            "op": "eq",
+            "value": "unable_to_apply"
+          }
+        ]
+      }
+    }
+  ],
+  "requires_capabilities": [
+    {
+      "ref": "cap.compose.top@^1.0.0"
+    }
+  ],
+  "artifacts": [
+    "art.compose.val@^1.0.0"
+  ],
+  "bindings": [
+    {
+      "element_id": "Task_TopSeed",
+      "element_kind": "serviceTask",
+      "executor": {
+        "type": "capability",
+        "capability": "cap.compose.top@^1.0.0"
+      },
+      "hitl": {
+        "mode": "none"
+      },
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "topseed",
+          "schema": "art.compose.val@^1.0.0"
+        }
+      ]
+    },
+    {
+      "element_id": "CA_TopMid",
+      "element_kind": "callActivity",
+      "executor": {
+        "type": "call",
+        "pack": "compose-mid",
+        "version": "^1.0.0",
+        "input_map": {
+          "midin": "topseed"
+        },
+        "output_map": {
+          "topout": "midout"
+        }
+      },
+      "inputs": [],
+      "outputs": []
+    }
+  ],
+  "status": "draft"
+}

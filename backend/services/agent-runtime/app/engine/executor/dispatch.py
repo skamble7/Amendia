@@ -16,7 +16,12 @@ from typing import Any, Dict, Optional
 from amendia_contracts.capability import CapabilityDescriptor
 
 from app.config import settings
-from app.engine.executor.base import CapabilityError, ExecutionContext, _run_blocking
+from app.engine.executor.base import (
+    CapabilityError,
+    ExecutionContext,
+    _run_blocking,
+    business_error_from_object,
+)
 from app.engine.executor.core import execute_capability
 from app.engine.executor.memo import memoized_execute
 
@@ -61,17 +66,36 @@ class InProcessExecutor:
 # proxy later (ADR-017 §6, Phase 2) without changing callers.
 # --------------------------------------------------------------------------- #
 def run_real_llm(
-    *, capability_id: str, targets, ref: str, inputs: Dict[str, Any], envelope: Dict[str, Any]
+    *, capability_id: str, targets, ref: str, inputs: Dict[str, Any], envelope: Dict[str, Any],
+    error_codes: Optional[list] = None, cancel: Optional[Any] = None,
 ):
     """Prompt the configured model for one schema-constrained JSON object per target.
 
     ``targets`` is a list of ``(artifact_key, json_schema_or_None)``. Returns
     ``(produced, provider, model)`` where ``produced`` maps artifact_key → parsed dict.
+
+    ``error_codes`` (ADR-035) are the legal error boundary codes for this element; when non-empty
+    the system prompt tells the model it MAY, for a *modeled* failure (payment rejected, screening
+    hit, insufficient info), return ``{"business_error": {"code": "<one of the listed codes>",
+    "detail": {...}}}`` instead of the artifact. Such a response is detected and re-raised as a
+    :class:`CapabilityBusinessError` (routed to the boundary); genuine LLM/transport failures and
+    non-JSON output stay a technical :class:`CapabilityError`.
     """
     client = _llm_client(ref)
+    codes = [c for c in (error_codes or []) if c]
+    error_hint = (
+        "\n\nIf — and ONLY if — a modeled business failure applies (e.g. the payment is rejected, "
+        "a screening hit, or information is insufficient), you MAY instead return "
+        '{"business_error": {"code": "<CODE>", "detail": {...}}} where <CODE> is EXACTLY one of: '
+        f"{', '.join(codes)}. Otherwise return the artifact as instructed."
+        if codes else ""
+    )
     produced: Dict[str, Any] = {}
     provider = model = None
     for artifact_key, schema in targets:
+        # ADR-040: cooperative cancellation — bail between turns if the node's SLA deadline breached.
+        if cancel is not None and cancel.cancelled:
+            raise CapabilityError(f"{capability_id}: cancelled (SLA deadline) between LLM turns")
         schema_hint = (
             f"\n\nThe JSON object MUST validate against this JSON Schema:\n{json.dumps(schema)}"
             if schema else ""
@@ -83,7 +107,7 @@ def run_real_llm(
                     f"You are the '{capability_id}' capability in a payments "
                     f"exception-repair workflow. Produce a SINGLE JSON object for artifact "
                     f"'{artifact_key}'. Respond with JSON only — no markdown, no prose, no code "
-                    f"fences.{schema_hint}"
+                    f"fences.{schema_hint}{error_hint}"
                 ),
             },
             {
@@ -105,6 +129,11 @@ def run_real_llm(
                 f"{capability_id}: LLM returned non-JSON for {artifact_key}: "
                 f"{result.text[:200]!r}"
             )
+        # ADR-035: a discriminated business_error object → modeled error (routed to the boundary),
+        # NOT the artifact. Raise before recording it as output.
+        be = business_error_from_object(data)
+        if be is not None:
+            raise be
         produced[artifact_key] = data
         provider = result.raw.get("provider")
         model = result.raw.get("model")

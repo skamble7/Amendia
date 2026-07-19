@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" id="Defs_PaymentComp" targetNamespace="http://amendia.example/processes/payment-compensation">
+  <bpmn:process id="Process_PaymentComp" isExecutable="true">
+    <bpmn:startEvent id="S"><bpmn:outgoing>f1</bpmn:outgoing></bpmn:startEvent>
+    <bpmn:serviceTask id="Release" name="Release payment"><bpmn:incoming>f1</bpmn:incoming><bpmn:outgoing>f2</bpmn:outgoing></bpmn:serviceTask>
+    <bpmn:serviceTask id="Debit" name="Debit account"><bpmn:incoming>f2</bpmn:incoming><bpmn:outgoing>f3</bpmn:outgoing></bpmn:serviceTask>
+    <bpmn:endEvent id="End_Done"><bpmn:incoming>f3</bpmn:incoming></bpmn:endEvent>
+    <bpmn:sequenceFlow id="f1" sourceRef="S" targetRef="Release"/>
+    <bpmn:sequenceFlow id="f2" sourceRef="Release" targetRef="Debit"/>
+    <bpmn:sequenceFlow id="f3" sourceRef="Debit" targetRef="End_Done"/>
+
+    <bpmn:boundaryEvent id="RelCompBnd" attachedToRef="Release"><bpmn:compensateEventDefinition/></bpmn:boundaryEvent>
+    <bpmn:serviceTask id="ReverseRelease" name="Reverse release" isForCompensation="true"></bpmn:serviceTask>
+    <bpmn:association id="a1" sourceRef="RelCompBnd" targetRef="ReverseRelease"/>
+
+    <bpmn:boundaryEvent id="DbtCompBnd" attachedToRef="Debit"><bpmn:compensateEventDefinition/></bpmn:boundaryEvent>
+    <bpmn:serviceTask id="ReverseDebit" name="Reverse debit" isForCompensation="true"></bpmn:serviceTask>
+    <bpmn:association id="a2" sourceRef="DbtCompBnd" targetRef="ReverseDebit"/>
+  </bpmn:process>
+</bpmn:definitions>

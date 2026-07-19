@@ -31,6 +31,14 @@ class CapabilityKind(str, Enum):
     # Additive: existing descriptors/packs are unaffected. Runnable only in nemoclaw mode,
     # always behind a HITL gate, always memoized. The contract boundary is the guarantee.
     DEEP_AGENT = "deep_agent"
+    # ADR-037 — a native DMN decision table: typed inputs → a verdict artifact via an auditable
+    # table (bounded FEEL unary tests + hit policies). No new registry — a `businessRuleTask` binds
+    # a `decision` capability, pinned inline like any other kind. Always read_only.
+    DECISION = "decision"
+    # ADR-038 — a collection-reduction / summary capability: collapses a list artifact into a
+    # scalar/summary artifact a gateway can branch on (quantifiers/count/numeric/positional over the
+    # reused DMN predicate surface). Additive, always read_only. Binds an ordinary serviceTask.
+    REDUCE = "reduce"
 
 
 class SideEffect(str, Enum):
@@ -98,7 +106,33 @@ class DeepAgentRuntime(ContractModel):
     budget: DeepAgentBudget = Field(default_factory=DeepAgentBudget)
 
 
-Runtime = Union[SkillRuntime, McpRuntime, LlmRuntime, DeepAgentRuntime]
+class DecisionRuntime(ContractModel):
+    """A native DMN decision (ADR-037). The decision **table** travels inline (normalized JSON),
+    pinned with the capability at activation — self-descriptive, like the ``mcp`` runtime (ADR-024),
+    so no separate DMN registry. Shape: ``{hit_policy, inputs:[{expression,type?}], outputs:[{name,
+    type?,priority_order?}], rules:[{when:[unary_test…], then:[value…], priority?}]}``. The table is
+    parsed + structurally validated by the shared evaluator (``amendia_bpmn.dmn``) — the registry
+    surfaces its findings as ``dmn_*`` codes, the runtime evaluates it against the bound inputs."""
+
+    kind: Literal["decision"]
+    table: Dict[str, Any]
+
+
+class ReduceRuntime(ContractModel):
+    """A collection-reduction / summary capability (ADR-038). Collapses a **list** input artifact into
+    a scalar/summary output artifact a gateway can branch on — closing the ADR-036/037 "any/all over a
+    list" gap. The ``config`` travels inline (normalized JSON), pinned like any capability. Shape:
+    ``{op, source?, item_path?, predicate?, output_field}`` where ``op`` ∈ quantifiers (``any``/``all``/
+    ``none``), ``count``, numeric (``sum``/``min``/``max``/``avg``), positional (``first``/``last``); the
+    per-item ``predicate`` reuses the bounded DMN unary-test surface (``amendia_bpmn.dmn``) — one FEEL
+    surface, no new mini-language. The registry surfaces its findings as ``reduce_*`` codes; the runtime
+    evaluates it against the bound list input."""
+
+    kind: Literal["reduce"]
+    config: Dict[str, Any]
+
+
+Runtime = Union[SkillRuntime, McpRuntime, LlmRuntime, DeepAgentRuntime, DecisionRuntime, ReduceRuntime]
 
 
 class Constraints(ContractModel):

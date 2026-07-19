@@ -1,0 +1,27 @@
+{
+  "descriptor_version": "1.0",
+  "capability_id": "cap.compose.top",
+  "version": "1.0.0",
+  "title": "cap.compose.top",
+  "kind": "skill",
+  "side_effect": "read_only",
+  "idempotent": true,
+  "inputs": [],
+  "outputs": [
+    {
+      "name": "topseed",
+      "schema": "art.compose.val@^1.0.0"
+    }
+  ],
+  "runtime": {
+    "kind": "skill",
+    "entrypoint": "app.capabilities.composition:top_seed"
+  },
+  "constraints": {
+    "timeout_seconds": 30,
+    "max_retries": 0,
+    "min_hitl_mode": "none"
+  },
+  "owner": "platform",
+  "status": "active"
+}

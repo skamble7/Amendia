@@ -35,6 +35,23 @@ class ProcessState(TypedDict, total=False):
     # ADR-031 Phase 2.4: element_id -> the untyped payload of a delivered message, when the message
     # binding declares no output artifact (a pure signal). Typed messages commit into `artifacts`.
     messages: Annotated[Dict[str, Any], merge_dicts]
+    # ADR-036 (Backlog #3): multi-instance scratch — "{host}/{index}" -> that iteration's produced
+    # outputs (keyed by artifact_key). N iterations write index-scoped keys so parallel writes NEVER
+    # collide (the merge is by unique key, not last-wins on the bare binding); the MI join reads them
+    # in index order and writes the aggregated final artifact into `artifacts`. Never read downstream.
+    mi_results: Annotated[Dict[str, Any], merge_dicts]
+    # ADR-041: subProcess-scope SLA deadlines — subprocess_id -> the absolute (injected-clock) deadline
+    # stamped at scope entry. Every inner node runs under min(own, remaining-scope) and, on scope breach,
+    # marks boundary[scope_id]={"kind":"timer"} to divert the whole scope to its timer-boundary handler.
+    scope_deadlines: Annotated[Dict[str, float], merge_dicts]
+    # ADR-043 (Backlog #4, Item G): compensation. ``compensation_log`` is an APPEND-only list — each
+    # compensable side-effectful activity, on successful commit, appends
+    # {activity_id, handler_id, scope, snapshot, at}; completion order = list order, so LIFO = reversed.
+    # ``compensations_done`` is a companion merge-dict (activity_id -> True) the compensate-throw driver
+    # sets as each handler's undo commits — so a re-run-from-top (HITL-resume replay or crash recovery)
+    # NEVER compensates the same activity twice (the append-only log can't be mutated in place).
+    compensation_log: Annotated[List[Dict[str, Any]], operator.add]
+    compensations_done: Annotated[Dict[str, bool], merge_dicts]
 
 
 def now_iso() -> str:
@@ -66,4 +83,8 @@ def initial_state(*, envelope: Dict[str, Any], trace: Dict[str, Any], pack: Dict
         "last_error": None,
         "boundary": {},
         "messages": {},
+        "mi_results": {},
+        "scope_deadlines": {},
+        "compensation_log": [],
+        "compensations_done": {},
     }

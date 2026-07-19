@@ -29,11 +29,24 @@ class ResolvedBinding(BaseModel):
     outputs: List[ResolvedIO] = Field(default_factory=list)
 
 
+class ResolvedCall(BaseModel):
+    """ADR-039: a callActivity's callee pack, pinned to an exact version at activation (so the caller
+    runs that callee version reproducibly forever). ``input_map``/``output_map`` carry the IO wiring."""
+
+    element: str
+    pack_key: str
+    version: str = ""                                       # pinned exact callee version ("" if unresolved)
+    input_map: Dict[str, str] = Field(default_factory=dict)
+    output_map: Dict[str, str] = Field(default_factory=dict)
+
+
 class Resolution(BaseModel):
     resolved_at: datetime = Field(default_factory=utcnow)
     capabilities: Dict[str, str] = Field(default_factory=dict)   # capability_id -> pinned version
     artifacts: Dict[str, str] = Field(default_factory=dict)      # artifact_key  -> pinned version
     bindings: List[ResolvedBinding] = Field(default_factory=list)
+    # ADR-039: per-callActivity callee pins (element -> pinned callee pack@version + IO maps).
+    call_activities: List[ResolvedCall] = Field(default_factory=list)
     # ADR-027 Phase 2.5: the MINIMUM execution profile this pack needs, DERIVED from its BPMN at
     # activation and pinned here (a derived pin — the resolution sidecar's home, not the immutable
     # manifest). The runtime refuses to load a pack whose required profile exceeds its own.

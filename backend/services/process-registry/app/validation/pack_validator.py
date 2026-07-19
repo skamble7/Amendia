@@ -16,6 +16,8 @@ from amendia_contracts.capability import CapabilityDescriptor
 from amendia_contracts.common import HitlMode, hitl_mode_at_least
 from amendia_contracts.process_pack import ProcessPackManifest
 from app.validation.deep_agent import validate_deep_agent_bindings
+from app.validation.decision import validate_decision_bindings
+from app.validation.reduce import validate_reduce_bindings
 from app.dal.artifact_schema_repo import ArtifactSchemaRepository
 from app.dal.capability_repo import CapabilityRepository
 from app.validation.bpmn import BpmnModel, parse_and_validate
@@ -46,11 +48,12 @@ def _forward_reach(model: BpmnModel) -> Dict[str, set]:
 class PackValidator:
     def __init__(
         self, cap_repo: CapabilityRepository, schema_repo: ArtifactSchemaRepository,
-        *, profile: str = "common_subset",
+        *, profile: str = "common_subset", pack_repo: Optional[object] = None,
     ) -> None:
         self.caps = cap_repo
         self.schemas = schema_repo
         self.profile = profile  # ADR-027 Phase 2: which BPMN constructs may activate
+        self.packs = pack_repo  # ADR-039: needed to validate/pin callActivity callees (cross-pack)
 
     async def validate(
         self,
@@ -71,6 +74,18 @@ class PackValidator:
             report.error("stage_skipped", stage=2, message="binding bijection skipped: no valid BPMN")
         # Stage 4
         self._stage4_hitl_policy(manifest, resolved_caps, report)
+        # ADR-040: an interrupting timer boundary on a running serviceTask is safe only for a read_only
+        # capability (interrupting a side effect is compensation — deferred). Cross-contract check.
+        if model is not None:
+            self._validate_timer_boundary_side_effect(manifest, model, resolved_caps, report)
+        # ADR-041: an interrupting timer boundary on a subProcess cancels the whole scope — safe only if
+        # the scope contains autonomous read_only capabilities (no side effects, no HITL gates).
+        if model is not None:
+            self._validate_subprocess_timer_scope(manifest, model, resolved_caps, report)
+        # ADR-043 (Item G): compensation — a compensable primary must be side-effectful (undoing a
+        # read-only step is meaningless), and its handler must be a bound capability.
+        if model is not None:
+            self._validate_compensation(manifest, model, resolved_caps, report)
         # Stage 5
         if model is not None:
             await self._stage5_artifacts_io(manifest, model, resolved_caps, report)
@@ -81,6 +96,16 @@ class PackValidator:
             await self._stage6_gateway_vars(manifest, model, report)
         else:
             report.error("stage_skipped", stage=6, message="gateway-variable checks skipped: no valid BPMN")
+        # ADR-037: native DMN decision tables (validate every decision-kind binding's inline table).
+        if model is not None:
+            await self._validate_decision_tables(manifest, model, resolved_caps, report)
+        # ADR-039: cross-pack composition (validate every callActivity's callee + IO + call graph).
+        if model is not None and self.packs is not None:
+            from app.validation.call import validate_call_bindings
+            await validate_call_bindings(manifest, model, self.packs, report)
+        # ADR-038: collection-reduction configs (validate every reduce-kind binding).
+        if model is not None:
+            await self._validate_reduce_configs(manifest, model, resolved_caps, report)
         # Stage 7
         await self._stage7_policies_triage(manifest, model, report, sample_envelopes or [])
         return report.finalize()
@@ -225,6 +250,116 @@ class PackValidator:
         # deep_agent-specific rules (ADR-021): HITL gate required, read_only-or-justified,
         # tools resolve, nemoclaw-mode required. (Runs once, after the per-binding loop.)
         validate_deep_agent_bindings(manifest, resolved, report)
+
+    # ------------------------------------------------------------------ #
+    # ADR-040 — running-task timer boundary safety (read_only only)
+    # ------------------------------------------------------------------ #
+    def _validate_timer_boundary_side_effect(
+        self, manifest: ProcessPackManifest, model: BpmnModel,
+        resolved: Dict[str, CapabilityDescriptor], report: ValidationReport,
+    ) -> None:
+        """A capability serviceTask host that carries an interrupting timer boundary self-cancels its
+        own execution on breach (ADR-040). That is safe only for a ``read_only`` binding — interrupting
+        a side-effectful capability may leave a half-applied side effect (compensation, deferred)."""
+        bindings = {b.element_id: b for b in manifest.bindings}
+        for host, bt in model.boundary_timers.items():
+            if TASK_EXECUTOR_CATEGORY.get(model.tasks.get(host)) != "capability":
+                continue  # a HITL host (userTask/manualTask) uses the idle-gate SLA — unaffected
+            b = bindings.get(host)
+            if b is None or getattr(b.executor, "type", None) != "capability":
+                continue
+            desc = resolved.get(b.executor.capability.ref_id)
+            if desc is not None and desc.side_effect.value == "side_effectful":
+                report.error("bpmn_timer_boundary_side_effect_unsupported", stage=4, element_id=host,
+                             message=f"timer boundary '{bt.id}' on serviceTask '{host}' is bound to a "
+                                     f"side-effectful capability '{desc.capability_id}' — interrupting a "
+                                     f"side effect is unsafe (compensation, deferred); only read_only is "
+                                     f"supported (ADR-040)")
+
+    def _validate_subprocess_timer_scope(
+        self, manifest: ProcessPackManifest, model: BpmnModel,
+        resolved: Dict[str, CapabilityDescriptor], report: ValidationReport,
+    ) -> None:
+        """An interrupting timer boundary on a subProcess abandons the whole running scope on breach
+        (ADR-041). ADR-042 generalizes the scope to the **whole process** — a process-level timer event
+        sub-process guards every top-level (and nested) task. Either way it is safe only if every task in
+        the scope is an **autonomous read_only capability**: a side-effectful task may leave a half-applied
+        side effect (compensation, deferred to G), and a HITL gate is the idle-park SLA case (ADR-029), not
+        scope cancellation. The event sub-process body (the handler) is NOT part of the guarded scope."""
+        def _in_esp_body(tid: str) -> bool:
+            s = tid
+            seen = set()
+            while s and s not in seen:
+                seen.add(s)
+                if s in model.event_subprocesses:
+                    return True
+                s = model.element_scope.get(s)
+            return False
+
+        def _in_scope(tid: str, sid: str) -> bool:
+            if _in_esp_body(tid):
+                return False                       # the ESP body is the handler, not the guarded scope
+            if sid == model.process_id:            # ADR-042: a process-level timer ESP guards everything
+                return True
+            s = model.element_scope.get(tid)
+            seen = set()
+            while s and s != model.process_id and s not in seen:
+                if s == sid:
+                    return True
+                seen.add(s)
+                s = model.element_scope.get(s)
+            return False
+
+        bindings = {b.element_id: b for b in manifest.bindings}
+        for sid in model.boundary_timers:
+            # A subProcess timer scope (ADR-041) or the whole-process scope of a process-level timer
+            # event sub-process (ADR-042). A single-node serviceTask timer host (ADR-040) is skipped.
+            if sid not in model.subprocesses and sid != model.process_id:
+                continue
+            for tid, kind in model.tasks.items():
+                if not _in_scope(tid, sid):
+                    continue
+                b = bindings.get(tid)
+                hitl_gated = TASK_EXECUTOR_CATEGORY.get(kind) == "human" or (
+                    b is not None and b.hitl is not None
+                    and (b.hitl.mode.value if hasattr(b.hitl.mode, "value") else str(b.hitl.mode)) != "none")
+                if hitl_gated:
+                    report.error("bpmn_subprocess_timer_scope_hitl_unsupported", stage=4, element_id=tid,
+                                 message=f"task '{tid}' inside interrupting-timer subProcess '{sid}' is a "
+                                         f"HITL gate — scope cancellation of a parked gate is out of scope "
+                                         f"(the idle-gate SLA is ADR-029)")
+                if b is not None and getattr(b.executor, "type", None) == "capability":
+                    desc = resolved.get(b.executor.capability.ref_id)
+                    if desc is not None and desc.side_effect.value == "side_effectful":
+                        report.error("bpmn_subprocess_boundary_side_effect_unsupported", stage=4,
+                                     element_id=tid,
+                                     message=f"side-effectful task '{tid}' inside interrupting-timer "
+                                             f"subProcess '{sid}' — cancelling committed side effects is "
+                                             f"compensation (deferred to Item G)")
+
+    def _validate_compensation(
+        self, manifest: ProcessPackManifest, model: BpmnModel,
+        resolved: Dict[str, CapabilityDescriptor], report: ValidationReport,
+    ) -> None:
+        """ADR-043 (Item G): the compensable **primary** of each compensation pairing must be bound to a
+        **side-effectful** capability (compensating a read-only step is meaningless), and the **handler**
+        (``isForCompensation`` undo activity) must be a bound capability."""
+        bindings = {b.element_id: b for b in manifest.bindings}
+        for handler_id, pairing in model.compensation_handlers.items():
+            hb = bindings.get(handler_id)
+            if hb is None or getattr(hb.executor, "type", None) != "capability":
+                report.error("bpmn_compensation_handler_unbound", stage=4, element_id=handler_id,
+                             message=f"compensation handler '{handler_id}' (isForCompensation) must be "
+                                     f"bound to an undo capability")
+            primary = pairing.primary_id
+            pb = bindings.get(primary)
+            if pb is not None and getattr(pb.executor, "type", None) == "capability":
+                desc = resolved.get(pb.executor.capability.ref_id)
+                if desc is not None and desc.side_effect.value != "side_effectful":
+                    report.error("bpmn_compensation_handler_not_side_effect", stage=4, element_id=primary,
+                                 message=f"compensable activity '{primary}' is bound to a "
+                                         f"{desc.side_effect.value} capability — only a side-effectful "
+                                         f"activity can be compensated (there is nothing to undo otherwise)")
 
     # ------------------------------------------------------------------ #
     # Stage 5 — artifacts & IO
@@ -381,6 +516,48 @@ class PackValidator:
                                  path=pointer,
                                  message=f"variable '{gv.variable}': field is not required at every level in "
                                          f"'{gv.source_artifact}'")
+
+    # ------------------------------------------------------------------ #
+    # ADR-037 — native DMN decision tables
+    # ------------------------------------------------------------------ #
+    async def _validate_decision_tables(
+        self, manifest: ProcessPackManifest, model: BpmnModel,
+        resolved: Dict[str, CapabilityDescriptor], report: ValidationReport,
+    ) -> None:
+        """Pre-fetch each decision binding's pinned verdict schema, then run the shared DMN checks."""
+        output_schemas: Dict[str, dict] = {}
+        for b in manifest.bindings:
+            ex = b.executor
+            if ex.type != "capability":
+                continue
+            desc = resolved.get(ex.capability.ref_id)
+            if desc is None or (desc.kind.value if hasattr(desc.kind, "value") else str(desc.kind)) != "decision":
+                continue
+            for io in b.outputs:
+                schema = await self._latest_active_schema(io.schema_.ref_id)
+                if schema is not None:
+                    output_schemas[io.schema_.ref_id] = schema.json_schema
+        validate_decision_bindings(manifest, model, resolved, output_schemas, report)
+
+    async def _validate_reduce_configs(
+        self, manifest: ProcessPackManifest, model: BpmnModel,
+        resolved: Dict[str, CapabilityDescriptor], report: ValidationReport,
+    ) -> None:
+        """Pre-fetch each reduce binding's pinned input + summary schemas, then run the shared checks."""
+        input_schemas: Dict[str, dict] = {}
+        output_schemas: Dict[str, dict] = {}
+        for b in manifest.bindings:
+            ex = b.executor
+            if ex.type != "capability":
+                continue
+            desc = resolved.get(ex.capability.ref_id)
+            if desc is None or (desc.kind.value if hasattr(desc.kind, "value") else str(desc.kind)) != "reduce":
+                continue
+            for io, sink in [(io, input_schemas) for io in b.inputs] + [(io, output_schemas) for io in b.outputs]:
+                schema = await self._latest_active_schema(io.schema_.ref_id)
+                if schema is not None:
+                    sink[io.schema_.ref_id] = schema.json_schema
+        validate_reduce_bindings(manifest, model, resolved, input_schemas, output_schemas, report)
 
     # ------------------------------------------------------------------ #
     # Stage 7 — policies & triage

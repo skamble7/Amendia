@@ -1,0 +1,25 @@
+{
+  "artifact_key": "art.compose.val",
+  "version": "1.0.0",
+  "title": "Composition value",
+  "json_schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://amendia.dev/schemas/artifacts/compose/val/1.0.0.json",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "n",
+      "tag"
+    ],
+    "properties": {
+      "n": {
+        "type": "integer"
+      },
+      "tag": {
+        "type": "string"
+      }
+    }
+  },
+  "compatibility": "backward",
+  "status": "active"
+}
