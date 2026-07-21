@@ -13,6 +13,7 @@ from __future__ import annotations
 import re
 import uuid
 from typing import Any, Dict, List, Optional, Tuple
+from urllib.parse import urlsplit
 from xml.etree import ElementTree as ET
 
 from amendia_bpmn import (
@@ -85,6 +86,16 @@ _REDUCE_OP_TYPE = {
     "sum": "number", "avg": "number", "min": "number", "max": "number",
     "first": "string", "last": "string",
 }
+
+
+def _is_loopback_endpoint(endpoint: str) -> bool:
+    """True if the URL's host is a loopback the registry container can't use to reach the operator's
+    host (``localhost``/``127.x``/``::1``/``0.0.0.0``) — used to add a clearer introspection hint."""
+    try:
+        host = (urlsplit(endpoint).hostname or "").lower()
+    except ValueError:
+        return False
+    return host in ("localhost", "0.0.0.0", "::1") or host.startswith("127.")
 
 
 def humanize_role(role_id: str) -> str:
@@ -181,7 +192,15 @@ class OnboardingService:
                 endpoint=req.endpoint, transport=req.transport, headers=req.headers
             )
         except McpConnectionError as exc:
-            raise TransitionError(502, {"error": "mcp_connection_failed", "message": str(exc)})
+            message = str(exc)
+            # The registry usually runs inside a container, where a loopback host is the container
+            # itself — not the operator's laptop (that URL works for MCP Inspector, not for us). If the
+            # connection to a loopback endpoint failed, add the deployment-facing-URL hint (ADR-024 §5).
+            if _is_loopback_endpoint(req.endpoint):
+                message += (" — the registry connects from inside its container, so 'localhost' reaches "
+                            "the container itself, not your host. Use the deployment-facing URL (e.g. the "
+                            "Docker service alias like http://<service>:<port>/mcp), not localhost.")
+            raise TransitionError(502, {"error": "mcp_connection_failed", "message": message})
         return IntrospectMcpResponse(
             endpoint=req.endpoint,
             transport=req.transport,

@@ -853,7 +853,11 @@ function CapabilitiesStep({ session, onDone }: { session: OnboardingSession; onD
         <CardContent className="space-y-4">
           <p className="text-sm text-muted-foreground">Point at a running MCP server. Each compliant tool becomes an input artifact, an output artifact, and one <span className="font-mono">mcp</span> capability. Capability creation here is MCP-only; other kinds are reuse-only.</p>
           <div className="flex items-end gap-2">
-            <div className="flex-1"><Label>MCP server URL</Label><Input ref={endpointRef} value={endpoint} onChange={(e) => setEndpoint(e.target.value)} placeholder="https://mcp.internal/payments" /></div>
+            <div className="flex-1">
+              <Label>MCP server URL</Label>
+              <Input ref={endpointRef} value={endpoint} onChange={(e) => setEndpoint(e.target.value)} placeholder="http://wirefix-mcp:8060/mcp" />
+              <p className="mt-1 text-xs text-muted-foreground">Use the <span className="font-medium">deployment-facing</span> URL (e.g. the Docker service alias like <span className="font-mono">http://wirefix-mcp:8060/mcp</span>) — <span className="font-medium">not</span> <span className="font-mono">localhost</span>. The registry connects from inside its container, so localhost reaches the container itself, not your host (that URL only works for MCP Inspector).</p>
+            </div>
             <select className={cn(selectCls, "w-40")} value={transport} onChange={(e) => setTransport(e.target.value)}>
               <option value="streamable_http">streamable_http</option>
               <option value="sse">sse</option>

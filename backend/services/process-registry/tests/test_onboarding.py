@@ -158,6 +158,29 @@ async def test_introspect_flags_compliance(onboarding_service):
     assert by_name["notify_ops"].compliance.compliant is False
 
 
+async def test_introspect_loopback_failure_hints_deployment_url(
+    onboarding_repo, cap_repo, schema_repo, pack_repo, bpmn_repo,
+):
+    from app.models.onboarding import IntrospectMcpRequest
+    from app.services.mcp_introspect import McpConnectionError
+    from app.services.onboarding import OnboardingService
+
+    class _Boom:
+        async def list_tools(self, *, endpoint, transport, headers):
+            raise McpConnectionError("connection refused")
+
+    svc = OnboardingService(onboarding_repo, cap_repo, schema_repo, pack_repo, bpmn_repo, _Boom())
+    # a loopback endpoint failure adds the "connects from inside its container" hint
+    with pytest.raises(TransitionError) as ei:
+        await svc.introspect_mcp(IntrospectMcpRequest(endpoint="http://localhost:8060/mcp"))
+    assert ei.value.status_code == 502
+    assert "deployment-facing" in ei.value.detail["message"]
+    # a non-loopback endpoint failure does NOT (it's a genuine connection problem, no hint noise)
+    with pytest.raises(TransitionError) as ei2:
+        await svc.introspect_mcp(IntrospectMcpRequest(endpoint="http://wirefix-mcp:8060/mcp"))
+    assert "deployment-facing" not in ei2.value.detail["message"]
+
+
 async def test_set_capabilities_rejects_non_compliant_tool(onboarding_service):
     s = await onboarding_service.create(CreateSessionRequest(pack_key="mcp-x", version="1.0.0", title="t"), owner=OWNER)
     s = await onboarding_service.attach_bpmn(s.session_id, AttachBpmnRequest(bpmn_xml=MCP_BPMN), owner=OWNER)
