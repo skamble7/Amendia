@@ -36,6 +36,31 @@ _REVIEW_VERBS = ("approve", "authoriz", "release", "apply", "execute", "notify",
 _DRAFT_HINTS = ("draft", "prepare", "assess", "create", "obtain")
 _APPROVE_HINTS = ("approve", "authoriz", "sign", "confirm")
 
+# ADR-045 (Track 3): lane PERSONA → the HITL mode a capability task in that lane *starts* at, plus a
+# role description. Matched on the lane NAME (first hit wins, so order matters: approver before analyst
+# so "Ops Approver" is an approver, not an analyst). This is only a STARTING suggestion — the
+# assemble-time side-effect→HITL floor still governs (a side_effectful capability is always ≥
+# approve_actions regardless of lane). Falls back to the verb heuristic when the lane is unrecognized.
+_LANE_INTENTS: List[tuple] = [
+    (("approver", "checker", "authorizer", "authoriser"), "approve_actions",
+     "Four-eyes approver — authorizes side-effectful actions before they execute."),
+    (("supervisor", "manager", "escalation", "lead"), "manual",
+     "Supervisor / escalation — handles escalated or exception cases."),
+    (("analyst", "ops", "maker", "reviewer", "operator"), "review_after",
+     "Maker / analyst — reviews and edit-approves agent output."),
+    (("agent", "automation", "system", "bot", "runtime", "robot"), "none",
+     "Automation / AI agent — runs autonomous capability steps."),
+]
+
+
+def _lane_intent(lane_name: Optional[str]) -> tuple:
+    """(starting_hitl_mode, role_description) for a lane persona, or (None, None) if unrecognized."""
+    nm = f" {(lane_name or '').lower()} "
+    for keys, hitl, desc in _LANE_INTENTS:
+        if any(k in nm for k in keys):
+            return hitl, desc
+    return None, None
+
 
 def _condition_variable(raw: Optional[str]) -> Optional[str]:
     if not raw:
@@ -78,35 +103,44 @@ def infer_draft(sem: BpmnSemanticModel, domain: str) -> InferenceDraft:
     dom = sanitize_name(domain) or "payment"
     draft = InferenceDraft()
 
-    # roles: one per named lane. lane_id → role_id map drives binding role suggestions.
+    # roles: one per named lane. lane_id → role_id / name maps drive binding role + HITL suggestions.
     lane_role: Dict[str, str] = {}
+    lane_name: Dict[str, str] = {}
     for lane in sem.lanes:
         if not lane.name:
             continue
         role_id = f"role.{dom}.{sanitize_name(lane.name)}"
         lane_role[lane.id] = role_id
-        draft.roles.append(InferredRole(role_id=role_id, label=lane.name, source_lane=lane.id))
+        lane_name[lane.id] = lane.name
+        # ADR-045 (Track 3): carry the lane persona's description so the Policies step seeds role_meta.
+        _, role_desc = _lane_intent(lane.name)
+        draft.roles.append(InferredRole(role_id=role_id, label=lane.name, source_lane=lane.id,
+                                        description=role_desc))
 
-    # ADR-033 Phase 2.7: scaffold per executable task across the FULL task set, routed to its executor
-    # category via the shared map. Only CONNECTED tasks are scaffolded (an isolated floating task is
-    # decoration, documented not executed — matching the parser's reclassification).
+    # ADR-033 / ADR-044: scaffold per executable element across the FULL bindable set, routed to its
+    # executor CATEGORY via the shared map (capability / human / message / call). Only CONNECTED elements
+    # are scaffolded (an isolated floating task is decoration, documented not executed — matching the
+    # parser's reclassification). Message/call executors have no HITL gate of their own.
     connected = {f.source for f in sem.sequence_flows} | {f.target for f in sem.sequence_flows}
     for n in sem.flow_nodes:
         category = TASK_EXECUTOR_CATEGORY.get(n.kind)
-        if category not in ("capability", "human") or n.id not in connected:
-            continue  # receiveTask (message) handled by the message step; skip isolated tasks
-        is_human = category == "human"
+        if category is None or n.id not in connected:
+            continue
         name_l = (n.name or "").lower()
-        if is_human:
+        if category == "human":
             hitl = "manual"                       # userTask / manualTask default to a manual gate
-        elif any(v in name_l for v in _REVIEW_VERBS):
-            hitl = "review_after"
+        elif category == "capability":
+            # ADR-045 (Track 3): the task's LANE PERSONA sets the starting HITL mode (agent→none,
+            # analyst→review_after, approver→approve_actions, …); fall back to the verb heuristic when
+            # the lane is unrecognized/absent. This is a *starting* mode only — the assemble-time
+            # side-effect→HITL floor still governs (a side_effectful capability is always ≥ approve_actions).
+            lane_hitl, _ = _lane_intent(lane_name.get(n.lane_id or ""))
+            hitl = lane_hitl or ("review_after" if any(v in name_l for v in _REVIEW_VERBS) else "none")
         else:
-            hitl = "none"
+            hitl = "none"                         # message/call — no gate
         draft.bindings.append(InferredBinding(
-            element_id=n.id, element_kind=n.kind,
-            executor_type="human" if is_human else "capability",
-            suggested_role=lane_role.get(n.lane_id or ""),
+            element_id=n.id, element_kind=n.kind, executor_type=category,
+            suggested_role=lane_role.get(n.lane_id or "") if category in ("human", "capability") else None,
             suggested_hitl_mode=hitl, source_lane=n.lane_id,
         ))
 

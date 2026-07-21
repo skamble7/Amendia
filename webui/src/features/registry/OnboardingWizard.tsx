@@ -22,10 +22,10 @@ import {
   getOnboardingSession, introspectMcp, setOnboardingBindings, setOnboardingCapabilities,
   setOnboardingPolicies, setOnboardingTriage,
   type BindingInput, type CapabilityToolSelection, type IntrospectedTool, type OnbTriageRule,
-  type OnbBpmnInventory, type OnboardingSession, type OnboardingState, type ValidationReport,
-  type InferenceDraft,
+  type OnbBpmnInventory, type OnbBindableElement, type OnboardingSession, type OnboardingState,
+  type ValidationReport, type InferenceDraft, type OnbDecisionSpec, type OnbReduceSpec,
 } from "@/api/services/registry";
-import { useCapabilities, useOnboardingSessions } from "./queries";
+import { useCapabilities, useOnboardingSessions, usePacks } from "./queries";
 
 const selectCls =
   "flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50";
@@ -42,7 +42,7 @@ const STATE_STEP: Record<OnboardingState, number> = {
 };
 
 // -- error helpers ------------------------------------------------------------
-type FieldError = { field?: string; element_id?: string; allowed_min_mode?: string; message: string };
+type FieldError = { field?: string; element_id?: string; capability_id?: string; allowed_min_mode?: string; message: string };
 function extractErrors(err: unknown): { general: string; fields: FieldError[]; findings: any[] } {
   if (!(err instanceof ApiError)) return { general: "Unexpected error.", fields: [], findings: [] };
   const d = err.detail as any;
@@ -50,7 +50,8 @@ function extractErrors(err: unknown): { general: string; fields: FieldError[]; f
   const fields: FieldError[] = Array.isArray(d?.errors)
     ? d.errors.map((e: any) => ({
         field: e.field ?? e.tool ?? e.ref ?? e.rule_id,
-        element_id: e.element_id, allowed_min_mode: e.allowed_min_mode, message: e.message,
+        element_id: e.element_id, capability_id: e.capability_id,
+        allowed_min_mode: e.allowed_min_mode, message: e.message,
       }))
     : [];
   return { general: d?.message ?? (fields.length ? "" : err.detailText), fields, findings: d?.findings ?? [] };
@@ -240,9 +241,10 @@ function BasicsStep({ session, onNext }: { session: OnboardingSession; onNext: (
 // -- Step 2: BPMN --------------------------------------------------------------
 /** ADR-027: coverage markers from the server classification (never a client set-diff). */
 function coverageMarkers(inv: OnbBpmnInventory): BpmnMarker[] {
-  const exec: BpmnMarker[] = [...inv.service_tasks, ...inv.user_tasks, ...inv.gateways].map(
-    (id) => ({ elementId: id, state: "executable" }),
-  );
+  // ADR-044 (Track 1): mark the FULL bindable set executable (task kinds + message + callActivity),
+  // not just service/user tasks — everything on the sequence flow executes (single fidelity).
+  const execIds = [...inv.bindable_elements.map((e) => e.element_id), ...inv.gateways];
+  const exec: BpmnMarker[] = execIds.map((id) => ({ elementId: id, state: "executable" }));
   const docs: BpmnMarker[] = (inv.documented_elements ?? [])
     .filter((d) => d.element_id)
     .map((d) => ({ elementId: d.element_id!, state: d.tier === "unknown" ? "unknown" : "documented" }));
@@ -425,9 +427,13 @@ function CoverageCard({ inv, inferred, xml, onContinue }: { inv: OnbBpmnInventor
         {xml && <BpmnViewer xml={xml} markers={markers} className="h-[420px]" />}
 
         <div className="grid grid-cols-3 gap-4">
-          {group("Service tasks", inv.service_tasks, "agent")}
-          {group("User tasks", inv.user_tasks, "attention")}
+          {group("Capability tasks", inv.bindable_elements.filter((e) => e.category === "capability").map((e) => e.element_id), "agent")}
+          {group("Human tasks", inv.bindable_elements.filter((e) => e.category === "human").map((e) => e.element_id), "attention")}
           {group("Gateways", inv.gateways, "process")}
+          {inv.bindable_elements.some((e) => e.category === "message") &&
+            group("Message", inv.bindable_elements.filter((e) => e.category === "message").map((e) => e.element_id), "process")}
+          {inv.bindable_elements.some((e) => e.category === "call") &&
+            group("Call activities", inv.bindable_elements.filter((e) => e.category === "call").map((e) => e.element_id), "artifact")}
         </div>
 
         {/* ADR-032 Phase 2.6: embedded sub-processes rendered as executable groups (members nested). */}
@@ -504,6 +510,160 @@ interface ToolDraft extends IntrospectedTool {
   input_artifact_key: string; output_artifact_key: string; capability_id: string;
   side_effect: string; idempotent: boolean;
 }
+// -- ADR-046 (Track 2): inline decision / reduce capability builders ----------
+const HIT_POLICIES = ["UNIQUE", "FIRST", "PRIORITY", "ANY", "COLLECT"] as const;
+const DMN_TYPES = ["string", "number", "boolean"] as const;
+const REDUCE_OPS = ["any", "all", "none", "count", "sum", "avg", "min", "max", "first", "last"] as const;
+const PREDICATE_OPS = new Set(["any", "all", "none"]);
+
+type DecisionDraft = {
+  capability_id: string; input_artifact_key: string; input_name: string;
+  output_artifact_key: string; output_name: string; hit_policy: string;
+  inputs: { expression: string; type: string }[];
+  outputs: { name: string; type: string }[];
+  rules: { when: string[]; then: string[] }[];
+};
+type ReduceDraft = {
+  capability_id: string; input_artifact_key: string; output_artifact_key: string;
+  op: string; source: string; item_path: string; predicate: string; output_field: string;
+};
+
+function newDecision(id = ""): DecisionDraft {
+  return {
+    capability_id: id, input_artifact_key: "", input_name: "in",
+    output_artifact_key: "", output_name: "verdict", hit_policy: "UNIQUE",
+    inputs: [{ expression: "", type: "string" }], outputs: [{ name: "verdict", type: "string" }],
+    rules: [{ when: [""], then: [""] }],
+  };
+}
+function decisionToSpec(d: DecisionDraft): OnbDecisionSpec {
+  return {
+    capability_id: d.capability_id, capability_version: "1.0.0",
+    input_artifact_key: d.input_artifact_key, input_name: d.input_name || "in",
+    output_artifact_key: d.output_artifact_key, output_name: d.output_name || "verdict", output_version: "1.0.0",
+    table: { hit_policy: d.hit_policy, inputs: d.inputs, outputs: d.outputs, rules: d.rules },
+  };
+}
+function reduceToSpec(r: ReduceDraft): OnbReduceSpec {
+  return {
+    capability_id: r.capability_id, capability_version: "1.0.0",
+    input_artifact_key: r.input_artifact_key, input_name: "in",
+    output_artifact_key: r.output_artifact_key, output_name: "summary", output_version: "1.0.0",
+    config: { op: r.op, source: r.source || undefined, item_path: r.item_path || undefined,
+              predicate: r.predicate || undefined, output_field: r.output_field || "result" },
+  };
+}
+
+function ArtifactKeyInput({ value, onChange, keys, placeholder }: { value: string; onChange: (v: string) => void; keys: string[]; placeholder: string }) {
+  const listId = useMemo(() => "art-" + Math.random().toString(36).slice(2, 8), []);
+  return (
+    <>
+      <Input value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} list={listId} className="font-mono text-xs" />
+      <datalist id={listId}>{keys.map((k) => <option key={k} value={k} />)}</datalist>
+    </>
+  );
+}
+
+function DecisionBuilder({ draft, onChange, onRemove, artifactKeys, error }: {
+  draft: DecisionDraft; onChange: (d: DecisionDraft) => void; onRemove: () => void; artifactKeys: string[]; error?: string;
+}) {
+  const set = (p: Partial<DecisionDraft>) => onChange({ ...draft, ...p });
+  const addInput = () => set({ inputs: [...draft.inputs, { expression: "", type: "string" }], rules: draft.rules.map((r) => ({ ...r, when: [...r.when, ""] })) });
+  const rmInput = (i: number) => set({ inputs: draft.inputs.filter((_, j) => j !== i), rules: draft.rules.map((r) => ({ ...r, when: r.when.filter((_, j) => j !== i) })) });
+  const addOutput = () => set({ outputs: [...draft.outputs, { name: "", type: "string" }], rules: draft.rules.map((r) => ({ ...r, then: [...r.then, ""] })) });
+  const rmOutput = (i: number) => set({ outputs: draft.outputs.filter((_, j) => j !== i), rules: draft.rules.map((r) => ({ ...r, then: r.then.filter((_, j) => j !== i) })) });
+  const addRule = () => set({ rules: [...draft.rules, { when: draft.inputs.map(() => ""), then: draft.outputs.map(() => "") }] });
+  const setCell = (ri: number, which: "when" | "then", ci: number, v: string) =>
+    set({ rules: draft.rules.map((r, j) => j === ri ? { ...r, [which]: r[which].map((x, k) => k === ci ? v : x) } : r) });
+  return (
+    <Card className={cn(error && "border-danger/60")}>
+      <CardContent className="space-y-3 pt-4">
+        <div className="flex items-center justify-between">
+          <span className="text-sm font-medium">Decision table</span>
+          <Button variant="ghost" size="icon" className="size-7" onClick={onRemove}><Trash2 className="size-3.5" /></Button>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Capability id"><Input value={draft.capability_id} onChange={(e) => set({ capability_id: e.target.value })} placeholder="cap.payment.classify" className="font-mono text-xs" /></Field>
+          <Field label="Hit policy">
+            <select className={selectCls} value={draft.hit_policy} onChange={(e) => set({ hit_policy: e.target.value })}>{HIT_POLICIES.map((h) => <option key={h} value={h}>{h}</option>)}</select>
+          </Field>
+          <Field label="Reads artifact"><ArtifactKeyInput value={draft.input_artifact_key} onChange={(v) => set({ input_artifact_key: v })} keys={artifactKeys} placeholder="art.payment.enriched" /></Field>
+          <Field label="Verdict artifact key"><Input value={draft.output_artifact_key} onChange={(e) => set({ output_artifact_key: e.target.value })} placeholder="art.payment.classify_verdict" className="font-mono text-xs" /></Field>
+        </div>
+
+        <div className="space-y-1">
+          <p className="text-xs font-medium text-muted-foreground">Inputs (expression → type)</p>
+          {draft.inputs.map((inp, i) => (
+            <div key={i} className="flex gap-1">
+              <Input value={inp.expression} onChange={(e) => set({ inputs: draft.inputs.map((x, j) => j === i ? { ...x, expression: e.target.value } : x) })} placeholder={`${draft.input_name}.gpi_status`} className="h-7 font-mono text-[11px]" />
+              <select className={cn(selectCls, "h-7 w-24 text-[11px]")} value={inp.type} onChange={(e) => set({ inputs: draft.inputs.map((x, j) => j === i ? { ...x, type: e.target.value } : x) })}>{DMN_TYPES.map((t) => <option key={t}>{t}</option>)}</select>
+              <Button variant="ghost" size="icon" className="size-7" onClick={() => rmInput(i)} disabled={draft.inputs.length <= 1}><Trash2 className="size-3" /></Button>
+            </div>
+          ))}
+          <Button variant="outline" size="sm" onClick={addInput}><Plus className="mr-1 size-3" />input</Button>
+        </div>
+
+        <div className="space-y-1">
+          <p className="text-xs font-medium text-muted-foreground">Outputs (name → type)</p>
+          {draft.outputs.map((o, i) => (
+            <div key={i} className="flex gap-1">
+              <Input value={o.name} onChange={(e) => set({ outputs: draft.outputs.map((x, j) => j === i ? { ...x, name: e.target.value } : x) })} placeholder="verdict" className="h-7 font-mono text-[11px]" />
+              <select className={cn(selectCls, "h-7 w-24 text-[11px]")} value={o.type} onChange={(e) => set({ outputs: draft.outputs.map((x, j) => j === i ? { ...x, type: e.target.value } : x) })}>{DMN_TYPES.map((t) => <option key={t}>{t}</option>)}</select>
+              <Button variant="ghost" size="icon" className="size-7" onClick={() => rmOutput(i)} disabled={draft.outputs.length <= 1}><Trash2 className="size-3" /></Button>
+            </div>
+          ))}
+          <Button variant="outline" size="sm" onClick={addOutput}><Plus className="mr-1 size-3" />output</Button>
+        </div>
+
+        <div className="space-y-1">
+          <p className="text-xs font-medium text-muted-foreground">Rules (each input cell = a unary test: <span className="font-mono">"lit"</span> · <span className="font-mono">&lt; 1000</span> · <span className="font-mono">[1..9]</span> · <span className="font-mono">-</span>)</p>
+          {draft.rules.map((r, ri) => (
+            <div key={ri} className="flex flex-wrap items-center gap-1 rounded border border-border p-1">
+              {r.when.map((c, ci) => <Input key={"w" + ci} value={c} onChange={(e) => setCell(ri, "when", ci, e.target.value)} placeholder="unary test" className="h-7 w-28 font-mono text-[11px]" />)}
+              <span className="text-xs text-muted-foreground">→</span>
+              {r.then.map((c, ci) => <Input key={"t" + ci} value={c} onChange={(e) => setCell(ri, "then", ci, e.target.value)} placeholder="value" className="h-7 w-28 font-mono text-[11px]" />)}
+              <div className="flex-1" />
+              <Button variant="ghost" size="icon" className="size-7" onClick={() => set({ rules: draft.rules.filter((_, j) => j !== ri) })} disabled={draft.rules.length <= 1}><Trash2 className="size-3" /></Button>
+            </div>
+          ))}
+          <Button variant="outline" size="sm" onClick={addRule}><Plus className="mr-1 size-3" />rule</Button>
+        </div>
+        {error && <p className="text-xs text-danger">{error}</p>}
+      </CardContent>
+    </Card>
+  );
+}
+
+function ReduceBuilder({ draft, onChange, onRemove, artifactKeys, error }: {
+  draft: ReduceDraft; onChange: (d: ReduceDraft) => void; onRemove: () => void; artifactKeys: string[]; error?: string;
+}) {
+  const set = (p: Partial<ReduceDraft>) => onChange({ ...draft, ...p });
+  return (
+    <Card className={cn(error && "border-danger/60")}>
+      <CardContent className="space-y-3 pt-4">
+        <div className="flex items-center justify-between">
+          <span className="text-sm font-medium">Reduce (collapse a list → a summary)</span>
+          <Button variant="ghost" size="icon" className="size-7" onClick={onRemove}><Trash2 className="size-3.5" /></Button>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Capability id"><Input value={draft.capability_id} onChange={(e) => set({ capability_id: e.target.value })} placeholder="cap.payment.any_hit" className="font-mono text-xs" /></Field>
+          <Field label="Op">
+            <select className={selectCls} value={draft.op} onChange={(e) => set({ op: e.target.value })}>{REDUCE_OPS.map((o) => <option key={o}>{o}</option>)}</select>
+          </Field>
+          <Field label="Reads list artifact"><ArtifactKeyInput value={draft.input_artifact_key} onChange={(v) => set({ input_artifact_key: v })} keys={artifactKeys} placeholder="art.payment.screening_list" /></Field>
+          <Field label="Summary artifact key"><Input value={draft.output_artifact_key} onChange={(e) => set({ output_artifact_key: e.target.value })} placeholder="art.payment.any_hit_summary" className="font-mono text-xs" /></Field>
+          <Field label="Item path"><Input value={draft.item_path} onChange={(e) => set({ item_path: e.target.value })} placeholder="status" className="font-mono text-xs" /></Field>
+          <Field label="Output field"><Input value={draft.output_field} onChange={(e) => set({ output_field: e.target.value })} placeholder="has_hit" className="font-mono text-xs" /></Field>
+          {PREDICATE_OPS.has(draft.op) && (
+            <Field label="Predicate (unary test)" className="col-span-2"><Input value={draft.predicate} onChange={(e) => set({ predicate: e.target.value })} placeholder='"hit"' className="font-mono text-xs" /></Field>
+          )}
+        </div>
+        {error && <p className="text-xs text-danger">{error}</p>}
+      </CardContent>
+    </Card>
+  );
+}
+
 function CapabilitiesStep({ session, onDone }: { session: OnboardingSession; onDone: (s: OnboardingSession) => void }) {
   const [endpoint, setEndpoint] = useState("");
   const [transport, setTransport] = useState("streamable_http");
@@ -512,6 +672,39 @@ function CapabilitiesStep({ session, onDone }: { session: OnboardingSession; onD
   const [reused, setReused] = useState<string[]>(session.reused_capability_refs);
   const [busy, setBusy] = useState(false);
   const { data: catalog } = useCapabilities();
+  const endpointRef = useRef<HTMLInputElement>(null);
+  // ADR-046 (Track 2): inline-authored decision / reduce capabilities + their per-capability errors.
+  const [decisions, setDecisions] = useState<DecisionDraft[]>([]);
+  const [reduces, setReduces] = useState<ReduceDraft[]>([]);
+  const [authorErrs, setAuthorErrs] = useState<Record<string, string>>({});
+  // artifact keys the operator can point a decision/reduce input at (staged so far + reused catalog).
+  const artifactKeys = useMemo(() => Array.from(new Set([
+    ...session.staged_artifacts.map((a) => a.artifact_key),
+    ...drafts.filter((d) => d.selected).map((d) => d.output_artifact_key).filter(Boolean),
+    ...(session.inferred?.artifact_seeds ?? []).map((a) => a.suggested_artifact_key),
+  ])), [session.staged_artifacts, session.inferred, drafts]);
+  // ADR-045 (Track 3): split inferred capability candidates — task slots (the "expects capabilities"
+  // card) vs external message-flow slots (actionable "external integrations" nudges below).
+  const capCandBySource = useMemo(
+    () => Object.fromEntries((session.inferred?.capability_candidates ?? []).map((c) => [c.source, c.suggested_capability_id])),
+    [session.inferred],
+  );
+  const mfIds = useMemo(() => new Set((session.bpmn?.message_flows ?? []).map((m) => m.id)), [session.bpmn]);
+  const taskCandidates = useMemo(
+    () => (session.inferred?.capability_candidates ?? []).filter((c) => !mfIds.has(c.source)),
+    [session.inferred, mfIds],
+  );
+  const externalSlots = useMemo(
+    () => (session.bpmn?.message_flows ?? []).map((mf) => ({ id: mf.id, name: mf.name ?? mf.id, cap: capCandBySource[mf.id] as string | undefined })),
+    [session.bpmn, capCandBySource],
+  );
+  // ADR-046: the Track-3 "decision table candidate" (a businessRuleTask) → a one-click authoring action.
+  const decisionCandidates = useMemo(
+    () => (session.inferred?.annotations ?? [])
+      .filter((a) => a.code === "decision_capability_candidate" && a.element_id)
+      .map((a) => ({ element_id: a.element_id!, suggestedId: (capCandBySource[a.element_id!] as string | undefined)?.split("@")[0] ?? `cap.${session.basics.default_domain}.${a.element_id}` })),
+    [session.inferred, capCandBySource, session.basics.default_domain],
+  );
 
   async function introspect() {
     setIntrospecting(true);
@@ -530,7 +723,7 @@ function CapabilitiesStep({ session, onDone }: { session: OnboardingSession; onD
   }
 
   async function submit() {
-    setBusy(true);
+    setBusy(true); setAuthorErrs({});
     try {
       const tools: CapabilityToolSelection[] = drafts.filter((d) => d.selected && d.compliance.compliant).map((d) => ({
         tool: d.name, endpoint, transport, domain: session.basics.default_domain,
@@ -539,9 +732,16 @@ function CapabilitiesStep({ session, onDone }: { session: OnboardingSession; onD
         artifact_version: "1.0.0", capability_version: "1.0.0",
         input_schema: d.input_schema ?? undefined, output_schema: d.output_schema ?? undefined,
       }));
-      onDone(await setOnboardingCapabilities(session.session_id, { tools, reused_capability_refs: reused }));
+      onDone(await setOnboardingCapabilities(session.session_id, {
+        tools, reused_capability_refs: reused,
+        decision_specs: decisions.map(decisionToSpec), reduce_specs: reduces.map(reduceToSpec),
+      }));
     } catch (e) {
       const x = extractErrors(e);
+      // ADR-046: surface each authored capability's dmn_*/reduce_* validation error inline (by id).
+      const map: Record<string, string> = {};
+      x.fields.forEach((f: any) => { if (f.capability_id) map[f.capability_id] = (map[f.capability_id] ? map[f.capability_id] + "; " : "") + f.message; });
+      setAuthorErrs(map);
       toast.error(x.fields.map((f) => `${f.field}: ${f.message}`).join("; ") || x.general);
     } finally { setBusy(false); }
   }
@@ -551,13 +751,13 @@ function CapabilitiesStep({ session, onDone }: { session: OnboardingSession; onD
 
   return (
     <div className="space-y-4">
-      {(session.inferred?.capability_candidates?.length ?? 0) > 0 && (
+      {taskCandidates.length > 0 && (
         <Card>
           <CardHeader className="pb-2"><CardTitle className="flex items-center gap-1.5 text-sm"><Boxes className="size-4 text-agent" /> Your diagram expects capabilities here</CardTitle></CardHeader>
           <CardContent className="space-y-1.5">
             <p className="text-xs text-muted-foreground">Introspect an MCP server or reuse a catalog capability for each. Inference suggests the id; the endpoint + schemas come from introspection.</p>
             <div className="flex flex-wrap gap-1.5">
-              {session.inferred!.capability_candidates.map((c, i) => (
+              {taskCandidates.map((c, i) => (
                 <Badge key={i} variant="outline" className="font-mono text-[10px]" title={`from ${c.source}`}>{c.suggested_capability_id}</Badge>
               ))}
             </div>
@@ -567,12 +767,30 @@ function CapabilitiesStep({ session, onDone }: { session: OnboardingSession; onD
           </CardContent>
         </Card>
       )}
+
+      {/* ADR-045 (Track 3): external-system message flows → actionable capability-slot nudges. */}
+      {externalSlots.length > 0 && (
+        <Card>
+          <CardHeader className="pb-2"><CardTitle className="flex items-center gap-1.5 text-sm"><ShieldAlert className="size-4 text-process" /> External integrations</CardTitle></CardHeader>
+          <CardContent className="space-y-1.5">
+            <p className="text-xs text-muted-foreground">Each message flow to an external system likely needs its own capability — introspect the provider's MCP server or reuse a catalog capability.</p>
+            {externalSlots.map((s) => (
+              <div key={s.id} className="flex flex-wrap items-center gap-2 rounded-md border border-border p-2">
+                <span className="text-xs font-medium">{s.name}</span>
+                {s.cap && <Badge variant="outline" className="font-mono text-[10px]" title={`from message flow ${s.id}`}>→ likely {s.cap}</Badge>}
+                <div className="flex-1" />
+                <Button variant="outline" size="sm" onClick={() => { endpointRef.current?.focus(); endpointRef.current?.scrollIntoView({ block: "center" }); toast.info(`Introspect the ${s.name} MCP server, then map its tool to ${s.cap ?? "a capability"}.`); }}>Introspect for this</Button>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
       <Card>
         <CardHeader><CardTitle>Create capabilities from an MCP server</CardTitle></CardHeader>
         <CardContent className="space-y-4">
           <p className="text-sm text-muted-foreground">Point at a running MCP server. Each compliant tool becomes an input artifact, an output artifact, and one <span className="font-mono">mcp</span> capability. Capability creation here is MCP-only; other kinds are reuse-only.</p>
           <div className="flex items-end gap-2">
-            <div className="flex-1"><Label>MCP server URL</Label><Input value={endpoint} onChange={(e) => setEndpoint(e.target.value)} placeholder="https://mcp.internal/payments" /></div>
+            <div className="flex-1"><Label>MCP server URL</Label><Input ref={endpointRef} value={endpoint} onChange={(e) => setEndpoint(e.target.value)} placeholder="https://mcp.internal/payments" /></div>
             <select className={cn(selectCls, "w-40")} value={transport} onChange={(e) => setTransport(e.target.value)}>
               <option value="streamable_http">streamable_http</option>
               <option value="sse">sse</option>
@@ -627,6 +845,47 @@ function CapabilitiesStep({ session, onDone }: { session: OnboardingSession; onD
         </CardContent>
       </Card>
 
+      {/* ADR-046 (Track 2): author decision / reduce capabilities inline — no MCP server, no code. */}
+      <Card>
+        <CardHeader className="flex-row items-center justify-between">
+          <div>
+            <CardTitle>Author a decision / reduce (no code)</CardTitle>
+            <p className="text-xs text-muted-foreground">A native-DMN <span className="font-mono">decision</span> table (a businessRuleTask) or a <span className="font-mono">reduce</span> over a list — validated live by the platform's DMN/reduce checks.</p>
+          </div>
+          <div className="flex gap-2">
+            <Button variant="outline" size="sm" onClick={() => setDecisions((d) => [...d, newDecision()])}><Plus className="mr-1 size-3" />Decision table</Button>
+            <Button variant="outline" size="sm" onClick={() => setReduces((r) => [...r, { capability_id: "", input_artifact_key: "", output_artifact_key: "", op: "any", source: "", item_path: "", predicate: "", output_field: "result" }])}><Plus className="mr-1 size-3" />Reduce</Button>
+          </div>
+        </CardHeader>
+        {decisionCandidates.length > 0 && (
+          <CardContent className="space-y-1.5 border-b border-border pb-3">
+            <p className="text-xs text-muted-foreground">Suggested from your diagram — one click pre-fills a table for that business rule task:</p>
+            <div className="flex flex-wrap gap-1.5">
+              {decisionCandidates.map((c) => (
+                <Button key={c.element_id} variant="outline" size="sm"
+                  onClick={() => setDecisions((d) => [...d, newDecision(c.suggestedId)])}>
+                  author decision table for {c.element_id}
+                </Button>
+              ))}
+            </div>
+          </CardContent>
+        )}
+        {(decisions.length > 0 || reduces.length > 0) && (
+          <CardContent className="space-y-3">
+            {decisions.map((d, i) => (
+              <DecisionBuilder key={"d" + i} draft={d} artifactKeys={artifactKeys} error={authorErrs[d.capability_id]}
+                onChange={(nd) => setDecisions((ds) => ds.map((x, j) => j === i ? nd : x))}
+                onRemove={() => setDecisions((ds) => ds.filter((_, j) => j !== i))} />
+            ))}
+            {reduces.map((r, i) => (
+              <ReduceBuilder key={"r" + i} draft={r} artifactKeys={artifactKeys} error={authorErrs[r.capability_id]}
+                onChange={(nr) => setReduces((rs) => rs.map((x, j) => j === i ? nr : x))}
+                onRemove={() => setReduces((rs) => rs.filter((_, j) => j !== i))} />
+            ))}
+          </CardContent>
+        )}
+      </Card>
+
       <Card>
         <CardHeader><CardTitle>Reuse existing capabilities</CardTitle></CardHeader>
         <CardContent className="space-y-2">
@@ -648,21 +907,44 @@ function CapabilitiesStep({ session, onDone }: { session: OnboardingSession; onD
       </Card>
 
       <StepFooter
-        summary={`${stagedCount} MCP tool${stagedCount === 1 ? "" : "s"} · ${reused.length} reused`}
-        busy={busy} disabled={stagedCount + reused.length === 0} onNext={submit}
+        summary={`${stagedCount} MCP · ${decisions.length} decision · ${reduces.length} reduce · ${reused.length} reused`}
+        busy={busy} disabled={stagedCount + decisions.length + reduces.length + reused.length === 0} onNext={submit}
       />
     </div>
   );
 }
 
 // -- Step 4: bindings ----------------------------------------------------------
+// ADR-044 (Track 1): a compact key→value map editor for a call executor's input_map / output_map.
+function MapEditor({ value, onChange, keyPlaceholder, valPlaceholder }: {
+  value: Record<string, string>; onChange: (m: Record<string, string>) => void;
+  keyPlaceholder: string; valPlaceholder: string;
+}) {
+  const rows = Object.entries(value ?? {});
+  const set = (i: number, k: string, v: string) => {
+    const next = rows.map(([ek, ev], j) => (j === i ? [k, v] : [ek, ev]) as [string, string]);
+    onChange(Object.fromEntries(next.filter(([ek]) => ek)));
+  };
+  return (
+    <div className="space-y-1">
+      {rows.map(([k, v], i) => (
+        <div key={i} className="flex gap-1">
+          <Input value={k} onChange={(e) => set(i, e.target.value, v)} placeholder={keyPlaceholder} className="h-7 font-mono text-[11px]" />
+          <Input value={v} onChange={(e) => set(i, k, e.target.value)} placeholder={valPlaceholder} className="h-7 font-mono text-[11px]" />
+          <Button variant="ghost" size="icon" className="size-7" onClick={() => onChange(Object.fromEntries(rows.filter((_, j) => j !== i)))}><Trash2 className="size-3" /></Button>
+        </div>
+      ))}
+      <Button variant="outline" size="sm" onClick={() => onChange({ ...value, "": "" })}><Plus className="mr-1 size-3" />mapping</Button>
+    </div>
+  );
+}
+
 function BindingsStep({ session, onDone }: { session: OnboardingSession; onDone: (s: OnboardingSession) => void }) {
-  const tasks = useMemo(() => [
-    ...session.bpmn!.service_tasks.map((id) => ({ id, kind: "serviceTask" as const })),
-    ...session.bpmn!.user_tasks.map((id) => ({ id, kind: "userTask" as const })),
-  ], [session]);
+  const tasks: OnbBindableElement[] = session.bpmn!.bindable_elements;
   const capOptions = [...session.staged_capabilities.map((c) => `${c.capability_id}@^${c.version}`), ...session.reused_capability_refs];
   const { data: catalog } = useCapabilities();
+  const { data: activePacks } = usePacks({ status: "active" });
+  const packKeys = useMemo(() => Array.from(new Set((activePacks ?? []).map((p) => p.pack_key))), [activePacks]);
   // HITL floor (rank) per capability_id: the stricter of its side-effect requirement
   // (approve_actions) and its declared min_hitl_mode. Mirrors the backend guard so
   // illegal modes are disabled up front, for both staged and reused capabilities.
@@ -688,22 +970,37 @@ function BindingsStep({ session, onDone }: { session: OnboardingSession; onDone:
     () => Object.fromEntries((session.inferred?.roles ?? []).map((r) => [r.role_id, r.label])),
     [session.inferred],
   );
+  // ADR-045 (Track 3): a businessRuleTask flagged as a decision-table candidate — surfaced with its
+  // provenance (Track 2 turns this into "author a table"; here it is a visible affordance).
+  const decisionHint = useMemo(
+    () => Object.fromEntries((session.inferred?.annotations ?? [])
+      .filter((a) => a.code === "decision_capability_candidate" && a.element_id)
+      .map((a) => [a.element_id!, a.message])),
+    [session.inferred],
+  );
   const [rows, setRows] = useState<Record<string, BindingInput>>(() => {
     const init: Record<string, BindingInput> = {};
     for (const t of tasks) {
-      const existing = session.bindings.find((b) => b.element_id === t.id);
-      if (existing) {
-        init[t.id] = { element_id: t.id, element_kind: t.kind, executor_type: existing.executor_type, capability_ref: existing.capability_ref, role: existing.role, hitl_mode: existing.hitl_mode, hitl_role: existing.hitl_role };
-        continue;
-      }
-      const inf = inferredBind[t.id];
-      const execType = inf?.executor_type ?? (t.kind === "serviceTask" ? "capability" : "human");
-      const hitl = inf?.suggested_hitl_mode ?? "none";
-      init[t.id] = {
-        element_id: t.id, element_kind: t.kind, executor_type: execType, hitl_mode: hitl,
-        role: execType === "human" ? (inf?.suggested_role ?? undefined) : undefined,
-        hitl_role: execType === "capability" && hitl !== "none" ? (inf?.suggested_role ?? undefined) : undefined,
+      const existing = session.bindings.find((b) => b.element_id === t.element_id);
+      const inf = inferredBind[t.element_id];
+      const base: BindingInput = {
+        element_id: t.element_id, element_kind: t.element_kind,
+        executor_type: t.category,     // fixed by the BPMN element kind (capability|human|message|call)
+        hitl_mode: existing?.hitl_mode ?? (t.category === "capability" || t.category === "human" ? inf?.suggested_hitl_mode ?? "none" : "none"),
       };
+      if (existing) {
+        Object.assign(base, {
+          capability_ref: existing.capability_ref, role: existing.role, hitl_role: existing.hitl_role,
+          message_name: existing.message_name, call_pack: existing.call_pack, call_version: existing.call_version,
+          input_map: existing.input_map ?? {}, output_map: existing.output_map ?? {},
+        });
+      } else {
+        if (t.category === "human") base.role = inf?.suggested_role ?? undefined;
+        if (t.category === "capability" && base.hitl_mode !== "none") base.hitl_role = inf?.suggested_role ?? undefined;
+        if (t.category === "message") base.message_name = t.message_name ?? undefined;
+        if (t.category === "call") { base.call_pack = t.called_pack ?? undefined; base.call_version = t.called_version ?? "^1.0.0"; base.input_map = {}; base.output_map = {}; }
+      }
+      init[t.element_id] = base;
     }
     return init;
   });
@@ -722,7 +1019,7 @@ function BindingsStep({ session, onDone }: { session: OnboardingSession; onDone:
   async function submit() {
     setBusy(true); setFieldErrs({});
     try {
-      onDone(await setOnboardingBindings(session.session_id, { bindings: tasks.map((t) => rows[t.id]!) }));
+      onDone(await setOnboardingBindings(session.session_id, { bindings: tasks.map((t) => rows[t.element_id]!) }));
     } catch (e) {
       const x = extractErrors(e);
       const map: Record<string, string> = {};
@@ -740,7 +1037,7 @@ function BindingsStep({ session, onDone }: { session: OnboardingSession; onDone:
   const errorCount = Object.keys(fieldErrs).length;
   return (
     <div className="space-y-3">
-      <p className="text-sm text-muted-foreground">Exactly one binding per BPMN task. Side-effectful capabilities lock HITL to <span className="font-mono">approve_actions</span> or stricter.</p>
+      <p className="text-sm text-muted-foreground">Exactly one binding per bindable element (task kinds, message elements, callActivities). Side-effectful capabilities lock HITL to <span className="font-mono">approve_actions</span> or stricter; message &amp; call executors have no gate.</p>
       {errorCount > 0 && (
         <div className="flex items-center gap-2 rounded-md border border-danger/40 bg-danger-muted/20 p-3 text-sm text-danger">
           <XCircle className="size-4 shrink-0" />
@@ -748,49 +1045,90 @@ function BindingsStep({ session, onDone }: { session: OnboardingSession; onDone:
         </div>
       )}
       {tasks.map((t) => {
-        const row = rows[t.id]!;
-        const floor = row.executor_type === "capability" ? floorOf(row.capability_ref) : 0;
+        const id = t.element_id;
+        const row = rows[id]!;
+        const floor = t.category === "capability" ? floorOf(row.capability_ref) : 0;
         return (
-          <Card key={t.id} className={cn(fieldErrs[t.id] && "border-danger/60")}>
+          <Card key={id} className={cn(fieldErrs[id] && "border-danger/60")}>
             <CardContent className="pt-5">
               <div className="mb-3 flex flex-wrap items-center gap-2">
-                <span className="font-mono text-sm font-medium">{t.id}</span>
-                <Badge variant="outline" className="text-[10px]">{t.kind}</Badge>
-                <span className="text-xs text-muted-foreground">{session.bpmn!.task_names[t.id]}</span>
-                {inferredBind[t.id]?.suggested_role && (
+                <span className="font-mono text-sm font-medium">{id}</span>
+                <Badge variant="outline" className="text-[10px]">{t.element_kind}</Badge>
+                <Badge variant="process" className="text-[10px]">{t.category}</Badge>
+                <span className="text-xs text-muted-foreground">{t.name}</span>
+                {t.is_multi_instance && <Badge variant="artifact" className="text-[10px]" title="Runs N times (multi-instance)">multi-instance</Badge>}
+                {t.is_for_compensation && <Badge variant="attention" className="text-[10px]" title={`Undo handler for ${t.compensation_primary}`}>compensates {t.compensation_primary}</Badge>}
+                {t.in_event_subprocess && <Badge variant="outline" className="text-[10px]" title="Inside an event sub-process body">event-subprocess</Badge>}
+                {t.element_kind === "businessRuleTask" && decisionHint[id] && <Badge variant="process" className="text-[10px]" title={decisionHint[id]}>decision table candidate</Badge>}
+                {inferredBind[id]?.suggested_role && (
                   <Badge variant="agent" className="text-[10px]" title="Pre-filled from the BPMN lane — editable">
-                    from lane: {roleLabelOf[inferredBind[t.id]!.suggested_role!] ?? inferredBind[t.id]!.suggested_role}
+                    from lane: {roleLabelOf[inferredBind[id]!.suggested_role!] ?? inferredBind[id]!.suggested_role}
                   </Badge>
                 )}
               </div>
-              <div className="grid grid-cols-3 gap-3">
-                <Field label="Executor">
-                  {t.kind === "serviceTask" ? (
-                    <select className={selectCls} value={row.capability_ref ?? ""} onChange={(e) => chooseExecutor(t.id, e.target.value)}>
-                      <option value="">Select…</option>
-                      {capOptions.map((r) => <option key={r} value={r}>{r}{sideEffectOf(r) === "side_effectful" ? " · side-effectful" : ""}</option>)}
+
+              {/* Capability / human executors keep the HITL gate; message & call have none. */}
+              {(t.category === "capability" || t.category === "human") && (
+                <div className="grid grid-cols-3 gap-3">
+                  <Field label={t.category === "capability" ? "Capability" : "Role"}>
+                    {t.category === "capability" ? (
+                      <select className={selectCls} value={row.capability_ref ?? ""} onChange={(e) => chooseExecutor(id, e.target.value)}>
+                        <option value="">Select…</option>
+                        {capOptions.map((r) => <option key={r} value={r}>{r}{sideEffectOf(r) === "side_effectful" ? " · side-effectful" : ""}</option>)}
+                      </select>
+                    ) : (
+                      <Input value={row.role ?? ""} onChange={(e) => patch(id, { role: e.target.value })} placeholder="role.payments.ops_analyst" className="font-mono text-xs" />
+                    )}
+                  </Field>
+                  <Field label="HITL mode">
+                    <select className={selectCls} value={row.hitl_mode} onChange={(e) => patch(id, { hitl_mode: e.target.value })}>
+                      {HITL_MODES.map((m) => <option key={m} value={m} disabled={(HITL_RANK[m] ?? 0) < floor}>{m}{(HITL_RANK[m] ?? 0) < floor ? " (too weak)" : ""}</option>)}
                     </select>
-                  ) : (
-                    <Input value={row.role ?? ""} onChange={(e) => patch(t.id, { role: e.target.value })} placeholder="role.payments.ops_analyst" className="font-mono text-xs" />
-                  )}
+                  </Field>
+                  <Field label="Role">
+                    {row.hitl_mode !== "none"
+                      ? <Input value={row.hitl_role ?? ""} onChange={(e) => patch(id, { hitl_role: e.target.value })} placeholder="role.payments.ops_approver" className="font-mono text-xs" />
+                      : <p className="py-2 text-xs text-muted-foreground">not required for mode none</p>}
+                  </Field>
+                </div>
+              )}
+
+              {/* ADR-031 message executor: the awaited business message (no HITL). */}
+              {t.category === "message" && (
+                <Field label="Message name">
+                  <Input value={row.message_name ?? ""} onChange={(e) => patch(id, { message_name: e.target.value })} placeholder="payment.status.reply" className="font-mono text-xs" />
                 </Field>
-                <Field label="HITL mode">
-                  <select className={selectCls} value={row.hitl_mode} onChange={(e) => patch(t.id, { hitl_mode: e.target.value })}>
-                    {HITL_MODES.map((m) => <option key={m} value={m} disabled={(HITL_RANK[m] ?? 0) < floor}>{m}{(HITL_RANK[m] ?? 0) < floor ? " (too weak)" : ""}</option>)}
-                  </select>
-                </Field>
-                <Field label="Role">
-                  {row.hitl_mode !== "none"
-                    ? <Input value={row.hitl_role ?? ""} onChange={(e) => patch(t.id, { hitl_role: e.target.value })} placeholder="role.payments.ops_approver" className="font-mono text-xs" />
-                    : <p className="py-2 text-xs text-muted-foreground">not required for mode none</p>}
-                </Field>
-              </div>
-              {fieldErrs[t.id] && <p className="mt-2 text-xs text-danger">{fieldErrs[t.id]}</p>}
+              )}
+
+              {/* ADR-039 call executor: the callee pack + range + IO maps (no HITL of its own). */}
+              {t.category === "call" && (
+                <div className="space-y-3">
+                  <div className="grid grid-cols-2 gap-3">
+                    <Field label="Callee pack">
+                      <select className={selectCls} value={row.call_pack ?? ""} onChange={(e) => patch(id, { call_pack: e.target.value })}>
+                        <option value="">Select active pack…</option>
+                        {packKeys.map((k) => <option key={k} value={k}>{k}</option>)}
+                      </select>
+                    </Field>
+                    <Field label="Version range">
+                      <Input value={row.call_version ?? "^1.0.0"} onChange={(e) => patch(id, { call_version: e.target.value })} placeholder="^1.0.0" className="font-mono text-xs" />
+                    </Field>
+                  </div>
+                  <Field label="Input map (callee input → caller dotpath)">
+                    <MapEditor value={row.input_map ?? {}} onChange={(m) => patch(id, { input_map: m })} keyPlaceholder="callee_input" valPlaceholder="artifacts.x.y" />
+                  </Field>
+                  <Field label="Output map (caller artifact → callee output)">
+                    <MapEditor value={row.output_map ?? {}} onChange={(m) => patch(id, { output_map: m })} keyPlaceholder="caller_artifact" valPlaceholder="callee_output" />
+                  </Field>
+                </div>
+              )}
+
+              {fieldErrs[id] && <p className="mt-2 text-xs text-danger">{fieldErrs[id]}</p>}
             </CardContent>
           </Card>
         );
       })}
-      <StepFooter summary={`${tasks.length} task${tasks.length === 1 ? "" : "s"}`} busy={busy} onNext={submit} />
+      <StepFooter summary={`${tasks.length} element${tasks.length === 1 ? "" : "s"}`} busy={busy} onNext={submit} />
     </div>
   );
 }
@@ -891,7 +1229,7 @@ function PredicateEditor({ node, onChange, depth, onRemove }: { node: any; onCha
 // -- Step 6: policies ----------------------------------------------------------
 function PoliciesStep({ session, onDone }: { session: OnboardingSession; onDone: (s: OnboardingSession) => void }) {
   const gateways = session.bpmn!.gateways;
-  const tasks = [...session.bpmn!.service_tasks, ...session.bpmn!.user_tasks];
+  const tasks = session.bpmn!.bindable_elements.map((e) => e.element_id);   // SoD over the full bindable set
   const artifacts = Array.from(new Set(session.staged_artifacts.map((a) => a.artifact_key)));
   // ADR-027 Phase 1: pre-fill gateway variables from inferred conditions (operator adds source_artifact).
   const inferredGv = Object.fromEntries((session.inferred?.gateway_variables ?? []).map((g) => [g.gateway_id, g.variable]));
@@ -906,6 +1244,11 @@ function PoliciesStep({ session, onDone }: { session: OnboardingSession; onDone:
       ? session.sod_policies.map((s) => s.elements ?? [])
       : (session.inferred?.sod_candidates ?? []).map((c) => c.elements ?? []),
   );
+  // ADR-045 (Track 3): the inferred rationale per candidate pair (keyed by its sorted elements) — shown
+  // as a "suggested" provenance chip so the operator sees WHY before accepting/removing.
+  const sodRationale: Record<string, string> = Object.fromEntries(
+    (session.inferred?.sod_candidates ?? []).map((c) => [[...(c.elements ?? [])].sort().join("|"), c.rationale]),
+  );
   // Seed roles from bindings + inferred lane roles so the operator can name them here
   // (the backend re-derives the authoritative set from bindings at save time).
   const bindingRoles = [
@@ -917,7 +1260,9 @@ function PoliciesStep({ session, onDone }: { session: OnboardingSession; onDone:
   const [roleMeta, setRoleMeta] = useState<Record<string, { label: string; description: string }>>(
     () => {
       const seed: Record<string, { label: string; description: string }> = {};
-      for (const r of session.inferred?.roles ?? []) seed[r.role_id] = { label: r.label, description: "" };
+      // ADR-045 (Track 3): seed each lane persona's inferred description (approver / analyst / agent …),
+      // operator-editable; explicit role_meta from the session overrides.
+      for (const r of session.inferred?.roles ?? []) seed[r.role_id] = { label: r.label, description: r.description ?? "" };
       for (const [id, m] of Object.entries(session.role_meta ?? {})) seed[id] = { label: m?.label ?? "", description: m?.description ?? "" };
       return seed;
     },
@@ -980,10 +1325,19 @@ function PoliciesStep({ session, onDone }: { session: OnboardingSession; onDone:
         </CardHeader>
         <CardContent className="space-y-3">
           {sod.length === 0 && <p className="text-sm text-muted-foreground">Four-eyes: the actors on the chosen tasks must be distinct.</p>}
-          {sod.map((elements, i) => (
+          {sod.map((elements, i) => {
+            const rationale = sodRationale[[...elements].sort().join("|")];
+            return (
             <div key={i} className="rounded-md border border-border p-3">
-              <div className="mb-2 flex items-center justify-between">
-                <span className="text-xs uppercase tracking-wide text-muted-foreground">distinct_actor</span>
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-xs uppercase tracking-wide text-muted-foreground">distinct_actor</span>
+                  {rationale && (
+                    <Badge variant="agent" className="text-[10px]" title="Inferred from the BPMN lanes — accept or remove">
+                      suggested · {rationale}
+                    </Badge>
+                  )}
+                </div>
                 <Button variant="ghost" size="icon" className="size-7" onClick={() => setSod(sod.filter((_, j) => j !== i))}><Trash2 className="size-3.5" /></Button>
               </div>
               <div className="flex flex-wrap gap-1.5">
@@ -994,7 +1348,8 @@ function PoliciesStep({ session, onDone }: { session: OnboardingSession; onDone:
                 })}
               </div>
             </div>
-          ))}
+            );
+          })}
         </CardContent>
       </Card>
 
@@ -1089,7 +1444,7 @@ function ReviewStep({ session, onChange, goStep }: { session: OnboardingSession;
         <CardHeader><CardTitle>Review</CardTitle></CardHeader>
         <CardContent className="grid grid-cols-3 gap-4">
           <ReadRow label="Pack" value={`${session.basics.pack_key}@${session.basics.version}`} mono />
-          <ReadRow label="BPMN · tasks" value={`${session.bpmn?.bpmn_file ?? "—"} · ${(session.bpmn?.service_tasks.length ?? 0) + (session.bpmn?.user_tasks.length ?? 0)} bound`} />
+          <ReadRow label="BPMN · tasks" value={`${session.bpmn?.bpmn_file ?? "—"} · ${session.bpmn?.bindable_elements.length ?? 0} bound`} />
           <ReadRow label="Dependencies" value={`${session.staged_capabilities.length + session.reused_capability_refs.length} caps · ${session.staged_artifacts.length} new artifacts`} />
           <div className="col-span-3 flex items-center gap-2 text-sm">
             <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Execution profile</span>

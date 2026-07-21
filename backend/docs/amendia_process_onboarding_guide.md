@@ -8,9 +8,13 @@ updated as capabilities land (currently reflects the platform **through ADR-043:
 cross-pack composition via callActivity (ADR-039), cooperative cancellation — an interrupting timer
 boundary on a running serviceTask (ADR-040), scope-level cancellation — interrupting timer/error
 boundaries on a subProcess (ADR-041), the event sub-process — a scope-wide interrupting error/timer
-handler, at process level or nested (ADR-042), and compensation — explicit compensate-throw + reverse-order
-undo of committed side effects (ADR-043)**; finding codes, profiles, and endpoints **reconciled
-against the source on 2026-07-18**).
+handler, at process level or nested (ADR-042), compensation — explicit compensate-throw + reverse-order
+undo of committed side effects (ADR-043), the onboarding **element-coverage catch-up** — the wizard now
+authors the full bindable set the runtime executes, single fidelity (ADR-044), **swimlane / persona
+inference UX** — lane personas drive pre-filled HITL + role descriptions and candidates carry their provenance
+(ADR-045), and **decision / reduce authoring** — a business user authors a native-DMN decision table or a reduce
+config in the wizard, no code (ADR-046) — completing the wizard catch-up: the wizard now authors everything the
+runtime executes**; finding codes, profiles, and endpoints **reconciled against the source on 2026-07-18**).
 
 - **Audience:** Process Owners (who operate the onboarding wizard) and platform engineers (who need the
   contract/validation detail underneath).
@@ -169,7 +173,9 @@ elements (`bpmn_unknown_element`). These are the "classify, don't reject" annota
 
 ### Step 3 — Capabilities · `POST /capabilities/introspect-mcp` then `POST /onboarding/{id}/capabilities` → `capabilities_resolved`
 
-Two things happen here: **reuse** existing catalog capabilities, and **create new MCP capabilities**.
+Three things happen here: **reuse** existing catalog capabilities, **create new MCP capabilities**, and
+**author inline `decision` / `reduce` capabilities** (ADR-046) — all staged in one `POST
+/onboarding/{id}/capabilities` (body `{tools, decision_specs, reduce_specs, reused_capability_refs}`).
 
 **Introspect** (`POST /capabilities/introspect-mcp`, body `{endpoint, transport?, headers?, domain}`): connects
 to the MCP server, calls `tools/list`, returns each tool with a **compliance verdict**. Non-compliant tools
@@ -189,6 +195,15 @@ timeout-bounded (SSRF surface).
   `side_effectful` forces the binding to `approve_actions` or stricter downstream.
 - **`idempotent`** (safe to blind-retry?).
 
+**Author `decision` / `reduce` inline (ADR-046, `decision_specs[]` / `reduce_specs[]`):** the step has two
+form-driven builders (no code, no MCP server). A **decision-table builder** (input/output columns + hit policy +
+rules-as-a-grid, each input cell a bounded unary test) and a **reduce builder** (source list + `item_path` + op +
+predicate + `output_field`). On stage each is **live-validated by the shared `dmn`/`reduce` checks** (surfacing
+`dmn_*`/`reduce_*` as field errors) and its output artifact is **inferred** (a decision's verdict — each output
+column a required, gateway-branchable field, literal columns → an enum; a reduce's summary — the `output_field`
+typed by the op). `side_effect` is always `read_only`; the **input** references an existing/staged upstream
+artifact. The Track-3 "decision table candidate" badge on a `businessRuleTask` is a one-click *author* action.
+
 **Creation is MCP-only.** To use a `skill`/`llm`/`deep_agent` capability, **reuse** it from the catalog
 (`reused_capability_refs`, `<cap-id>@<range>`), validated to exist + be active now (re-checked at commit).
 
@@ -197,8 +212,11 @@ Inference also pre-fills **capability candidates** (which tasks/message-flows ex
 ### Step 4 — Bindings · `PUT /onboarding/{id}/bindings` → `bindings_set`
 
 One binding per **bindable element** — the **bijection** (exactly one binding per element, no orphans, no
-unbound tasks). Bindable elements now include nested sub-process tasks (recursive) and message catch/receive
-tasks.
+unbound tasks). **Single fidelity (ADR-044):** the reference BPMN *is* the executable one — everything on the
+sequence flow is bound and executes; lanes/pools/message-flows are `documented` decoration. The wizard now
+authors the **full bindable set** the runtime executes (`bpmn.bindable_elements`): the whole standard task set +
+message catch/receive tasks + callActivities + nested sub-process tasks + `isForCompensation` handlers. The
+`subProcess` / event-subprocess **containers** are structural and are **never** bound.
 
 Each binding maps an element to an **executor category** by its BPMN kind (`TASK_EXECUTOR_CATEGORY`, ADR-033):
 
@@ -206,12 +224,29 @@ Each binding maps an element to an **executor category** by its BPMN kind (`TASK
 |---|---|---|
 | `serviceTask`, `sendTask`, `scriptTask`, `businessRuleTask` | **capability** | `sendTask` naturally side-effectful; `businessRuleTask` = a bound capability, or a native DMN `decision` capability (ADR-037) |
 | `userTask`, `manualTask` | **human** | HITL; `manualTask` defaults to `manual` |
-| `receiveTask`, `messageCatch` | **message** | correlated by business anchor (ADR-031) |
+| `receiveTask`, `messageCatch` | **message** | correlated by business anchor; no HITL gate (ADR-031) |
+| `callActivity` | **call** | invokes another pack inline — `pack` + `version` range + `input_map`/`output_map`; no HITL of its own (ADR-039) |
 
-Per binding: `element_id`, `element_kind`, `executor` (`{type: capability, capability: cap.*@range}` or
-`{type: human, role: role.*, assist_capability?}` or `{type: message, message_name}`), `hitl {mode, role}`,
-`inputs`/`outputs` (artifactIO). Inference pre-fills executor + lane-derived role with a **provenance chip**
-("from lane: Ops Analyst"); everything is editable.
+Per binding: `element_id`, `element_kind`, `executor` (`{type: capability, capability: cap.*@range}` /
+`{type: human, role: role.*, assist_capability?}` / `{type: message, message_name}` /
+`{type: call, pack, version, input_map, output_map}`), `hitl {mode, role}` (capability/human only),
+`inputs`/`outputs` (artifactIO). The binding UI renders an executor sub-form per category and shows
+`multi-instance` / `compensates …` / `event-subprocess` badges. Inference pre-fills executor + lane-derived role
+with a **provenance chip** ("from lane: Ops Analyst"); a `businessRuleTask` shows a **decision-table-candidate**
+badge. **Lane persona → starting HITL (ADR-045):** the task's lane sets the *starting* HITL mode — an
+**agent/automation** lane → `none`, an **analyst/maker** lane → `review_after`, an **approver/checker** lane →
+`approve_actions`, a **supervisor** lane → `manual` (a lane-less/unrecognized lane falls back to the verb
+heuristic). This is only a starting point — the **side-effect→HITL floor below is the hard constraint** (a
+side-effectful capability is always ≥ `approve_actions`, even in an agent lane). Everything is editable. **Only
+the backlog's deferred stretches are refused** — at the assemble dry-run, via the existing registry codes (e.g.
+a non-interrupting or message-triggered event sub-process, transaction/targeted/multi-instance compensation),
+never silently bound.
+
+**Policies pre-fills (ADR-045):** SoD pairs come pre-filled from lane-crossing maker/checker candidates, each
+carrying its **rationale** as a dismissible "suggested" chip (accept or remove); each pack **role** is seeded
+with its lane **persona description** (approver / analyst / agent …), operator-editable, carried into the
+`pack_roles` sidecar. The Capabilities step turns each **external message flow** into an actionable
+capability-slot nudge (the provider name + suggested id + "introspect for this").
 
 **Guards enforced here (field-level errors):**
 - **Kind agreement:** `element_kind` matches the BPMN element; serviceTask→capability, userTask→human, etc.
@@ -377,6 +412,10 @@ maps typed input artifact fields to a **verdict artifact** through a bounded FEE
 tests (`"lit"` / `42` / `true`, `< <= > >= =`, ranges `[a..b] (a..b] [a..b) (a..b)`, enums `"A","B"`,
 `not(…)`, dash `-`) — and a hit policy (`UNIQUE` default, `FIRST`, `PRIORITY`, `ANY`, `COLLECT`). `side_effect`
 is always `read_only`. Native DMN is **opt-in**: a `businessRuleTask` bound to a plain capability is unchanged.
+**Authorable in the wizard (ADR-046):** the Capabilities step has a **decision-table builder** — the operator
+defines the input/output columns, hit policy and rules as a grid (no code), the table is live-validated by the
+shared `dmn` checks, and its **verdict artifact is inferred** (each output column → a required, gateway-branchable
+field; literal string columns → an enum). Previously a decision capability had to be pre-seeded.
 
 **`kind: reduce` — collection reduction (ADR-038).** Collapses a **list** input artifact into a scalar/summary
 output a gateway can branch on — the answer to "is *any* party a hit?" over a multi-instance `COLLECT`/list.
@@ -386,6 +425,9 @@ output_field}`. `op` ∈ quantifiers (`any`/`all`/`none`), `count`, numeric (`su
 always `read_only`. Note: gateways compare string literals (`expr.py`), so a gateway branches on a **string**
 reduce output — use `first`/`last` (with an `item_path` string field); the boolean/numeric ops feed
 capabilities, HITL, or further reducers. Canonical flow: multi-instance screen → `reduce` → gateway.
+**Authorable in the wizard (ADR-046):** the Capabilities step has a **reduce builder** (source list artifact +
+`item_path` + op + optional predicate + `output_field`); the config is live-validated by the shared `reduce`
+checks and its **summary artifact is inferred** (the `output_field`, typed by the op).
 
 **`call` executor — cross-pack composition (ADR-039).** A `callActivity` binds a `call` executor that invokes
 **another pack** as a reusable sub-process, inline-compiled into the caller (one instance, one audit trail):
@@ -493,6 +535,12 @@ refuses a pack whose pinned `required_execution_profile` exceeds the runtime's c
 
 ## 12. BPMN element support matrix
 
+**Bindable-in-wizard now matches executable (ADR-044).** Every executable element below that binds an executor
+(the full task set + message catch/receive + callActivity + nested sub-process tasks + `isForCompensation`
+handlers) is authored in the onboarding **Bindings** step (§4) — single fidelity, the reference diagram is the
+executable one, no projection. The `subProcess` / event-subprocess **containers** are structural (never bound);
+the **Refused** row stays refused, surfaced at the assemble dry-run via the existing codes.
+
 | Element | Status (default `common_executable`) |
 |---|---|
 | startEvent, endEvent, serviceTask, userTask, exclusiveGateway, conditional sequenceFlow | **Executable** (also `common_subset`) |
@@ -506,7 +554,7 @@ refuses a pack whose pinned `required_execution_profile` exceeds the runtime's c
 | **compensation** — a compensable side-effectful serviceTask with a compensation `boundaryEvent` (+ `<association>`) paired to an `isForCompensation` **undo handler**, and a **compensate throw** (`compensateEventDefinition` on an intermediate/end event) that undoes the scope's completed compensable activities in **reverse (LIFO) order**, each through its HITL gate, exactly once — ADR-043 | **Executable** (off-flow handler inlined; throw = self-looping LIFO driver) |
 | multiInstanceLoopCharacteristics on a task (parallel + sequential; `amendia:aggregation` list/indexed) | **Executable** |
 | callActivity (cross-pack composition — inline-compiled; `calledElement`+`amendia:calledVersion`; input_map/output_map — ADR-039) | **Executable** (inlined) |
-| sendTask, scriptTask (bound to a capability), manualTask, businessRuleTask (bound capability, or a native DMN `decision` capability — ADR-037) | **Executable** |
+| sendTask, scriptTask (bound to a capability), manualTask, businessRuleTask (bound capability, or a native DMN `decision` capability — ADR-037, now **authorable as a table in the wizard** — ADR-046) | **Executable** |
 | lanes, pools/participants, message flows, textAnnotation, dataObject/Store | **Documented** (not executed; used for inference/coverage) |
 | *message/signal/escalation* boundary events on a subProcess (timer + error are executable, ADR-041) or a callActivity (`bpmn_subprocess_boundary_unsupported`), timer-boundary on a *side-effectful* serviceTask (`bpmn_timer_boundary_side_effect_unsupported` — read_only is executable, ADR-040), a *side-effectful* or *HITL* task inside an interrupting-timer subProcess *or* process scope (`bpmn_subprocess_boundary_side_effect_unsupported` / `bpmn_subprocess_timer_scope_hitl_unsupported`, ADR-041/042), a *message/signal/escalation-triggered* or *non-interrupting* event sub-process, or two same-trigger event sub-processes on one scope (`bpmn_event_subprocess_unsupported` / `bpmn_event_subprocess_ambiguous` — interrupting error/timer ESPs are executable, ADR-042), inline `<script>` (`bpmn_inline_script_unsupported`), nested parallel (`bpmn_parallel_nested_unsupported`), multi-instance on a sub-process (`bpmn_multi_instance_subprocess_unsupported`), nested multi-instance (`bpmn_multi_instance_nested_unsupported`), callActivity as a multi-instance host / boundary-on-callActivity / nested-instance callee (ADR-039 stretches), **transaction/cancel auto-compensation**, **targeted** (`activityRef`) or **multi-instance** compensation (`bpmn_compensation_transaction_unsupported` / `_targeted_unsupported` / `_multi_instance_unsupported` — explicit scope-wide compensation IS executable, ADR-043), ad-hoc sub-process, signal/escalation events, message/timer start events | **Refused under both profiles** (deferred — see `amendia_bpmn_deferred_backlog.md`) |
 | anything else | **Unknown** (info; retained for coverage) |

@@ -179,7 +179,9 @@ export type OnbMessageFlow = _Schemas["MessageFlowSummary"];
 export type OnbEvent = _Schemas["EventSummary"];
 export type OnbGatewayCondition = _Schemas["GatewayConditionSummary"];
 export type OnbDataObject = _Schemas["DataObjectSummary"];
-export type OnbBpmnInventory = Require<_Schemas["BpmnInventory"], "service_tasks" | "user_tasks" | "gateways" | "task_names">;
+export type OnbBindableElement = _Schemas["BindableElementSummary"];
+export type OnbBpmnInventory = Require<_Schemas["BpmnInventory"],
+  "bindable_elements" | "service_tasks" | "user_tasks" | "gateways" | "task_names">;
 
 export type InferredRole = _Schemas["InferredRole"];
 export type InferredBinding = _Schemas["InferredBinding"];
@@ -215,6 +217,8 @@ export type ToolCompliance = Require<_Schemas["ToolCompliance"], "reasons">;
 export type IntrospectedTool = _Schemas["IntrospectedTool"];
 export type IntrospectMcpResponse = Require<_Schemas["IntrospectMcpResponse"], "tools">;
 export type CapabilityToolSelection = _Schemas["CapabilityToolSelection"];
+export type OnbDecisionSpec = _Schemas["DecisionSpec"];   // ADR-046 (Track 2)
+export type OnbReduceSpec = _Schemas["ReduceSpec"];
 export type BindingInput = _Schemas["BindingInput"];
 
 // -- reads --
@@ -238,7 +242,10 @@ export function attachOnboardingBpmn(id: string, body: { bpmn_xml: string; bpmn_
 export function introspectMcp(body: { endpoint: string; transport?: string; headers?: Record<string, string>; domain: string }): Promise<IntrospectMcpResponse> {
   return request<IntrospectMcpResponse>("registry", "/capabilities/introspect-mcp", { method: "POST", body, silent: true });
 }
-export function setOnboardingCapabilities(id: string, body: { tools: CapabilityToolSelection[]; reused_capability_refs: string[] }): Promise<OnboardingSession> {
+export function setOnboardingCapabilities(id: string, body: {
+  tools: CapabilityToolSelection[]; reused_capability_refs: string[];
+  decision_specs?: OnbDecisionSpec[]; reduce_specs?: OnbReduceSpec[];   // ADR-046 (Track 2)
+}): Promise<OnboardingSession> {
   return request<OnboardingSession>("registry", `/onboarding/${id}/capabilities`, { method: "POST", body, silent: true });
 }
 export function setOnboardingBindings(id: string, body: { bindings: BindingInput[] }): Promise<OnboardingSession> {

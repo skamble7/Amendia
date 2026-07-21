@@ -15,7 +15,17 @@ import uuid
 from typing import Any, Dict, List, Optional, Tuple
 from xml.etree import ElementTree as ET
 
-from amendia_bpmn import extract_semantics, parse as parse_bpmn, required_profile, select_process_id
+from amendia_bpmn import (
+    TASK_EXECUTOR_CATEGORY,
+    extract_semantics,
+    parse as parse_bpmn,
+    parse_decision_table,
+    parse_reduce_config,
+    required_profile,
+    select_process_id,
+    validate_reduce,
+    validate_table,
+)
 
 from app.services.inference import build_semantic_summary, infer_draft
 
@@ -57,6 +67,7 @@ from app.services.mcp_introspect import (
     McpIntrospector,
     infer_capability,
     introspect_response_tool,
+    normalize_artifact_schema,
     sanitize_name as _san,
 )
 from app.services.registration import RegistrationError, register_schema
@@ -66,6 +77,14 @@ from app.validation.predicates import PredicateSyntaxError, check_predicate
 
 _DOMAIN_RE = re.compile(r"^[a-z0-9_]+$")
 _APPROVE_ACTIONS = HitlMode.APPROVE_ACTIONS
+
+# ADR-046 (Track 2): field types for the inferred verdict/summary artifact.
+_DMN_TYPE_JSON = {"number": "number", "integer": "integer", "boolean": "boolean", "string": "string"}
+_REDUCE_OP_TYPE = {
+    "any": "boolean", "all": "boolean", "none": "boolean", "count": "integer",
+    "sum": "number", "avg": "number", "min": "number", "max": "number",
+    "first": "string", "last": "string",
+}
 
 
 def humanize_role(role_id: str) -> str:
@@ -226,6 +245,7 @@ class OnboardingService:
         sem = extract_semantics(xml, process_id)
         s.bpmn = BpmnInventory(
             process_id=process_id, bpmn_file=bpmn_file, sha256=sha,
+            bindable_elements=inventory["bindable_elements"],
             service_tasks=inventory["service_tasks"], user_tasks=inventory["user_tasks"],
             gateways=inventory["gateways"], task_names=inventory["task_names"],
             subprocesses=inventory.get("subprocesses", []),
@@ -278,6 +298,20 @@ class OnboardingService:
             staged_arts.extend([in_art, out_art])
             staged_caps.append(cap)
 
+        # ADR-046 (Track 2): inline-authored decision / reduce capabilities. Each is structurally
+        # validated by the shared amendia_bpmn checks (surfacing dmn_*/reduce_* as field errors) and
+        # stages its own inferred verdict/summary output artifact — mirroring the MCP path.
+        for spec in req.decision_specs:
+            art, cap = self._stage_decision(spec, s, errors)
+            if art is not None and cap is not None:
+                staged_arts.append(art)
+                staged_caps.append(cap)
+        for spec in req.reduce_specs:
+            art, cap = self._stage_reduce(spec, s, errors)
+            if art is not None and cap is not None:
+                staged_arts.append(art)
+                staged_caps.append(cap)
+
         # Reused capabilities must exist and be active *now* (re-checked again at commit).
         reused: List[str] = []
         for ref in req.reused_capability_refs:
@@ -310,34 +344,48 @@ class OnboardingService:
         if not (s.staged_capabilities or s.reused_capability_refs):
             raise TransitionError(409, "stage capabilities before setting bindings")
 
-        kinds = {**{t: "serviceTask" for t in s.bpmn.service_tasks},
-                 **{t: "userTask" for t in s.bpmn.user_tasks}}
+        # ADR-044 (Track 1): the bijection now spans the FULL bindable set (task kinds + message
+        # elements + callActivity + isForCompensation handlers); the subProcess / event-subprocess
+        # CONTAINERS are excluded (never in bindable_elements). Executor type is validated against each
+        # element's category (mirrors the contract's Binding._executor_matches_kind).
+        inv_by_id = {e.element_id: e for e in s.bpmn.bindable_elements}
+        _category_executor = {"capability": "capability", "human": "human",
+                              "message": "message", "call": "call"}
         errors: List[dict] = []
         bound_ids: List[str] = []
         staged: List[StagedBinding] = []
 
         for b in req.bindings:
             bound_ids.append(b.element_id)
-            inv_kind = kinds.get(b.element_id)
-            if inv_kind is None:
+            inv = inv_by_id.get(b.element_id)
+            if inv is None:
                 errors.append({"element_id": b.element_id, "field": "element_id",
-                               "message": "not a BPMN service/user task"})
+                               "message": "not a bindable BPMN element (subProcess / event-subprocess "
+                                          "containers are structural and never bound)"})
                 continue
-            if b.element_kind != inv_kind:
+            if b.element_kind != inv.element_kind:
                 errors.append({"element_id": b.element_id, "field": "element_kind",
-                               "message": f"element_kind '{b.element_kind}' != BPMN kind '{inv_kind}'"})
-            if inv_kind == "serviceTask" and b.executor_type != "capability":
+                               "message": f"element_kind '{b.element_kind}' != BPMN kind '{inv.element_kind}'"})
+            expected = _category_executor[inv.category]
+            if b.executor_type != expected:
                 errors.append({"element_id": b.element_id, "field": "executor",
-                               "message": "serviceTask must bind a capability executor"})
-            if inv_kind == "userTask" and b.executor_type != "human":
-                errors.append({"element_id": b.element_id, "field": "executor",
-                               "message": "userTask must bind a human executor"})
-            if b.hitl_mode != "none" and not b.hitl_role:
+                               "message": f"{inv.element_kind} must bind a {expected} executor"})
+            # HITL applies to capability/human only; a message/call executor has no gate of its own.
+            if inv.category in ("message", "call"):
+                if b.hitl_mode not in ("none", "", None) or b.hitl_role:
+                    errors.append({"element_id": b.element_id, "field": "hitl_mode",
+                                   "message": f"a {inv.category} executor has no HITL gate"})
+            elif b.hitl_mode != "none" and not b.hitl_role:
                 errors.append({"element_id": b.element_id, "field": "hitl_role",
                                "message": f"HITL mode '{b.hitl_mode}' requires a role"})
 
             io_inputs: List[StagedBindingIO] = []
             io_outputs: List[StagedBindingIO] = []
+            message_name: Optional[str] = None
+            call_pack: Optional[str] = None
+            call_version: Optional[str] = None
+            input_map: Dict[str, str] = {}
+            output_map: Dict[str, str] = {}
             if b.executor_type == "capability" and b.capability_ref:
                 cap_io = await self._capability_io_and_policy(b.capability_ref, s)
                 if cap_io is None:
@@ -346,21 +394,39 @@ class OnboardingService:
                 else:
                     side_effect, floor, io_inputs, io_outputs = cap_io
                     self._check_hitl_guard(b, side_effect, floor, errors)
+            elif b.executor_type == "message":
+                # ADR-031: the message this element awaits (advisory BPMN name pre-fills; operator confirms).
+                message_name = b.message_name or inv.message_name
+                if not message_name:
+                    errors.append({"element_id": b.element_id, "field": "message_name",
+                                   "message": "message executor requires a message_name"})
+            elif b.executor_type == "call":
+                # ADR-039: the callee pack + range + IO maps. Callee existence / IO reconciliation is a
+                # cross-pack check run by the assemble dry-run (the call-validation stage), not here.
+                call_pack = b.call_pack or inv.called_pack
+                call_version = b.call_version or inv.called_version or "^1.0.0"
+                input_map = dict(b.input_map)
+                output_map = dict(b.output_map)
+                if not call_pack:
+                    errors.append({"element_id": b.element_id, "field": "call_pack",
+                                   "message": "call executor requires a callee pack (calledElement)"})
             staged.append(StagedBinding(
                 element_id=b.element_id, element_kind=b.element_kind, executor_type=b.executor_type,
                 capability_ref=b.capability_ref, role=b.role, assist_capability_ref=b.assist_capability_ref,
-                hitl_mode=b.hitl_mode, hitl_role=b.hitl_role, inputs=io_inputs, outputs=io_outputs,
+                hitl_mode=b.hitl_mode, hitl_role=b.hitl_role,
+                message_name=message_name, call_pack=call_pack, call_version=call_version,
+                input_map=input_map, output_map=output_map, inputs=io_inputs, outputs=io_outputs,
             ))
 
-        # Bijection: exactly one binding per task, no orphans, no unbound tasks.
+        # Bijection: exactly one binding per bindable element, no orphans, no unbound elements.
         seen = set()
         for eid in bound_ids:
             if eid in seen:
                 errors.append({"element_id": eid, "field": "element_id", "message": "duplicate binding"})
             seen.add(eid)
-        for task_id in sorted(set(kinds) - set(bound_ids)):
+        for task_id in sorted(set(inv_by_id) - set(bound_ids)):
             errors.append({"element_id": task_id, "field": "element_id",
-                           "message": "BPMN task has no binding"})
+                           "message": "BPMN element has no binding"})
 
         if errors:
             raise TransitionError(422, {"error": "bindings_invalid", "errors": errors})
@@ -648,11 +714,15 @@ class OnboardingService:
         cov = model.coverage()
         documented = [{"element_id": e.id, "kind": e.kind, "tier": e.tier}
                       for e in (cov["documented"] + cov["unknown"])]
+        names = self._task_names(xml)
         return process_id, [], {
+            # ADR-044 (Track 1): the full bindable set the runtime executes (do NOT re-derive — source
+            # it from the parsed model's bindable_elements()). service/user tasks kept as legacy views.
+            "bindable_elements": self._bindable_elements(model, names),
             "service_tasks": sorted(service_tasks),
             "user_tasks": sorted(user_tasks),
             "gateways": sorted(model.exclusive_gateways),
-            "task_names": self._task_names(xml),
+            "task_names": names,
             "documented_elements": documented,
             "coverage_counts": cov["counts"],
             # ADR-027 Phase 2.5: the min profile this diagram needs, derived here so the Review step
@@ -667,6 +737,12 @@ class OnboardingService:
     def _local(tag: str) -> str:
         return tag.rsplit("}", 1)[-1]
 
+    # ADR-044 (Track 1): names for the full bindable set (not just service/user tasks).
+    _NAMED_TAGS = (
+        "serviceTask", "userTask", "sendTask", "scriptTask", "manualTask", "businessRuleTask",
+        "receiveTask", "intermediateCatchEvent", "callActivity",
+    )
+
     def _task_names(self, xml: str) -> Dict[str, str]:
         names: Dict[str, str] = {}
         try:
@@ -674,11 +750,46 @@ class OnboardingService:
         except Exception:  # noqa: BLE001
             return names
         for el in root.iter():
-            if self._local(el.tag) in ("serviceTask", "userTask"):
+            if self._local(el.tag) in self._NAMED_TAGS:
                 _id = el.get("id")
                 if _id:
                     names[_id] = el.get("name") or _id
         return names
+
+    def _bindable_elements(self, model, names: Dict[str, str]) -> List[Dict[str, Any]]:
+        """The full bindable set (task kinds + message elements + callActivity) from the parsed model,
+        each routed to its executor category + tagged with the badges the binding UI needs. The
+        ``subProcess``/event-subprocess **containers** are never bindable (not in ``bindable_elements()``).
+        """
+        def _in_esp(eid: str) -> bool:
+            s, seen = eid, set()
+            while s and s not in seen:
+                seen.add(s)
+                if s in model.event_subprocesses:
+                    return True
+                s = model.element_scope.get(s)
+            return False
+
+        out: List[Dict[str, Any]] = []
+        for eid, kind in model.bindable_elements().items():
+            category = TASK_EXECUTOR_CATEGORY.get(kind, "capability")
+            handler = model.compensation_handlers.get(eid)
+            row: Dict[str, Any] = {
+                "element_id": eid, "element_kind": kind, "category": category,
+                "name": names.get(eid),
+                "is_multi_instance": eid in model.multi_instance,
+                "is_for_compensation": handler is not None,
+                "compensation_primary": handler.primary_id if handler is not None else None,
+                "in_event_subprocess": _in_esp(eid),
+            }
+            if category == "message":
+                row["message_name"] = model.message_catch_events.get(eid) or model.receive_tasks.get(eid)
+            elif category == "call":
+                ca = model.call_activities.get(eid)
+                row["called_pack"] = ca.target_pack if ca else None
+                row["called_version"] = ca.version_range if ca else None
+            out.append(row)
+        return sorted(out, key=lambda r: r["element_id"])
 
     # -- capability lookups (staged + reused) -- #
     async def _reused_ref_ok(self, ref: str) -> Tuple[bool, str]:
@@ -738,6 +849,86 @@ class OnboardingService:
             "compatibility": sa.compatibility, "status": "active",
         })
 
+    # -- ADR-046 (Track 2): stage an inline-authored decision / reduce capability -- #
+    def _stage_decision(self, spec, s: OnboardingSession, errors: List[dict]):
+        """Validate a DMN table (shared checks) and stage a ``decision`` capability + its inferred
+        verdict artifact. Returns ``(StagedArtifact, StagedCapability)`` or ``(None, None)`` on error."""
+        try:
+            table = parse_decision_table(spec.table)
+        except Exception as exc:  # noqa: BLE001 — DmnError etc. → a field error, not a 500
+            errors.append({"capability_id": spec.capability_id, "field": "table",
+                           "message": f"malformed decision table: {exc}"})
+            return None, None
+        bad = [f for f in validate_table(table) if f.severity == "error"]
+        if bad:
+            for f in bad:
+                errors.append({"capability_id": spec.capability_id, "field": "table",
+                               "code": f.code, "message": f.message})
+            return None, None
+        # Verdict artifact: one field per output column. A string output with literal rule values →
+        # an ENUM (the distinct 'then' values) so a downstream gateway branches on exact verdicts.
+        props: Dict[str, Any] = {}
+        required: List[str] = []
+        for idx, o in enumerate(table.outputs):
+            fld = o.name or f"out_{idx}"
+            vals = []
+            for r in table.rules:
+                if idx < len(r.then):
+                    v = r.then[idx]
+                    if isinstance(v, (str, int, float, bool)) and v not in vals:
+                        vals.append(v)
+            if vals and (o.type in (None, "string")) and all(isinstance(v, str) for v in vals):
+                props[fld] = {"enum": vals}
+            else:
+                props[fld] = {"type": _DMN_TYPE_JSON.get(o.type or "string", "string")}
+            required.append(fld)
+        schema, _w = normalize_artifact_schema(
+            {"properties": props, "required": required},
+            artifact_key=spec.output_artifact_key, version=spec.output_version)
+        art = StagedArtifact(
+            artifact_key=spec.output_artifact_key, version=spec.output_version,
+            title=f"{spec.title or spec.capability_id} verdict", json_schema=schema)
+        cap = StagedCapability(
+            capability_id=spec.capability_id, version=spec.capability_version,
+            title=spec.title or f"{spec.capability_id} (decision)", description=spec.description,
+            kind="decision", side_effect="read_only",
+            input_name=spec.input_name, input_artifact_key=spec.input_artifact_key,
+            output_name=spec.output_name, output_artifact_key=spec.output_artifact_key,
+            table=spec.table)
+        return art, cap
+
+    def _stage_reduce(self, spec, s: OnboardingSession, errors: List[dict]):
+        """Validate a reduce config (shared checks) and stage a ``reduce`` capability + its inferred
+        summary artifact. Returns ``(StagedArtifact, StagedCapability)`` or ``(None, None)`` on error."""
+        try:
+            config = parse_reduce_config(spec.config)
+        except Exception as exc:  # noqa: BLE001
+            errors.append({"capability_id": spec.capability_id, "field": "config",
+                           "message": f"malformed reduce config: {exc}"})
+            return None, None
+        bad = [f for f in validate_reduce(config) if f.severity == "error"]
+        if bad:
+            for f in bad:
+                errors.append({"capability_id": spec.capability_id, "field": "config",
+                               "code": f.code, "message": f.message})
+            return None, None
+        # Summary artifact: the single output_field, typed by the op's result kind.
+        fld = config.output_field or "result"
+        schema, _w = normalize_artifact_schema(
+            {"properties": {fld: {"type": _REDUCE_OP_TYPE.get(config.op, "string")}}, "required": [fld]},
+            artifact_key=spec.output_artifact_key, version=spec.output_version)
+        art = StagedArtifact(
+            artifact_key=spec.output_artifact_key, version=spec.output_version,
+            title=f"{spec.title or spec.capability_id} summary", json_schema=schema)
+        cap = StagedCapability(
+            capability_id=spec.capability_id, version=spec.capability_version,
+            title=spec.title or f"{spec.capability_id} (reduce)", description=spec.description,
+            kind="reduce", side_effect="read_only",
+            input_name=spec.input_name, input_artifact_key=spec.input_artifact_key,
+            output_name=spec.output_name, output_artifact_key=spec.output_artifact_key,
+            config=spec.config)
+        return art, cap
+
     def _capability_descriptor(
         self, sc: StagedCapability, staged_arts: Dict[str, StagedArtifact]
     ) -> CapabilityDescriptor:
@@ -746,14 +937,22 @@ class OnboardingService:
         constraints: Dict[str, Any] = {}
         if sc.min_hitl_mode:
             constraints["min_hitl_mode"] = sc.min_hitl_mode
+        # ADR-046 (Track 2): emit the runtime by kind — mcp (self-descriptive endpoint) or an inline
+        # decision (DMN table) / reduce (config). Decision/reduce are always read_only.
+        if sc.kind == "decision":
+            runtime: Dict[str, Any] = {"kind": "decision", "table": sc.table or {}}
+        elif sc.kind == "reduce":
+            runtime = {"kind": "reduce", "config": sc.config or {}}
+        else:
+            runtime = {"kind": "mcp", "endpoint": sc.endpoint, "tools": [sc.tool],
+                       "transport": sc.transport, "headers": sc.headers}
         payload: Dict[str, Any] = {
             "descriptor_version": "1.0", "capability_id": sc.capability_id, "version": sc.version,
-            "title": sc.title, "description": sc.description, "kind": "mcp", "side_effect": sc.side_effect,
+            "title": sc.title, "description": sc.description, "kind": sc.kind, "side_effect": sc.side_effect,
             "idempotent": sc.idempotent,
             "inputs": [{"name": sc.input_name, "schema": f"{sc.input_artifact_key}@^{in_ver}"}],
             "outputs": [{"name": sc.output_name, "schema": f"{sc.output_artifact_key}@^{out_ver}"}],
-            "runtime": {"kind": "mcp", "endpoint": sc.endpoint, "tools": [sc.tool],
-                        "transport": sc.transport, "headers": sc.headers},
+            "runtime": runtime,
             "status": "active",
         }
         if constraints:
@@ -782,23 +981,33 @@ class OnboardingService:
         bindings: List[Dict[str, Any]] = []
         artifact_refs: List[str] = []
         for b in s.bindings:
+            # ADR-044 (Track 1): emit the correct manifest Executor union member per binding category.
             if b.executor_type == "capability":
                 executor = {"type": "capability", "capability": b.capability_ref}
-            else:
+            elif b.executor_type == "human":
                 executor = {"type": "human", "role": b.role}
                 if b.assist_capability_ref:
                     executor["assist_capability"] = b.assist_capability_ref
-            hitl: Dict[str, Any] = {"mode": b.hitl_mode}
-            if b.hitl_role:
-                hitl["role"] = b.hitl_role
+            elif b.executor_type == "message":
+                executor = {"type": "message", "message_name": b.message_name}
+            else:  # call (ADR-039) — the callee runs inline; no HITL of its own
+                executor = {"type": "call", "pack": b.call_pack, "version": b.call_version or "^1.0.0",
+                            "input_map": dict(b.input_map), "output_map": dict(b.output_map)}
             ins = [{"name": io.name, "schema": io.schema_ref, "required": io.required} for io in b.inputs]
             outs = [{"name": io.name, "schema": io.schema_ref, "required": io.required} for io in b.outputs]
             for io in (b.inputs + b.outputs):
                 artifact_refs.append(io.schema_ref)
-            bindings.append({
+            binding_doc: Dict[str, Any] = {
                 "element_id": b.element_id, "element_kind": b.element_kind,
-                "executor": executor, "hitl": hitl, "inputs": ins, "outputs": outs,
-            })
+                "executor": executor, "inputs": ins, "outputs": outs,
+            }
+            # HITL is a capability/human concept; a message/call executor has no gate (contract omits it).
+            if b.executor_type in ("capability", "human"):
+                hitl: Dict[str, Any] = {"mode": b.hitl_mode}
+                if b.hitl_role:
+                    hitl["role"] = b.hitl_role
+                binding_doc["hitl"] = hitl
+            bindings.append(binding_doc)
 
         artifacts = sorted(set(artifact_refs))
         triage = [{"rule_id": r.rule_id, "priority": r.priority, "description": r.description, "when": r.when}

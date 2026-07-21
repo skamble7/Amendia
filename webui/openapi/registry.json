@@ -331,6 +331,100 @@
         "title": "Basics",
         "type": "object"
       },
+      "BindableElementSummary": {
+        "description": "ADR-044 (Track 1): one BPMN element the operator must bind, sourced from the parsed\n``amendia_bpmn`` model's ``bindable_elements()`` (the full standard task set + message elements +\ncallActivity). ``category`` routes to the executor sub-form (``TASK_EXECUTOR_CATEGORY``); the\n``subProcess``/event-subprocess **containers** are never in this list. Per-element metadata drives\nthe binding UI (badges) without re-deriving from the diagram.",
+        "properties": {
+          "called_pack": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Called Pack"
+          },
+          "called_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Called Version"
+          },
+          "category": {
+            "title": "Category",
+            "type": "string"
+          },
+          "compensation_primary": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Compensation Primary"
+          },
+          "element_id": {
+            "title": "Element Id",
+            "type": "string"
+          },
+          "element_kind": {
+            "title": "Element Kind",
+            "type": "string"
+          },
+          "in_event_subprocess": {
+            "default": false,
+            "title": "In Event Subprocess",
+            "type": "boolean"
+          },
+          "is_for_compensation": {
+            "default": false,
+            "title": "Is For Compensation",
+            "type": "boolean"
+          },
+          "is_multi_instance": {
+            "default": false,
+            "title": "Is Multi Instance",
+            "type": "boolean"
+          },
+          "message_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message Name"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          }
+        },
+        "required": [
+          "element_id",
+          "element_kind",
+          "category"
+        ],
+        "title": "BindableElementSummary",
+        "type": "object"
+      },
       "Binding": {
         "additionalProperties": false,
         "properties": {
@@ -425,6 +519,28 @@
             ],
             "title": "Assist Capability Ref"
           },
+          "call_pack": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Call Pack"
+          },
+          "call_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Call Version"
+          },
           "capability_ref": {
             "anyOf": [
               {
@@ -464,6 +580,31 @@
             ],
             "title": "Hitl Role"
           },
+          "input_map": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Input Map",
+            "type": "object"
+          },
+          "message_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message Name"
+          },
+          "output_map": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Output Map",
+            "type": "object"
+          },
           "role": {
             "anyOf": [
               {
@@ -487,6 +628,13 @@
       "BpmnInventory": {
         "description": "Parsed BPMN topology the downstream steps hang off of, plus the ADR-027 coverage report.",
         "properties": {
+          "bindable_elements": {
+            "items": {
+              "$ref": "#/components/schemas/BindableElementSummary"
+            },
+            "title": "Bindable Elements",
+            "type": "array"
+          },
           "bpmn_file": {
             "title": "Bpmn File",
             "type": "string"
@@ -1203,6 +1351,78 @@
         "title": "DecisionRuntime",
         "type": "object"
       },
+      "DecisionSpec": {
+        "description": "ADR-046 (Track 2): author a native-DMN ``decision`` capability inline (no code, no MCP). The\n``table`` is the normalized DMN shape (``{hit_policy, inputs, outputs, rules}``); it is structurally\nvalidated on stage by the shared ``amendia_bpmn.dmn`` checks. The **verdict** output artifact is\ninferred from the table's outputs (each column \u2192 a required field a gateway can branch on); the\n**input** references an existing/staged upstream artifact whose fields the input expressions read.",
+        "properties": {
+          "capability_id": {
+            "title": "Capability Id",
+            "type": "string"
+          },
+          "capability_version": {
+            "default": "1.0.0",
+            "title": "Capability Version",
+            "type": "string"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "input_artifact_key": {
+            "title": "Input Artifact Key",
+            "type": "string"
+          },
+          "input_name": {
+            "default": "in",
+            "title": "Input Name",
+            "type": "string"
+          },
+          "output_artifact_key": {
+            "title": "Output Artifact Key",
+            "type": "string"
+          },
+          "output_name": {
+            "default": "verdict",
+            "title": "Output Name",
+            "type": "string"
+          },
+          "output_version": {
+            "default": "1.0.0",
+            "title": "Output Version",
+            "type": "string"
+          },
+          "table": {
+            "additionalProperties": true,
+            "title": "Table",
+            "type": "object"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          }
+        },
+        "required": [
+          "capability_id",
+          "table",
+          "input_artifact_key",
+          "output_artifact_key"
+        ],
+        "title": "DecisionSpec",
+        "type": "object"
+      },
       "DeepAgentBudget": {
         "additionalProperties": false,
         "description": "Hard budget caging a deep_agent loop (ADR-021).",
@@ -1655,6 +1875,17 @@
       },
       "InferredRole": {
         "properties": {
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
           "label": {
             "title": "Label",
             "type": "string"
@@ -2687,6 +2918,78 @@
         "title": "ReduceRuntime",
         "type": "object"
       },
+      "ReduceSpec": {
+        "description": "ADR-046 (Track 2): author a ``reduce`` capability inline. The ``config`` is the normalized reduce\nshape (``{op, source?, item_path?, predicate?, output_field}``), structurally validated on stage by\n``amendia_bpmn.reduce``. The **summary** output artifact is inferred from ``output_field`` + the op's\nresult type; the **input** references an existing/staged **list** artifact.",
+        "properties": {
+          "capability_id": {
+            "title": "Capability Id",
+            "type": "string"
+          },
+          "capability_version": {
+            "default": "1.0.0",
+            "title": "Capability Version",
+            "type": "string"
+          },
+          "config": {
+            "additionalProperties": true,
+            "title": "Config",
+            "type": "object"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "input_artifact_key": {
+            "title": "Input Artifact Key",
+            "type": "string"
+          },
+          "input_name": {
+            "default": "in",
+            "title": "Input Name",
+            "type": "string"
+          },
+          "output_artifact_key": {
+            "title": "Output Artifact Key",
+            "type": "string"
+          },
+          "output_name": {
+            "default": "summary",
+            "title": "Output Name",
+            "type": "string"
+          },
+          "output_version": {
+            "default": "1.0.0",
+            "title": "Output Version",
+            "type": "string"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          }
+        },
+        "required": [
+          "capability_id",
+          "config",
+          "input_artifact_key",
+          "output_artifact_key"
+        ],
+        "title": "ReduceSpec",
+        "type": "object"
+      },
       "RequiresCapability": {
         "additionalProperties": false,
         "properties": {
@@ -2903,6 +3206,20 @@
       },
       "SetCapabilitiesRequest": {
         "properties": {
+          "decision_specs": {
+            "items": {
+              "$ref": "#/components/schemas/DecisionSpec"
+            },
+            "title": "Decision Specs",
+            "type": "array"
+          },
+          "reduce_specs": {
+            "items": {
+              "$ref": "#/components/schemas/ReduceSpec"
+            },
+            "title": "Reduce Specs",
+            "type": "array"
+          },
           "reused_capability_refs": {
             "items": {
               "type": "string"
@@ -3086,6 +3403,28 @@
             ],
             "title": "Assist Capability Ref"
           },
+          "call_pack": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Call Pack"
+          },
+          "call_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Call Version"
+          },
           "capability_ref": {
             "anyOf": [
               {
@@ -3125,12 +3464,37 @@
             ],
             "title": "Hitl Role"
           },
+          "input_map": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Input Map",
+            "type": "object"
+          },
           "inputs": {
             "items": {
               "$ref": "#/components/schemas/StagedBindingIO"
             },
             "title": "Inputs",
             "type": "array"
+          },
+          "message_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message Name"
+          },
+          "output_map": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Output Map",
+            "type": "object"
           },
           "outputs": {
             "items": {
@@ -3183,11 +3547,23 @@
         "type": "object"
       },
       "StagedCapability": {
-        "description": "A to-be-registered ``kind: mcp`` capability inferred from one MCP tool.\n\n``input_artifact_key`` / ``output_artifact_key`` reference two ``StagedArtifact``s\nby key (same session).",
+        "description": "A to-be-registered capability. ``kind: mcp`` is inferred from one MCP tool (endpoint/tool set);\nADR-046 (Track 2) adds inline-configured ``kind: decision`` (a DMN ``table``) and ``kind: reduce`` (a\n``config``) authored directly in the wizard \u2014 no endpoint, always ``read_only``.\n\n``input_artifact_key`` / ``output_artifact_key`` reference ``StagedArtifact``s (or an existing\nartifact, for a decision/reduce input) by key.",
         "properties": {
           "capability_id": {
             "title": "Capability Id",
             "type": "string"
+          },
+          "config": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Config"
           },
           "description": {
             "anyOf": [
@@ -3201,8 +3577,15 @@
             "title": "Description"
           },
           "endpoint": {
-            "title": "Endpoint",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Endpoint"
           },
           "headers": {
             "additionalProperties": {
@@ -3228,6 +3611,11 @@
           },
           "input_name": {
             "title": "Input Name",
+            "type": "string"
+          },
+          "kind": {
+            "default": "mcp",
+            "title": "Kind",
             "type": "string"
           },
           "min_hitl_mode": {
@@ -3265,13 +3653,32 @@
             ],
             "title": "Source Tool"
           },
+          "table": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Table"
+          },
           "title": {
             "title": "Title",
             "type": "string"
           },
           "tool": {
-            "title": "Tool",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tool"
           },
           "transport": {
             "default": "streamable_http",
@@ -3290,9 +3697,7 @@
           "input_name",
           "input_artifact_key",
           "output_name",
-          "output_artifact_key",
-          "endpoint",
-          "tool"
+          "output_artifact_key"
         ],
         "title": "StagedCapability",
         "type": "object"

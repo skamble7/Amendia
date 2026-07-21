@@ -30,7 +30,7 @@ describe("Onboarding wizard", () => {
     const session = {
       session_id: "sess-1", created_by: "owner-1", created_at: "", updated_at: "", state: "assembled",
       basics: { pack_key: "p", version: "1.0.0", title: "P", default_domain: "payment" },
-      bpmn: { process_id: "proc", bpmn_file: "p.bpmn", sha256: "x", service_tasks: ["T"], user_tasks: [], gateways: [], task_names: {} },
+      bpmn: { process_id: "proc", bpmn_file: "p.bpmn", sha256: "x", bindable_elements: [{ element_id: "T", element_kind: "serviceTask", category: "capability", name: "T", is_multi_instance: false, is_for_compensation: false, compensation_primary: null, in_event_subprocess: false }], service_tasks: ["T"], user_tasks: [], gateways: [], task_names: {} },
       staged_artifacts: [], staged_capabilities: [], reused_capability_refs: [], bindings: [],
       triage_rules: [], gateway_variables: [], sod_policies: [], roles: [],
       dry_run_report: synthValidationReport, commit_progress: [], result_pack: null, last_cleared: [],
@@ -42,6 +42,142 @@ describe("Onboarding wizard", () => {
     expect(await screen.findByText(/HITL & side-effect policy/)).toBeInTheDocument();
     const activate = await screen.findByRole("button", { name: /activate pack/i });
     expect(activate).toBeDisabled();
+  });
+
+  it("bindings step authors the full bindable set with per-category sub-forms (ADR-044)", async () => {
+    const be = (over: Record<string, unknown>) => ({
+      name: null, is_multi_instance: false, is_for_compensation: false,
+      compensation_primary: null, in_event_subprocess: false, ...over,
+    });
+    const session = {
+      session_id: "sess-3", created_by: "owner-1", created_at: "", updated_at: "", state: "bindings_set",
+      basics: { pack_key: "p", version: "1.0.0", title: "P", default_domain: "payment" },
+      bpmn: {
+        process_id: "P", bpmn_file: "p.bpmn", sha256: "x",
+        service_tasks: ["Svc"], user_tasks: ["Usr"], gateways: [], task_names: {},
+        bindable_elements: [
+          be({ element_id: "Svc", element_kind: "serviceTask", category: "capability", name: "Screen" }),
+          be({ element_id: "Usr", element_kind: "userTask", category: "human", name: "Approve" }),
+          be({ element_id: "Recv", element_kind: "receiveTask", category: "message", name: "Await reply", message_name: "pay.reply" }),
+          be({ element_id: "CallSub", element_kind: "callActivity", category: "call", name: "Sub-pack", called_pack: "other-pack", called_version: "^1.0.0" }),
+        ],
+      },
+      staged_artifacts: [], reused_capability_refs: [], bindings: [],
+      staged_capabilities: [{ capability_id: "cap.payment.screen", version: "1.0.0", title: "Screen", side_effect: "read_only", input_name: "in", input_artifact_key: "art.payment.in", output_name: "out", output_artifact_key: "art.payment.out", endpoint: "http://x", tool: "screen", transport: "streamable_http", headers: {} }],
+      triage_rules: [], gateway_variables: [], sod_policies: [], roles: [],
+      dry_run_report: null, commit_progress: [], result_pack: null, last_cleared: [], inferred: null,
+    };
+    server.use(
+      http.get(`${REG}/onboarding/sess-3`, () => HttpResponse.json(session)),
+      http.get(`${REG}/capabilities`, () => HttpResponse.json([])),
+      http.get(`${REG}/packs`, () => HttpResponse.json([synthPack])),
+    );
+    renderApp("/registry/onboard/sess-3", "owner-1");
+
+    // the full bindable set is listed (capability + human + message + call)
+    expect(await screen.findByText("Recv")).toBeInTheDocument();
+    expect(await screen.findByText("CallSub")).toBeInTheDocument();
+    // message executor sub-form (message name, no HITL)
+    expect(await screen.findByText("Message name")).toBeInTheDocument();
+    // call executor sub-form (callee pack picker + IO maps)
+    expect(await screen.findByText("Callee pack")).toBeInTheDocument();
+    expect(await screen.findByText(/Input map/)).toBeInTheDocument();
+  });
+
+  it("policies step shows SoD candidates with their rationale + seeds persona descriptions (ADR-045)", async () => {
+    const be = (id: string) => ({ element_id: id, element_kind: "serviceTask", category: "capability", name: id, is_multi_instance: false, is_for_compensation: false, compensation_primary: null, in_event_subprocess: false });
+    const session = {
+      session_id: "sess-4", created_by: "owner-1", created_at: "", updated_at: "", state: "policies_set",
+      basics: { pack_key: "p", version: "1.0.0", title: "P", default_domain: "payment" },
+      bpmn: {
+        process_id: "P", bpmn_file: "p.bpmn", sha256: "x", service_tasks: ["Draft", "Approve"], user_tasks: [],
+        gateways: [], task_names: {}, bindable_elements: [be("Draft"), be("Approve")],
+      },
+      staged_artifacts: [], staged_capabilities: [], reused_capability_refs: [], bindings: [],
+      triage_rules: [], gateway_variables: [], sod_policies: [], roles: ["role.payment.ops_approver"],
+      inferred: {
+        roles: [{ role_id: "role.payment.ops_approver", label: "Ops Approver", source_lane: "L", description: "Four-eyes approver — authorizes side-effectful actions before they execute." }],
+        bindings: [], gateway_variables: [], capability_candidates: [], artifact_seeds: [], annotations: [],
+        sod_candidates: [{ elements: ["Draft", "Approve"], rationale: "'Draft repair' and 'Approve repair' are in different lanes — four-eyes candidate" }],
+      },
+      dry_run_report: null, commit_progress: [], result_pack: null, last_cleared: [],
+    };
+    server.use(
+      http.get(`${REG}/onboarding/sess-4`, () => HttpResponse.json(session)),
+      http.get(`${REG}/capabilities`, () => HttpResponse.json([])),
+    );
+    renderApp("/registry/onboard/sess-4", "owner-1");
+    // the SoD candidate carries its rationale as a "suggested" provenance chip
+    expect(await screen.findByText(/four-eyes candidate/i)).toBeInTheDocument();
+    // the lane persona description is pre-filled into role_meta (editable)
+    expect(await screen.findByDisplayValue(/Four-eyes approver/i)).toBeInTheDocument();
+  });
+
+  it("capabilities step surfaces external integrations from message flows (ADR-045)", async () => {
+    const session = {
+      session_id: "sess-5", created_by: "owner-1", created_at: "", updated_at: "", state: "capabilities_resolved",
+      basics: { pack_key: "p", version: "1.0.0", title: "P", default_domain: "payment" },
+      bpmn: {
+        process_id: "P", bpmn_file: "p.bpmn", sha256: "x", service_tasks: [], user_tasks: [],
+        gateways: [], task_names: {}, bindable_elements: [],
+        message_flows: [{ id: "mf1", name: "Sanctions Provider", source: "a", target: "b" }],
+      },
+      staged_artifacts: [], staged_capabilities: [], reused_capability_refs: [], bindings: [],
+      triage_rules: [], gateway_variables: [], sod_policies: [], roles: [],
+      inferred: {
+        roles: [], bindings: [], gateway_variables: [], artifact_seeds: [], sod_candidates: [],
+        capability_candidates: [{ source: "mf1", suggested_capability_id: "cap.payment.sanctions_provider", kind_hint: "mcp", needs_endpoint: true }],
+        annotations: [{ code: "external_integration_hint", element_id: "mf1", message: "message flow 'Sanctions Provider' — external-system integration" }],
+      },
+      dry_run_report: null, commit_progress: [], result_pack: null, last_cleared: [],
+    };
+    server.use(
+      http.get(`${REG}/onboarding/sess-5`, () => HttpResponse.json(session)),
+      http.get(`${REG}/capabilities`, () => HttpResponse.json([])),
+    );
+    renderApp("/registry/onboard/sess-5", "owner-1");
+    expect(await screen.findByText(/External integrations/i)).toBeInTheDocument();
+    expect(await screen.findByText("Sanctions Provider")).toBeInTheDocument();
+    expect(await screen.findByText(/likely cap\.payment\.sanctions_provider/)).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: /Introspect for this/i })).toBeInTheDocument();
+  });
+
+  it("capabilities step authors a decision table + surfaces inline dmn validation (ADR-046)", async () => {
+    const session = {
+      session_id: "sess-6", created_by: "owner-1", created_at: "", updated_at: "", state: "capabilities_resolved",
+      basics: { pack_key: "p", version: "1.0.0", title: "P", default_domain: "payment" },
+      bpmn: {
+        process_id: "P", bpmn_file: "p.bpmn", sha256: "x", service_tasks: [], user_tasks: [],
+        gateways: [], task_names: {}, bindable_elements: [], message_flows: [],
+      },
+      staged_artifacts: [{ artifact_key: "art.payment.enriched", version: "1.0.0", title: "e", json_schema: {} }],
+      staged_capabilities: [], reused_capability_refs: [], bindings: [],
+      triage_rules: [], gateway_variables: [], sod_policies: [], roles: [],
+      inferred: { roles: [], bindings: [], gateway_variables: [], capability_candidates: [], artifact_seeds: [], sod_candidates: [], annotations: [] },
+      dry_run_report: null, commit_progress: [], result_pack: null, last_cleared: [],
+    };
+    server.use(
+      http.get(`${REG}/onboarding/sess-6`, () => HttpResponse.json(session)),
+      http.get(`${REG}/capabilities`, () => HttpResponse.json([])),
+      http.post(`${REG}/onboarding/sess-6/capabilities`, () => HttpResponse.json(
+        { error: "capabilities_invalid", errors: [{ capability_id: "cap.payment.bad", field: "table", code: "dmn_bad_unary_test", message: "rule 0 input cell 0 is not a legal unary test" }] },
+        { status: 422 })),
+    );
+    const user = userEvent.setup();
+    renderApp("/registry/onboard/sess-6", "owner-1");
+
+    // open the DMN builder → its grid controls render
+    await user.click(await screen.findByRole("button", { name: /Decision table/i }));
+    const capId = await screen.findByPlaceholderText("cap.payment.classify");
+    expect(capId).toBeInTheDocument();
+    // adding an input column grows the rule grid
+    const inputsBefore = screen.getAllByPlaceholderText(/gpi_status/).length;
+    await user.click(screen.getByRole("button", { name: /^input$/i }));
+    expect(screen.getAllByPlaceholderText(/gpi_status/).length).toBe(inputsBefore + 1);
+    // name it + submit → the server's dmn_* finding surfaces inline on the builder
+    await user.type(capId, "cap.payment.bad");
+    await user.click(screen.getByRole("button", { name: /Save & continue/i }));
+    expect(await screen.findByText(/not a legal unary test/i)).toBeInTheDocument();
   });
 
   it("accepts full BPMN and shows a coverage report with documented elements (ADR-027)", async () => {
@@ -57,7 +193,8 @@ describe("Onboarding wizard", () => {
       ...base, state: "bpmn_attached",
       bpmn: {
         process_id: "P", bpmn_file: "p.bpmn", sha256: "x",
-        service_tasks: ["T"], user_tasks: [], gateways: [], task_names: {},
+        bindable_elements: [{ element_id: "T", element_kind: "userTask", category: "human", name: "Approve", is_multi_instance: false, is_for_compensation: false, compensation_primary: null, in_event_subprocess: false }],
+        service_tasks: [], user_tasks: ["T"], gateways: [], task_names: {},
         documented_elements: [
           { element_id: "B1", kind: "boundaryEvent", tier: "documented" },
           { element_id: "LS", kind: "laneSet", tier: "documented" },

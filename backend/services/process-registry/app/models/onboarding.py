@@ -123,12 +123,15 @@ class InferredRole(BaseModel):
     role_id: str
     label: str
     source_lane: Optional[str] = None
+    # ADR-045 (Track 3): a persona description derived from the lane's role in the process (approver /
+    # analyst / agent / supervisor). Seeds the Policies step's role_meta description; operator-editable.
+    description: Optional[str] = None
 
 
 class InferredBinding(BaseModel):
     element_id: str
-    element_kind: str                                         # serviceTask | userTask
-    executor_type: str                                        # capability | human
+    element_kind: str                                         # full bindable task/message/call kinds
+    executor_type: str                                        # capability | human | message | call
     suggested_role: Optional[str] = None
     suggested_hitl_mode: str = "none"
     source_lane: Optional[str] = None
@@ -180,12 +183,38 @@ class SubProcessSummary(BaseModel):
     member_ids: List[str] = Field(default_factory=list)
 
 
+class BindableElementSummary(BaseModel):
+    """ADR-044 (Track 1): one BPMN element the operator must bind, sourced from the parsed
+    ``amendia_bpmn`` model's ``bindable_elements()`` (the full standard task set + message elements +
+    callActivity). ``category`` routes to the executor sub-form (``TASK_EXECUTOR_CATEGORY``); the
+    ``subProcess``/event-subprocess **containers** are never in this list. Per-element metadata drives
+    the binding UI (badges) without re-deriving from the diagram."""
+
+    element_id: str
+    element_kind: str                                          # serviceTask|userTask|sendTask|scriptTask|
+    #                                                            manualTask|businessRuleTask|receiveTask|
+    #                                                            messageCatch|callActivity
+    category: str                                              # capability | human | message | call
+    name: Optional[str] = None
+    is_multi_instance: bool = False                            # ADR-036 — runs N times (badge)
+    is_for_compensation: bool = False                          # ADR-043 — an off-flow undo handler (badge)
+    compensation_primary: Optional[str] = None                # the activity this handler compensates
+    in_event_subprocess: bool = False                         # ADR-042 — lives in an ESP body (binds normally)
+    message_name: Optional[str] = None                        # message elements — advisory BPMN message name
+    called_pack: Optional[str] = None                         # callActivity — calledElement (pack_key)
+    called_version: Optional[str] = None                      # callActivity — amendia:calledVersion range
+
+
 class BpmnInventory(BaseModel):
     """Parsed BPMN topology the downstream steps hang off of, plus the ADR-027 coverage report."""
 
     process_id: str
     bpmn_file: str
     sha256: str
+    # ADR-044 (Track 1): the AUTHORITATIVE full bindable set (task kinds + message + callActivity) the
+    # bindings step + bijection consume. ``service_tasks``/``user_tasks`` are retained as legacy
+    # serviceTask-only / userTask-only views (markers, coverage groups) — a strict subset of the above.
+    bindable_elements: List[BindableElementSummary] = Field(default_factory=list)
     service_tasks: List[str] = Field(default_factory=list)
     user_tasks: List[str] = Field(default_factory=list)
     gateways: List[str] = Field(default_factory=list)          # exclusive gateways
@@ -221,29 +250,35 @@ class StagedArtifact(BaseModel):
 
 
 class StagedCapability(BaseModel):
-    """A to-be-registered ``kind: mcp`` capability inferred from one MCP tool.
+    """A to-be-registered capability. ``kind: mcp`` is inferred from one MCP tool (endpoint/tool set);
+    ADR-046 (Track 2) adds inline-configured ``kind: decision`` (a DMN ``table``) and ``kind: reduce`` (a
+    ``config``) authored directly in the wizard — no endpoint, always ``read_only``.
 
-    ``input_artifact_key`` / ``output_artifact_key`` reference two ``StagedArtifact``s
-    by key (same session)."""
+    ``input_artifact_key`` / ``output_artifact_key`` reference ``StagedArtifact``s (or an existing
+    artifact, for a decision/reduce input) by key."""
 
     capability_id: str
     version: str
     title: str
     description: Optional[str] = None
-    side_effect: str = "read_only"          # read_only | side_effectful
+    kind: str = "mcp"                       # mcp | decision | reduce (ADR-046)
+    side_effect: str = "read_only"          # read_only | side_effectful (decision/reduce always read_only)
     idempotent: Optional[bool] = None
     min_hitl_mode: Optional[str] = None
-    # IO — one input + one output artifact (the two inferred schemas).
+    # IO — one input + one output artifact.
     input_name: str
     input_artifact_key: str
     output_name: str
     output_artifact_key: str
-    # Runtime (self-descriptive MCP, ADR-024).
-    endpoint: str
-    tool: str
+    # Runtime (self-descriptive MCP, ADR-024) — mcp only.
+    endpoint: Optional[str] = None
+    tool: Optional[str] = None
     transport: str = "streamable_http"
     headers: Dict[str, str] = Field(default_factory=dict)
     source_tool: Optional[str] = None
+    # ADR-046: the inline runtime payload for a decision (DMN table) / reduce (config) capability.
+    table: Optional[Dict[str, Any]] = None
+    config: Optional[Dict[str, Any]] = None
 
 
 class StagedBindingIO(BaseModel):
@@ -254,13 +289,20 @@ class StagedBindingIO(BaseModel):
 
 class StagedBinding(BaseModel):
     element_id: str
-    element_kind: str                        # serviceTask | userTask
-    executor_type: str                       # capability | human
-    capability_ref: Optional[str] = None     # cap.<...>@<range> (serviceTask)
-    role: Optional[str] = None               # role.<...>       (userTask human executor)
+    element_kind: str                        # full standard task set + messageCatch/receiveTask/callActivity
+    executor_type: str                       # capability | human | message | call
+    capability_ref: Optional[str] = None     # cap.<...>@<range> (capability executor)
+    role: Optional[str] = None               # role.<...>       (human executor)
     assist_capability_ref: Optional[str] = None
     hitl_mode: str = "none"
     hitl_role: Optional[str] = None
+    # ADR-031 message executor: the business message this element awaits (no capability, no HITL).
+    message_name: Optional[str] = None
+    # ADR-039 call executor: the callee pack + range + IO maps (no capability, no HITL of its own).
+    call_pack: Optional[str] = None
+    call_version: Optional[str] = None
+    input_map: Dict[str, str] = Field(default_factory=dict)     # callee_input_binding -> caller dotpath
+    output_map: Dict[str, str] = Field(default_factory=dict)    # caller_artifact -> callee_output_binding
     inputs: List[StagedBindingIO] = Field(default_factory=list)
     outputs: List[StagedBindingIO] = Field(default_factory=list)
 
@@ -376,20 +418,66 @@ class CapabilityToolSelection(BaseModel):
     description: Optional[str] = None
 
 
+class DecisionSpec(BaseModel):
+    """ADR-046 (Track 2): author a native-DMN ``decision`` capability inline (no code, no MCP). The
+    ``table`` is the normalized DMN shape (``{hit_policy, inputs, outputs, rules}``); it is structurally
+    validated on stage by the shared ``amendia_bpmn.dmn`` checks. The **verdict** output artifact is
+    inferred from the table's outputs (each column → a required field a gateway can branch on); the
+    **input** references an existing/staged upstream artifact whose fields the input expressions read."""
+
+    capability_id: str                       # cap.<domain>.<name> (editable)
+    title: Optional[str] = None
+    description: Optional[str] = None
+    capability_version: str = "1.0.0"
+    table: Dict[str, Any]                    # the normalized decision table
+    input_artifact_key: str                  # the upstream artifact the table reads (staged or reused)
+    input_name: str = "in"
+    output_artifact_key: str                 # the verdict artifact to create
+    output_name: str = "verdict"
+    output_version: str = "1.0.0"
+
+
+class ReduceSpec(BaseModel):
+    """ADR-046 (Track 2): author a ``reduce`` capability inline. The ``config`` is the normalized reduce
+    shape (``{op, source?, item_path?, predicate?, output_field}``), structurally validated on stage by
+    ``amendia_bpmn.reduce``. The **summary** output artifact is inferred from ``output_field`` + the op's
+    result type; the **input** references an existing/staged **list** artifact."""
+
+    capability_id: str
+    title: Optional[str] = None
+    description: Optional[str] = None
+    capability_version: str = "1.0.0"
+    config: Dict[str, Any]                   # the normalized reduce config
+    input_artifact_key: str                  # the upstream list artifact
+    input_name: str = "in"
+    output_artifact_key: str                 # the summary artifact to create
+    output_name: str = "summary"
+    output_version: str = "1.0.0"
+
+
 class SetCapabilitiesRequest(BaseModel):
     tools: List[CapabilityToolSelection] = Field(default_factory=list)
+    # ADR-046: inline-authored decision / reduce capabilities, staged alongside the MCP tools.
+    decision_specs: List[DecisionSpec] = Field(default_factory=list)
+    reduce_specs: List[ReduceSpec] = Field(default_factory=list)
     reused_capability_refs: List[str] = Field(default_factory=list)
 
 
 class BindingInput(BaseModel):
     element_id: str
     element_kind: str
-    executor_type: str
+    executor_type: str                       # capability | human | message | call
     capability_ref: Optional[str] = None
     role: Optional[str] = None
     assist_capability_ref: Optional[str] = None
     hitl_mode: str = "none"
     hitl_role: Optional[str] = None
+    # ADR-044 (Track 1): message + call executor authoring (mirrors the manifest Executor union).
+    message_name: Optional[str] = None
+    call_pack: Optional[str] = None
+    call_version: Optional[str] = None
+    input_map: Dict[str, str] = Field(default_factory=dict)
+    output_map: Dict[str, str] = Field(default_factory=dict)
 
 
 class SetBindingsRequest(BaseModel):
