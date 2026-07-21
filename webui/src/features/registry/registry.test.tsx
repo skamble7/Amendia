@@ -245,6 +245,51 @@ describe("Onboarding wizard", () => {
     expect(await screen.findByPlaceholderText(/paste <bpmn/i)).toBeInTheDocument();
   });
 
+  it("bindings step pre-selects the inferred capability + fixes HITL floor/role (batch-2)", async () => {
+    const be = (over: Record<string, unknown>) => ({
+      name: null, is_multi_instance: false, is_for_compensation: false,
+      compensation_primary: null, in_event_subprocess: false, ...over,
+    });
+    const session = {
+      session_id: "sess-8", created_by: "owner-1", created_at: "", updated_at: "", state: "bindings_set",
+      basics: { pack_key: "p", version: "1.0.0", title: "P", default_domain: "payment" },
+      bpmn: {
+        process_id: "P", bpmn_file: "p.bpmn", sha256: "x", service_tasks: ["ApplyRepair"], user_tasks: ["ApproveRepair"],
+        gateways: [], task_names: {},
+        bindable_elements: [
+          be({ element_id: "ApplyRepair", element_kind: "serviceTask", category: "capability", name: "Apply repair" }),
+          be({ element_id: "ApproveRepair", element_kind: "userTask", category: "human", name: "Approve repair" }),
+        ],
+      },
+      staged_artifacts: [], reused_capability_refs: [], bindings: [],
+      staged_capabilities: [{ capability_id: "cap.payment.apply_repair", version: "1.0.0", title: "Apply repair", side_effect: "side_effectful", input_name: "in", input_artifact_key: "art.payment.in", output_name: "out", output_artifact_key: "art.payment.out", endpoint: "http://x", tool: "apply_repair", transport: "streamable_http", headers: {} }],
+      triage_rules: [], gateway_variables: [], sod_policies: [], roles: [],
+      inferred: {
+        roles: [], gateway_variables: [], capability_candidates: [{ source: "ApplyRepair", suggested_capability_id: "cap.payment.apply_repair", kind_hint: "mcp", needs_endpoint: true }],
+        artifact_seeds: [], sod_candidates: [], annotations: [],
+        bindings: [
+          { element_id: "ApplyRepair", element_kind: "serviceTask", executor_type: "capability", suggested_capability_id: "cap.payment.apply_repair", suggested_role: "role.payment.ops_approver", suggested_hitl_mode: "none", source_lane: "L" },
+          { element_id: "ApproveRepair", element_kind: "userTask", executor_type: "human", suggested_role: "role.payment.ops_approver", suggested_hitl_mode: "manual", source_lane: "L" },
+        ],
+      },
+      dry_run_report: null, commit_progress: [], result_pack: null, last_cleared: [],
+    };
+    server.use(
+      http.get(`${REG}/onboarding/sess-8`, () => HttpResponse.json(session)),
+      http.get(`${REG}/capabilities`, () => HttpResponse.json([])),
+      http.get(`${REG}/packs`, () => HttpResponse.json([])),
+    );
+    renderApp("/registry/onboard/sess-8", "owner-1");
+
+    // the capability is pre-selected (an exact-id match) → a "suggested" chip renders
+    expect(await screen.findByText("suggested")).toBeInTheDocument();
+    expect(await screen.findByDisplayValue(/cap\.payment\.apply_repair@\^1\.0\.0/)).toBeInTheDocument();
+    // side-effectful → the HITL floor bumped the pre-selected row from `none` to `approve_actions`
+    expect(await screen.findByDisplayValue("approve_actions")).toBeInTheDocument();
+    // the human task's executor role and HITL role both default to the SAME lane role
+    expect(screen.getAllByDisplayValue("role.payment.ops_approver").length).toBeGreaterThanOrEqual(2);
+  });
+
   it("capabilities step reuses a capability via on-demand search (no eager catalog load) (batch-1)", async () => {
     let eagerLoads = 0;
     const session = {

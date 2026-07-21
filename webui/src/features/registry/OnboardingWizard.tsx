@@ -69,7 +69,7 @@ export function OnboardingWizard() {
 function StartScreen() {
   const navigate = useNavigate();
   const { data: sessions } = useOnboardingSessions();
-  const [form, setForm] = useState({ pack_key: "", version: "1.0.0", title: "", description: "", default_domain: "payment" });
+  const [form, setForm] = useState({ pack_key: "", version: "1.0.0", title: "", description: "", default_domain: "" });
   const [errs, setErrs] = useState<FieldError[]>([]);
   const [busy, setBusy] = useState(false);
   const inProgress = (sessions ?? []).filter((s) => s.state !== "completed");
@@ -131,8 +131,8 @@ function StartScreen() {
           <Field label="Description" className="col-span-2">
             <Input value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
           </Field>
-          <Field label="Default domain" hint="seeds suggested ids, e.g. cap.<domain>.<tool>" error={err("default_domain")}>
-            <Input value={form.default_domain} onChange={(e) => setForm({ ...form, default_domain: e.target.value })} />
+          <Field label="Default domain" hint="the cap.<domain>.<tool> id namespace — keep it process-scoped to avoid clashing with the active catalog; leave blank to derive it from the pack key" error={err("default_domain")}>
+            <Input value={form.default_domain} onChange={(e) => setForm({ ...form, default_domain: e.target.value })} placeholder="derives from pack key if blank" />
           </Field>
           <div className="col-span-2 flex justify-end">
             <Button disabled={busy} onClick={create}>{busy ? <><Loader2 className="mr-1 size-4 animate-spin" /> Creating…</> : "Create & continue"}</Button>
@@ -1008,7 +1008,10 @@ function MapEditor({ value, onChange, keyPlaceholder, valPlaceholder }: {
 
 function BindingsStep({ session, onDone }: { session: OnboardingSession; onDone: (s: OnboardingSession) => void }) {
   const tasks: OnbBindableElement[] = session.bpmn!.bindable_elements;
-  const capOptions = [...session.staged_capabilities.map((c) => `${c.capability_id}@^${c.version}`), ...session.reused_capability_refs];
+  const capOptions = useMemo(
+    () => [...session.staged_capabilities.map((c) => `${c.capability_id}@^${c.version}`), ...session.reused_capability_refs],
+    [session.staged_capabilities, session.reused_capability_refs],
+  );
   const { data: catalog } = useCapabilities();
   const { data: activePacks } = usePacks({ status: "active" });
   const packKeys = useMemo(() => Array.from(new Set((activePacks ?? []).map((p) => p.pack_key))), [activePacks]);
@@ -1045,6 +1048,31 @@ function BindingsStep({ session, onDone }: { session: OnboardingSession; onDone:
       .map((a) => [a.element_id!, a.message])),
     [session.inferred],
   );
+  // Batch-2: pre-select each capability task with its inferred capability from the selectable set
+  // (staged + reused). Exact bare-id match first, then a CONFIDENT name-token overlap; else leave empty.
+  const capByBareId = useMemo(() => Object.fromEntries(capOptions.map((r) => [r.split("@")[0], r])), [capOptions]);
+  const suggestedCapRef = useMemo(() => {
+    const tok = (s: string) => s.toLowerCase().replace(/^cap\.[a-z0-9_]+\./, "").split(/[^a-z0-9]+/).filter((x) => x && x !== "cap");
+    const out: Record<string, string> = {};
+    for (const t of tasks) {
+      if (t.category !== "capability") continue;
+      const sid = inferredBind[t.element_id]?.suggested_capability_id as string | undefined;
+      if (sid && capByBareId[sid]) { out[t.element_id] = capByBareId[sid]; continue; }   // exact id
+      const want = new Set([...(sid ? tok(sid) : []), ...tok("cap.x." + (t.name ?? ""))]);
+      if (want.size === 0 || capOptions.length === 0) continue;
+      let best: { ref: string; score: number } | null = null;
+      for (const ref of capOptions) {
+        const have = tok(ref.split("@")[0] ?? "");
+        if (have.length === 0) continue;
+        const inter = have.filter((x) => want.has(x)).length;
+        const score = inter / new Set([...have, ...want]).size;      // Jaccard over name tokens
+        if (!best || score > best.score) best = { ref, score };
+      }
+      if (best && best.score >= 0.5) out[t.element_id] = best.ref;    // confident match only
+    }
+    return out;
+  }, [tasks, inferredBind, capByBareId, capOptions]);
+
   const [rows, setRows] = useState<Record<string, BindingInput>>(() => {
     const init: Record<string, BindingInput> = {};
     for (const t of tasks) {
@@ -1062,8 +1090,23 @@ function BindingsStep({ session, onDone }: { session: OnboardingSession; onDone:
           input_map: existing.input_map ?? {}, output_map: existing.output_map ?? {},
         });
       } else {
-        if (t.category === "human") base.role = inf?.suggested_role ?? undefined;
-        if (t.category === "capability" && base.hitl_mode !== "none") base.hitl_role = inf?.suggested_role ?? undefined;
+        if (t.category === "human") {
+          // Batch-2: default BOTH the executor role and the HITL role to the lane-derived role, so they
+          // read the same (fixing the executor role.payment.* vs HITL role.payments.* mismatch).
+          base.role = inf?.suggested_role ?? undefined;
+          base.hitl_role = inf?.suggested_role ?? undefined;
+        }
+        if (t.category === "capability") {
+          // Batch-2: pre-select the inferred capability + bump HITL to its floor (mirrors chooseExecutor),
+          // so e.g. a side-effectful ApplyRepair shows approve_actions immediately instead of a false none.
+          const ref = suggestedCapRef[t.element_id];
+          if (ref) {
+            base.capability_ref = ref;
+            const fl = floorOf(ref);
+            if ((HITL_RANK[base.hitl_mode] ?? 0) < fl) base.hitl_mode = fl >= 2 ? "approve_actions" : "review_after";
+          }
+          if (base.hitl_mode !== "none") base.hitl_role = inf?.suggested_role ?? undefined;
+        }
         if (t.category === "message") base.message_name = t.message_name ?? undefined;
         if (t.category === "call") { base.call_pack = t.called_pack ?? undefined; base.call_version = t.called_version ?? "^1.0.0"; base.input_map = {}; base.output_map = {}; }
       }
@@ -1139,10 +1182,15 @@ function BindingsStep({ session, onDone }: { session: OnboardingSession; onDone:
                 <div className="grid grid-cols-3 gap-3">
                   <Field label={t.category === "capability" ? "Capability" : "Role"}>
                     {t.category === "capability" ? (
-                      <select className={selectCls} value={row.capability_ref ?? ""} onChange={(e) => chooseExecutor(id, e.target.value)}>
-                        <option value="">Select…</option>
-                        {capOptions.map((r) => <option key={r} value={r}>{r}{sideEffectOf(r) === "side_effectful" ? " · side-effectful" : ""}</option>)}
-                      </select>
+                      <div className="flex items-center gap-1.5">
+                        <select className={cn(selectCls, "flex-1")} value={row.capability_ref ?? ""} onChange={(e) => chooseExecutor(id, e.target.value)}>
+                          <option value="">Select…</option>
+                          {capOptions.map((r) => <option key={r} value={r}>{r}{sideEffectOf(r) === "side_effectful" ? " · side-effectful" : ""}</option>)}
+                        </select>
+                        {row.capability_ref && row.capability_ref === suggestedCapRef[id] && (
+                          <Badge variant="agent" className="shrink-0 text-[10px]" title="Pre-selected from the diagram — editable">suggested</Badge>
+                        )}
+                      </div>
                     ) : (
                       <Input value={row.role ?? ""} onChange={(e) => patch(id, { role: e.target.value })} placeholder="role.payments.ops_analyst" className="font-mono text-xs" />
                     )}

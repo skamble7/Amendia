@@ -80,7 +80,7 @@ def svc(onboarding_repo, cap_repo, schema_repo, pack_repo, bpmn_repo, fake_intro
 
 
 async def _new(svc, bpmn, pack_key):
-    s = await svc.create(CreateSessionRequest(pack_key=pack_key, version="1.0.0", title="t"), owner=OWNER)
+    s = await svc.create(CreateSessionRequest(pack_key=pack_key, version="1.0.0", title="t", default_domain="payment"), owner=OWNER)
     return await svc.attach_bpmn(s.session_id, AttachBpmnRequest(bpmn_xml=bpmn), owner=OWNER)
 
 

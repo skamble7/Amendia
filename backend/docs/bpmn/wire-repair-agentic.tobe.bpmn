@@ -42,11 +42,11 @@
     <bpmn:incoming>f_start</bpmn:incoming>
     <bpmn:outgoing>f_enrich</bpmn:outgoing>
   </bpmn:serviceTask>
-  <bpmn:businessRuleTask id="Assess" name="Assess repairability">
+  <bpmn:serviceTask id="Assess" name="Assess repairability">
     <bpmn:incoming>f_enrich</bpmn:incoming>
     <bpmn:incoming>f_info_assess</bpmn:incoming>
     <bpmn:outgoing>f_assess</bpmn:outgoing>
-  </bpmn:businessRuleTask>
+  </bpmn:serviceTask>
   <bpmn:exclusiveGateway id="Gw_Repairable" name="Repairable?" default="f_info">
     <bpmn:incoming>f_assess</bpmn:incoming>
     <bpmn:outgoing>f_rep</bpmn:outgoing>

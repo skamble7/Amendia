@@ -45,7 +45,7 @@ def _screen_selection(*, side_effect="read_only", min_hitl_mode=None):
 
 
 async def _walk_to_capabilities(svc, *, side_effect="read_only", min_hitl_mode=None):
-    s = await svc.create(CreateSessionRequest(pack_key="mcp-screen", version="1.0.0", title="MCP screen"), owner=OWNER)
+    s = await svc.create(CreateSessionRequest(pack_key="mcp-screen", version="1.0.0", title="MCP screen", default_domain="payment"), owner=OWNER)
     s = await svc.attach_bpmn(s.session_id, AttachBpmnRequest(bpmn_xml=MCP_BPMN), owner=OWNER)
     s = await svc.set_capabilities(
         s.session_id,
@@ -141,6 +141,57 @@ async def test_create_rejects_existing_active_pack(onboarding_service, onboarded
     assert ei.value.status_code == 409
 
 
+async def test_create_without_domain_derives_from_pack_key_not_payment(onboarding_service):
+    # L1: no hardcoded business default. Omitting the domain derives it from the pack_key (process-scoped),
+    # never a silent "payment".
+    s = await onboarding_service.create(
+        CreateSessionRequest(pack_key="beneficiary-screening", version="1.0.0", title="t"), owner=OWNER)
+    assert s.basics.default_domain == "beneficiary_screening"
+    assert s.basics.default_domain != "payment"
+
+
+async def test_create_rejects_invalid_domain(onboarding_service):
+    with pytest.raises(TransitionError) as ei:
+        await onboarding_service.create(
+            CreateSessionRequest(pack_key="p", version="1.0.0", title="t", default_domain="Bad Domain!"), owner=OWNER)
+    assert ei.value.status_code == 422
+    assert any(e["field"] == "default_domain" for e in ei.value.detail["errors"])
+
+
+async def test_capability_id_collision_flagged_at_capabilities_step(onboarding_service, cap_repo):
+    # L1 guardrail: a newly-staged id that already exists as an ACTIVE catalog capability is flagged (the
+    # cap.<domain>.* namespace clash) — steering the operator to a distinct domain, not a silent bind at commit.
+    await cap_repo.insert(CapabilityDescriptor.model_validate({
+        "descriptor_version": "1.0", "capability_id": "cap.payment.screen_party", "version": "1.0.0",
+        "title": "existing", "kind": "skill", "side_effect": "read_only", "inputs": [], "outputs": [],
+        "runtime": {"kind": "skill", "entrypoint": "app.x:y"},
+        "constraints": {"timeout_seconds": 30, "max_retries": 0}, "status": "active"}))
+    s = await onboarding_service.create(
+        CreateSessionRequest(pack_key="dup-pack", version="1.0.0", title="t", default_domain="payment"), owner=OWNER)
+    s = await onboarding_service.attach_bpmn(s.session_id, AttachBpmnRequest(bpmn_xml=MCP_BPMN), owner=OWNER)
+    with pytest.raises(TransitionError) as ei:
+        await onboarding_service.set_capabilities(
+            s.session_id, SetCapabilitiesRequest(tools=[_screen_selection()]), owner=OWNER)
+    assert ei.value.status_code == 422
+    assert any(e.get("code") == "capability_id_collision" and e["capability_id"] == "cap.payment.screen_party"
+               for e in ei.value.detail["errors"])
+
+
+def test_seeding_is_opt_in_no_code_default():
+    # L2: the platform carries no hardcoded seed path — a fresh Settings() has SEED_DIR unset, and with none
+    # configured there are no sample envelopes (boot loads nothing).
+    from app.config import Settings
+    assert Settings().SEED_DIR == ""
+    from app.config import settings as _s
+    from app.deps import load_sample_envelopes
+    orig = _s.SEED_DIR
+    _s.SEED_DIR = ""
+    try:
+        assert load_sample_envelopes() == []
+    finally:
+        _s.SEED_DIR = orig
+
+
 async def test_attach_bpmn_builds_inventory(onboarding_service):
     s = await onboarding_service.create(CreateSessionRequest(pack_key="mcp-screen", version="1.0.0", title="t"), owner=OWNER)
     s = await onboarding_service.attach_bpmn(s.session_id, AttachBpmnRequest(bpmn_xml=MCP_BPMN), owner=OWNER)
@@ -151,7 +202,7 @@ async def test_attach_bpmn_builds_inventory(onboarding_service):
 
 async def test_introspect_flags_compliance(onboarding_service):
     from app.models.onboarding import IntrospectMcpRequest
-    resp = await onboarding_service.introspect_mcp(IntrospectMcpRequest(endpoint="http://mcp.local/mcp"))
+    resp = await onboarding_service.introspect_mcp(IntrospectMcpRequest(endpoint="http://mcp.local/mcp", domain="payment"))
     by_name = {t.name: t for t in resp.tools}
     assert by_name["screen_party"].compliance.compliant is True
     assert by_name["screen_party"].suggested_capability_id == "cap.payment.screen_party"
@@ -172,12 +223,12 @@ async def test_introspect_loopback_failure_hints_deployment_url(
     svc = OnboardingService(onboarding_repo, cap_repo, schema_repo, pack_repo, bpmn_repo, _Boom())
     # a loopback endpoint failure adds the "connects from inside its container" hint
     with pytest.raises(TransitionError) as ei:
-        await svc.introspect_mcp(IntrospectMcpRequest(endpoint="http://localhost:8060/mcp"))
+        await svc.introspect_mcp(IntrospectMcpRequest(endpoint="http://localhost:8060/mcp", domain="payment"))
     assert ei.value.status_code == 502
     assert "deployment-facing" in ei.value.detail["message"]
     # a non-loopback endpoint failure does NOT (it's a genuine connection problem, no hint noise)
     with pytest.raises(TransitionError) as ei2:
-        await svc.introspect_mcp(IntrospectMcpRequest(endpoint="http://wirefix-mcp:8060/mcp"))
+        await svc.introspect_mcp(IntrospectMcpRequest(endpoint="http://wirefix-mcp:8060/mcp", domain="payment"))
     assert "deployment-facing" not in ei2.value.detail["message"]
 
 
@@ -223,6 +274,45 @@ async def test_side_effect_requires_approve_actions(onboarding_service):
         s.session_id, SetBindingsRequest(bindings=[_binding(hitl_mode="approve_actions")]), owner=OWNER
     )
     assert s.state == OnboardingState.BINDINGS_SET
+
+
+async def test_bindings_capability_requires_ref(onboarding_service):
+    # batch-3: a capability task left "Select…" (capability_ref=None) is a field-level 422 at Bindings,
+    # not a raw 500 later at manifest validation.
+    s = await _walk_to_capabilities(onboarding_service)
+    b = BindingInput(element_id="Task_Screen", element_kind="serviceTask", executor_type="capability",
+                     capability_ref=None, hitl_mode="none")
+    with pytest.raises(TransitionError) as ei:
+        await onboarding_service.set_bindings(s.session_id, SetBindingsRequest(bindings=[b]), owner=OWNER)
+    assert ei.value.status_code == 422 and ei.value.detail["error"] == "bindings_invalid"
+    assert any(e["element_id"] == "Task_Screen" and e["field"] == "capability_ref"
+               for e in ei.value.detail["errors"])
+
+
+async def test_compose_guards_stale_missing_refs(onboarding_service):
+    # batch-3: an already-saved (pre-guard) binding with a missing ref must yield a clean 422 from
+    # _compose (called by BOTH assemble and commit), never a TypeError/500 at CapabilityRef/RoleId parse.
+    s = await _walk_to_assembled(onboarding_service)
+    s.bindings[0].capability_ref = None                        # simulate a stale None-ref capability
+    with pytest.raises(TransitionError) as ei:
+        onboarding_service._compose(s)
+    assert ei.value.status_code == 422 and ei.value.detail["error"] == "bindings_invalid"
+    assert any(e["field"] == "capability_ref" for e in ei.value.detail["errors"])
+    # the same guard for a human executor with no role
+    s.bindings[0].executor_type = "human"
+    s.bindings[0].role = None
+    with pytest.raises(TransitionError) as ei2:
+        onboarding_service._compose(s)
+    assert any(e["field"] == "role" for e in ei2.value.detail["errors"])
+
+
+async def test_assemble_on_stale_missing_ref_is_422_not_500(onboarding_service):
+    s = await _walk_to_assembled(onboarding_service)
+    s.bindings[0].capability_ref = None
+    await onboarding_service.sessions.save(s)                  # persist the stale binding
+    with pytest.raises(TransitionError) as ei:
+        await onboarding_service.assemble(s.session_id, owner=OWNER)
+    assert ei.value.status_code == 422                         # clean validation error, not a raw 500
 
 
 async def test_hitl_role_required(onboarding_service):

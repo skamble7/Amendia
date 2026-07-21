@@ -12,9 +12,9 @@ from amendia_bpmn import normalize_profile
 
 from amendia_auth import AuthSettings, load_auth_settings
 
-# Default seed directory: <service-root>/seed/wire-repair-standard
+# L2: no hardcoded default seed. Seeding is opt-in (env-driven); with SEED_DIR unset the runtime boots
+# clean and loads nothing. A concrete seed path belongs in a dev compose / test config, not a code default.
 _SERVICE_ROOT = Path(__file__).resolve().parents[1]
-_DEFAULT_SEED_DIR = str(_SERVICE_ROOT / "seed" / "wire-repair-standard")
 
 
 class Settings(BaseSettings):
@@ -125,8 +125,8 @@ class Settings(BaseSettings):
     # Debug/dev surfaces (guarded like the seed API).
     ENABLE_DEBUG_API: bool = True
 
-    # Seeding
-    SEED_DIR: str = _DEFAULT_SEED_DIR
+    # Seeding — unset by default → boot clean, load nothing (opt-in via env / dev compose).
+    SEED_DIR: str = ""
     ENABLE_SEED_API: bool = True
     SEED_ON_STARTUP: bool = False
 

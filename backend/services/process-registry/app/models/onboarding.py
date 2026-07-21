@@ -65,7 +65,7 @@ class Basics(BaseModel):
     version: str
     title: str
     description: Optional[str] = None
-    default_domain: str = "payment"
+    default_domain: str          # the capability/artifact id namespace — always set (see create())
 
 
 class DocumentedElement(BaseModel):
@@ -133,6 +133,9 @@ class InferredBinding(BaseModel):
     element_kind: str                                         # full bindable task/message/call kinds
     executor_type: str                                        # capability | human | message | call
     suggested_role: Optional[str] = None
+    # Batch-2: the inferred capability id (cap.<domain>.<name>) for a capability element — the Bindings
+    # step pre-selects the matching staged/reused capability. None for human/message/call.
+    suggested_capability_id: Optional[str] = None
     suggested_hitl_mode: str = "none"
     source_lane: Optional[str] = None
 
@@ -385,7 +388,10 @@ class CreateSessionRequest(BaseModel):
     version: str
     title: str
     description: Optional[str] = None
-    default_domain: str = "payment"
+    # The capability/artifact id namespace (cap.<domain>.<tool>). Operator-supplied; when omitted it
+    # derives deterministically from the pack_key (sanitized) — never a hardcoded business area. Keeping
+    # it process-scoped avoids colliding with an active catalog capability id.
+    default_domain: Optional[str] = None
 
 
 class AttachBpmnRequest(BaseModel):
@@ -503,7 +509,7 @@ class IntrospectMcpRequest(BaseModel):
     endpoint: str
     transport: str = "streamable_http"
     headers: Dict[str, str] = Field(default_factory=dict)
-    domain: str = "payment"                  # seeds suggested ids
+    domain: Optional[str] = None             # required to seed suggested ids (no business-area default)
 
 
 class ToolCompliance(BaseModel):

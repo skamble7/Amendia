@@ -295,7 +295,6 @@
       "Basics": {
         "properties": {
           "default_domain": {
-            "default": "payment",
             "title": "Default Domain",
             "type": "string"
           },
@@ -326,7 +325,8 @@
         "required": [
           "pack_key",
           "version",
-          "title"
+          "title",
+          "default_domain"
         ],
         "title": "Basics",
         "type": "object"
@@ -1269,9 +1269,15 @@
       "CreateSessionRequest": {
         "properties": {
           "default_domain": {
-            "default": "payment",
-            "title": "Default Domain",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Default Domain"
           },
           "description": {
             "anyOf": [
@@ -1830,6 +1836,17 @@
             ],
             "title": "Source Lane"
           },
+          "suggested_capability_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Suggested Capability Id"
+          },
           "suggested_hitl_mode": {
             "default": "none",
             "title": "Suggested Hitl Mode",
@@ -1916,9 +1933,15 @@
       "IntrospectMcpRequest": {
         "properties": {
           "domain": {
-            "default": "payment",
-            "title": "Domain",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Domain"
           },
           "endpoint": {
             "title": "Endpoint",

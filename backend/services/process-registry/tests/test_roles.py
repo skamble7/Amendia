@@ -62,7 +62,7 @@ async def test_http_roles_endpoint(client, onboarded):
 # --------------------------------------------------------------------------- #
 
 async def _walk_and_commit_with_meta(svc, role_meta):
-    s = await svc.create(CreateSessionRequest(pack_key="mcp-screen", version="1.0.0", title="MCP screen"), owner=OWNER)
+    s = await svc.create(CreateSessionRequest(pack_key="mcp-screen", version="1.0.0", title="MCP screen", default_domain="payment"), owner=OWNER)
     s = await svc.attach_bpmn(s.session_id, AttachBpmnRequest(bpmn_xml=MCP_BPMN), owner=OWNER)
     s = await svc.set_capabilities(s.session_id, SetCapabilitiesRequest(tools=[_screen_selection()]), owner=OWNER)
     binding = BindingInput(
@@ -114,7 +114,7 @@ async def test_missing_meta_falls_back_to_humanized_label(onboarding_service, pa
 
 async def test_set_policies_drops_meta_for_unknown_roles(onboarding_service):
     s = await onboarding_service.create(
-        CreateSessionRequest(pack_key="mcp-screen", version="1.0.0", title="t"), owner=OWNER)
+        CreateSessionRequest(pack_key="mcp-screen", version="1.0.0", title="t", default_domain="payment"), owner=OWNER)
     s = await onboarding_service.attach_bpmn(s.session_id, AttachBpmnRequest(bpmn_xml=MCP_BPMN), owner=OWNER)
     s = await onboarding_service.set_capabilities(
         s.session_id, SetCapabilitiesRequest(tools=[_screen_selection()]), owner=OWNER)

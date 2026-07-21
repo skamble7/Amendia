@@ -100,7 +100,8 @@ def build_semantic_summary(sem: BpmnSemanticModel) -> Dict[str, Any]:
 # --------------------------------------------------------------------------- #
 
 def infer_draft(sem: BpmnSemanticModel, domain: str) -> InferenceDraft:
-    dom = sanitize_name(domain) or "payment"
+    # L1: the id namespace comes entirely from the caller's (session) domain — no business-area fallback.
+    dom = sanitize_name(domain)
     draft = InferenceDraft()
 
     # roles: one per named lane. lane_id → role_id / name maps drive binding role + HITL suggestions.
@@ -138,9 +139,13 @@ def infer_draft(sem: BpmnSemanticModel, domain: str) -> InferenceDraft:
             hitl = lane_hitl or ("review_after" if any(v in name_l for v in _REVIEW_VERBS) else "none")
         else:
             hitl = "none"                         # message/call — no gate
+        # Batch-2: carry the suggested capability id (same join key as the capability candidate below) so
+        # the Bindings step can PRE-SELECT the capability, not just leave "Select…". Capability tasks only.
+        suggested_cap = f"cap.{dom}.{sanitize_name(n.name or n.id)}" if category == "capability" else None
         draft.bindings.append(InferredBinding(
             element_id=n.id, element_kind=n.kind, executor_type=category,
             suggested_role=lane_role.get(n.lane_id or "") if category in ("human", "capability") else None,
+            suggested_capability_id=suggested_cap,
             suggested_hitl_mode=hitl, source_lane=n.lane_id,
         ))
 

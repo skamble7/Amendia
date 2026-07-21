@@ -114,7 +114,7 @@ async def test_side_effect_floor_holds_over_agent_lane_suggestion(svc):
         <bpmn:sequenceFlow id="f1" sourceRef="S" targetRef="Task_Screen"/>
         <bpmn:sequenceFlow id="f2" sourceRef="Task_Screen" targetRef="E"/>
       </bpmn:process></bpmn:definitions>"""
-    s = await svc.create(CreateSessionRequest(pack_key="floor", version="1.0.0", title="t"), owner=OWNER)
+    s = await svc.create(CreateSessionRequest(pack_key="floor", version="1.0.0", title="t", default_domain="payment"), owner=OWNER)
     s = await svc.attach_bpmn(s.session_id, AttachBpmnRequest(bpmn_xml=bpmn), owner=OWNER)
     # the inference suggested `none` for this agent-lane task
     assert next(b for b in s.inferred.bindings if b.element_id == "Task_Screen").suggested_hitl_mode == "none"
@@ -132,6 +132,18 @@ async def test_side_effect_floor_holds_over_agent_lane_suggestion(svc):
 
 
 # --- §2 persona descriptions ----------------------------------------------------------------------
+
+def test_capability_bindings_carry_suggested_capability_id():
+    # Batch-2: a capability element's binding carries a suggested capability id (== the candidate join
+    # key), so the wizard can pre-select it; human/message/call carry None.
+    draft = _draft(_REF.read_text())
+    by = {b.element_id: b for b in draft.bindings}
+    cand = {c.source: c.suggested_capability_id for c in draft.capability_candidates}
+    assert by["Enrich"].executor_type == "capability"
+    assert by["Enrich"].suggested_capability_id == cand["Enrich"] == "cap.payment.enrich_investigation"
+    assert by["ApproveRepair"].executor_type == "human"
+    assert by["ApproveRepair"].suggested_capability_id is None
+
 
 def test_lane_personas_seed_role_descriptions():
     draft = _draft(_LANES_BPMN)

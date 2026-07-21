@@ -17,6 +17,13 @@ def _roundtrip(model_cls, path: Path):
     assert again.to_doc() == m.to_doc()
 
 
+def test_seeding_is_opt_in_no_code_default():
+    # L2: the runtime carries no hardcoded seed path — a fresh Settings() has SEED_DIR unset, so with none
+    # configured the service boots clean and loads nothing (the concrete path lives in test/dev config).
+    from app.config import Settings
+    assert Settings().SEED_DIR == ""
+
+
 def test_capabilities_roundtrip():
     files = sorted((SEED / "capabilities").glob("*.json"))
     assert len(files) == 10

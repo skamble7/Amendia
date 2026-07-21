@@ -15,9 +15,14 @@ inference UX** — lane personas drive pre-filled HITL + role descriptions and c
 (ADR-045), and **decision / reduce authoring** — a business user authors a native-DMN decision table or a reduce
 config in the wizard, no code (ADR-046) — completing the wizard catch-up: the wizard now authors everything the
 runtime executes** — plus **operator-testing UX refinements** (batch 1): the BPMN step collapses its input to a
-summary after parse and focuses the coverage report, and capability **reuse is now an on-demand search dialog**
-(`GET /capabilities?q=`) instead of an eager catalog list; finding codes, profiles, and endpoints **reconciled
-against the source on 2026-07-18**).
+summary after parse and focuses the coverage report, capability **reuse is now an on-demand search dialog**
+(`GET /capabilities?q=`) instead of an eager catalog list, the Bindings step **pre-selects each capability
+task** from the inference (a "suggested" chip + the HITL floor applied) so bindings arrive pre-filled, and an
+**unselected capability is a clean field-level `bindings_invalid` error** (never a raw 500 at assemble), and —
+**domain-neutrality remediation P0** — the capability **domain has no business default** (operator-chosen, else
+derived from the pack_key), a **`capability_id_collision`** guardrail flags a staged id already active in the
+catalog, and **seeding is opt-in** (no hardcoded seed path; the platform boots clean with `SEED_DIR` unset);
+finding codes, profiles, and endpoints **reconciled against the source on 2026-07-18**).
 
 - **Audience:** Process Owners (who operate the onboarding wizard) and platform engineers (who need the
   contract/validation detail underneath).
@@ -141,7 +146,7 @@ Creates the session.
 | `version` | semver `MAJOR.MINOR.PATCH`. Immutable once active. |
 | `title` | required, human-readable. |
 | `description` | optional. |
-| `default_domain` | `^[a-z0-9_]+$` (e.g. `payment`). Seeds suggested `art.<domain>.*` / `cap.<domain>.*` ids downstream; editable per item. |
+| `default_domain` | `^[a-z0-9_]+$` — the `cap.<domain>.*` / `art.<domain>.*` id namespace. **Operator-chosen, no business default**; omit it to **derive from the pack_key** (sanitized). Keep it **process-scoped** so ids don't collide with the active catalog (a colliding id is flagged at the Capabilities step — see below). |
 
 **409** if `pack_key@version` already exists as an `active`/`deprecated` pack — bump the version to onboard a
 revision.
@@ -208,6 +213,12 @@ timeout-bounded (SSRF surface).
   `side_effectful` forces the binding to `approve_actions` or stricter downstream.
 - **`idempotent`** (safe to blind-retry?).
 
+**Id-collision guardrail:** a newly-staged capability id (`cap.<domain>.<tool>`) that **already exists as an
+active catalog capability** is refused here (`capability_id_collision`, naming the id + active version) — the
+`cap.<domain>` namespace clash is why the domain must be process-scoped. To *reuse* an existing capability, add
+it via **"Reuse a capability"** (the search dialog) instead of re-authoring its id; otherwise pick a distinct
+domain.
+
 **Author `decision` / `reduce` inline (ADR-046, `decision_specs[]` / `reduce_specs[]`):** the step has two
 form-driven builders (no code, no MCP server). A **decision-table builder** (input/output columns + hit policy +
 rules-as-a-grid, each input cell a bounded unary test) and a **reduce builder** (source list + `item_path` + op +
@@ -246,7 +257,13 @@ Per binding: `element_id`, `element_kind`, `executor` (`{type: capability, capab
 `inputs`/`outputs` (artifactIO). The binding UI renders an executor sub-form per category and shows
 `multi-instance` / `compensates …` / `event-subprocess` badges. Inference pre-fills executor + lane-derived role
 with a **provenance chip** ("from lane: Ops Analyst"); a `businessRuleTask` shows a **decision-table-candidate**
-badge. **Lane persona → starting HITL (ADR-045):** the task's lane sets the *starting* HITL mode — an
+badge. **Capability pre-select (UX):** each capability task is **pre-selected** with its inferred capability
+(`InferredBinding.suggested_capability_id`) matched against the staged/reused set — **exact id** first, then a
+**confident name-token** match, else left "Select…" — shown with a **"suggested"** chip; the pre-select triggers
+the same **HITL floor bump** as a manual pick (so a side-effectful task shows `approve_actions` immediately,
+never a misleading `none`). A human task's **executor role and HITL role both default to the lane role** (same
+value, editable). So bindings arrive pre-filled and the operator changes only disagreements. **Lane persona →
+starting HITL (ADR-045):** the task's lane sets the *starting* HITL mode — an
 **agent/automation** lane → `none`, an **analyst/maker** lane → `review_after`, an **approver/checker** lane →
 `approve_actions`, a **supervisor** lane → `manual` (a lane-less/unrecognized lane falls back to the verb
 heuristic). This is only a starting point — the **side-effect→HITL floor below is the hard constraint** (a
@@ -262,6 +279,12 @@ with its lane **persona description** (approver / analyst / agent …), operator
 capability-slot nudge (the provider name + suggested id + "introspect for this").
 
 **Guards enforced here (field-level errors):**
+- **Required executor ref:** a `capability` executor must name a capability (`field: capability_ref`), a `human`
+  a `role`, a `message` a `message_name`, a `call` a `call_pack`. An **unselected capability** — a task left
+  "Select…", or a `businessRuleTask` whose decision was never authored — is a **hard 422 `bindings_invalid`
+  naming the element**, surfaced inline on that row. It is *not* a server error: the same guard also runs in
+  `_compose` (so a stale, pre-existing binding fails `assemble`/`commit` with the clean 422, never a raw 500 at
+  manifest validation).
 - **Kind agreement:** `element_kind` matches the BPMN element; serviceTask→capability, userTask→human, etc.
   (`binding_kind_mismatch` / `executor_kind_mismatch`).
 - **HITL role required** for every mode except `none` (`hitl_role_missing`).
@@ -514,7 +537,8 @@ outside the executable set), `bpmn_unknown_element` (**info** — unrecognized e
 **D · Cross-contract validator — `pack_validator.py`, stages 2–7 (errors):** `unknown_id` (a referenced id
 isn't in the BPMN — used across stages); **stage 2** `duplicate_binding`, `orphan_binding`,
 `binding_kind_mismatch`, `executor_kind_mismatch`, `unbound_task`; **stage 3** `unknown_capability`,
-`capability_no_version_in_range`, `capability_only_deprecated`; **stage 4** `hitl_role_missing`,
+`capability_no_version_in_range`, `capability_only_deprecated` (plus the onboarding **Capabilities-step**
+guardrail `capability_id_collision` — a staged id already active in the catalog); **stage 4** `hitl_role_missing`,
 `side_effect_requires_approve_actions`, `hitl_below_capability_floor`, `bpmn_timer_boundary_side_effect_unsupported`
 (ADR-040 — a timer boundary on a serviceTask bound to a *side-effectful* capability; only read_only may
 self-cancel a running task), `bpmn_subprocess_boundary_side_effect_unsupported` + `bpmn_subprocess_timer_scope_hitl_unsupported`

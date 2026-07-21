@@ -604,10 +604,7 @@ export interface components {
         };
         /** Basics */
         Basics: {
-            /**
-             * Default Domain
-             * @default payment
-             */
+            /** Default Domain */
             default_domain: string;
             /** Description */
             description?: string | null;
@@ -965,11 +962,8 @@ export interface components {
         };
         /** CreateSessionRequest */
         CreateSessionRequest: {
-            /**
-             * Default Domain
-             * @default payment
-             */
-            default_domain: string;
+            /** Default Domain */
+            default_domain?: string | null;
             /** Description */
             description?: string | null;
             /** Pack Key */
@@ -1199,6 +1193,8 @@ export interface components {
             executor_type: string;
             /** Source Lane */
             source_lane?: string | null;
+            /** Suggested Capability Id */
+            suggested_capability_id?: string | null;
             /**
              * Suggested Hitl Mode
              * @default none
@@ -1227,11 +1223,8 @@ export interface components {
         };
         /** IntrospectMcpRequest */
         IntrospectMcpRequest: {
-            /**
-             * Domain
-             * @default payment
-             */
-            domain: string;
+            /** Domain */
+            domain?: string | null;
             /** Endpoint */
             endpoint: string;
             /** Headers */

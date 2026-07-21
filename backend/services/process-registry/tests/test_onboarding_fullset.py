@@ -62,7 +62,7 @@ _FULL_SET = f"""<bpmn:definitions {_NS}>
 
 
 async def _attach_and_stage(svc, bpmn, *, pack_key="fullset"):
-    s = await svc.create(CreateSessionRequest(pack_key=pack_key, version="1.0.0", title="t"), owner=OWNER)
+    s = await svc.create(CreateSessionRequest(pack_key=pack_key, version="1.0.0", title="t", default_domain="payment"), owner=OWNER)
     s = await svc.attach_bpmn(s.session_id, AttachBpmnRequest(bpmn_xml=bpmn), owner=OWNER)
     s = await svc.set_capabilities(s.session_id, SetCapabilitiesRequest(tools=[_screen_selection()]), owner=OWNER)
     return s

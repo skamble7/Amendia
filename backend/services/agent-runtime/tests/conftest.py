@@ -9,6 +9,10 @@ from httpx import ASGITransport, AsyncClient
 from mongomock_motor import AsyncMongoMockClient
 
 from app.config import settings
+# L2: SEED_DIR has no code default (prod boots clean). Tests point it at the example wire-repair pack —
+# seed config lives in the TEST layer, never as a platform default.
+from pathlib import Path as _Path
+settings.SEED_DIR = settings.SEED_DIR or str(_Path(__file__).resolve().parents[1] / "seed" / "wire-repair-standard")
 from app.dal.artifact_schema_repo import ArtifactSchemaRepository
 from app.dal.capability_repo import CapabilityRepository
 from app.dal.dispatch_repo import DispatchLogRepository

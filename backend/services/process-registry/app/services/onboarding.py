@@ -186,7 +186,11 @@ class OnboardingService:
         if not re.match(r"^https?://", req.endpoint, re.IGNORECASE):
             raise TransitionError(400, {"error": "invalid_endpoint",
                                         "message": "endpoint must be an http(s) URL"})
-        domain = req.domain if _DOMAIN_RE.match(req.domain) else "payment"
+        # L1: the domain seeds the suggested capability ids in the preview — no business-area default.
+        if not (req.domain and _DOMAIN_RE.match(req.domain)):
+            raise TransitionError(422, {"error": "invalid_domain",
+                                        "message": "a valid domain ([a-z0-9_]+) is required to introspect"})
+        domain = req.domain
         try:
             tools = await self.introspector.list_tools(
                 endpoint=req.endpoint, transport=req.transport, headers=req.headers
@@ -218,9 +222,12 @@ class OnboardingService:
             errors.append({"field": "version", "message": "must be semver (major.minor.patch)"})
         if not req.title.strip():
             errors.append({"field": "title", "message": "title is required"})
-        domain = req.default_domain
+        # L1: no hardcoded business domain. Operator-supplied; else derive deterministically from the
+        # pack_key (sanitized) so ids are process-scoped and don't collide with the active catalog.
+        domain = (req.default_domain or "").strip() or _san(req.pack_key)
         if not _DOMAIN_RE.match(domain):
-            errors.append({"field": "default_domain", "message": "must match [a-z0-9_]+"})
+            errors.append({"field": "default_domain",
+                           "message": "domain must match [a-z0-9_]+ (or omit it to derive from pack_key)"})
         if errors:
             raise TransitionError(422, {"errors": errors})
 
@@ -340,6 +347,19 @@ class OnboardingService:
             else:
                 reused.append(ref)
 
+        # L1 collision guardrail: a NEWLY-staged capability id that already exists as an ACTIVE catalog
+        # capability would silently bind this pack to someone else's capability at commit (the cap.<domain>
+        # namespace clash the audit flagged). Flag it here so the operator picks a distinct domain — to
+        # *reuse* an existing capability, add it via "Reuse a capability" instead of re-staging its id.
+        for sc in staged_caps:
+            active = [v for v in await self.caps.list_by_id(sc.capability_id) if v.status.value == "active"]
+            if active:
+                errors.append({"capability_id": sc.capability_id, "field": "capability_id",
+                               "code": "capability_id_collision",
+                               "message": f"capability id '{sc.capability_id}' already exists as an active "
+                                          f"catalog capability (v{active[0].version}) — choose a distinct "
+                                          f"domain, or reuse the existing capability instead of re-authoring it"})
+
         if errors:
             raise TransitionError(422, {"error": "capabilities_invalid", "errors": errors})
 
@@ -405,14 +425,24 @@ class OnboardingService:
             call_version: Optional[str] = None
             input_map: Dict[str, str] = {}
             output_map: Dict[str, str] = {}
-            if b.executor_type == "capability" and b.capability_ref:
-                cap_io = await self._capability_io_and_policy(b.capability_ref, s)
-                if cap_io is None:
+            if b.executor_type == "capability":
+                # A capability executor MUST name a capability — a task left "Select…" (e.g. an
+                # un-authored decision) is a field error here, not a raw 500 at manifest validation.
+                if not b.capability_ref:
                     errors.append({"element_id": b.element_id, "field": "capability_ref",
-                                   "message": f"capability '{b.capability_ref}' is not staged or active"})
+                                   "message": "capability executor requires a capability (none selected)"})
                 else:
-                    side_effect, floor, io_inputs, io_outputs = cap_io
-                    self._check_hitl_guard(b, side_effect, floor, errors)
+                    cap_io = await self._capability_io_and_policy(b.capability_ref, s)
+                    if cap_io is None:
+                        errors.append({"element_id": b.element_id, "field": "capability_ref",
+                                       "message": f"capability '{b.capability_ref}' is not staged or active"})
+                    else:
+                        side_effect, floor, io_inputs, io_outputs = cap_io
+                        self._check_hitl_guard(b, side_effect, floor, errors)
+            elif b.executor_type == "human":
+                if not b.role:
+                    errors.append({"element_id": b.element_id, "field": "role",
+                                   "message": "human executor requires a role"})
             elif b.executor_type == "message":
                 # ADR-031: the message this element awaits (advisory BPMN name pre-fills; operator confirms).
                 message_name = b.message_name or inv.message_name
@@ -981,6 +1011,27 @@ class OnboardingService:
     def _compose(
         self, s: OnboardingSession
     ) -> Tuple[ProcessPackManifest, List[CapabilityDescriptor], List[ArtifactSchemaRegistration]]:
+        # Defensive guard (batch-3): a binding with a missing required ref (e.g. a capability left
+        # unselected, or a human with no role) would otherwise reach CapabilityRef/RoleId validation as a
+        # raw TypeError → 500. Catch it here — assemble AND commit call _compose — as the platform's normal
+        # field-level 422 naming the element, covering any already-saved (pre-guard) stuck session too.
+        compose_errors: List[dict] = []
+        for b in s.bindings:
+            if b.executor_type == "capability" and not b.capability_ref:
+                compose_errors.append({"element_id": b.element_id, "field": "capability_ref",
+                                       "message": "capability executor has no capability bound"})
+            elif b.executor_type == "human" and not b.role:
+                compose_errors.append({"element_id": b.element_id, "field": "role",
+                                       "message": "human executor has no role"})
+            elif b.executor_type == "message" and not b.message_name:
+                compose_errors.append({"element_id": b.element_id, "field": "message_name",
+                                       "message": "message executor has no message_name"})
+            elif b.executor_type == "call" and not b.call_pack:
+                compose_errors.append({"element_id": b.element_id, "field": "call_pack",
+                                       "message": "call executor has no callee pack"})
+        if compose_errors:
+            raise TransitionError(422, {"error": "bindings_invalid", "errors": compose_errors})
+
         staged_arts = {sa.artifact_key: sa for sa in s.staged_artifacts}
         descs = [self._capability_descriptor(sc, staged_arts) for sc in s.staged_capabilities]
         regs = [self._staged_artifact_registration(sa) for sa in s.staged_artifacts]
