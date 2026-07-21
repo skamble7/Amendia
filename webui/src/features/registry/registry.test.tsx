@@ -236,5 +236,46 @@ describe("Onboarding wizard", () => {
     // Phase 1: the inference panel summarizes what was derived from the diagram + advisory hints.
     expect(screen.getByText(/Inferred from your diagram/i)).toBeInTheDocument();
     expect(screen.getByText(/SLA \/ escalation policy hint/i)).toBeInTheDocument();
+
+    // Batch-1 UX: after a successful parse the tall input collapses to a one-line summary (the paste
+    // box is gone); "Replace / edit" re-expands it.
+    expect(screen.getByText(/BPMN attached/i)).toBeInTheDocument();
+    expect(screen.queryByPlaceholderText(/paste <bpmn/i)).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /Replace \/ edit/i }));
+    expect(await screen.findByPlaceholderText(/paste <bpmn/i)).toBeInTheDocument();
+  });
+
+  it("capabilities step reuses a capability via on-demand search (no eager catalog load) (batch-1)", async () => {
+    let eagerLoads = 0;
+    const session = {
+      session_id: "sess-7", created_by: "owner-1", created_at: "", updated_at: "", state: "capabilities_resolved",
+      basics: { pack_key: "p", version: "1.0.0", title: "P", default_domain: "payment" },
+      bpmn: { process_id: "P", bpmn_file: "p.bpmn", sha256: "x", service_tasks: [], user_tasks: [], gateways: [], task_names: {}, bindable_elements: [], message_flows: [] },
+      staged_artifacts: [], staged_capabilities: [], reused_capability_refs: [], bindings: [],
+      triage_rules: [], gateway_variables: [], sod_policies: [], roles: [],
+      inferred: { roles: [], bindings: [], gateway_variables: [], capability_candidates: [], artifact_seeds: [], sod_candidates: [], annotations: [] },
+      dry_run_report: null, commit_progress: [], result_pack: null, last_cleared: [],
+    };
+    server.use(
+      http.get(`${REG}/onboarding/sess-7`, () => HttpResponse.json(session)),
+      http.get(`${REG}/capabilities`, ({ request }) => {
+        const q = new URL(request.url).searchParams.get("q");
+        if (!q) { eagerLoads++; return HttpResponse.json([]); }   // an eager (no-q) load — must NOT happen
+        return HttpResponse.json("cap.payment.screen".includes(q.toLowerCase())
+          ? [{ capability_id: "cap.payment.screen", version: "1.0.0", kind: "mcp", side_effect: "read_only" }] : []);
+      }),
+    );
+    const user = userEvent.setup();
+    renderApp("/registry/onboard/sess-7", "owner-1");
+
+    // the reuse card is a button, not a pre-loaded list
+    const openBtn = await screen.findByRole("button", { name: /Reuse a capability/i });
+    await user.click(openBtn);
+    await user.type(await screen.findByPlaceholderText(/search the active catalog/i), "screen");
+    // on-demand result appears; selecting it adds a removable chip
+    const result = await screen.findByText("cap.payment.screen@^1.0.0");
+    await user.click(result);
+    expect(screen.getAllByText("cap.payment.screen@^1.0.0").length).toBeGreaterThanOrEqual(2); // dialog + chip
+    expect(eagerLoads).toBe(0);   // the step never eager-loaded the whole catalog
   });
 });

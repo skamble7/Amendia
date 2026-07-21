@@ -47,6 +47,16 @@ async def test_capabilities_and_schemas_listed(client, registered):
     assert one.status_code == 200 and one.json()["kind"] == "mcp"
 
 
+async def test_capabilities_free_text_search(client, registered):
+    # `q` is a case-insensitive substring over capability_id (+ title) — the on-demand reuse search.
+    all_caps = (await client.get("/capabilities")).json()
+    screen = (await client.get("/capabilities", params={"q": "SCREEN"})).json()   # case-insensitive
+    assert screen and all("screen" in c["capability_id"].lower() or "screen" in (c.get("title") or "").lower()
+                          for c in screen)
+    assert len(screen) < len(all_caps)                                            # actually narrows
+    assert (await client.get("/capabilities", params={"q": "no_such_capability_xyz"})).json() == []
+
+
 async def test_deprecate_capability(client, registered):
     r = await client.post("/capabilities/cap.payment.sanctions_screen/1.0.0/deprecate")
     assert r.status_code == 200 and r.json()["status"] == "deprecated"

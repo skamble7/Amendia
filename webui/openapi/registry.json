@@ -4302,6 +4302,24 @@
             }
           },
           {
+            "description": "free-text substring over capability_id + title",
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "free-text substring over capability_id + title",
+              "title": "Q"
+            }
+          },
+          {
             "in": "query",
             "name": "limit",
             "required": false,

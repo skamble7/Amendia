@@ -117,6 +117,7 @@ export function deprecatePack(packKey: string, version: string): Promise<Process
 export interface CapabilityFilters {
   status?: string;
   kind?: string;
+  q?: string;              // free-text substring over capability_id + title (on-demand reuse search)
   limit?: number;
   offset?: number;
 }

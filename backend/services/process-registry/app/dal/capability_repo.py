@@ -2,6 +2,7 @@
 """Capability descriptor repository (registry is the write owner)."""
 from __future__ import annotations
 
+import re
 from typing import List, Optional
 
 from motor.motor_asyncio import AsyncIOMotorCollection
@@ -39,13 +40,17 @@ class CapabilityRepository:
 
     async def list(
         self, *, status: Optional[str] = None, kind: Optional[str] = None,
-        limit: int = 50, offset: int = 0,
+        q: Optional[str] = None, limit: int = 50, offset: int = 0,
     ) -> List[CapabilityDescriptor]:
         query: dict = {}
         if status:
             query["status"] = status
         if kind:
             query["kind"] = kind
+        # Free-text: case-insensitive substring over capability_id + title (the on-demand reuse search).
+        if q:
+            rx = {"$regex": re.escape(q), "$options": "i"}
+            query["$or"] = [{"capability_id": rx}, {"title": rx}]
         cursor = (
             self._coll.find(query, projection=_PROJECTION)
             .sort("created_at", -1).skip(offset).limit(limit)

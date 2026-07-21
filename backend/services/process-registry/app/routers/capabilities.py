@@ -33,11 +33,12 @@ async def register_capability(
 async def list_capabilities(
     status: Optional[str] = Query(None),
     kind: Optional[str] = Query(None),
+    q: Optional[str] = Query(None, description="free-text substring over capability_id + title"),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     repo: CapabilityRepository = Depends(get_capability_repo),
 ):
-    return await repo.list(status=status, kind=kind, limit=limit, offset=offset)
+    return await repo.list(status=status, kind=kind, q=q, limit=limit, offset=offset)
 
 
 @router.get("/{capability_id}", response_model=List[CapabilityDescriptor])

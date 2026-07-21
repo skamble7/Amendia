@@ -1,0 +1,191 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" id="Defs_Process_WireRepairAgentic" targetNamespace="http://amendia.example/wire">
+<bpmn:collaboration id="Collab_Process_WireRepairAgentic">
+  <bpmn:participant id="Participant_Process_WireRepairAgentic" name="Wire Transfer Exception — Repair / Return (agentic)" processRef="Process_WireRepairAgentic"/>
+</bpmn:collaboration>
+<bpmn:process id="Process_WireRepairAgentic" name="Wire Transfer Exception — Repair / Return (agentic)" isExecutable="true">
+  <bpmn:laneSet id="LaneSet_1">
+    <bpmn:lane id="Lane_Agent" name="AI Agent">
+      <bpmn:flowNodeRef>Start_Exc</bpmn:flowNodeRef>
+      <bpmn:flowNodeRef>Enrich</bpmn:flowNodeRef>
+      <bpmn:flowNodeRef>Assess</bpmn:flowNodeRef>
+      <bpmn:flowNodeRef>Gw_Repairable</bpmn:flowNodeRef>
+      <bpmn:flowNodeRef>DraftRepair</bpmn:flowNodeRef>
+      <bpmn:flowNodeRef>Screen</bpmn:flowNodeRef>
+      <bpmn:flowNodeRef>ApplyRepair</bpmn:flowNodeRef>
+      <bpmn:flowNodeRef>Notify</bpmn:flowNodeRef>
+      <bpmn:flowNodeRef>Record</bpmn:flowNodeRef>
+      <bpmn:flowNodeRef>End_Resolved</bpmn:flowNodeRef>
+      <bpmn:flowNodeRef>DraftReturn</bpmn:flowNodeRef>
+      <bpmn:flowNodeRef>ExecuteReturn</bpmn:flowNodeRef>
+      <bpmn:flowNodeRef>End_Returned</bpmn:flowNodeRef>
+      <bpmn:flowNodeRef>End_Hold</bpmn:flowNodeRef>
+      <bpmn:flowNodeRef>Bnd_Hit</bpmn:flowNodeRef>
+    </bpmn:lane>
+    <bpmn:lane id="Lane_Analyst" name="Ops Analyst">
+      <bpmn:flowNodeRef>ObtainInfo</bpmn:flowNodeRef>
+    </bpmn:lane>
+    <bpmn:lane id="Lane_Approver" name="Ops Approver">
+      <bpmn:flowNodeRef>ApproveRepair</bpmn:flowNodeRef>
+      <bpmn:flowNodeRef>ApproveReturn</bpmn:flowNodeRef>
+      <bpmn:flowNodeRef>Bnd_SLA</bpmn:flowNodeRef>
+    </bpmn:lane>
+    <bpmn:lane id="Lane_Supervisor" name="Supervisor">
+      <bpmn:flowNodeRef>Escalate</bpmn:flowNodeRef>
+      <bpmn:flowNodeRef>End_Escalated</bpmn:flowNodeRef>
+    </bpmn:lane>
+  </bpmn:laneSet>
+  <bpmn:startEvent id="Start_Exc" name="Wire exception received">
+    <bpmn:outgoing>f_start</bpmn:outgoing>
+  </bpmn:startEvent>
+  <bpmn:serviceTask id="Enrich" name="Enrich &amp; investigate payment">
+    <bpmn:incoming>f_start</bpmn:incoming>
+    <bpmn:outgoing>f_enrich</bpmn:outgoing>
+  </bpmn:serviceTask>
+  <bpmn:businessRuleTask id="Assess" name="Assess repairability">
+    <bpmn:incoming>f_enrich</bpmn:incoming>
+    <bpmn:incoming>f_info_assess</bpmn:incoming>
+    <bpmn:outgoing>f_assess</bpmn:outgoing>
+  </bpmn:businessRuleTask>
+  <bpmn:exclusiveGateway id="Gw_Repairable" name="Repairable?" default="f_info">
+    <bpmn:incoming>f_assess</bpmn:incoming>
+    <bpmn:outgoing>f_rep</bpmn:outgoing>
+    <bpmn:outgoing>f_unrep</bpmn:outgoing>
+    <bpmn:outgoing>f_info</bpmn:outgoing>
+  </bpmn:exclusiveGateway>
+  <bpmn:serviceTask id="DraftRepair" name="Draft repair instruction">
+    <bpmn:incoming>f_rep</bpmn:incoming>
+    <bpmn:outgoing>f_draft_app</bpmn:outgoing>
+  </bpmn:serviceTask>
+  <bpmn:serviceTask id="Screen" name="Sanctions &amp; compliance re-screen">
+    <bpmn:incoming>f_app_screen</bpmn:incoming>
+    <bpmn:outgoing>f_screen_apply</bpmn:outgoing>
+  </bpmn:serviceTask>
+  <bpmn:serviceTask id="ApplyRepair" name="Apply repair &amp; release payment">
+    <bpmn:incoming>f_screen_apply</bpmn:incoming>
+    <bpmn:outgoing>f_apply_notify</bpmn:outgoing>
+  </bpmn:serviceTask>
+  <bpmn:serviceTask id="Notify" name="Notify originator &amp; beneficiary">
+    <bpmn:incoming>f_apply_notify</bpmn:incoming>
+    <bpmn:outgoing>f_notify_rec</bpmn:outgoing>
+  </bpmn:serviceTask>
+  <bpmn:serviceTask id="Record" name="Record resolution &amp; evidence">
+    <bpmn:incoming>f_notify_rec</bpmn:incoming>
+    <bpmn:outgoing>f_rec_end</bpmn:outgoing>
+  </bpmn:serviceTask>
+  <bpmn:endEvent id="End_Resolved" name="Exception resolved">
+    <bpmn:incoming>f_rec_end</bpmn:incoming>
+  </bpmn:endEvent>
+  <bpmn:serviceTask id="DraftReturn" name="Draft payment return (pacs.004)">
+    <bpmn:incoming>f_unrep</bpmn:incoming>
+    <bpmn:outgoing>f_dr_app</bpmn:outgoing>
+  </bpmn:serviceTask>
+  <bpmn:serviceTask id="ExecuteReturn" name="Execute return &amp; notify">
+    <bpmn:incoming>f_app_exec</bpmn:incoming>
+    <bpmn:outgoing>f_exec_end</bpmn:outgoing>
+  </bpmn:serviceTask>
+  <bpmn:endEvent id="End_Returned" name="Funds returned">
+    <bpmn:incoming>f_exec_end</bpmn:incoming>
+  </bpmn:endEvent>
+  <bpmn:endEvent id="End_Hold" name="Compliance hold">
+    <bpmn:incoming>bf_Bnd_Hit</bpmn:incoming>
+  </bpmn:endEvent>
+  <bpmn:userTask id="ObtainInfo" name="Obtain missing information">
+    <bpmn:incoming>f_info</bpmn:incoming>
+    <bpmn:outgoing>f_info_assess</bpmn:outgoing>
+  </bpmn:userTask>
+  <bpmn:userTask id="ApproveRepair" name="Approve repair (four-eyes)">
+    <bpmn:incoming>f_draft_app</bpmn:incoming>
+    <bpmn:outgoing>f_app_screen</bpmn:outgoing>
+  </bpmn:userTask>
+  <bpmn:userTask id="ApproveReturn" name="Approve return (four-eyes)">
+    <bpmn:incoming>f_dr_app</bpmn:incoming>
+    <bpmn:outgoing>f_app_exec</bpmn:outgoing>
+  </bpmn:userTask>
+  <bpmn:userTask id="Escalate" name="Supervisor review (SLA breach)">
+    <bpmn:incoming>bf_Bnd_SLA</bpmn:incoming>
+    <bpmn:outgoing>f_esc_end</bpmn:outgoing>
+  </bpmn:userTask>
+  <bpmn:endEvent id="End_Escalated" name="Escalated">
+    <bpmn:incoming>f_esc_end</bpmn:incoming>
+  </bpmn:endEvent>
+  <bpmn:boundaryEvent id="Bnd_SLA" name="SLA 4h" attachedToRef="ApproveRepair">
+    <bpmn:outgoing>bf_Bnd_SLA</bpmn:outgoing>
+    <bpmn:timerEventDefinition><bpmn:timeDuration xsi:type="bpmn:tFormalExpression">PT4H</bpmn:timeDuration></bpmn:timerEventDefinition>
+  </bpmn:boundaryEvent>
+  <bpmn:boundaryEvent id="Bnd_Hit" name="screening hit" attachedToRef="Screen">
+    <bpmn:outgoing>bf_Bnd_Hit</bpmn:outgoing>
+    <bpmn:errorEventDefinition/>
+  </bpmn:boundaryEvent>
+  <bpmn:sequenceFlow id="f_start" sourceRef="Start_Exc" targetRef="Enrich"/>
+  <bpmn:sequenceFlow id="f_enrich" sourceRef="Enrich" targetRef="Assess"/>
+  <bpmn:sequenceFlow id="f_assess" sourceRef="Assess" targetRef="Gw_Repairable"/>
+  <bpmn:sequenceFlow id="f_rep" name="repairable" sourceRef="Gw_Repairable" targetRef="DraftRepair">
+    <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression" language="https://www.omg.org/spec/DMN/20191111/FEEL/">beneficiary.repair_verdict = &quot;repairable&quot;</bpmn:conditionExpression>
+  </bpmn:sequenceFlow>
+  <bpmn:sequenceFlow id="f_unrep" name="unrepairable" sourceRef="Gw_Repairable" targetRef="DraftReturn">
+    <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression" language="https://www.omg.org/spec/DMN/20191111/FEEL/">beneficiary.repair_verdict = &quot;unrepairable&quot;</bpmn:conditionExpression>
+  </bpmn:sequenceFlow>
+  <bpmn:sequenceFlow id="f_info" name="needs info" sourceRef="Gw_Repairable" targetRef="ObtainInfo"/>
+  <bpmn:sequenceFlow id="f_draft_app" sourceRef="DraftRepair" targetRef="ApproveRepair"/>
+  <bpmn:sequenceFlow id="f_app_screen" sourceRef="ApproveRepair" targetRef="Screen"/>
+  <bpmn:sequenceFlow id="f_screen_apply" sourceRef="Screen" targetRef="ApplyRepair"/>
+  <bpmn:sequenceFlow id="f_apply_notify" sourceRef="ApplyRepair" targetRef="Notify"/>
+  <bpmn:sequenceFlow id="f_notify_rec" sourceRef="Notify" targetRef="Record"/>
+  <bpmn:sequenceFlow id="f_rec_end" sourceRef="Record" targetRef="End_Resolved"/>
+  <bpmn:sequenceFlow id="f_info_assess" sourceRef="ObtainInfo" targetRef="Assess"/>
+  <bpmn:sequenceFlow id="f_dr_app" sourceRef="DraftReturn" targetRef="ApproveReturn"/>
+  <bpmn:sequenceFlow id="f_app_exec" sourceRef="ApproveReturn" targetRef="ExecuteReturn"/>
+  <bpmn:sequenceFlow id="f_exec_end" sourceRef="ExecuteReturn" targetRef="End_Returned"/>
+  <bpmn:sequenceFlow id="f_esc_end" sourceRef="Escalate" targetRef="End_Escalated"/>
+  <bpmn:sequenceFlow id="bf_Bnd_SLA" sourceRef="Bnd_SLA" targetRef="Escalate"/>
+  <bpmn:sequenceFlow id="bf_Bnd_Hit" sourceRef="Bnd_Hit" targetRef="End_Hold"/>
+</bpmn:process>
+<bpmndi:BPMNDiagram id="Diag"><bpmndi:BPMNPlane id="Plane" bpmnElement="Collab_Process_WireRepairAgentic">
+  <bpmndi:BPMNShape id="di_pool" bpmnElement="Participant_Process_WireRepairAgentic" isHorizontal="true"><dc:Bounds x="120" y="100" width="2270" height="664"/></bpmndi:BPMNShape>
+  <bpmndi:BPMNShape id="di_Lane_Agent" bpmnElement="Lane_Agent" isHorizontal="true"><dc:Bounds x="150" y="127" width="2240" height="252"/></bpmndi:BPMNShape>
+  <bpmndi:BPMNShape id="di_Lane_Analyst" bpmnElement="Lane_Analyst" isHorizontal="true"><dc:Bounds x="150" y="367" width="2240" height="132"/></bpmndi:BPMNShape>
+  <bpmndi:BPMNShape id="di_Lane_Approver" bpmnElement="Lane_Approver" isHorizontal="true"><dc:Bounds x="150" y="487" width="2240" height="132"/></bpmndi:BPMNShape>
+  <bpmndi:BPMNShape id="di_Lane_Supervisor" bpmnElement="Lane_Supervisor" isHorizontal="true"><dc:Bounds x="150" y="607" width="2240" height="132"/></bpmndi:BPMNShape>
+  <bpmndi:BPMNShape id="di_Start_Exc" bpmnElement="Start_Exc"><dc:Bounds x="282" y="169" width="36" height="36"/></bpmndi:BPMNShape>
+  <bpmndi:BPMNShape id="di_Enrich" bpmnElement="Enrich"><dc:Bounds x="430" y="150" width="120" height="74"/></bpmndi:BPMNShape>
+  <bpmndi:BPMNShape id="di_Assess" bpmnElement="Assess"><dc:Bounds x="620" y="150" width="120" height="74"/></bpmndi:BPMNShape>
+  <bpmndi:BPMNShape id="di_Gw_Repairable" bpmnElement="Gw_Repairable"><dc:Bounds x="845" y="162" width="50" height="50"/></bpmndi:BPMNShape>
+  <bpmndi:BPMNShape id="di_DraftRepair" bpmnElement="DraftRepair"><dc:Bounds x="1000" y="150" width="120" height="74"/></bpmndi:BPMNShape>
+  <bpmndi:BPMNShape id="di_Screen" bpmnElement="Screen"><dc:Bounds x="1380" y="150" width="120" height="74"/></bpmndi:BPMNShape>
+  <bpmndi:BPMNShape id="di_ApplyRepair" bpmnElement="ApplyRepair"><dc:Bounds x="1570" y="150" width="120" height="74"/></bpmndi:BPMNShape>
+  <bpmndi:BPMNShape id="di_Notify" bpmnElement="Notify"><dc:Bounds x="1760" y="150" width="120" height="74"/></bpmndi:BPMNShape>
+  <bpmndi:BPMNShape id="di_Record" bpmnElement="Record"><dc:Bounds x="1950" y="150" width="120" height="74"/></bpmndi:BPMNShape>
+  <bpmndi:BPMNShape id="di_End_Resolved" bpmnElement="End_Resolved"><dc:Bounds x="2182" y="169" width="36" height="36"/></bpmndi:BPMNShape>
+  <bpmndi:BPMNShape id="di_DraftReturn" bpmnElement="DraftReturn"><dc:Bounds x="1190" y="270" width="120" height="74"/></bpmndi:BPMNShape>
+  <bpmndi:BPMNShape id="di_ExecuteReturn" bpmnElement="ExecuteReturn"><dc:Bounds x="1950" y="270" width="120" height="74"/></bpmndi:BPMNShape>
+  <bpmndi:BPMNShape id="di_End_Returned" bpmnElement="End_Returned"><dc:Bounds x="2182" y="289" width="36" height="36"/></bpmndi:BPMNShape>
+  <bpmndi:BPMNShape id="di_End_Hold" bpmnElement="End_Hold"><dc:Bounds x="1612" y="289" width="36" height="36"/></bpmndi:BPMNShape>
+  <bpmndi:BPMNShape id="di_ObtainInfo" bpmnElement="ObtainInfo"><dc:Bounds x="1000" y="390" width="120" height="74"/></bpmndi:BPMNShape>
+  <bpmndi:BPMNShape id="di_ApproveRepair" bpmnElement="ApproveRepair"><dc:Bounds x="1190" y="510" width="120" height="74"/></bpmndi:BPMNShape>
+  <bpmndi:BPMNShape id="di_ApproveReturn" bpmnElement="ApproveReturn"><dc:Bounds x="1570" y="510" width="120" height="74"/></bpmndi:BPMNShape>
+  <bpmndi:BPMNShape id="di_Escalate" bpmnElement="Escalate"><dc:Bounds x="1380" y="630" width="120" height="74"/></bpmndi:BPMNShape>
+  <bpmndi:BPMNShape id="di_End_Escalated" bpmnElement="End_Escalated"><dc:Bounds x="1802" y="649" width="36" height="36"/></bpmndi:BPMNShape>
+  <bpmndi:BPMNShape id="di_Bnd_SLA" bpmnElement="Bnd_SLA"><dc:Bounds x="1284" y="566" width="36" height="36"/></bpmndi:BPMNShape>
+  <bpmndi:BPMNShape id="di_Bnd_Hit" bpmnElement="Bnd_Hit"><dc:Bounds x="1474" y="206" width="36" height="36"/></bpmndi:BPMNShape>
+  <bpmndi:BPMNEdge id="di_f_start" bpmnElement="f_start"><di:waypoint x="318" y="187"/><di:waypoint x="430" y="187"/></bpmndi:BPMNEdge>
+  <bpmndi:BPMNEdge id="di_f_enrich" bpmnElement="f_enrich"><di:waypoint x="550" y="187"/><di:waypoint x="620" y="187"/></bpmndi:BPMNEdge>
+  <bpmndi:BPMNEdge id="di_f_assess" bpmnElement="f_assess"><di:waypoint x="740" y="187"/><di:waypoint x="845" y="187"/></bpmndi:BPMNEdge>
+  <bpmndi:BPMNEdge id="di_f_rep" bpmnElement="f_rep"><di:waypoint x="895" y="187"/><di:waypoint x="1000" y="187"/></bpmndi:BPMNEdge>
+  <bpmndi:BPMNEdge id="di_f_unrep" bpmnElement="f_unrep"><di:waypoint x="895" y="187"/><di:waypoint x="1042" y="187"/><di:waypoint x="1042" y="307"/><di:waypoint x="1190" y="307"/></bpmndi:BPMNEdge>
+  <bpmndi:BPMNEdge id="di_f_info" bpmnElement="f_info"><di:waypoint x="895" y="187"/><di:waypoint x="947" y="187"/><di:waypoint x="947" y="427"/><di:waypoint x="1000" y="427"/></bpmndi:BPMNEdge>
+  <bpmndi:BPMNEdge id="di_f_draft_app" bpmnElement="f_draft_app"><di:waypoint x="1120" y="187"/><di:waypoint x="1155" y="187"/><di:waypoint x="1155" y="547"/><di:waypoint x="1190" y="547"/></bpmndi:BPMNEdge>
+  <bpmndi:BPMNEdge id="di_f_app_screen" bpmnElement="f_app_screen"><di:waypoint x="1310" y="547"/><di:waypoint x="1345" y="547"/><di:waypoint x="1345" y="187"/><di:waypoint x="1380" y="187"/></bpmndi:BPMNEdge>
+  <bpmndi:BPMNEdge id="di_f_screen_apply" bpmnElement="f_screen_apply"><di:waypoint x="1500" y="187"/><di:waypoint x="1570" y="187"/></bpmndi:BPMNEdge>
+  <bpmndi:BPMNEdge id="di_f_apply_notify" bpmnElement="f_apply_notify"><di:waypoint x="1690" y="187"/><di:waypoint x="1760" y="187"/></bpmndi:BPMNEdge>
+  <bpmndi:BPMNEdge id="di_f_notify_rec" bpmnElement="f_notify_rec"><di:waypoint x="1880" y="187"/><di:waypoint x="1950" y="187"/></bpmndi:BPMNEdge>
+  <bpmndi:BPMNEdge id="di_f_rec_end" bpmnElement="f_rec_end"><di:waypoint x="2070" y="187"/><di:waypoint x="2182" y="187"/></bpmndi:BPMNEdge>
+  <bpmndi:BPMNEdge id="di_f_info_assess" bpmnElement="f_info_assess"><di:waypoint x="1060" y="464"/><di:waypoint x="1060" y="498"/><di:waypoint x="680" y="498"/><di:waypoint x="680" y="224"/></bpmndi:BPMNEdge>
+  <bpmndi:BPMNEdge id="di_f_dr_app" bpmnElement="f_dr_app"><di:waypoint x="1310" y="307"/><di:waypoint x="1440" y="307"/><di:waypoint x="1440" y="547"/><di:waypoint x="1570" y="547"/></bpmndi:BPMNEdge>
+  <bpmndi:BPMNEdge id="di_f_app_exec" bpmnElement="f_app_exec"><di:waypoint x="1690" y="547"/><di:waypoint x="1820" y="547"/><di:waypoint x="1820" y="307"/><di:waypoint x="1950" y="307"/></bpmndi:BPMNEdge>
+  <bpmndi:BPMNEdge id="di_f_exec_end" bpmnElement="f_exec_end"><di:waypoint x="2070" y="307"/><di:waypoint x="2182" y="307"/></bpmndi:BPMNEdge>
+  <bpmndi:BPMNEdge id="di_f_esc_end" bpmnElement="f_esc_end"><di:waypoint x="1500" y="667"/><di:waypoint x="1802" y="667"/></bpmndi:BPMNEdge>
+  <bpmndi:BPMNEdge id="di_bf_Bnd_SLA" bpmnElement="bf_Bnd_SLA"><di:waypoint x="1302" y="602"/><di:waypoint x="1302" y="624"/><di:waypoint x="1440" y="624"/><di:waypoint x="1440" y="630"/></bpmndi:BPMNEdge>
+  <bpmndi:BPMNEdge id="di_bf_Bnd_Hit" bpmnElement="bf_Bnd_Hit"><di:waypoint x="1492" y="242"/><di:waypoint x="1492" y="264"/><di:waypoint x="1630" y="264"/><di:waypoint x="1630" y="289"/></bpmndi:BPMNEdge>
+</bpmndi:BPMNPlane></bpmndi:BPMNDiagram>
+</bpmn:definitions>

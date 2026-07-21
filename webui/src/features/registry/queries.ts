@@ -33,6 +33,11 @@ export function useValidationReport(key: string | undefined, version: string | u
 export function useCapabilities() {
   return useApiQuery(["capabilities"], (s) => listCapabilities({}, s));
 }
+// On-demand reuse search (does NOT eager-load the catalog): only queries once a term is entered.
+export function useCapabilitySearch(term: string) {
+  const q = term.trim();
+  return useApiQuery(["capability-search", q], (s) => listCapabilities({ q, status: "active", limit: 20 }, s), { enabled: q.length > 0 });
+}
 export function useCapability(id: string | undefined, version: string | undefined) {
   return useApiQuery(["capability", id, version], (s) => getCapability(id!, version!, s), { enabled: !!id && !!version });
 }

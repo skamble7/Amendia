@@ -14,7 +14,10 @@ authors the full bindable set the runtime executes, single fidelity (ADR-044), *
 inference UX** — lane personas drive pre-filled HITL + role descriptions and candidates carry their provenance
 (ADR-045), and **decision / reduce authoring** — a business user authors a native-DMN decision table or a reduce
 config in the wizard, no code (ADR-046) — completing the wizard catch-up: the wizard now authors everything the
-runtime executes**; finding codes, profiles, and endpoints **reconciled against the source on 2026-07-18**).
+runtime executes** — plus **operator-testing UX refinements** (batch 1): the BPMN step collapses its input to a
+summary after parse and focuses the coverage report, and capability **reuse is now an on-demand search dialog**
+(`GET /capabilities?q=`) instead of an eager catalog list; finding codes, profiles, and endpoints **reconciled
+against the source on 2026-07-18**).
 
 - **Audience:** Process Owners (who operate the onboarding wizard) and platform engineers (who need the
   contract/validation detail underneath).
@@ -166,6 +169,11 @@ construct above the deployment's execution profile** (e.g. a parallel gateway un
 **Warnings (do not block, `severity: warning/info`):** documented elements (`bpmn_documented_element`), unknown
 elements (`bpmn_unknown_element`). These are the "classify, don't reject" annotations.
 
+**UI:** once a BPMN parses, the (tall) upload / paste input **collapses to a one-line summary** (`✓ BPMN
+attached · <file|pasted> · N executable, M documented`) and the **coverage report scrolls into focus**; a
+**Replace / edit** control re-expands the input (invalidation is unchanged). The diagram is one click away via
+**View diagram**.
+
 > **The single most common mistake:** uploading the *reference* (full-notation, documentation) BPMN instead of
 > the *executable* projection. A diagram with lanes/pools/message-flows *off* the live path onboards fine; but
 > a construct *on* the sequence-flow path that isn't executable (or is above the profile) will block. See the
@@ -176,6 +184,11 @@ elements (`bpmn_unknown_element`). These are the "classify, don't reject" annota
 Three things happen here: **reuse** existing catalog capabilities, **create new MCP capabilities**, and
 **author inline `decision` / `reduce` capabilities** (ADR-046) — all staged in one `POST
 /onboarding/{id}/capabilities` (body `{tools, decision_specs, reduce_specs, reused_capability_refs}`).
+
+**Reuse is on-demand (UI):** the step no longer eager-loads the whole active catalog. **"Reuse a capability"**
+opens a **search dialog** that queries `GET /capabilities?q=<term>&status=active&limit=20` (a new **`q`**
+free-text substring over `capability_id` + `title`) only once you type; selected reuses show as **removable
+chips**. The step's focus is the MCP-introspect section + the inferred candidates + the decision/reduce builders.
 
 **Introspect** (`POST /capabilities/introspect-mcp`, body `{endpoint, transport?, headers?, domain}`): connects
 to the MCP server, calls `tools/list`, returns each tool with a **compliance verdict**. Non-compliant tools

@@ -25,7 +25,7 @@ import {
   type OnbBpmnInventory, type OnbBindableElement, type OnboardingSession, type OnboardingState,
   type ValidationReport, type InferenceDraft, type OnbDecisionSpec, type OnbReduceSpec,
 } from "@/api/services/registry";
-import { useCapabilities, useOnboardingSessions, usePacks } from "./queries";
+import { useCapabilities, useCapabilitySearch, useOnboardingSessions, usePacks } from "./queries";
 
 const selectCls =
   "flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50";
@@ -262,6 +262,9 @@ function BpmnStep({ session, onDone }: { session: OnboardingSession; onDone: (s:
   const [result, setResult] = useState<OnboardingSession | null>(session.bpmn ? session : null);
   const [attachedXml, setAttachedXml] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
+  // Batch-1 UX: once a BPMN parses, collapse the (tall) input and bring the coverage/diagram into focus.
+  const [collapsed, setCollapsed] = useState(!!session.bpmn);
+  const coverageRef = useRef<HTMLDivElement>(null);
 
   async function loadFile(file: File | undefined | null) {
     if (!file) return;
@@ -273,7 +276,9 @@ function BpmnStep({ session, onDone }: { session: OnboardingSession; onDone: (s:
     setBusy(true); setFindings([]); setGeneral(""); setResult(null);
     try {
       const s = await attachOnboardingBpmn(session.session_id, { bpmn_xml: xml, bpmn_file: fileName || undefined });
-      setResult(s); setAttachedXml(xml);
+      setResult(s); setAttachedXml(xml); setCollapsed(true);
+      // let the coverage card mount, then scroll it into focus.
+      setTimeout(() => coverageRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 60);
     } catch (e) {
       const x = extractErrors(e);
       setFindings(x.findings); setGeneral(x.general);
@@ -296,6 +301,18 @@ function BpmnStep({ session, onDone }: { session: OnboardingSession; onDone: (s:
             </DialogContent>
           </Dialog>
         </CardHeader>
+        {collapsed && result?.bpmn ? (
+          <CardContent>
+            <div className="flex flex-wrap items-center gap-2 rounded-md border border-border bg-surface/40 p-3 text-sm">
+              <Check className="size-4 text-success" />
+              <span className="font-medium">BPMN attached</span>
+              <span className="font-mono text-xs text-muted-foreground">· {fileName || "pasted"}</span>
+              <span className="text-xs text-muted-foreground">· {result.bpmn.coverage_counts?.executable ?? 0} executable, {result.bpmn.coverage_counts?.documented ?? 0} documented</span>
+              <div className="flex-1" />
+              <Button variant="ghost" size="sm" onClick={() => setCollapsed(false)}><FileCode className="mr-1 size-3.5" />Replace / edit</Button>
+            </div>
+          </CardContent>
+        ) : (
         <CardContent className="space-y-3">
           <Label>Upload or paste a BPMN 2.0 XML. Full BPMN is accepted — anything outside the executable subset is kept as <span className="font-medium">documented</span> and shown in the coverage report below.</Label>
 
@@ -354,8 +371,13 @@ function BpmnStep({ session, onDone }: { session: OnboardingSession; onDone: (s:
             <Button disabled={busy || !xml.trim()} onClick={submit}>{busy ? <><Loader2 className="mr-1 size-4 animate-spin" /> Parsing…</> : "Parse & preview coverage"}</Button>
           </div>
         </CardContent>
+        )}
       </Card>
-      {result?.bpmn && <CoverageCard inv={result.bpmn} inferred={result.inferred ?? null} xml={attachedXml} onContinue={() => onDone(result)} />}
+      {result?.bpmn && (
+        <div ref={coverageRef}>
+          <CoverageCard inv={result.bpmn} inferred={result.inferred ?? null} xml={attachedXml} onContinue={() => onDone(result)} />
+        </div>
+      )}
     </div>
   );
 }
@@ -664,6 +686,47 @@ function ReduceBuilder({ draft, onChange, onRemove, artifactKeys, error }: {
   );
 }
 
+// Batch-1 UX: reuse a catalog capability ON DEMAND — a search dialog that queries only once the operator
+// types, instead of eager-loading the whole active catalog on step entry (does not scale).
+function ReuseSearchDialog({ reused, onToggle }: { reused: string[]; onToggle: (ref: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const [term, setTerm] = useState("");
+  const [debounced, setDebounced] = useState("");
+  useEffect(() => { const t = setTimeout(() => setDebounced(term), 200); return () => clearTimeout(t); }, [term]);
+  const { data: results, isFetching } = useCapabilitySearch(debounced);
+  const active = debounced.trim().length > 0;
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button variant="outline" size="sm"><Search className="mr-1 size-4" />Reuse a capability</Button>
+      </DialogTrigger>
+      <DialogContent className="max-w-lg">
+        <DialogHeader><DialogTitle>Reuse a capability</DialogTitle></DialogHeader>
+        <Input autoFocus value={term} onChange={(e) => setTerm(e.target.value)} placeholder="search the active catalog by id or title…" className="font-mono text-xs" />
+        <div className="max-h-80 space-y-1 overflow-y-auto">
+          {!active && <p className="py-2 text-xs text-muted-foreground">Type to search — the catalog is queried on demand, not pre-loaded.</p>}
+          {active && isFetching && <p className="py-2 text-xs text-muted-foreground">Searching…</p>}
+          {(results ?? []).map((c: any) => {
+            const ref = `${c.capability_id}@^${c.version}`;
+            const on = reused.includes(ref);
+            return (
+              <button key={ref} onClick={() => onToggle(ref)}
+                className={cn("flex w-full items-center gap-3 rounded-md border p-2 text-left", on ? "border-agent" : "border-border")}>
+                <input type="checkbox" readOnly checked={on} />
+                <span className="flex-1 font-mono text-xs">{ref}</span>
+                <Badge variant="outline" className="text-[10px]">{c.kind}</Badge>
+                <Badge variant={c.side_effect === "side_effectful" ? "process" : "artifact"} className="text-[10px]">{c.side_effect}</Badge>
+              </button>
+            );
+          })}
+          {active && !isFetching && (results ?? []).length === 0 && <p className="py-2 text-xs text-muted-foreground">No matches.</p>}
+          {(results ?? []).length >= 20 && <p className="py-1 text-xs text-muted-foreground">Showing the first 20 — refine your search to narrow.</p>}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function CapabilitiesStep({ session, onDone }: { session: OnboardingSession; onDone: (s: OnboardingSession) => void }) {
   const [endpoint, setEndpoint] = useState("");
   const [transport, setTransport] = useState("streamable_http");
@@ -671,8 +734,8 @@ function CapabilitiesStep({ session, onDone }: { session: OnboardingSession; onD
   const [drafts, setDrafts] = useState<ToolDraft[]>([]);
   const [reused, setReused] = useState<string[]>(session.reused_capability_refs);
   const [busy, setBusy] = useState(false);
-  const { data: catalog } = useCapabilities();
   const endpointRef = useRef<HTMLInputElement>(null);
+  const toggleReuse = (ref: string) => setReused((r) => r.includes(ref) ? r.filter((x) => x !== ref) : [...r, ref]);
   // ADR-046 (Track 2): inline-authored decision / reduce capabilities + their per-capability errors.
   const [decisions, setDecisions] = useState<DecisionDraft[]>([]);
   const [reduces, setReduces] = useState<ReduceDraft[]>([]);
@@ -887,23 +950,23 @@ function CapabilitiesStep({ session, onDone }: { session: OnboardingSession; onD
       </Card>
 
       <Card>
-        <CardHeader><CardTitle>Reuse existing capabilities</CardTitle></CardHeader>
-        <CardContent className="space-y-2">
-          {(catalog ?? []).map((c: any) => {
-            const ref = `${c.capability_id}@^${c.version}`;
-            const on = reused.includes(ref);
-            return (
-              <button key={ref} onClick={() => setReused((r) => on ? r.filter((x) => x !== ref) : [...r, ref])}
-                className={cn("flex w-full items-center gap-3 rounded-md border p-2.5 text-left", on ? "border-agent" : "border-border")}>
-                <input type="checkbox" readOnly checked={on} />
-                <span className="flex-1 font-mono text-xs">{ref}</span>
-                <Badge variant="outline" className="text-[10px]">{c.kind}</Badge>
-                <Badge variant={c.side_effect === "side_effectful" ? "process" : "artifact"} className="text-[10px]">{c.side_effect}</Badge>
-              </button>
-            );
-          })}
-          {(catalog ?? []).length === 0 && <p className="text-xs text-muted-foreground">No catalog capabilities to reuse.</p>}
-        </CardContent>
+        <CardHeader className="flex-row items-center justify-between">
+          <div>
+            <CardTitle>Reuse existing capabilities</CardTitle>
+            <p className="text-xs text-muted-foreground">Search the active catalog on demand — reuse an already-registered capability instead of authoring a new one.</p>
+          </div>
+          <ReuseSearchDialog reused={reused} onToggle={toggleReuse} />
+        </CardHeader>
+        {reused.length > 0 && (
+          <CardContent className="flex flex-wrap gap-1.5">
+            {reused.map((ref) => (
+              <Badge key={ref} variant="agent" className="gap-1 font-mono text-[10px]">
+                {ref}
+                <button onClick={() => toggleReuse(ref)} title="remove" className="ml-0.5 hover:text-danger"><XCircle className="size-3" /></button>
+              </Badge>
+            ))}
+          </CardContent>
+        )}
       </Card>
 
       <StepFooter

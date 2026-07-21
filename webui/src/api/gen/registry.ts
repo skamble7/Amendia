@@ -2158,6 +2158,8 @@ export interface operations {
             query?: {
                 status?: string | null;
                 kind?: string | null;
+                /** @description free-text substring over capability_id + title */
+                q?: string | null;
                 limit?: number;
                 offset?: number;
             };
