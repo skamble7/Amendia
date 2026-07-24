@@ -281,13 +281,90 @@ describe("Onboarding wizard", () => {
     );
     renderApp("/registry/onboard/sess-8", "owner-1");
 
-    // the capability is pre-selected (an exact-id match) → a "suggested" chip renders
-    expect(await screen.findByText("suggested")).toBeInTheDocument();
+    // the capability is pre-selected (an exact-id match) → a "suggested" chip renders (plus the ADR-048 D4
+    // input-source chip for this entry task, derived off the bound capability → 2 chips)
+    expect((await screen.findAllByText("suggested")).length).toBeGreaterThanOrEqual(2);
     expect(await screen.findByDisplayValue(/cap\.payment\.apply_repair@\^1\.0\.0/)).toBeInTheDocument();
     // side-effectful → the HITL floor bumped the pre-selected row from `none` to `approve_actions`
     expect(await screen.findByDisplayValue("approve_actions")).toBeInTheDocument();
     // the human task's executor role and HITL role both default to the SAME lane role
     expect(screen.getAllByDisplayValue("role.payment.ops_approver").length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("bindings step authors the capability input_map with a graph-position suggestion (ADR-048)", async () => {
+    const be = (over: Record<string, unknown>) => ({
+      name: null, is_multi_instance: false, is_for_compensation: false,
+      compensation_primary: null, in_event_subprocess: false, ...over,
+    });
+    const session = {
+      session_id: "sess-9", created_by: "owner-1", created_at: "", updated_at: "", state: "bindings_set",
+      basics: { pack_key: "p", version: "1.0.0", title: "P", default_domain: "payment" },
+      bpmn: {
+        process_id: "P", bpmn_file: "p.bpmn", sha256: "x", service_tasks: ["Enrich"], user_tasks: [],
+        gateways: [], task_names: {},
+        bindable_elements: [be({ element_id: "Enrich", element_kind: "serviceTask", category: "capability", name: "Enrich" })],
+      },
+      staged_artifacts: [], reused_capability_refs: [], bindings: [],
+      staged_capabilities: [{ capability_id: "cap.payment.enrich", version: "1.0.0", title: "Enrich", side_effect: "read_only", input_name: "enrich_input", input_artifact_key: "art.payment.enrich_input", output_name: "enrich_output", output_artifact_key: "art.payment.enrich_output", endpoint: "http://x", tool: "enrich", transport: "streamable_http", headers: {} }],
+      triage_rules: [], gateway_variables: [], sod_policies: [], roles: [],
+      inferred: {
+        roles: [], gateway_variables: [], artifact_seeds: [], sod_candidates: [], annotations: [],
+        capability_candidates: [{ source: "Enrich", suggested_capability_id: "cap.payment.enrich", kind_hint: "mcp", needs_endpoint: true }],
+        bindings: [{ element_id: "Enrich", element_kind: "serviceTask", executor_type: "capability", suggested_capability_id: "cap.payment.enrich", suggested_input_source: { enrich_input: { from: "trigger" } }, upstream_caps: [], suggested_hitl_mode: "none", source_lane: null }],
+      },
+      dry_run_report: null, commit_progress: [], result_pack: null, last_cleared: [],
+    };
+    server.use(
+      http.get(`${REG}/onboarding/sess-9`, () => HttpResponse.json(session)),
+      http.get(`${REG}/capabilities`, () => HttpResponse.json([])),
+      http.get(`${REG}/packs`, () => HttpResponse.json([])),
+    );
+    renderApp("/registry/onboard/sess-9", "owner-1");
+
+    // the input-source picker renders for the capability's input, pre-filled from the trigger suggestion
+    expect(await screen.findByText(/Input source — where/)).toBeInTheDocument();
+    expect(await screen.findByText(/enrich_input/)).toBeInTheDocument();
+    expect(await screen.findByDisplayValue("from trigger")).toBeInTheDocument();
+    // the pre-fill matches the inference → a "suggested" chip (there are 2: cap pre-select + input source)
+    expect((await screen.findAllByText("suggested")).length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("bindings step derives the input_map off the BOUND capability even when the element name diverges (ADR-048 D4)", async () => {
+    const be = (over: Record<string, unknown>) => ({
+      name: null, is_multi_instance: false, is_for_compensation: false,
+      compensation_primary: null, in_event_subprocess: false, ...over,
+    });
+    // element name "Investigate" does NOT token-match the tool id "enrich_investigation" (the fuzzy pre-select
+    // would fail) — but a binding already binds the capability, so the source suggestion must still resolve.
+    const session = {
+      session_id: "sess-div", created_by: "owner-1", created_at: "", updated_at: "", state: "bindings_set",
+      basics: { pack_key: "p", version: "1.0.0", title: "P", default_domain: "payment" },
+      bpmn: {
+        process_id: "P", bpmn_file: "p.bpmn", sha256: "x", service_tasks: ["Investigate"], user_tasks: [],
+        gateways: [], task_names: {},
+        bindable_elements: [be({ element_id: "Investigate", element_kind: "serviceTask", category: "capability", name: "Investigate" })],
+      },
+      staged_artifacts: [], reused_capability_refs: [],
+      bindings: [{ element_id: "Investigate", element_kind: "serviceTask", executor_type: "capability", capability_ref: "cap.payment.enrich_investigation@^1.0.0", hitl_mode: "none", input_sources: {} }],
+      staged_capabilities: [{ capability_id: "cap.payment.enrich_investigation", version: "1.0.0", title: "Enrich", side_effect: "read_only", input_name: "enrich_investigation_input", input_artifact_key: "art.payment.enrich_investigation_input", output_name: "enrich_investigation_output", output_artifact_key: "art.payment.enrich_investigation_output", endpoint: "http://x", tool: "enrich_investigation", transport: "streamable_http", headers: {} }],
+      triage_rules: [], gateway_variables: [], sod_policies: [], roles: [],
+      inferred: {
+        roles: [], gateway_variables: [], artifact_seeds: [], sod_candidates: [], annotations: [], capability_candidates: [],
+        bindings: [{ element_id: "Investigate", element_kind: "serviceTask", executor_type: "capability", suggested_capability_id: "cap.payment.investigate", suggested_input_source: { from: "trigger" }, upstream_caps: [], suggested_hitl_mode: "none", source_lane: null }],
+      },
+      dry_run_report: null, commit_progress: [], result_pack: null, last_cleared: [],
+    };
+    server.use(
+      http.get(`${REG}/onboarding/sess-div`, () => HttpResponse.json(session)),
+      http.get(`${REG}/capabilities`, () => HttpResponse.json([])),
+      http.get(`${REG}/packs`, () => HttpResponse.json([])),
+    );
+    renderApp("/registry/onboard/sess-div", "owner-1");
+
+    // resolved off the bound capability_ref (not the failed name match) → the entry input sources the trigger
+    expect(await screen.findByText(/enrich_investigation_input/)).toBeInTheDocument();
+    expect(await screen.findByDisplayValue("from trigger")).toBeInTheDocument();
+    expect((await screen.findAllByText("suggested")).length).toBeGreaterThanOrEqual(1);
   });
 
   it("capabilities step reuses a capability via on-demand search (no eager catalog load) (batch-1)", async () => {

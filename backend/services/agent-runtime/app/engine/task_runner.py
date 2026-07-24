@@ -27,6 +27,7 @@ from langgraph.types import interrupt
 
 from amendia_bpmn import parse_iso_duration
 from amendia_contracts.capability import CapabilityDescriptor
+from app.engine import expr
 from app.engine.executor import (
     CancellationToken,
     CapabilityBusinessError,
@@ -87,6 +88,9 @@ class NodeContext:
     # dropped). Threaded into the executor (extras["error_codes"]) so a real llm/mcp/deep_agent path
     # can emit/label a legal modeled business error. Empty when the element has no error boundary.
     error_codes: List[str] = field(default_factory=list)
+    # ADR-048: per-input data source (input name → {from:trigger|artifact,…} | {fields:…}). Empty →
+    # the input reads the same-named artifact from state (shared-name chaining, unchanged).
+    input_map: Dict[str, Any] = field(default_factory=dict)
     # ADR-043 (Item G): set on a COMPENSABLE primary — the id of its compensation handler activity + the
     # enclosing scope. When such a node commits its side effect, ``_commit`` appends a compensation-log
     # entry (so a later compensate throw can reverse it). ``None`` on a non-compensable node.
@@ -209,10 +213,40 @@ def _run_autonomous_with_deadline(ctx, executor, simulation, envelope, inputs, p
 
 
 # --------------------------------------------------------------------------- #
+def _resolve_source(src: Dict[str, Any], envelope: Dict[str, Any], artifacts: Dict[str, Any],
+                    element_id: str) -> Any:
+    """ADR-048: resolve one InputSource against the trigger + upstream artifacts. Domain-neutral —
+    field names come from the authored map, never the engine."""
+    if "fields" in src:                                    # composite: build an object field-by-field
+        return {k: _resolve_source(v, envelope, artifacts, element_id) for k, v in src["fields"].items()}
+    frm = src.get("from")
+    if frm == "trigger":
+        root: Any = envelope
+    elif frm == "artifact":
+        name = src.get("name")
+        if name not in artifacts:                          # a referenced upstream output genuinely absent
+            raise NodeExecutionError(
+                f"{element_id}: input source references artifact '{name}' not produced upstream "
+                f"(have: {sorted(artifacts)})", reason="input_unresolved")
+        root = artifacts[name]
+    else:
+        raise NodeExecutionError(f"{element_id}: unknown input source {src!r}", reason="input_unresolved")
+    path = src.get("path")
+    return expr.resolve_path(path.split("."), root) if path else root
+
+
 def _gather_inputs(ctx: NodeContext, state: Dict[str, Any]) -> Dict[str, Any]:
     artifacts = state.get("artifacts", {})
+    envelope = state.get("envelope", {}) or {}
+    input_map = ctx.input_map or {}
     inputs: Dict[str, Any] = {}
     for spec in ctx.inputs:
+        src = input_map.get(spec.name)
+        if src is not None:
+            # ADR-048: resolve the declared source (trigger / upstream artifact / composite).
+            inputs[spec.name] = _resolve_source(src, envelope, artifacts, ctx.element_id)
+            continue
+        # No map entry → the same-named artifact from state (shared-name chaining, unchanged).
         # Post-validation this must hold; assert loudly if the pack drifted.
         assert spec.name in artifacts, (
             f"missing required input '{spec.name}' for element '{ctx.element_id}' "
@@ -250,9 +284,25 @@ def _run_capability(ctx: NodeContext, descriptor, executor, simulation, envelope
             "memo_attempt": attempt,
             # ADR-035: the element's legal error boundary codes for the real llm/mcp/deep_agent path.
             "error_codes": ctx.error_codes,
+            # ADR-048: when the binding declares an input_map, the resolved inputs ARE the tool-call
+            # argument object (a composite input spreads; scalars key by name). The mcp executor uses
+            # this instead of the legacy {envelope, inputs} wrapper. None → legacy shape (seed packs).
+            "mcp_arguments": _mcp_arguments(inputs) if ctx.input_map else None,
         },
     )
     return executor.execute(descriptor, inputs, exec_ctx)
+
+
+def _mcp_arguments(inputs: Dict[str, Any]) -> Dict[str, Any]:
+    """ADR-048: the MCP tool argument object from the resolved inputs — a composite (dict) input spreads
+    into the args, a scalar input keys by its binding name. Field names come from the authored map."""
+    args: Dict[str, Any] = {}
+    for name, val in inputs.items():
+        if isinstance(val, dict):
+            args.update(val)
+        else:
+            args[name] = val
+    return args
 
 
 def _validate(spec: OutputSpec, data: Any) -> Optional[str]:

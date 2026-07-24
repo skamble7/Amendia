@@ -59,6 +59,7 @@ def _binding(*, hitl_mode="review_after", role="role.payments.ops_analyst"):
     return BindingInput(
         element_id="Task_Screen", element_kind="serviceTask", executor_type="capability",
         capability_ref="cap.payment.screen_party@^1.0.0", hitl_mode=hitl_mode, hitl_role=role,
+        input_sources={"screen_party_input": {"from": "trigger"}},   # ADR-048: entry task reads the trigger
     )
 
 

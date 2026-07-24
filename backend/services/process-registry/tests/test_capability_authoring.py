@@ -137,9 +137,12 @@ async def test_authored_decision_pack_onboards_to_active(svc, pack_repo, cap_rep
         tools=[_ENRICH], decision_specs=[_decision_spec()]), owner=OWNER)
     binds = [
         BindingInput(element_id="Enrich", element_kind="serviceTask", executor_type="capability",
-                     capability_ref="cap.payment.enrich@^1.0.0", hitl_mode="none"),
+                     capability_ref="cap.payment.enrich@^1.0.0", hitl_mode="none",
+                     input_sources={"enrich_input": {"from": "trigger"}}),          # entry → trigger
         BindingInput(element_id="Classify", element_kind="businessRuleTask", executor_type="capability",
-                     capability_ref="cap.payment.classify@^1.0.0", hitl_mode="none"),
+                     capability_ref="cap.payment.classify@^1.0.0", hitl_mode="none",
+                     # the decision reads Enrich's output (binding output name "enrich_output")
+                     input_sources={"enriched": {"from": "artifact", "name": "enrich_output"}}),
     ]
     s = await svc.set_bindings(s.session_id, SetBindingsRequest(bindings=binds), owner=OWNER)
     s = await svc.set_triage(s.session_id, SetTriageRequest(triage_rules=[

@@ -260,6 +260,38 @@
         "title": "ArtifactSeed",
         "type": "object"
       },
+      "ArtifactSource": {
+        "additionalProperties": false,
+        "description": "A named artifact an upstream binding produced, whole or a dotpath into it.",
+        "properties": {
+          "from": {
+            "const": "artifact",
+            "title": "From",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Path"
+          }
+        },
+        "required": [
+          "from",
+          "name"
+        ],
+        "title": "ArtifactSource",
+        "type": "object"
+      },
       "ArtifactStatus": {
         "enum": [
           "active",
@@ -425,7 +457,7 @@
         "title": "BindableElementSummary",
         "type": "object"
       },
-      "Binding": {
+      "Binding-Input": {
         "additionalProperties": false,
         "properties": {
           "element_id": {
@@ -482,6 +514,121 @@
                 "type": "null"
               }
             ]
+          },
+          "input_map": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/TriggerSource"
+                },
+                {
+                  "$ref": "#/components/schemas/ArtifactSource"
+                },
+                {
+                  "$ref": "#/components/schemas/FieldsSource-Input"
+                }
+              ]
+            },
+            "title": "Input Map",
+            "type": "object"
+          },
+          "inputs": {
+            "items": {
+              "$ref": "#/components/schemas/ArtifactIO"
+            },
+            "title": "Inputs",
+            "type": "array"
+          },
+          "outputs": {
+            "items": {
+              "$ref": "#/components/schemas/ArtifactIO"
+            },
+            "title": "Outputs",
+            "type": "array"
+          }
+        },
+        "required": [
+          "element_id",
+          "element_kind",
+          "executor"
+        ],
+        "title": "Binding",
+        "type": "object"
+      },
+      "Binding-Output": {
+        "additionalProperties": false,
+        "properties": {
+          "element_id": {
+            "title": "Element Id",
+            "type": "string"
+          },
+          "element_kind": {
+            "enum": [
+              "serviceTask",
+              "userTask",
+              "messageCatch",
+              "receiveTask",
+              "sendTask",
+              "scriptTask",
+              "manualTask",
+              "businessRuleTask",
+              "callActivity"
+            ],
+            "title": "Element Kind",
+            "type": "string"
+          },
+          "executor": {
+            "discriminator": {
+              "mapping": {
+                "call": "#/components/schemas/CallExecutor",
+                "capability": "#/components/schemas/CapabilityExecutor",
+                "human": "#/components/schemas/HumanExecutor",
+                "message": "#/components/schemas/MessageExecutor"
+              },
+              "propertyName": "type"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/CapabilityExecutor"
+              },
+              {
+                "$ref": "#/components/schemas/HumanExecutor"
+              },
+              {
+                "$ref": "#/components/schemas/MessageExecutor"
+              },
+              {
+                "$ref": "#/components/schemas/CallExecutor"
+              }
+            ],
+            "title": "Executor"
+          },
+          "hitl": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Hitl"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "input_map": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/TriggerSource"
+                },
+                {
+                  "$ref": "#/components/schemas/ArtifactSource"
+                },
+                {
+                  "$ref": "#/components/schemas/FieldsSource-Output"
+                }
+              ]
+            },
+            "title": "Input Map",
+            "type": "object"
           },
           "inputs": {
             "items": {
@@ -585,6 +732,11 @@
               "type": "string"
             },
             "title": "Input Map",
+            "type": "object"
+          },
+          "input_sources": {
+            "additionalProperties": true,
+            "title": "Input Sources",
             "type": "object"
           },
           "message_name": {
@@ -1581,6 +1733,62 @@
         "title": "EventSummary",
         "type": "object"
       },
+      "FieldsSource-Input": {
+        "additionalProperties": false,
+        "description": "Composite: build an object field-by-field (constructs an MCP tool's arguments from a mix of\ntrigger + upstream outputs).",
+        "properties": {
+          "fields": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/TriggerSource"
+                },
+                {
+                  "$ref": "#/components/schemas/ArtifactSource"
+                },
+                {
+                  "$ref": "#/components/schemas/FieldsSource-Input"
+                }
+              ]
+            },
+            "title": "Fields",
+            "type": "object"
+          }
+        },
+        "required": [
+          "fields"
+        ],
+        "title": "FieldsSource",
+        "type": "object"
+      },
+      "FieldsSource-Output": {
+        "additionalProperties": false,
+        "description": "Composite: build an object field-by-field (constructs an MCP tool's arguments from a mix of\ntrigger + upstream outputs).",
+        "properties": {
+          "fields": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/TriggerSource"
+                },
+                {
+                  "$ref": "#/components/schemas/ArtifactSource"
+                },
+                {
+                  "$ref": "#/components/schemas/FieldsSource-Output"
+                }
+              ]
+            },
+            "title": "Fields",
+            "type": "object"
+          }
+        },
+        "required": [
+          "fields"
+        ],
+        "title": "FieldsSource",
+        "type": "object"
+      },
       "GatewayConditionSummary": {
         "properties": {
           "flow_id": {
@@ -1852,6 +2060,18 @@
             "title": "Suggested Hitl Mode",
             "type": "string"
           },
+          "suggested_input_source": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Suggested Input Source"
+          },
           "suggested_role": {
             "anyOf": [
               {
@@ -1862,6 +2082,13 @@
               }
             ],
             "title": "Suggested Role"
+          },
+          "upstream_caps": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Upstream Caps",
+            "type": "array"
           }
         },
         "required": [
@@ -2599,7 +2826,7 @@
           },
           "bindings": {
             "items": {
-              "$ref": "#/components/schemas/Binding"
+              "$ref": "#/components/schemas/Binding-Input"
             },
             "minItems": 1,
             "title": "Bindings",
@@ -2755,7 +2982,7 @@
           },
           "bindings": {
             "items": {
-              "$ref": "#/components/schemas/Binding"
+              "$ref": "#/components/schemas/Binding-Output"
             },
             "minItems": 1,
             "title": "Bindings",
@@ -3494,6 +3721,11 @@
             "title": "Input Map",
             "type": "object"
           },
+          "input_sources": {
+            "additionalProperties": true,
+            "title": "Input Sources",
+            "type": "object"
+          },
           "inputs": {
             "items": {
               "$ref": "#/components/schemas/StagedBindingIO"
@@ -3944,6 +4176,33 @@
           "when"
         ],
         "title": "TriageRule",
+        "type": "object"
+      },
+      "TriggerSource": {
+        "additionalProperties": false,
+        "description": "The process trigger payload (today the exception envelope), whole or a dotpath into it.",
+        "properties": {
+          "from": {
+            "const": "trigger",
+            "title": "From",
+            "type": "string"
+          },
+          "path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Path"
+          }
+        },
+        "required": [
+          "from"
+        ],
+        "title": "TriggerSource",
         "type": "object"
       },
       "ValidationError": {

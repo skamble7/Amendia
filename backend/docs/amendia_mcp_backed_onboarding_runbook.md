@@ -65,9 +65,16 @@ timer boundary registers on ApproveRepair, the screening error boundary on Scree
 
 **4 · Bindings.** Each capability task now pre-fills its `cap.wirefix.<tool>` (ids match — no collision). Set HITL:
 `apply_repair`/`execute_return`/`notify_parties` → `approve_actions` (+ an approver role); `draft_repair`/
-`draft_return` → `review_after` if you want a check; human tasks already carry lane-inferred roles/HITL. The
-`unproduced_input` items you'll see later are **expected** in the MCP model (per-tool artifacts, populated from
-process/exception state) — not errors.
+`draft_return` → `review_after` if you want a check; human tasks already carry lane-inferred roles/HITL.
+
+**4a · Author the input data-flow (`input_map`) — REQUIRED for execution (ADR-048).** Per-tool MCP artifacts do
+**not** chain on their own: the entry task's input isn't seeded from the trigger, and `enrich_investigation_output`
+≠ `assess_beneficiary_input`, so nothing feeds the next step. Without wiring, the pack activates but fails at the
+first node (`missing required input 'enrich_investigation_input' … have: []`). For each capability task, declare
+where its input comes from: the entry task (`Enrich`) sources `from: trigger` (the exception envelope); each later
+task sources `from: artifact` = the upstream task's output (e.g. `Assess.dossier ← enrich_investigation_output`,
+`DraftRepair ← assess_beneficiary_output`, …). This is the ADR-048 `input_map`; the wizard pre-suggests it
+(entry→trigger, schema-match→upstream output) and you confirm.
 
 **5 · Triage.** Add at least one rule whose `when` matches the sample exception envelope your generator emits
 (the earlier "no match" info was just a mismatched sample — align the rule or the sample so the smoke test hits).
@@ -81,17 +88,25 @@ required `repair_verdict` field. Ensure the branch conditions and the mapped var
 flows read `beneficiary.repair_verdict`, so either map the variable under `beneficiary` or adjust the conditions
 to the mapped name. This clears the Stage-6 `gateway_without_variable` warning.
 
-**8 · Review & activate.** The dry-run should now be clean of **errors** (the IO-mismatch cluster is gone because
-ids resolve to your MCP caps; the HITL-floor errors are gone because you set the side-effect gates). Expect only
-benign warnings: the `LaneSet` documented-element note and the per-tool `unproduced_input` items. Activate — every
-dependency pins and the pack flips active.
+**8 · Review & activate.** The dry-run should be clean of the IO-mismatch cluster (ids resolve to your MCP caps)
+and the HITL-floor errors (you set the side-effect gates). One warning is **not** benign: the per-tool
+`unproduced_input` items. Pre-ADR-048 they surface as soft warnings but predict a hard runtime failure at the entry
+task — do **not** treat them as cosmetic. Post-ADR-048 they become real data-flow validation: an input you didn't
+map and nothing produces is an **error**, and once you author the `input_map` (step 4a) the flow validates cleanly.
+The only genuinely benign warning is the `LaneSet` documented-element note. Activate once the data-flow is either
+authored (ADR-048) or the pack is knowingly a structure-only dry run.
 
-**9 · Execute.** Raise a test exception via `stub_exception_generator` (drive a specific branch with the reason
-code / repair hint the stub honours). Watch the instance: each capability task calls its tool on
-`wirefix-mcp:8060`; the side-effectful actions pause at their `approve_actions` gate for four-eyes; `Gw_Repairable`
-routes on `repair_verdict`; the SLA timer escalates an un-approved repair after `PT4H`; a `SCREENING_HIT`
-`isError` from `screen_party` routes to the compliance-hold error boundary. That is the full ADR-34→46 surface
-executing against a real MCP server — the thing we set out to build.
+> **Known prerequisite for execution:** the runbook's execute step assumes ADR-048 (`input_map`) is in place. Until
+> it lands, an introspected per-tool-artifact pack activates but fails at the first node — the data-flow is
+> unwired. Author the `input_map` (step 4a) on a platform with ADR-048, or the run will fail at `Enrich`.
+
+**9 · Execute.** With the `input_map` authored (step 4a), raise a test exception via `stub_exception_generator`
+(drive a specific branch with the reason code / repair hint the stub honours). Watch the instance: `Enrich`
+sources its input from the trigger and calls its tool on `wirefix-mcp:8060`; each later task sources from the
+upstream output and calls its tool; the side-effectful actions pause at their `approve_actions` gate for four-eyes;
+`Gw_Repairable` routes on `repair_verdict`; the SLA timer escalates an un-approved repair after `PT4H`; a
+`SCREENING_HIT` `isError` from `screen_party` routes to the compliance-hold error boundary. That is the full
+ADR-34→46 surface executing against a real MCP server — the thing we set out to build.
 
 ## Why this is the real target (not the seed)
 

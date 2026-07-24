@@ -69,6 +69,7 @@ async def _walk_and_commit_with_meta(svc, role_meta):
         element_id="Task_Screen", element_kind="serviceTask", executor_type="capability",
         capability_ref="cap.payment.screen_party@^1.0.0", hitl_mode="review_after",
         hitl_role="role.payments.ops_analyst",
+        input_sources={"screen_party_input": {"from": "trigger"}},
     )
     s = await svc.set_bindings(s.session_id, SetBindingsRequest(bindings=[binding]), owner=OWNER)
     s = await svc.set_triage(
@@ -122,6 +123,7 @@ async def test_set_policies_drops_meta_for_unknown_roles(onboarding_service):
         element_id="Task_Screen", element_kind="serviceTask", executor_type="capability",
         capability_ref="cap.payment.screen_party@^1.0.0", hitl_mode="review_after",
         hitl_role="role.payments.ops_analyst",
+        input_sources={"screen_party_input": {"from": "trigger"}},
     )
     s = await onboarding_service.set_bindings(s.session_id, SetBindingsRequest(bindings=[binding]), owner=OWNER)
     s = await onboarding_service.set_triage(

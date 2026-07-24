@@ -591,6 +591,21 @@ export interface components {
             suggested_artifact_key: string;
         };
         /**
+         * ArtifactSource
+         * @description A named artifact an upstream binding produced, whole or a dotpath into it.
+         */
+        ArtifactSource: {
+            /**
+             * From
+             * @constant
+             */
+            from: "artifact";
+            /** Name */
+            name: string;
+            /** Path */
+            path?: string | null;
+        };
+        /**
          * ArtifactStatus
          * @enum {string}
          */
@@ -657,7 +672,7 @@ export interface components {
             name?: string | null;
         };
         /** Binding */
-        Binding: {
+        "Binding-Input": {
             /** Element Id */
             element_id: string;
             /**
@@ -668,6 +683,31 @@ export interface components {
             /** Executor */
             executor: components["schemas"]["CapabilityExecutor"] | components["schemas"]["HumanExecutor"] | components["schemas"]["MessageExecutor"] | components["schemas"]["CallExecutor"];
             hitl?: components["schemas"]["Hitl"] | null;
+            /** Input Map */
+            input_map?: {
+                [key: string]: components["schemas"]["TriggerSource"] | components["schemas"]["ArtifactSource"] | components["schemas"]["FieldsSource-Input"];
+            };
+            /** Inputs */
+            inputs?: components["schemas"]["ArtifactIO"][];
+            /** Outputs */
+            outputs?: components["schemas"]["ArtifactIO"][];
+        };
+        /** Binding */
+        "Binding-Output": {
+            /** Element Id */
+            element_id: string;
+            /**
+             * Element Kind
+             * @enum {string}
+             */
+            element_kind: "serviceTask" | "userTask" | "messageCatch" | "receiveTask" | "sendTask" | "scriptTask" | "manualTask" | "businessRuleTask" | "callActivity";
+            /** Executor */
+            executor: components["schemas"]["CapabilityExecutor"] | components["schemas"]["HumanExecutor"] | components["schemas"]["MessageExecutor"] | components["schemas"]["CallExecutor"];
+            hitl?: components["schemas"]["Hitl"] | null;
+            /** Input Map */
+            input_map?: {
+                [key: string]: components["schemas"]["TriggerSource"] | components["schemas"]["ArtifactSource"] | components["schemas"]["FieldsSource-Output"];
+            };
             /** Inputs */
             inputs?: components["schemas"]["ArtifactIO"][];
             /** Outputs */
@@ -699,6 +739,10 @@ export interface components {
             /** Input Map */
             input_map?: {
                 [key: string]: string;
+            };
+            /** Input Sources */
+            input_sources?: {
+                [key: string]: unknown;
             };
             /** Message Name */
             message_name?: string | null;
@@ -1106,6 +1150,28 @@ export interface components {
             /** Subtype */
             subtype?: string | null;
         };
+        /**
+         * FieldsSource
+         * @description Composite: build an object field-by-field (constructs an MCP tool's arguments from a mix of
+         *     trigger + upstream outputs).
+         */
+        "FieldsSource-Input": {
+            /** Fields */
+            fields: {
+                [key: string]: components["schemas"]["TriggerSource"] | components["schemas"]["ArtifactSource"] | components["schemas"]["FieldsSource-Input"];
+            };
+        };
+        /**
+         * FieldsSource
+         * @description Composite: build an object field-by-field (constructs an MCP tool's arguments from a mix of
+         *     trigger + upstream outputs).
+         */
+        "FieldsSource-Output": {
+            /** Fields */
+            fields: {
+                [key: string]: components["schemas"]["TriggerSource"] | components["schemas"]["ArtifactSource"] | components["schemas"]["FieldsSource-Output"];
+            };
+        };
         /** GatewayConditionSummary */
         GatewayConditionSummary: {
             /** Flow Id */
@@ -1200,8 +1266,14 @@ export interface components {
              * @default none
              */
             suggested_hitl_mode: string;
+            /** Suggested Input Source */
+            suggested_input_source?: {
+                [key: string]: unknown;
+            } | null;
             /** Suggested Role */
             suggested_role?: string | null;
+            /** Upstream Caps */
+            upstream_caps?: string[];
         };
         /** InferredGatewayVariable */
         InferredGatewayVariable: {
@@ -1457,7 +1529,7 @@ export interface components {
             /** Artifacts */
             artifacts: string[];
             /** Bindings */
-            bindings: components["schemas"]["Binding"][];
+            bindings: components["schemas"]["Binding-Input"][];
             /** Created At */
             created_at?: string | null;
             /** Created By */
@@ -1496,7 +1568,7 @@ export interface components {
             /** Artifacts */
             artifacts: string[];
             /** Bindings */
-            bindings: components["schemas"]["Binding"][];
+            bindings: components["schemas"]["Binding-Output"][];
             /** Created At */
             created_at?: string | null;
             /** Created By */
@@ -1797,6 +1869,10 @@ export interface components {
             input_map?: {
                 [key: string]: string;
             };
+            /** Input Sources */
+            input_sources?: {
+                [key: string]: unknown;
+            };
             /** Inputs */
             inputs?: components["schemas"]["StagedBindingIO"][];
             /** Message Name */
@@ -1962,6 +2038,19 @@ export interface components {
             rule_id: string;
             /** When */
             when: components["schemas"]["AllPredicate-Output"] | components["schemas"]["AnyPredicate-Output"] | components["schemas"]["NotPredicate-Output"] | components["schemas"]["LeafPredicate"];
+        };
+        /**
+         * TriggerSource
+         * @description The process trigger payload (today the exception envelope), whole or a dotpath into it.
+         */
+        TriggerSource: {
+            /**
+             * From
+             * @constant
+             */
+            from: "trigger";
+            /** Path */
+            path?: string | null;
         };
         /** ValidationError */
         ValidationError: {

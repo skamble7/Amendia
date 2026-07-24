@@ -272,7 +272,9 @@ def _execute_mcp_real(descriptor, inputs, ctx: ExecutionContext, mcp_client) -> 
     # (side-effect-free, read_only) tool call; its result would be discarded anyway.
     if ctx.cancel is not None and ctx.cancel.cancelled:
         raise CapabilityError(f"{descriptor.capability_id}: cancelled (SLA deadline) before MCP call")
-    arguments = {"envelope": ctx.envelope, "inputs": inputs}
+    # ADR-048: if the binding authored an input_map, the resolved inputs ARE the tool argument object;
+    # otherwise fall back to the legacy {envelope, inputs} wrapper (seed packs, shared-name chaining).
+    arguments = (ctx.extras or {}).get("mcp_arguments") or {"envelope": ctx.envelope, "inputs": inputs}
     try:
         artifact = _run_blocking(mcp_client.call_tool(
             endpoint=endpoint, tool=tool, arguments=arguments, transport=transport, headers=headers,

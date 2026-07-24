@@ -71,9 +71,11 @@ async def _attach_and_stage(svc, bpmn, *, pack_key="fullset"):
 def _full_set_bindings():
     return [
         BindingInput(element_id="Svc", element_kind="serviceTask", executor_type="capability",
-                     capability_ref=_SCREEN_REF, hitl_mode="none"),
+                     capability_ref=_SCREEN_REF, hitl_mode="none",
+                     input_sources={"screen_party_input": {"from": "trigger"}}),
         BindingInput(element_id="BR", element_kind="businessRuleTask", executor_type="capability",
-                     capability_ref=_SCREEN_REF, hitl_mode="none"),
+                     capability_ref=_SCREEN_REF, hitl_mode="none",
+                     input_sources={"screen_party_input": {"from": "trigger"}}),
         BindingInput(element_id="Recv", element_kind="receiveTask", executor_type="message",
                      message_name="pay.reply"),
         BindingInput(element_id="Call", element_kind="callActivity", executor_type="call",
@@ -245,7 +247,8 @@ async def test_e2e_message_pack_onboards_to_active(ce_service, pack_repo):
     s = await _attach_and_stage(ce_service, xml, pack_key="msg-pack")
     binds = [
         BindingInput(element_id="Svc", element_kind="serviceTask", executor_type="capability",
-                     capability_ref=_SCREEN_REF, hitl_mode="none"),
+                     capability_ref=_SCREEN_REF, hitl_mode="none",
+                     input_sources={"screen_party_input": {"from": "trigger"}}),
         BindingInput(element_id="Recv", element_kind="receiveTask", executor_type="message",
                      message_name="pay.reply"),
     ]

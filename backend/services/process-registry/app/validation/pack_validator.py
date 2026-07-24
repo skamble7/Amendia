@@ -435,19 +435,48 @@ class PackValidator:
                                      message=f"{side} '{name}': binding schema '{b_map[name].schema_}' and "
                                              f"capability schema '{c_map[name].schema_}' share no registered version")
 
-        # input produced upstream (warning)
+        # ADR-048: the seed-state contract. Validate the REAL data-flow — an input is satisfied either by
+        # a same-named upstream output (shared-name chaining) or by an input_map source (the trigger, or a
+        # named upstream artifact). An input that is neither mapped nor produced hard-fails at runtime → error.
         reach = _forward_reach(model)
         producers: Dict[str, List[str]] = {}
         for b in manifest.bindings:
             for io in b.outputs:
                 producers.setdefault(io.name, []).append(b.element_id)
+            # ADR-039: a callActivity's output_map produces its caller-artifact keys at that node.
+            if getattr(b.executor, "type", None) == "call":
+                for caller_artifact in (getattr(b.executor, "output_map", None) or {}):
+                    producers.setdefault(caller_artifact, []).append(b.element_id)
+
+        def _produced_upstream(artifact_name: str, elem: str) -> bool:
+            return any(elem in reach.get(p, set()) for p in producers.get(artifact_name, []) if p != elem)
+
+        def _artifact_refs(src: dict) -> List[str]:
+            # every `from: artifact` name referenced by a source (recursing into `fields`).
+            if "fields" in src:
+                return [n for v in src["fields"].values() for n in _artifact_refs(v)]
+            return [src["name"]] if src.get("from") == "artifact" and src.get("name") else []
+
         for b in manifest.bindings:
+            imap = {k: (v.model_dump(by_alias=True) if hasattr(v, "model_dump") else v)
+                    for k, v in (getattr(b, "input_map", None) or {}).items()}
             for io in b.inputs:
-                ok = any(b.element_id in reach.get(p, set()) for p in producers.get(io.name, []) if p != b.element_id)
-                if not ok:
-                    report.warning("unproduced_input", stage=5, element_id=b.element_id,
-                                   message=f"input '{io.name}' is not produced by any upstream binding "
-                                           f"(assumed seed state)")
+                src = imap.get(io.name)
+                if src is None:
+                    # no map → must chain from a same-named upstream output; else it fails at step 1.
+                    if not _produced_upstream(io.name, b.element_id):
+                        report.error("unproduced_input", stage=5, element_id=b.element_id,
+                                     message=f"input '{io.name}' has no input_map and is not produced by any "
+                                             f"upstream binding — it will fail at runtime; map it from the "
+                                             f"trigger or an upstream output (ADR-048)")
+                    continue
+                # mapped → a `trigger` source is satisfiable (opaque today); each `from: artifact` name
+                # must be produced upstream on the path reaching this node.
+                for name in _artifact_refs(src):
+                    if not _produced_upstream(name, b.element_id):
+                        report.error("binding_input_unproduced", stage=5, element_id=b.element_id,
+                                     message=f"input '{io.name}' maps from artifact '{name}', which is not "
+                                             f"produced by any upstream binding (ADR-048)")
 
     # ------------------------------------------------------------------ #
     # Stage 6 — gateway variables

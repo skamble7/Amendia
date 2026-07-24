@@ -133,6 +133,15 @@ async def test_side_effect_floor_holds_over_agent_lane_suggestion(svc):
 
 # --- §2 persona descriptions ----------------------------------------------------------------------
 
+def test_input_source_suggested_by_graph_position():
+    # ADR-048: an entry capability task reads the trigger; a downstream one reads its nearest upstream
+    # capability task's output (position only, no domain names).
+    by = {b.element_id: b for b in _draft(_LANES_BPMN).bindings}
+    assert by["Ta"].suggested_input_source == {"from": "trigger"}                       # entry
+    assert by["Tn"].suggested_input_source == {"from": "artifact", "element": "Ta"}      # downstream
+    assert by["Tv"].suggested_input_source == {"from": "artifact", "element": "Tn"}
+
+
 def test_capability_bindings_carry_suggested_capability_id():
     # Batch-2: a capability element's binding carries a suggested capability id (== the candidate join
     # key), so the wizard can pre-select it; human/message/call carry None.

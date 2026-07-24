@@ -28,7 +28,12 @@ from amendia_bpmn import (
     validate_table,
 )
 
-from app.services.inference import build_semantic_summary, infer_draft
+from app.services.inference import (
+    build_semantic_summary,
+    infer_draft,
+    refine_input_sources,
+    suggest_binding_input_map,
+)
 
 from amendia_contracts.artifact_schema import ArtifactSchemaRegistration
 from amendia_contracts.capability import CapabilityDescriptor
@@ -366,6 +371,13 @@ class OnboardingService:
         s.staged_artifacts = staged_arts
         s.staged_capabilities = staged_caps
         s.reused_capability_refs = reused
+        # ADR-048 D4: now that the tool schemas exist, upgrade the inferred input-source hints into a
+        # field-level input_map (entry→trigger; downstream input fields ← upstream output fields / trigger
+        # paths) so the Bindings step pre-fills real data-flow the operator only confirms. Trigger is opaque
+        # today (no declared trigger artifact — ADR-047 deferred), so unmatched fields default to a trigger
+        # path (the only remaining origin; validated as satisfiable).
+        if s.inferred is not None:
+            refine_input_sources(s.inferred, staged_caps, staged_arts)
         # Editing capabilities invalidates bindings + gateway variables (source artifacts may
         # have changed) + the dry-run. Triage/SoD/roles are independent and kept.
         cleared = self._clear(s, {"bindings", "gateway_variables", "dry_run"})
@@ -464,7 +476,8 @@ class OnboardingService:
                 capability_ref=b.capability_ref, role=b.role, assist_capability_ref=b.assist_capability_ref,
                 hitl_mode=b.hitl_mode, hitl_role=b.hitl_role,
                 message_name=message_name, call_pack=call_pack, call_version=call_version,
-                input_map=input_map, output_map=output_map, inputs=io_inputs, outputs=io_outputs,
+                input_map=input_map, output_map=output_map, input_sources=dict(b.input_sources),
+                inputs=io_inputs, outputs=io_outputs,
             ))
 
         # Bijection: exactly one binding per bindable element, no orphans, no unbound elements.
@@ -479,6 +492,12 @@ class OnboardingService:
 
         if errors:
             raise TransitionError(422, {"error": "bindings_invalid", "errors": errors})
+
+        # ADR-048 D4: fill each capability binding's input_sources from its BOUND capability's schema (never
+        # a name guess) + the upstream producers' output schemas. This is authoritative — the capability is
+        # chosen, so it works even when the BPMN element name diverges from the tool id. Only fills inputs the
+        # operator left unset (a manually-edited source is preserved).
+        await self._refine_binding_input_sources(s, staged)
 
         s.bindings = staged
         cleared = self._clear(s, {"dry_run"})
@@ -890,6 +909,56 @@ class OnboardingService:
         outs = [StagedBindingIO(name=io.name, schema_ref=str(io.schema_)) for io in desc.outputs]
         return desc.side_effect.value, floor, ins, outs
 
+    async def _refine_binding_input_sources(self, s: OnboardingSession, staged: List[StagedBinding]) -> None:
+        """ADR-048 D4: derive each capability binding's field-level ``input_map`` from its bound
+        ``capability_ref`` (authoritative — no element→capability name guessing). For each capability
+        binding we read its own input artifact schema fields and each upstream capability producer's output
+        schema fields (upstream elements come from the BPMN graph via ``inferred.upstream_caps``; the producer
+        capability is whatever that element is BOUND to), then match input fields to upstream outputs / trigger
+        paths. Only inputs the operator has NOT already sourced are filled — a manual override is preserved."""
+        by_el = {b.element_id: b for b in staged}
+        upstream_by_el: Dict[str, List[str]] = {}
+        if s.inferred is not None:
+            upstream_by_el = {ib.element_id: list(ib.upstream_caps or []) for ib in s.inferred.bindings}
+        staged_schema = {sa.artifact_key: sa.json_schema for sa in s.staged_artifacts}
+        cache: Dict[str, List[str]] = {}
+
+        async def fields_of(schema_ref: Optional[str]) -> List[str]:
+            if not schema_ref:
+                return []
+            key = schema_ref.split("@", 1)[0]
+            if key in cache:
+                return cache[key]
+            schema = staged_schema.get(key)
+            if schema is None:                                 # reused capability → catalog schema
+                regs = await self.schemas.list_by_key(key)
+                if regs:
+                    from packaging.version import Version
+                    schema = max(regs, key=lambda r: Version(r.version)).json_schema
+            props = schema.get("properties") if isinstance(schema, dict) else None
+            out = list(props) if isinstance(props, dict) else []
+            cache[key] = out
+            return out
+
+        for b in staged:
+            if b.executor_type != "capability" or not b.inputs:
+                continue
+            input_name = b.inputs[0].name
+            if input_name in (b.input_sources or {}):           # operator already sourced this input
+                continue
+            in_fields = await fields_of(b.inputs[0].schema_ref)
+            ups: List[tuple] = []
+            for up_el in upstream_by_el.get(b.element_id, []):
+                ub = by_el.get(up_el)
+                if ub is None or ub.executor_type != "capability" or not ub.outputs:
+                    continue
+                ups.append((ub.outputs[0].name, set(await fields_of(ub.outputs[0].schema_ref))))
+            suggestion = suggest_binding_input_map(input_name, in_fields, ups)  # trigger opaque today
+            merged = dict(b.input_sources or {})
+            for k, v in suggestion.items():
+                merged.setdefault(k, v)
+            b.input_sources = merged
+
     # -- manifest composition -- #
     def _staged_artifact_registration(self, sa: StagedArtifact) -> ArtifactSchemaRegistration:
         return ArtifactSchemaRegistration.model_validate({
@@ -1071,6 +1140,9 @@ class OnboardingService:
                 "element_id": b.element_id, "element_kind": b.element_kind,
                 "executor": executor, "inputs": ins, "outputs": outs,
             }
+            # ADR-048: per-input data sources → the manifest Binding.input_map (capability bindings).
+            if b.input_sources:
+                binding_doc["input_map"] = dict(b.input_sources)
             # HITL is a capability/human concept; a message/call executor has no gate (contract omits it).
             if b.executor_type in ("capability", "human"):
                 hitl: Dict[str, Any] = {"mode": b.hitl_mode}

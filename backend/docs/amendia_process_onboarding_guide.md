@@ -18,11 +18,13 @@ runtime executes** — plus **operator-testing UX refinements** (batch 1): the B
 summary after parse and focuses the coverage report, capability **reuse is now an on-demand search dialog**
 (`GET /capabilities?q=`) instead of an eager catalog list, the Bindings step **pre-selects each capability
 task** from the inference (a "suggested" chip + the HITL floor applied) so bindings arrive pre-filled, and an
-**unselected capability is a clean field-level `bindings_invalid` error** (never a raw 500 at assemble), and —
+**unselected capability is a clean field-level `bindings_invalid` error** (never a raw 500 at assemble),
 **domain-neutrality remediation P0** — the capability **domain has no business default** (operator-chosen, else
 derived from the pack_key), a **`capability_id_collision`** guardrail flags a staged id already active in the
-catalog, and **seeding is opt-in** (no hardcoded seed path; the platform boots clean with `SEED_DIR` unset);
-finding codes, profiles, and endpoints **reconciled against the source on 2026-07-18**).
+catalog, and **seeding is opt-in** (no hardcoded seed path; the platform boots clean with `SEED_DIR` unset), and
+capability **`input_map`** (ADR-048) — each input's data is sourced from the trigger or an upstream output, so
+an MCP-per-process pack chains and executes (and fails validation, not at runtime, when it can't); finding
+codes, profiles, and endpoints **reconciled against the source on 2026-07-18**).
 
 - **Audience:** Process Owners (who operate the onboarding wizard) and platform engineers (who need the
   contract/validation detail underneath).
@@ -254,7 +256,27 @@ Each binding maps an element to an **executor category** by its BPMN kind (`TASK
 Per binding: `element_id`, `element_kind`, `executor` (`{type: capability, capability: cap.*@range}` /
 `{type: human, role: role.*, assist_capability?}` / `{type: message, message_name}` /
 `{type: call, pack, version, input_map, output_map}`), `hitl {mode, role}` (capability/human only),
-`inputs`/`outputs` (artifactIO). The binding UI renders an executor sub-form per category and shows
+`inputs`/`outputs` (artifactIO), and — for a capability — an **`input_map`** (ADR-048).
+
+**Input sourcing (ADR-048):** a capability binding's `input_map` declares **where each input's data comes
+from** — `{from: trigger, path?}` (the process trigger, whole or a dotpath), `{from: artifact, name, path?}` (a
+named upstream output), or `{fields: {…}}` (a composite object built from a mix). This is what makes an
+**MCP-per-process pack chain**: introspected tools emit `<tool>_output` and need `<tool>_input`, so per-tool
+inputs never share names — the map wires the entry task from the **trigger** and later tasks from **upstream
+outputs**, and (for `mcp`) becomes the tool-call `arguments`. The step **pre-fills** each source **field by
+field** (ADR-048 D4): reading the tool schemas, it matches every input field to an **upstream output field**
+(`{from: artifact, name, path}`) or a **trigger path** (`{from: trigger, path}`), emitting a composite
+`{fields: {…}}`; an **entry** task sources the whole trigger. The suggestion is keyed off the **bound
+`capability_ref`**, never a name guess: `set_capabilities` seeds an initial hint from the pre-selected
+capability, then `set_bindings` **authoritatively** refills each capability binding's `input_sources` from *its
+own* bound capability's schemas + the upstream producers' outputs (filling only inputs the operator left unset)
+— so a task whose **BPMN element name diverges from its tool id** still gets a full field-level map once bound.
+The trigger is **opaque** today (no declared trigger
+artifact — ADR-047 deferred), so a field with no upstream producer defaults to a trigger path (the only
+remaining origin, validated as satisfiable); each pre-filled field carries a **"suggested"** chip and the
+operator overrides via the composite picker. A binding **without** `input_map` chains by shared artifact name (unchanged). It is
+**validated** (below): an input that is neither mapped nor produced upstream is a hard error, not a runtime
+death. The binding UI renders an executor sub-form per category and shows
 `multi-instance` / `compensates …` / `event-subprocess` badges. Inference pre-fills executor + lane-derived role
 with a **provenance chip** ("from lane: Ops Analyst"); a `businessRuleTask` shows a **decision-table-candidate**
 badge. **Capability pre-select (UX):** each capability task is **pre-selected** with its inferred capability
@@ -362,7 +384,7 @@ never block. Activation re-validates (defense in depth).
 | 2 · Binding↔task bijection | `duplicate_binding`, `orphan_binding`, `binding_kind_mismatch`, `executor_kind_mismatch`, `unbound_task`. |
 | 3 · Capability resolution | `unknown_capability`, `capability_no_version_in_range`, `capability_only_deprecated`; `capability_not_declared` (warn). |
 | 4 · HITL & side-effect policy | `hitl_role_missing`, `side_effect_requires_approve_actions`, `hitl_below_capability_floor` (+ deep_agent rules). |
-| 5 · Artifacts & IO | `unknown_artifact_schema`, `artifact_no_version_in_range`, `artifact_only_deprecated`, `binding_io_mismatch`, `binding_io_schema_incompatible`; `unproduced_input` (warn). |
+| 5 · Artifacts & IO | `unknown_artifact_schema`, `artifact_no_version_in_range`, `artifact_only_deprecated`, `binding_io_mismatch`, `binding_io_schema_incompatible`; `unproduced_input` / `binding_input_unproduced` (ADR-048 — real data-flow: an input must be mapped or produced upstream, **error**). |
 | 6 · Gateway variables | `gateway_variable_unknown_gateway`, `gateway_variable_unproduced`, `gateway_variable_schema_missing`, `gateway_variable_not_required`; `gateway_without_variable` (warn). |
 | 7 · Policies & triage | `sod_too_few_elements`, `sod_unknown_element`, `triage_rule_invalid`; `triage_rule_smoke` (info). |
 
@@ -549,7 +571,9 @@ is refused — the event sub-process body/handler is excluded), `bpmn_compensati
 `bpmn_compensation_handler_unbound` (an `isForCompensation` handler with no capability binding); **stage 5**
 `unknown_artifact_schema`,
 `artifact_no_version_in_range`, `artifact_only_deprecated`, `binding_io_mismatch`,
-`binding_io_schema_incompatible`; **stage 6** `gateway_variable_unknown_gateway`, `gateway_variable_unproduced`,
+`binding_io_schema_incompatible`, `unproduced_input` (ADR-048 — an input neither mapped nor produced upstream;
+now an **error**), `binding_input_unproduced` (ADR-048 — an `input_map` referencing an unproduced artifact);
+**stage 6** `gateway_variable_unknown_gateway`, `gateway_variable_unproduced`,
 `gateway_variable_schema_missing`, `gateway_variable_not_required`; **native DMN** (ADR-037, decision-kind
 bindings) `dmn_table_malformed`, `dmn_unknown_hit_policy`, `dmn_bad_unary_test`, `dmn_input_unresolved`,
 `dmn_output_unmapped`, `dmn_rules_overlap`; **collection reduction** (ADR-038, reduce-kind bindings)
@@ -559,8 +583,8 @@ bindings) `dmn_table_malformed`, `dmn_unknown_hit_policy`, `dmn_bad_unary_test`,
 `call_activity_profile_exceeds`; **stage 7** `sod_too_few_elements`, `sod_unknown_element`,
 `triage_rule_invalid`.
 
-**E · Warnings / info (never block):** `capability_not_declared` (warn, stage 3), `unproduced_input` (warn,
-stage 5), `gateway_without_variable` (warn, stage 6), `decision_ref_mismatch` (warn — advisory `businessRuleTask`
+**E · Warnings / info (never block):** `capability_not_declared` (warn, stage 3),
+`gateway_without_variable` (warn, stage 6), `decision_ref_mismatch` (warn — advisory `businessRuleTask`
 `decisionRef` names a different table id, ADR-037), `bpmn_compensate_throw_no_handlers` (warn — a compensate
 throw whose scope has no compensable activities; a runtime no-op, ADR-043), `triage_rule_smoke` (info, stage 7)
 — plus the two class-B BPMN classification findings.

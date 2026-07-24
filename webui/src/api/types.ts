@@ -25,7 +25,7 @@ export type ProcessInstance = RuntimeComponents["schemas"]["ProcessInstance"];
 // request vs response, so openapi-typescript splits them into -Input/-Output.
 // The UI reads packs, so it uses the -Output (response) shapes.
 export type ProcessPackManifest = RegistryComponents["schemas"]["ProcessPackManifest-Output"];
-export type Binding = RegistryComponents["schemas"]["Binding"];
+export type Binding = RegistryComponents["schemas"]["Binding-Output"];
 export type CapabilityDescriptor = RegistryComponents["schemas"]["CapabilityDescriptor"];
 export type ArtifactSchemaRegistration = RegistryComponents["schemas"]["ArtifactSchemaRegistration"];
 export type ResolveRequest = RegistryComponents["schemas"]["ResolveRequest"];

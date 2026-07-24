@@ -156,6 +156,8 @@ def build_node_contexts(bundle: PackBundle) -> Dict[str, NodeContext]:
             if eb.error_code
         ]
 
+        # ADR-048: per-input data source from the manifest binding (by-alias dicts, so "from" is preserved).
+        input_map = {k: v.model_dump(by_alias=True) for k, v in (getattr(mb, "input_map", None) or {}).items()}
         inputs = [IOSpec(name=io["name"], schema_ref=io["schema"]) for io in rb.get("inputs", [])]
         outputs: List[OutputSpec] = []
         for io in rb.get("outputs", []):
@@ -180,5 +182,6 @@ def build_node_contexts(bundle: PackBundle) -> Dict[str, NodeContext]:
             title=element_id,
             message_name=message_name,
             error_codes=error_codes,
+            input_map=input_map,
         )
     return contexts

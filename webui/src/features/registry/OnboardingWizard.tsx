@@ -1006,6 +1006,50 @@ function MapEditor({ value, onChange, keyPlaceholder, valPlaceholder }: {
   );
 }
 
+// ADR-048: author one input's data source — from the trigger, an upstream task's output, or a composite
+// object built field-by-field (recurses). Domain-neutral: names come from the diagram + staged caps.
+function SourcePicker({ value, onChange, outputs }: {
+  value: any; onChange: (v: any) => void; outputs: { element: string; name: string }[];
+}) {
+  const mode = value?.fields ? "composite" : (value?.from ?? "trigger");
+  const setMode = (m: string) => onChange(
+    m === "trigger" ? { from: "trigger" }
+      : m === "artifact" ? { from: "artifact", name: outputs[0]?.name ?? "" }
+        : { fields: {} });
+  return (
+    <div className="space-y-1">
+      <div className="flex items-center gap-1">
+        <select className={cn(selectCls, "h-7 w-32 text-[11px]")} value={mode} onChange={(e) => setMode(e.target.value)}>
+          <option value="trigger">from trigger</option>
+          <option value="artifact">upstream output</option>
+          <option value="composite">composite</option>
+        </select>
+        {mode === "artifact" && (
+          <select className={cn(selectCls, "h-7 flex-1 text-[11px]")} value={value.name ?? ""} onChange={(e) => onChange({ ...value, name: e.target.value })}>
+            <option value="">output…</option>
+            {outputs.map((o) => <option key={o.name} value={o.name}>{o.name} ({o.element})</option>)}
+          </select>
+        )}
+        {mode !== "composite" && (
+          <Input value={value?.path ?? ""} onChange={(e) => onChange({ ...value, path: e.target.value || undefined })} placeholder="path (opt)" className="h-7 w-24 font-mono text-[11px]" />
+        )}
+      </div>
+      {mode === "composite" && (
+        <div className="ml-2 space-y-1 border-l border-border pl-2">
+          {Object.entries(value.fields ?? {}).map(([f, sub]: any, i: number) => (
+            <div key={i} className="flex items-start gap-1">
+              <Input value={f} onChange={(e) => { const fs: any = { ...value.fields }; const v = fs[f]; delete fs[f]; fs[e.target.value] = v; onChange({ fields: fs }); }} placeholder="field" className="h-7 w-24 font-mono text-[11px]" />
+              <div className="flex-1"><SourcePicker value={sub} onChange={(nv) => onChange({ fields: { ...value.fields, [f]: nv } })} outputs={outputs} /></div>
+              <Button variant="ghost" size="icon" className="size-7" onClick={() => { const fs: any = { ...value.fields }; delete fs[f]; onChange({ fields: fs }); }}><Trash2 className="size-3" /></Button>
+            </div>
+          ))}
+          <Button variant="outline" size="sm" onClick={() => onChange({ fields: { ...value.fields, "": { from: "trigger" } } })}><Plus className="mr-1 size-3" />field</Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function BindingsStep({ session, onDone }: { session: OnboardingSession; onDone: (s: OnboardingSession) => void }) {
   const tasks: OnbBindableElement[] = session.bpmn!.bindable_elements;
   const capOptions = useMemo(
@@ -1073,6 +1117,70 @@ function BindingsStep({ session, onDone }: { session: OnboardingSession; onDone:
     return out;
   }, [tasks, inferredBind, capByBareId, capOptions]);
 
+  // ADR-048: a staged capability's input/output names (single IO) — used to author each capability
+  // binding's input_map. bareId → {input, output}.
+  const capIO = useMemo(() => {
+    const m: Record<string, { input: string; output: string }> = {};
+    for (const sc of session.staged_capabilities) m[sc.capability_id] = { input: sc.input_name, output: sc.output_name };
+    return m;
+  }, [session.staged_capabilities]);
+  const ioOf = (ref?: string | null) => (ref ? capIO[ref.split("@")[0] ?? ""] : undefined);
+
+  // ADR-048 D4: a staged capability's input/output NAMES + FIELDS (from the staged artifact schemas the
+  // session already ships). The field lists let the wizard build the same field-level input_map the backend
+  // does — keyed off the ACTUALLY-BOUND capability, never a name guess (so a task whose BPMN name diverges
+  // from its tool id still gets a suggestion). bareId → {input, inFields, output, outFields}.
+  const capFields = useMemo(() => {
+    const props: Record<string, string[]> = {};
+    for (const a of session.staged_artifacts ?? []) {
+      const p = (a.json_schema as { properties?: Record<string, unknown> } | undefined)?.properties;
+      props[a.artifact_key] = p && typeof p === "object" ? Object.keys(p) : [];
+    }
+    const m: Record<string, { input: string; inFields: string[]; output: string; outFields: string[] }> = {};
+    for (const sc of session.staged_capabilities) {
+      m[sc.capability_id] = {
+        input: sc.input_name, inFields: props[sc.input_artifact_key] ?? [],
+        output: sc.output_name, outFields: props[sc.output_artifact_key] ?? [],
+      };
+    }
+    return m;
+  }, [session.staged_capabilities, session.staged_artifacts]);
+  const cfOf = (ref?: string | null) => (ref ? capFields[ref.split("@")[0] ?? ""] : undefined);
+
+  // One input field's source: an upstream output that carries the field (→ artifact+path), an upstream
+  // output named like the field (→ that whole artifact), else the trigger (opaque client-side, mirroring the
+  // backend). Whole-map builder: entry (no upstream) → whole trigger; opaque input → whole nearest output.
+  type Up = { name: string; fields: string[] };
+  const sourceForField = (f: string, ups: Up[]): Record<string, unknown> => {
+    for (const u of ups) {
+      if (u.fields.includes(f)) return { from: "artifact", name: u.name, path: f };
+      if (f === u.name) return { from: "artifact", name: u.name };
+    }
+    return { from: "trigger", path: f };
+  };
+  const buildInputMap = (inName: string, inFields: string[], ups: Up[]): Record<string, unknown> => {
+    if (ups.length === 0) return { [inName]: { from: "trigger" } };
+    if (inFields.length === 0) return { [inName]: { from: "artifact", name: ups[0]!.name } };
+    const fields: Record<string, unknown> = {};
+    for (const f of inFields) fields[f] = sourceForField(f, ups);
+    return { [inName]: { fields } };
+  };
+  // Field-level suggestion for a capability element, keyed off its BOUND capability_ref (`refFor` resolves
+  // any element's ref — bound row, then pre-selected fallback). Upstream producers come from the BPMN graph
+  // (`inferred.upstream_caps`), each resolved to whatever capability that element is bound to.
+  const resolveInputSources = (elementId: string, refFor: (id: string) => string | undefined): Record<string, unknown> => {
+    const io = cfOf(refFor(elementId));
+    if (!io) return {};                                         // reused cap (no client schema) / unbound
+    const ups: Up[] = (inferredBind[elementId]?.upstream_caps ?? [])
+      .map((up) => { const uio = cfOf(refFor(up)); return uio ? { name: uio.output, fields: uio.outFields } : null; })
+      .filter((x): x is Up => x !== null);
+    return buildInputMap(io.input, io.inFields, ups);
+  };
+
+  // Resolve any element's capability at INIT (rows don't exist yet): its saved binding, else the pre-select.
+  const refForInit = (id: string): string | undefined =>
+    session.bindings.find((b) => b.element_id === id)?.capability_ref ?? suggestedCapRef[id];
+
   const [rows, setRows] = useState<Record<string, BindingInput>>(() => {
     const init: Record<string, BindingInput> = {};
     for (const t of tasks) {
@@ -1084,10 +1192,15 @@ function BindingsStep({ session, onDone }: { session: OnboardingSession; onDone:
         hitl_mode: existing?.hitl_mode ?? (t.category === "capability" || t.category === "human" ? inf?.suggested_hitl_mode ?? "none" : "none"),
       };
       if (existing) {
+        // ADR-048 D4: keep operator-authored input sources; when an existing capability row never got any
+        // (empty), fall back to the (now field-level) suggestion so re-opening Bindings still pre-fills.
+        const savedSrc = existing.input_sources ?? {};
         Object.assign(base, {
           capability_ref: existing.capability_ref, role: existing.role, hitl_role: existing.hitl_role,
           message_name: existing.message_name, call_pack: existing.call_pack, call_version: existing.call_version,
           input_map: existing.input_map ?? {}, output_map: existing.output_map ?? {},
+          input_sources: (t.category === "capability" && Object.keys(savedSrc).length === 0)
+            ? resolveInputSources(t.element_id, refForInit) : savedSrc,
         });
       } else {
         if (t.category === "human") {
@@ -1106,6 +1219,7 @@ function BindingsStep({ session, onDone }: { session: OnboardingSession; onDone:
             if ((HITL_RANK[base.hitl_mode] ?? 0) < fl) base.hitl_mode = fl >= 2 ? "approve_actions" : "review_after";
           }
           if (base.hitl_mode !== "none") base.hitl_role = inf?.suggested_role ?? undefined;
+          base.input_sources = resolveInputSources(t.element_id, refForInit);   // ADR-048 D4: pre-fill off the bound cap
         }
         if (t.category === "message") base.message_name = t.message_name ?? undefined;
         if (t.category === "call") { base.call_pack = t.called_pack ?? undefined; base.call_version = t.called_version ?? "^1.0.0"; base.input_map = {}; base.output_map = {}; }
@@ -1118,12 +1232,17 @@ function BindingsStep({ session, onDone }: { session: OnboardingSession; onDone:
   const [fieldErrs, setFieldErrs] = useState<Record<string, string>>({});
 
   const patch = (id: string, p: Partial<BindingInput>) => setRows((r) => ({ ...r, [id]: { ...r[id]!, ...p } as BindingInput }));
-  // Picking a capability bumps HITL to its floor if the current mode is too weak.
+  // Resolve any element's capability from the LIVE rows (bound row, else the pre-select).
+  const refForRows = (id: string): string | undefined => rows[id]?.capability_ref ?? suggestedCapRef[id];
+  // Picking a capability bumps HITL to its floor if the current mode is too weak, and RE-DERIVES the input
+  // sources for the newly-chosen capability (its input name/fields change with the capability, so the prior
+  // sources are stale) — resolving upstream refs with the new choice applied.
   const chooseExecutor = (id: string, ref: string) => {
     const fl = floorOf(ref);
     const cur = rows[id]!.hitl_mode;
     const bumped = (HITL_RANK[cur] ?? 0) < fl ? (fl >= 2 ? "approve_actions" : "review_after") : cur;
-    patch(id, { capability_ref: ref, hitl_mode: bumped });
+    const nextRef = (x: string) => (x === id ? ref : refForRows(x));
+    patch(id, { capability_ref: ref, hitl_mode: bumped, input_sources: resolveInputSources(id, nextRef) });
   };
 
   async function submit() {
@@ -1144,6 +1263,11 @@ function BindingsStep({ session, onDone }: { session: OnboardingSession; onDone:
     } finally { setBusy(false); }
   }
 
+  // ADR-048: the selectable upstream outputs for an artifact source — every capability task's output.
+  const allOutputs = tasks
+    .filter((x) => x.category === "capability")
+    .map((x) => ({ element: x.element_id, name: ioOf(rows[x.element_id]?.capability_ref)?.output }))
+    .filter((o): o is { element: string; name: string } => !!o.name);
   const errorCount = Object.keys(fieldErrs).length;
   return (
     <div className="space-y-3">
@@ -1207,6 +1331,29 @@ function BindingsStep({ session, onDone }: { session: OnboardingSession; onDone:
                   </Field>
                 </div>
               )}
+
+              {/* ADR-048: input sourcing — where each capability input's data comes from (pre-filled
+                  from the diagram; a "suggested" chip marks the inference). */}
+              {t.category === "capability" && ioOf(row.capability_ref)?.input && (() => {
+                const inName = ioOf(row.capability_ref)!.input;
+                const sug = resolveInputSources(id, refForRows)[inName];
+                const cur = (row.input_sources ?? {})[inName];
+                return (
+                  <div className="mt-3 border-t border-border pt-3">
+                    <p className="mb-1 text-xs font-medium text-muted-foreground">Input source — where <span className="font-mono">{inName}</span> comes from</p>
+                    <div className="flex items-center gap-2">
+                      <div className="flex-1">
+                        <SourcePicker value={cur ?? { from: "trigger" }}
+                          onChange={(v) => patch(id, { input_sources: { ...(row.input_sources ?? {}), [inName]: v } })}
+                          outputs={allOutputs.filter((o) => o.element !== id)} />
+                      </div>
+                      {!!cur && !!sug && JSON.stringify(cur) === JSON.stringify(sug) && (
+                        <Badge variant="agent" className="shrink-0 text-[10px]" title="Inferred from the diagram — editable">suggested</Badge>
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
 
               {/* ADR-031 message executor: the awaited business message (no HITL). */}
               {t.category === "message" && (

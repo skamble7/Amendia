@@ -136,6 +136,15 @@ class InferredBinding(BaseModel):
     # Batch-2: the inferred capability id (cap.<domain>.<name>) for a capability element — the Bindings
     # step pre-selects the matching staged/reused capability. None for human/message/call.
     suggested_capability_id: Optional[str] = None
+    # ADR-048: input-source suggestion for a capability task. At BPMN-attach this is the coarse
+    # graph-position hint ({"from":"trigger"} entry / {"from":"artifact","element":<up>} downstream); once
+    # capabilities are staged, ``refine_input_sources`` REPLACES it with a field-level ``input_map`` — the
+    # binding's input name → an InputSource that may be a composite ``{"fields":{…}}`` matching each input
+    # field to an upstream output field or a trigger path. None/empty for human/message/call.
+    suggested_input_source: Optional[Dict[str, Any]] = None
+    # ADR-048 D4: every upstream CAPABILITY element reachable on the flows into this node (nearest-first).
+    # The field-level refinement matches this node's input fields against these elements' output schemas.
+    upstream_caps: List[str] = Field(default_factory=list)
     suggested_hitl_mode: str = "none"
     source_lane: Optional[str] = None
 
@@ -306,6 +315,9 @@ class StagedBinding(BaseModel):
     call_version: Optional[str] = None
     input_map: Dict[str, str] = Field(default_factory=dict)     # callee_input_binding -> caller dotpath
     output_map: Dict[str, str] = Field(default_factory=dict)    # caller_artifact -> callee_output_binding
+    # ADR-048: per-input data source (binding input name -> InputSource dict) for a CAPABILITY binding —
+    # composed into the manifest Binding.input_map. Distinct from the call executor's input_map above.
+    input_sources: Dict[str, Any] = Field(default_factory=dict)
     inputs: List[StagedBindingIO] = Field(default_factory=list)
     outputs: List[StagedBindingIO] = Field(default_factory=list)
 
@@ -484,6 +496,8 @@ class BindingInput(BaseModel):
     call_version: Optional[str] = None
     input_map: Dict[str, str] = Field(default_factory=dict)
     output_map: Dict[str, str] = Field(default_factory=dict)
+    # ADR-048: capability input sourcing (input name -> InputSource) — where each input's data comes from.
+    input_sources: Dict[str, Any] = Field(default_factory=dict)
 
 
 class SetBindingsRequest(BaseModel):
