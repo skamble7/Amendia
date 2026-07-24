@@ -279,9 +279,16 @@ operator overrides via the composite picker. A binding **without** `input_map` c
 death. The binding UI renders an executor sub-form per category and shows
 `multi-instance` / `compensates …` / `event-subprocess` badges. Inference pre-fills executor + lane-derived role
 with a **provenance chip** ("from lane: Ops Analyst"); a `businessRuleTask` shows a **decision-table-candidate**
-badge. **Capability pre-select (UX):** each capability task is **pre-selected** with its inferred capability
-(`InferredBinding.suggested_capability_id`) matched against the staged/reused set — **exact id** first, then a
-**confident name-token** match, else left "Select…" — shown with a **"suggested"** chip; the pre-select triggers
+badge. **Capability pre-select (UX, batch-4):** each capability task is **pre-selected** by **ranking** the whole
+staged/reused set with a domain-neutral scorer (`capMatch`: light English **stemming** — `investigate`≈
+`investigation`, `notify`≈`notification`, plurals — plus directional **containment** of the candidate's tokens in
+the task-name bag, Jaccard, and a substring nudge). **Exact id** wins outright; else the top match **auto-binds**
+when confident and clearly ahead of the runner-up (a **"suggested"** chip), otherwise it is pre-filled as a
+one-click **best guess** (a dimmer **"likely"** chip) — so a descriptive BPMN name that diverges from its canonical
+tool id (`Enrich`→`enrich_investigation`, `DraftReturn`→`draft_return`) is never a cold "Select…". Only a genuine
+zero-overlap task stays unselected; dropdown options are ordered best-first. Because `input_map` inference keys off
+the bound `capability_ref`, an auto/best-guess selection immediately **cascades** (the sources re-derive), making
+Bindings confirm-only on well-formed packs. The pre-select triggers
 the same **HITL floor bump** as a manual pick (so a side-effectful task shows `approve_actions` immediately,
 never a misleading `none`). A human task's **executor role and HITL role both default to the lane role** (same
 value, editable). So bindings arrive pre-filled and the operator changes only disagreements. **Lane persona →

@@ -14,6 +14,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { BpmnViewer, type BpmnMarker } from "./BpmnViewer";
+import { rankCapMatches, tokenize, type MatchTier } from "./capMatch";
 import { ApiError } from "@/api/client";
 import { groupByStage, countBySeverity, SEVERITY_VARIANT } from "@/lib/validation";
 import { cn } from "@/lib/utils";
@@ -1092,29 +1093,27 @@ function BindingsStep({ session, onDone }: { session: OnboardingSession; onDone:
       .map((a) => [a.element_id!, a.message])),
     [session.inferred],
   );
-  // Batch-2: pre-select each capability task with its inferred capability from the selectable set
-  // (staged + reused). Exact bare-id match first, then a CONFIDENT name-token overlap; else leave empty.
+  // Batch-2 + batch-4: pre-select each capability task from the selectable set (staged + reused). Exact
+  // bare-id match first; else RANK all options by a stemming + containment score (capMatch) — auto-select the
+  // top when confident and clearly ahead ("suggested" chip), else pre-fill it as a one-click best guess
+  // ("likely" chip). Only a genuine no-overlap leaves the row cold "Select…". Options are ordered best-first.
   const capByBareId = useMemo(() => Object.fromEntries(capOptions.map((r) => [r.split("@")[0], r])), [capOptions]);
-  const suggestedCapRef = useMemo(() => {
-    const tok = (s: string) => s.toLowerCase().replace(/^cap\.[a-z0-9_]+\./, "").split(/[^a-z0-9]+/).filter((x) => x && x !== "cap");
-    const out: Record<string, string> = {};
+  const { suggestedCapRef, suggestedTier, rankedOptions } = useMemo(() => {
+    const ref: Record<string, string> = {};
+    const tier: Record<string, MatchTier> = {};
+    const ordered: Record<string, string[]> = {};
     for (const t of tasks) {
       if (t.category !== "capability") continue;
       const sid = inferredBind[t.element_id]?.suggested_capability_id as string | undefined;
-      if (sid && capByBareId[sid]) { out[t.element_id] = capByBareId[sid]; continue; }   // exact id
-      const want = new Set([...(sid ? tok(sid) : []), ...tok("cap.x." + (t.name ?? ""))]);
-      if (want.size === 0 || capOptions.length === 0) continue;
-      let best: { ref: string; score: number } | null = null;
-      for (const ref of capOptions) {
-        const have = tok(ref.split("@")[0] ?? "");
-        if (have.length === 0) continue;
-        const inter = have.filter((x) => want.has(x)).length;
-        const score = inter / new Set([...have, ...want]).size;      // Jaccard over name tokens
-        if (!best || score > best.score) best = { ref, score };
-      }
-      if (best && best.score >= 0.5) out[t.element_id] = best.ref;    // confident match only
+      if (sid && capByBareId[sid]) { ref[t.element_id] = capByBareId[sid]; tier[t.element_id] = "suggested"; }  // exact id
+      if (capOptions.length === 0) continue;
+      const bag = [...tokenize("cap.x." + (t.name ?? "")), ...(sid ? tokenize(sid) : [])];
+      const { ranked, top } = rankCapMatches(bag, capOptions);
+      ordered[t.element_id] = ranked;
+      if (ref[t.element_id]) continue;             // exact-id already won
+      if (top) { ref[t.element_id] = top.ref; tier[t.element_id] = top.tier; }
     }
-    return out;
+    return { suggestedCapRef: ref, suggestedTier: tier, rankedOptions: ordered };
   }, [tasks, inferredBind, capByBareId, capOptions]);
 
   // ADR-048: a staged capability's input/output names (single IO) — used to author each capability
@@ -1309,10 +1308,12 @@ function BindingsStep({ session, onDone }: { session: OnboardingSession; onDone:
                       <div className="flex items-center gap-1.5">
                         <select className={cn(selectCls, "flex-1")} value={row.capability_ref ?? ""} onChange={(e) => chooseExecutor(id, e.target.value)}>
                           <option value="">Select…</option>
-                          {capOptions.map((r) => <option key={r} value={r}>{r}{sideEffectOf(r) === "side_effectful" ? " · side-effectful" : ""}</option>)}
+                          {(rankedOptions[id] ?? capOptions).map((r) => <option key={r} value={r}>{r}{sideEffectOf(r) === "side_effectful" ? " · side-effectful" : ""}</option>)}
                         </select>
                         {row.capability_ref && row.capability_ref === suggestedCapRef[id] && (
-                          <Badge variant="agent" className="shrink-0 text-[10px]" title="Pre-selected from the diagram — editable">suggested</Badge>
+                          suggestedTier[id] === "likely"
+                            ? <Badge variant="outline" className="shrink-0 text-[10px] opacity-70" title="Best-guess match — confirm or change">likely</Badge>
+                            : <Badge variant="agent" className="shrink-0 text-[10px]" title="Pre-selected from the diagram — editable">suggested</Badge>
                         )}
                       </div>
                     ) : (

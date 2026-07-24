@@ -367,6 +367,42 @@ describe("Onboarding wizard", () => {
     expect((await screen.findAllByText("suggested")).length).toBeGreaterThanOrEqual(1);
   });
 
+  it("bindings step best-guesses a divergent-name capability instead of a cold Select… (batch-4)", async () => {
+    const be = (over: Record<string, unknown>) => ({
+      name: null, is_multi_instance: false, is_for_compensation: false,
+      compensation_primary: null, in_event_subprocess: false, ...over,
+    });
+    // "Enrich" only weakly matches the tool id "enrich_investigation" (below the auto bar) — the old Jaccard
+    // left it "Select…". The ranked scorer now pre-fills it as a one-click "likely" best guess.
+    const session = {
+      session_id: "sess-lk", created_by: "owner-1", created_at: "", updated_at: "", state: "bindings_set",
+      basics: { pack_key: "p", version: "1.0.0", title: "P", default_domain: "payment" },
+      bpmn: {
+        process_id: "P", bpmn_file: "p.bpmn", sha256: "x", service_tasks: ["Enrich"], user_tasks: [],
+        gateways: [], task_names: {},
+        bindable_elements: [be({ element_id: "Enrich", element_kind: "serviceTask", category: "capability", name: "Enrich" })],
+      },
+      staged_artifacts: [], reused_capability_refs: [], bindings: [],
+      staged_capabilities: [{ capability_id: "cap.payment.enrich_investigation", version: "1.0.0", title: "Enrich", side_effect: "read_only", input_name: "enrich_investigation_input", input_artifact_key: "art.payment.enrich_investigation_input", output_name: "enrich_investigation_output", output_artifact_key: "art.payment.enrich_investigation_output", endpoint: "http://x", tool: "enrich_investigation", transport: "streamable_http", headers: {} }],
+      triage_rules: [], gateway_variables: [], sod_policies: [], roles: [],
+      inferred: {
+        roles: [], gateway_variables: [], artifact_seeds: [], sod_candidates: [], annotations: [], capability_candidates: [],
+        bindings: [{ element_id: "Enrich", element_kind: "serviceTask", executor_type: "capability", suggested_capability_id: "cap.payment.enrich", suggested_input_source: { from: "trigger" }, upstream_caps: [], suggested_hitl_mode: "none", source_lane: null }],
+      },
+      dry_run_report: null, commit_progress: [], result_pack: null, last_cleared: [],
+    };
+    server.use(
+      http.get(`${REG}/onboarding/sess-lk`, () => HttpResponse.json(session)),
+      http.get(`${REG}/capabilities`, () => HttpResponse.json([])),
+      http.get(`${REG}/packs`, () => HttpResponse.json([])),
+    );
+    renderApp("/registry/onboard/sess-lk", "owner-1");
+
+    // pre-filled with the best-guess capability (not a cold Select…) + a dim "likely" chip
+    expect(await screen.findByDisplayValue(/cap\.payment\.enrich_investigation@\^1\.0\.0/)).toBeInTheDocument();
+    expect(await screen.findByText("likely")).toBeInTheDocument();
+  });
+
   it("capabilities step reuses a capability via on-demand search (no eager catalog load) (batch-1)", async () => {
     let eagerLoads = 0;
     const session = {
