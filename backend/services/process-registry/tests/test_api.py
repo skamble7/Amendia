@@ -46,7 +46,7 @@ async def test_capabilities_and_schemas_listed(client, registered):
     caps = (await client.get("/capabilities")).json()
     assert len(caps) == 10
     schemas = (await client.get("/artifact-schemas")).json()
-    assert len(schemas) == 11  # ADR-047 D2: +per-tool mcp output schemas (screen_party/assess/enrich)
+    assert len(schemas) == 8  # ADR-047 D2: per-tool mcp output schemas; orphan consumer schemas retired
     one = await client.get("/capabilities/cap.payment.sanctions_screen/1.0.0")
     assert one.status_code == 200 and one.json()["kind"] == "mcp"
 

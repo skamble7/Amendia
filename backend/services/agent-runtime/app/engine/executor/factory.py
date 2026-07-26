@@ -17,7 +17,9 @@ import logging
 from typing import Any, Optional
 
 from app.engine.executor.base import Executor
+from app.engine.executor.deep_agent import build_deep_agent_runner
 from app.engine.executor.dispatch import InProcessExecutor, _run_blocking
+from app.engine.executor.mcp_client import build_mcp_client
 from app.engine.executor.memo import InMemoryMemoStore
 from app.engine.executor.openshell import (
     BrokerOpenShellClient,
@@ -26,8 +28,29 @@ from app.engine.executor.openshell import (
     RabbitBrokerTransport,
 )
 from app.engine.executor.sandboxed import SandboxedExecutor
+from app.engine.executor.stub_inference import SchemaStubDeepAgentRunner
 
 logger = logging.getLogger(__name__)
+
+
+def _capability_stack(settings) -> dict:
+    """ADR-047 D2: the injectables every executor needs to run MCP-backed packs. Post-D2 there is NO
+    per-process simulation code, so these must be wired for BOTH production and dev — the harness wires the
+    same set via ``tests/_stub_stack``. Omitting them (the pre-D2 factory) makes every `mcp` capability fail
+    closed on its first node.
+
+      * ``mcp_client``  — always wired: an `mcp` capability has no fallback (``build_mcp_client`` returns the
+        HTTP client that POSTs `tools/call` to the descriptor's self-descriptive endpoint, ADR-024).
+      * ``stub_inference`` — under ``SIMULATION_MODE`` the `llm`/`deep_agent` kinds emit schema-valid stubs
+        (no real provider); otherwise the real provider path runs.
+      * ``deep_agent_runner`` — the schema-stub runner under simulation, else the configured real runner.
+    """
+    simulating = bool(getattr(settings, "SIMULATION_MODE", True))
+    return {
+        "mcp_client": build_mcp_client(settings),
+        "stub_inference": simulating,
+        "deep_agent_runner": SchemaStubDeepAgentRunner() if simulating else build_deep_agent_runner(settings),
+    }
 
 
 class NemoClawUnavailable(RuntimeError):
@@ -48,7 +71,9 @@ def build_openshell_client(settings) -> OpenShellClient:
     logger.info(
         "nemoclaw mode: capability-worker disabled — using deterministic FakeOpenShellClient"
     )
-    return FakeOpenShellClient(simulation=settings.SIMULATION_MODE)
+    # ADR-047 D2: the fake runs the SAME shared core as native (the spec carries the descriptor), so it needs
+    # the SAME capability stack — else its delegated `mcp` calls fail closed exactly like the native path did.
+    return FakeOpenShellClient(simulation=settings.SIMULATION_MODE, **_capability_stack(settings))
 
 
 def build_executor(settings, *, client: Optional[OpenShellClient] = None,
@@ -71,7 +96,9 @@ def build_executor(settings, *, client: Optional[OpenShellClient] = None,
         store = memo
         if native_memoize and store is None:
             store = InMemoryMemoStore()
-        return InProcessExecutor(memo=store, memoize=native_memoize)
+        # ADR-047 D2: wire the capability stack (mcp_client / stub_inference / deep_agent_runner). Without it
+        # every `mcp`-backed pack dies on its first node — the harness wired this but the factory did not.
+        return InProcessExecutor(memo=store, memoize=native_memoize, **_capability_stack(settings))
 
     if mode == "native":
         return _native()

@@ -9,6 +9,7 @@ client / fake LLM client / fake deep_agent runner, no network, no inference.
 """
 from __future__ import annotations
 
+import json
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
@@ -29,9 +30,9 @@ from app.engine.executor.base import (
 )
 from app.engine.executor.core import execute_capability
 from app.engine.executor.mcp_client import (
-    HttpMcpClient,
     InProcessMcpClient,
     _raise_if_business_error,
+    _result_to_artifact,
 )
 from app.engine.state import initial_state
 from tests._stub_stack import stub_executor
@@ -228,49 +229,48 @@ def test_execute_capability_mcp_technical_error_stays_technical():
         execute_capability(d, {}, _ctx(b, MCP_CAP), mcp_client=_RaisingMcpClient())
 
 
-@pytest.mark.asyncio
-async def test_http_client_iserror_body_raises_business_error(monkeypatch):
-    body = {"jsonrpc": "2.0", "id": 1,
-            "result": {"isError": True, "structuredContent": {"error_code": "PAYMENT_REJECTED"}}}
-    _install_fake_httpx(monkeypatch, body)
-    with pytest.raises(CapabilityBusinessError):
-        await HttpMcpClient().call_tool(endpoint="http://x", tool="screen_party",
-                                        arguments={}, transport="streamable_http")
+# --------------------------------------------------------------------------- #
+# ADR-035 mapping of an SDK CallToolResult → artifact (HttpMcpClient consolidated on the mcp SDK, D2 §5).
+# `_result_to_artifact` takes anything with .isError/.structuredContent/.content, so a lightweight double
+# stands in for `mcp.types.CallToolResult` — the real-server transport is covered by the integration test.
+# --------------------------------------------------------------------------- #
+class _CTR:
+    """A minimal CallToolResult double. `content` blocks mimic the SDK's TextContent (a `.text` JSON string)."""
+
+    def __init__(self, *, structuredContent=None, content=None, isError=False):
+        self.structuredContent = structuredContent
+        self.content = [SimpleNamespace(text=t) for t in (content or [])]
+        self.isError = isError
 
 
-@pytest.mark.asyncio
-async def test_http_client_jsonrpc_error_stays_technical(monkeypatch):
-    body = {"jsonrpc": "2.0", "id": 1, "error": {"code": -32000, "message": "boom"}}
-    _install_fake_httpx(monkeypatch, body)
-    with pytest.raises(RuntimeError):  # protocol error → technical (caller maps to CapabilityError)
-        await HttpMcpClient().call_tool(endpoint="http://x", tool="screen_party",
-                                        arguments={}, transport="streamable_http")
+def test_result_to_artifact_returns_structured_content():
+    out = _result_to_artifact(_CTR(structuredContent={"status": "clear"}), "screen_party")
+    assert out == {"status": "clear"}
 
 
-def _install_fake_httpx(monkeypatch, body):
-    import httpx
+def test_result_to_artifact_iserror_with_code_raises_business_error():
+    r = _CTR(isError=True, structuredContent={"error_code": "PAYMENT_REJECTED", "reason": "rails"})
+    with pytest.raises(CapabilityBusinessError) as ei:
+        _result_to_artifact(r, "screen_party")
+    assert ei.value.error_code == "PAYMENT_REJECTED"
+    assert ei.value.detail["reason"] == "rails"
 
-    class _Resp:
-        def raise_for_status(self):
-            return None
 
-        def json(self):
-            return body
+def test_result_to_artifact_iserror_without_code_falls_back_to_generic():
+    with pytest.raises(CapabilityBusinessError) as ei:
+        _result_to_artifact(_CTR(isError=True, content=["something broke"]), "screen_party")
+    assert ei.value.error_code == "MCP_TOOL_ERROR"
 
-    class _Client:
-        def __init__(self, **kw):
-            pass
 
-        async def __aenter__(self):
-            return self
+def test_result_to_artifact_text_content_json_fallback():
+    # No structuredContent → parse the first JSON text content block (SDK TextContent).
+    out = _result_to_artifact(_CTR(content=[json.dumps({"verdict": "clean"})]), "screen_party")
+    assert out == {"verdict": "clean"}
 
-        async def __aexit__(self, *a):
-            return False
 
-        async def post(self, url, json=None, headers=None):
-            return _Resp()
-
-    monkeypatch.setattr(httpx, "AsyncClient", _Client)
+def test_result_to_artifact_no_structured_result_is_technical():
+    with pytest.raises(RuntimeError):
+        _result_to_artifact(_CTR(content=["not json"]), "screen_party")
 
 
 # =========================================================================== #

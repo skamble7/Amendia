@@ -169,6 +169,88 @@ Running the registry suite against the flipped seeds surfaced 16 failures + a sc
   `art.payment.wire_exception`, and relocating `amendia_contracts/wire_exception.py` (a domain contract not
   imported by any platform service) out of the shared lib.
 
+**Progress (2026-07-26 cont.) — PRODUCTION-WIRING regression fixed (harness↔factory gap):**
+- **Symptom (live):** an accepted exception created an instance that produced NO HITL task. Root cause: the
+  D2 flip updated the *test harness* executor wiring (`tests/_stub_stack`) but NOT the *production* composition
+  root. `factory.build_executor` → `_native()` built `InProcessExecutor()` with `mcp_client=None`; post-D2 an
+  `mcp` capability fails closed, so `Task_EnrichPayment` (first node, now `kind: mcp`) raised
+  `CapabilityError: requires an MCP client` → instance failed before any gate → empty inbox. Every suite stayed
+  green because they all inject the stack and none exercised `build_executor`.
+- **Fix (3 links):** (1) `factory._capability_stack(settings)` wires the D2 stack — `mcp_client` always
+  (`build_mcp_client`), `stub_inference = SIMULATION_MODE`, `deep_agent_runner` (schema-stub under simulation) —
+  applied in BOTH `_native()` and `build_openshell_client` (the fake delegates to the same core); stale
+  `InProcessExecutor` docstring corrected. (2) Repointed all 16 wire-pack `mcp` endpoints
+  `http://stub-mcp:8056/mcp` → the deployed `http://wirefix-mcp:8060/mcp` (`mcp_stub/deploy`); registry
+  introspection is endpoint-driven (no hardcoded host). (3) `tests/test_build_executor_wiring.py` drives a wire
+  pack + widget-qa through the REAL `build_executor` (swapping only the MCP transport for in-process),
+  asserting the wire pack reaches its first HITL gate and the fresh domain runs to `End_Certified` — the
+  coverage every green suite skipped. **Verified the test catches the bug:** against the pre-fix factory it
+  fails with the exact live error on `Task_EnrichPayment`.
+- **Result: agent-runtime 281 passed / 2 skipped (code suite); process-registry 241 passed.** The live-stack
+  e2e will pass after redeploy (rebuild agent-runtime image + re-onboard seeds with the new endpoints — seeds
+  are immutable-once-active, so `down -v` or a version bump is required; the stub MCP server must be reachable
+  at `wirefix-mcp:8060` on the shared network).
+
+**Progress (2026-07-26 cont.) — MCP transport fix (surfaced after redeploy):** with the factory + endpoints
+fixed, the live runtime reached `wirefix-mcp:8060` but `Task_EnrichPayment` still failed —
+`MCP call failed: 307 Temporary Redirect for .../mcp` (→ `/mcp/`). `HttpMcpClient` was a naive httpx POST
+missing two MCP streamable-HTTP essentials the SDK-based registry introspector already had: (1) it didn't
+**follow redirects** (`/mcp`→`/mcp/` 307), and (2) it advertised only `application/json` in Accept, but the
+`StreamableHTTPSessionManager` requires **both** `application/json` and `text/event-stream` (406 otherwise).
+Fix: `httpx.AsyncClient(follow_redirects=True)` + dual Accept + a `_parse_mcp_http_body` helper that accepts
+either a JSON or an SSE-framed reply (the server runs `stateless=True, json_response=True`, so no session
+handshake is needed). **Verified end-to-end against the real FastMCP server** (ran it locally; `screen_party`
+and `enrich_investigation` return their structured artifacts). Regression tests added
+(`test_real_business_error`: asserts follow_redirects + dual Accept, and SSE-frame parsing).
+**agent-runtime 283 passed / 2 skipped.** This fix is **code-only** — no re-onboard needed (the resolved caps
+already carry the correct endpoint); just rebuild the agent-runtime image.
+
+**Progress (2026-07-26 cont.) — one MCP client for the platform (consolidated on the SDK):** the two transport
+fixes above were band-aids on a hand-rolled client. Root inconsistency: the onboarding introspector used the
+official `mcp` SDK while the runtime hand-rolled httpx — so a server that introspected cleanly failed at
+execution. Consolidated: added `mcp>=1.9` to agent-runtime and reimplemented `HttpMcpClient.call_tool` on the
+SDK (`streamablehttp_client`/`sse_client` + `ClientSession.initialize()` + `call_tool`), the SAME connection
+setup as the introspector — the SDK owns redirects/SSE/negotiation. Deleted the hand-rolled `_parse_mcp_http_body`
++ manual 307/Accept handling. ADR-035 preserved via `_result_to_artifact` (isError+error_code →
+`CapabilityBusinessError`; transport/protocol → technical `RuntimeError`). New `test_http_mcp_client_integration.py`
+runs the real wire-transfer FastMCP server in-process and drives the client over the full transport; 5
+`_result_to_artifact` unit tests cover the ADR-035 mapping. **agent-runtime 287 passed / 2 skipped**; verified
+end-to-end against the real server. See the completion report §5.
+
+**Progress (2026-07-26 cont.) — data-contract drift reconciled (empty agent drafts): DONE.** The re-home
+swapped skill→mcp but left several consumer schemas on the pre-D2 field contract the old in-code skills
+fabricated: data flowed into fields the MCP tools don't emit, so schema-driven human forms rendered EMPTY
+(confirmed live: `Task_ObtainInfo` showed empty `payment_snapshot`/`gpi_status`/…). Golden-equivalence missed
+it — it asserts outcome + artifact-NAME set, not field content. This was seed/fixture reconciliation only, no
+platform-code change.
+- **Drift found (3 shared-name chains, consumer declared ≠ producer emits):**
+  1. `dossier`: producer `art.payment.enrich_investigation_output` `{exception_id,payment,parties,history}`
+     vs consumer-declared `art.payment.investigation_dossier` `{payment_snapshot,gpi_status,account_history,
+     attachment_summaries}` — consumers: `Task_AssessRepairability`, `Task_ObtainInfo`, `Task_DraftRepair`,
+     `Task_DraftReturn` (standard + agentic).
+  2. `beneficiary` (standard only): producer `art.payment.assess_beneficiary_output` vs consumer-declared
+     `art.payment.repair_verdict` — consumers `Task_DraftRepair`, `Task_DraftReturn`.
+  3. `screening`: producer `art.compliance.screen_party_output` `{status,…}` vs consumer-declared
+     `art.compliance.screening_result` `{verdict,…}` — consumers `Task_ApplyRepair`, `Task_RecordResolution`.
+- **How reconciled:** repointed every drifted consumer (manifest binding **and** cap descriptor input) to the
+  **producer's real output schema** — the MCP tool's actual shape. The MCP action consumers read no dossier/
+  screening fields (they acknowledge); the draft_* consumers are `llm` (they receive the whole typed input);
+  the forms are schema-driven, so repointing the declared input fixes the render. No prompt/form files exist
+  (LLM framing is descriptor-sourced), so nothing else to change. `gateway_variables` already pointed at the
+  real producer schemas.
+- **Retired orphan schemas** (no producer after reconciliation): `art.payment.investigation_dossier` (standard,
+  agentic, dmn), `art.compliance.screening_result` (standard, agentic), `art.payment.repair_verdict` (standard
+  only — still produced by the deep_agent in agentic, kept there). Standard artifact-schemas 11→8.
+- **No field fabricated in the platform.** Every consumer field now has a producer; no stub-tool output needed
+  a deliberate addition for the demo path (the enrich tool already emits `payment`/`parties`/`history`).
+- **"Green means populated" (Step 3):** `tests/test_content_reconciliation.py` asserts the produced dossier
+  VALIDATES against `Task_ObtainInfo`'s declared form schema and carries the envelope's creditor/payment — and
+  a structural guard that no consumer input schema differs from its producer's output. Verified it **fails on
+  the pre-reconciliation schema** (`payment_snapshot/gpi_status required; payment/parties/history unexpected`)
+  and passes after. Test-content drift from the retired schemas was ported (seed counts 11→8; refs repointed to
+  `assess_beneficiary_output`/`enrich_investigation_output`). **agent-runtime 289 passed / 2 skipped;
+  process-registry 241 passed.**
+
 **Relates:** ADR-047 (domain-neutrality; D2 = "the runtime carries no per-process capability code"), ADR-048
 (capability `input_map`), ADR-024 (self-descriptive descriptors), the MCP Implementor Guideline, the MCP-backed
 onboarding runbook (D2's end-to-end proof).

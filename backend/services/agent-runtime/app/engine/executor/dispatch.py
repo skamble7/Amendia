@@ -47,10 +47,11 @@ class InProcessExecutor:
         # ADR-047 D2: a `{capability_id: callable}` map of skill doubles (dev/CI) so a structural pack runs
         # with the skill behavior in the fixture layer, not the platform image.
         self._skill_impls = skill_impls
-        # ADR-047 D2: an optional in-process MCP client. When supplied, `mcp`-kind capabilities execute
-        # through it (the real dispatch path with an in-process transport) instead of the simulation
-        # fallback — so an MCP-backed pack runs end-to-end in-process without a live server. None keeps the
-        # legacy native behavior (mcp → simulation skill).
+        # ADR-047 D2: the MCP client `mcp`-kind capabilities dispatch through — the HTTP client (POSTs
+        # `tools/call` to the descriptor's self-descriptive endpoint, ADR-024) in production, or an
+        # in-process client (server tools as callables) in tests/dev. There is NO simulation fallback:
+        # post-D2 an `mcp` capability with `mcp_client=None` fails closed (see `core.py`). The composition
+        # root (`factory._capability_stack`) must wire this for every executor — production and dev alike.
         self._mcp_client = mcp_client
         # ADR-047 D2: a `deep_agent` runner (e.g. SchemaStubDeepAgentRunner) + a `stub_inference` flag that
         # make `llm`/`deep_agent` caps produce schema-valid stubs — a `SIM_CAPABILITIES`-free dev/CI fake.

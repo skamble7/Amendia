@@ -30,7 +30,7 @@ def test_mcp_policy_from_endpoint_and_tools():
     assert p["mcp"]["endpoint"]                     # self-descriptive endpoint (ADR-024)
     assert p["mcp"]["tools"]                        # non-empty whitelist from runtime.tools
     assert p["mcp"]["transport"]                    # from runtime.transport
-    assert any("stub-mcp" in h for h in p["allow_hosts"])  # egress host parsed from the endpoint
+    assert any("wirefix-mcp" in h for h in p["allow_hosts"])  # egress host parsed from the endpoint
 
 
 def test_llm_policy_restricts_to_inference_proxy():

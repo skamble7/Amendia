@@ -44,5 +44,5 @@ async def test_real_broker_roundtrip_sanctions():
     )
     client = BrokerOpenShellClient(RabbitBrokerTransport(settings.RABBITMQ_URL))
     res = await asyncio.wait_for(client.run_capability(spec), timeout=35)
-    assert res.outputs["art.compliance.screening_result"]["verdict"] in ("clean", "hit")
+    assert res.outputs["art.compliance.screen_party_output"]["status"] in ("clear", "hit", "needs_review")
     assert res.otlp_trace_id

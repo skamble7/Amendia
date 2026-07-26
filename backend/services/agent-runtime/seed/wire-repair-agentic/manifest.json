@@ -80,9 +80,7 @@
   ],
   "artifacts": [
     "art.compliance.screen_party_output@^1.0.0",
-    "art.compliance.screening_result@^1.0.0",
     "art.payment.enrich_investigation_output@^1.0.0",
-    "art.payment.investigation_dossier@^1.0.0",
     "art.payment.repair_instruction@^1.0.0",
     "art.payment.repair_verdict@^1.0.0",
     "art.payment.resolution_record@^1.0.0",
@@ -146,7 +144,7 @@
       "inputs": [
         {
           "name": "dossier",
-          "schema": "art.payment.investigation_dossier@^1.0.0"
+          "schema": "art.payment.enrich_investigation_output@^1.0.0"
         }
       ],
       "outputs": [
@@ -171,7 +169,7 @@
       "inputs": [
         {
           "name": "dossier",
-          "schema": "art.payment.investigation_dossier@^1.0.0"
+          "schema": "art.payment.enrich_investigation_output@^1.0.0"
         }
       ],
       "outputs": [
@@ -195,7 +193,7 @@
       "inputs": [
         {
           "name": "dossier",
-          "schema": "art.payment.investigation_dossier@^1.0.0"
+          "schema": "art.payment.enrich_investigation_output@^1.0.0"
         },
         {
           "name": "beneficiary",
@@ -286,7 +284,7 @@
         },
         {
           "name": "screening",
-          "schema": "art.compliance.screening_result@^1.0.0"
+          "schema": "art.compliance.screen_party_output@^1.0.0"
         }
       ],
       "outputs": [],
@@ -361,7 +359,7 @@
         },
         {
           "name": "screening",
-          "schema": "art.compliance.screening_result@^1.0.0"
+          "schema": "art.compliance.screen_party_output@^1.0.0"
         }
       ],
       "outputs": [
@@ -385,7 +383,7 @@
       "inputs": [
         {
           "name": "dossier",
-          "schema": "art.payment.investigation_dossier@^1.0.0"
+          "schema": "art.payment.enrich_investigation_output@^1.0.0"
         },
         {
           "name": "beneficiary",

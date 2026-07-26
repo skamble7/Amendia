@@ -14,12 +14,12 @@ from app.seeding.load import SeedConflictError, SeedLoader
 async def test_seed_inserts_then_is_idempotent(mongo, db):
     r1 = await SeedLoader(settings.SEED_DIR).load(mongo)
     # 8 schemas (+wire_exception trigger, ADR-047 D1) + 10 caps + 1 pack + 1 sample = 20 inserted
-    assert len(r1.inserted) == 23
+    assert len(r1.inserted) == 20
     assert len(r1.skipped) == 0
 
     r2 = await SeedLoader(settings.SEED_DIR).load(mongo)
     # Re-run: everything already present is skipped (sample is upserted → counts as inserted).
-    assert len(r2.skipped) == 22
+    assert len(r2.skipped) == 19
     assert await db[CAPABILITIES].count_documents({}) == 10
     assert await db[PROCESS_PACKS].count_documents({}) == 1
 
@@ -50,7 +50,7 @@ async def test_tamper_same_version_is_refused(mongo, tmp_path):
 async def test_bad_embedded_schema_is_rejected(mongo, tmp_path):
     seed_copy = tmp_path / "wire-repair-standard"
     shutil.copytree(settings.SEED_DIR, seed_copy)
-    bad = seed_copy / "artifact-schemas" / "art.payment.repair_verdict.json"
+    bad = seed_copy / "artifact-schemas" / "art.payment.assess_beneficiary_output.json"
     reg = json.loads(bad.read_text())
     reg["json_schema"]["type"] = 12345  # not a valid JSON Schema
     bad.write_text(json.dumps(reg))

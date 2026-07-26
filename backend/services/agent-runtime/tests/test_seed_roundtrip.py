@@ -33,7 +33,7 @@ def test_capabilities_roundtrip():
 
 def test_artifact_schemas_roundtrip():
     files = sorted((SEED / "artifact-schemas").glob("*.json"))
-    assert len(files) == 11
+    assert len(files) == 8   # ADR-047 D2: orphan consumer schemas retired (dossier/verdict/screening drift)
     for f in files:
         _roundtrip(ArtifactSchemaRegistration, f)
 
@@ -42,7 +42,7 @@ def test_manifest_roundtrip_and_bindings():
     m = ProcessPackManifest.model_validate_json((SEED / "manifest.json").read_text())
     assert len(m.bindings) == 12
     assert len(m.requires_capabilities) == 10
-    assert len(m.artifacts) == 11
+    assert len(m.artifacts) == 8   # ADR-047 D2: orphan consumer schemas retired
     again = ProcessPackManifest.model_validate(m.to_doc())
     assert again.to_doc() == m.to_doc()
 

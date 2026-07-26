@@ -8,10 +8,16 @@
   "side_effect": "read_only",
   "idempotent": true,
   "inputs": [
-    { "name": "dossier", "schema": "art.payment.investigation_dossier@^1.0.0" }
+    {
+      "name": "dossier",
+      "schema": "art.payment.enrich_investigation_output@^1.0.0"
+    }
   ],
   "outputs": [
-    { "name": "rfi", "schema": "art.payment.rfi_request@^1.0.0" }
+    {
+      "name": "rfi",
+      "schema": "art.payment.rfi_request@^1.0.0"
+    }
   ],
   "runtime": {
     "kind": "llm",
@@ -19,7 +25,11 @@
     "model_config_key": null,
     "structured_output": true
   },
-  "constraints": { "timeout_seconds": 120, "max_retries": 2, "min_hitl_mode": "manual" },
+  "constraints": {
+    "timeout_seconds": 120,
+    "max_retries": 2,
+    "min_hitl_mode": "manual"
+  },
   "owner": "platform",
   "status": "active"
 }

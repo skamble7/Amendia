@@ -8,11 +8,20 @@
   "side_effect": "read_only",
   "idempotent": true,
   "inputs": [
-    { "name": "repair", "schema": "art.payment.repair_instruction@^1.0.0" },
-    { "name": "screening", "schema": "art.compliance.screening_result@^1.0.0" }
+    {
+      "name": "repair",
+      "schema": "art.payment.repair_instruction@^1.0.0"
+    },
+    {
+      "name": "screening",
+      "schema": "art.compliance.screen_party_output@^1.0.0"
+    }
   ],
   "outputs": [
-    { "name": "resolution", "schema": "art.payment.resolution_record@^1.0.0" }
+    {
+      "name": "resolution",
+      "schema": "art.payment.resolution_record@^1.0.0"
+    }
   ],
   "runtime": {
     "kind": "llm",
@@ -20,7 +29,11 @@
     "model_config_key": null,
     "structured_output": true
   },
-  "constraints": { "timeout_seconds": 120, "max_retries": 2, "min_hitl_mode": "none" },
+  "constraints": {
+    "timeout_seconds": 120,
+    "max_retries": 2,
+    "min_hitl_mode": "none"
+  },
   "owner": "platform",
   "status": "active"
 }

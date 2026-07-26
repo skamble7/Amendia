@@ -79,7 +79,7 @@ async def test_full_lifecycle(client, registered):
     # resolution sub-doc is present and pinned
     resolution = (await client.get(f"/packs/{PK}/{PV}/resolution")).json()
     assert resolution["capabilities"]["cap.payment.apply_repair"] == "1.0.0"
-    assert resolution["artifacts"]["art.payment.repair_verdict"] == "1.0.0"
+    assert resolution["artifacts"]["art.payment.assess_beneficiary_output"] == "1.0.0"
     # ADR-027 Phase 2.5: the BPMN-derived min execution profile is pinned into the sidecar. The seed
     # has no parallel gateways → common_subset.
     assert resolution["required_execution_profile"] == "common_subset"
