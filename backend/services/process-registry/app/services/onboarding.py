@@ -71,6 +71,7 @@ from app.services.activation import resolve_pins
 from app.services.mcp_introspect import (
     McpConnectionError,
     McpIntrospector,
+    classify_id_collision,
     infer_capability,
     introspect_response_tool,
     normalize_artifact_schema,
@@ -79,7 +80,12 @@ from app.services.mcp_introspect import (
 from app.services.registration import RegistrationError, register_schema
 from app.validation.bpmn import compute_sha256
 from app.validation.pack_validator import PackValidator
-from app.validation.predicates import PredicateSyntaxError, check_predicate
+from app.validation.predicates import (
+    PredicateSyntaxError,
+    check_predicate,
+    infer_field_types,
+    validate_predicate,
+)
 
 _DOMAIN_RE = re.compile(r"^[a-z0-9_]+$")
 _APPROVE_ACTIONS = HitlMode.APPROVE_ACTIONS
@@ -210,11 +216,17 @@ class OnboardingService:
                             "the container itself, not your host. Use the deployment-facing URL (e.g. the "
                             "Docker service alias like http://<service>:<port>/mcp), not localhost.")
             raise TransitionError(502, {"error": "mcp_connection_failed", "message": message})
-        return IntrospectMcpResponse(
-            endpoint=req.endpoint,
-            transport=req.transport,
-            tools=[introspect_response_tool(t, domain=domain) for t in tools],
-        )
+        # Batch-4: for each compliant tool, classify its derived cap.<domain>.<tool> id against the ACTIVE
+        # catalog — a hard collision (contract differs) or a benign reuse opportunity. Advisory (non-blocking);
+        # the wizard surfaces the diff + a "distinct domain" / "reuse" fix at the Capabilities step, so the
+        # cap.<domain>.* clash that later becomes binding_io_mismatch is caught here, not at assemble.
+        resp_tools = [introspect_response_tool(t, domain=domain) for t in tools]
+        for rt in resp_tools:
+            if rt.compliance.compliant and rt.suggested_capability_id:
+                active = [v for v in await self.caps.list_by_id(rt.suggested_capability_id)
+                          if v.status.value == "active"]
+                rt.id_collision = classify_id_collision(active, domain=domain, tool=rt.name)
+        return IntrospectMcpResponse(endpoint=req.endpoint, transport=req.transport, tools=resp_tools)
 
     # ------------------------------------------------------------------ #
     # 1) create — INITIATED
@@ -252,6 +264,9 @@ class OnboardingService:
                 pack_key=req.pack_key, version=req.version, title=req.title,
                 description=req.description, default_domain=domain,
             ),
+            # Batch-4: the trigger field/type map (from the deployment sample envelopes) so the Triage step can
+            # author against the real schema — a field picker + type-valid ops. Empty ⇒ free-text fallback.
+            trigger_fields=infer_field_types(self._samples),
         )
         return await self.sessions.insert(session)
 
@@ -352,19 +367,9 @@ class OnboardingService:
             else:
                 reused.append(ref)
 
-        # L1 collision guardrail: a NEWLY-staged capability id that already exists as an ACTIVE catalog
-        # capability would silently bind this pack to someone else's capability at commit (the cap.<domain>
-        # namespace clash the audit flagged). Flag it here so the operator picks a distinct domain — to
-        # *reuse* an existing capability, add it via "Reuse a capability" instead of re-staging its id.
-        for sc in staged_caps:
-            active = [v for v in await self.caps.list_by_id(sc.capability_id) if v.status.value == "active"]
-            if active:
-                errors.append({"capability_id": sc.capability_id, "field": "capability_id",
-                               "code": "capability_id_collision",
-                               "message": f"capability id '{sc.capability_id}' already exists as an active "
-                                          f"catalog capability (v{active[0].version}) — choose a distinct "
-                                          f"domain, or reuse the existing capability instead of re-authoring it"})
-
+        # Batch-4: the capability-id collision guardrail is now an ADVISORY surfaced at introspect
+        # (``id_collision`` per tool), not a hard block here — the operator chooses distinct-domain vs reuse.
+        # A hard collision they ignore still fails the assemble dry-run (binding_io_mismatch) as a backstop.
         if errors:
             raise TransitionError(422, {"error": "capabilities_invalid", "errors": errors})
 
@@ -528,6 +533,11 @@ class OnboardingService:
         if not req.triage_rules:
             raise TransitionError(422, {"error": "triage_invalid",
                                         "errors": [{"message": "at least one triage rule is required"}]})
+        # Batch-4: schema-aware check against the pack's trigger shape (the deployment sample envelopes; a
+        # declared trigger artifact would slot in the same way). A field that isn't on the trigger, or an op
+        # incompatible with the field's type, is a blocking error here — not a silent "never triages" at
+        # runtime. Degrades to structural-only when no trigger schema is available.
+        field_types = infer_field_types(self._samples)
         errors: List[dict] = []
         for rule in req.triage_rules:
             try:
@@ -538,6 +548,10 @@ class OnboardingService:
                 check_predicate(parsed.when)
             except (PredicateSyntaxError, ValueError) as exc:
                 errors.append({"rule_id": rule.rule_id, "message": f"invalid predicate: {exc}"})
+                continue
+            for f in validate_predicate(rule.when, field_types):
+                errors.append({"rule_id": rule.rule_id, "field": f["field"], "code": f["code"],
+                               "suggestion": f.get("suggestion"), "message": f["message"]})
         if errors:
             raise TransitionError(422, {"error": "triage_invalid", "errors": errors})
 

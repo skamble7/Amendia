@@ -30,10 +30,11 @@ from app.engine.executor.base import (
 from app.engine.executor.core import execute_capability
 from app.engine.executor.mcp_client import (
     HttpMcpClient,
-    StubMcpClient,
+    InProcessMcpClient,
     _raise_if_business_error,
 )
 from app.engine.state import initial_state
+from tests._stub_stack import stub_executor
 from tests._wire import drive, make_envelope
 
 PK, PV = "wire-repair-standard", "1.0.0"
@@ -81,6 +82,14 @@ class _RaisingMcpClient:
         raise RuntimeError("connection reset")
 
 
+def _rejecting_mcp_client(code: str = "PAYMENT_REJECTED") -> InProcessMcpClient:
+    """An in-process MCP client whose `screen_party` tool returns an MCP ``isError`` result — the
+    server-native way to signal a modeled business error (ADR-035). No domain stub in the platform image."""
+    def _reject(_arguments):
+        return {"isError": True, "structuredContent": {"error_code": code}}
+    return InProcessMcpClient({"screen_party": _reject})
+
+
 # --------------------------------------------------------------------------- #
 # Helpers
 # --------------------------------------------------------------------------- #
@@ -102,28 +111,28 @@ def _ctx(bundle, cap_id, *, simulation=False, error_codes=None) -> ExecutionCont
 
 
 def _valid_repair_instruction() -> dict:
-    """A schema-valid repair_instruction artifact — reuse the sim capability's own output."""
-    from app.capabilities.wire_repair.draft_repair import run
-    return run(inputs={"beneficiary": {}}, envelope=make_envelope("AC01"))["outputs"][
-        "art.payment.repair_instruction"
-    ]
+    """A schema-valid repair_instruction artifact (ADR-047 D2: from the pinned schema, no domain code)."""
+    from app.engine.executor.stub_inference import stub_from_schema
+    schema = _bundle().schemas["art.payment.repair_instruction@1.0.0"]
+    return stub_from_schema(schema)
 
 
 class HybridRealExecutor:
-    """Runs the REAL path for a named set of capabilities (with injected fake clients), and the
-    deterministic simulation path for everything else — so a single capability can be exercised on
-    its real code path inside a full sim graph. Implements the ``Executor`` protocol."""
+    """Runs the REAL path for a named set of capabilities (with injected fake clients), and the shared
+    D2 stub stack for everything else — so a single capability can be exercised on its real code path
+    inside an otherwise-stubbed graph. Implements the ``Executor`` protocol."""
 
-    def __init__(self, real_caps, *, mcp_client=None, deep_agent_runner=None) -> None:
+    def __init__(self, real_caps, *, mcp_client=None, deep_agent_runner=None, base=None) -> None:
         self._real = set(real_caps)
         self._mcp = mcp_client
         self._da = deep_agent_runner
+        self._base = base or stub_executor()
 
     def execute(self, descriptor, inputs, ctx):
         if descriptor.capability_id in self._real:
             return execute_capability(descriptor, inputs, replace(ctx, simulation=False),
                                       mcp_client=self._mcp, deep_agent_runner=self._da)
-        return execute_capability(descriptor, inputs, ctx, mcp_client=None)
+        return self._base.execute(descriptor, inputs, ctx)
 
 
 def _seed_xml() -> str:
@@ -197,9 +206,8 @@ def test_non_error_result_is_a_noop():
 
 
 @pytest.mark.asyncio
-async def test_stub_client_error_result_raises_business_error():
-    client = StubMcpClient(error_result={"isError": True,
-                                          "structuredContent": {"error_code": "PAYMENT_REJECTED"}})
+async def test_inprocess_client_error_result_raises_business_error():
+    client = _rejecting_mcp_client()
     with pytest.raises(CapabilityBusinessError):
         await client.call_tool(endpoint="e", tool="screen_party", arguments={}, transport="streamable_http")
 
@@ -207,8 +215,7 @@ async def test_stub_client_error_result_raises_business_error():
 def test_execute_capability_mcp_propagates_business_error_unwrapped():
     b = _bundle()
     d = b.descriptors[MCP_CAP]
-    client = StubMcpClient(error_result={"isError": True,
-                                         "structuredContent": {"error_code": "PAYMENT_REJECTED"}})
+    client = _rejecting_mcp_client()
     with pytest.raises(CapabilityBusinessError) as ei:
         execute_capability(d, {}, _ctx(b, MCP_CAP), mcp_client=client)
     assert ei.value.error_code == "PAYMENT_REJECTED"
@@ -316,6 +323,21 @@ def test_run_real_llm_no_error_codes_no_business_error_hint(monkeypatch):
     assert "business_error" not in fake.seen[0][0]["content"]
 
 
+def test_run_real_llm_framing_is_descriptor_sourced_and_domain_neutral(monkeypatch):
+    # ADR-047: the system framing states the capability's role from its registered title/description; the
+    # platform embeds no business-area noun and the user turn labels the trigger generically.
+    fake = _FakeLLMClient('{"verdict": "ok"}')
+    monkeypatch.setattr(dispatch, "_llm_client", lambda ref: fake)
+    dispatch.run_real_llm(capability_id="cap.x.assess", targets=[("art.x.verdict", None)], ref="r",
+                          inputs={"a": 1}, envelope=make_envelope("AC01"),
+                          title="Assess beneficiary", description="Score the beneficiary match.")
+    system = fake.seen[0][0]["content"]
+    user = fake.seen[0][1]["content"]
+    assert "Assess beneficiary" in system and "Score the beneficiary match." in system   # from the descriptor
+    assert "payments exception" not in system.lower() and "exception-repair" not in system.lower()
+    assert user.startswith("Trigger:") and "Payment exception envelope" not in user
+
+
 def test_business_error_from_object_shapes():
     assert business_error_from_object({"business_error": {"code": "X"}}).error_code == "X"
     assert business_error_from_object({"business_error": {"code": "  "}}) is None  # blank
@@ -348,8 +370,7 @@ def test_deep_agent_raised_business_error_propagates_unwrapped():
 # Graph: a real business error routes to the error boundary (ADR-030 routing)
 # =========================================================================== #
 def test_real_mcp_business_error_routes_to_boundary():
-    client = StubMcpClient(error_result={"isError": True,
-                                         "structuredContent": {"error_code": "PAYMENT_REJECTED"}})
+    client = _rejecting_mcp_client()
     ex = HybridRealExecutor([MCP_CAP], mcp_client=client)
     app = _graph(_xml_with_boundary(host="Task_SanctionsRescreen"), ex)
     result, _ = drive(app, {"configurable": {"thread_id": "rbe-mcp"}}, _initial())
@@ -363,8 +384,7 @@ def test_real_mcp_business_error_routes_to_boundary():
 
 def test_real_mcp_unmatched_code_goes_to_failure_sink():
     # tool signals PAYMENT_REJECTED but the boundary catches only SOMETHING_ELSE (no catch-all).
-    client = StubMcpClient(error_result={"isError": True,
-                                         "structuredContent": {"error_code": "PAYMENT_REJECTED"}})
+    client = _rejecting_mcp_client()
     ex = HybridRealExecutor([MCP_CAP], mcp_client=client)
     app = _graph(_xml_with_boundary(host="Task_SanctionsRescreen", code="SOMETHING_ELSE"), ex)
     result, _ = drive(app, {"configurable": {"thread_id": "rbe-mcp-unmatched"}}, _initial())

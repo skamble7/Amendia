@@ -21,7 +21,6 @@ from typing import Any, Callable, Dict, Optional
 
 from amendia_contracts.capability import CapabilityDescriptor
 
-from app.capabilities.wire_repair import SIM_CAPABILITIES
 from app.config import settings
 from app.engine.executor.base import CapabilityBusinessError, CapabilityError, ExecutionContext
 
@@ -44,13 +43,6 @@ def _resolve_skill(descriptor: CapabilityDescriptor) -> Callable:
         raise CapabilityError(f"cannot import skill {entrypoint!r}: {exc}") from exc
 
 
-def _resolve_sim(descriptor: CapabilityDescriptor) -> Callable:
-    fn = SIM_CAPABILITIES.get(descriptor.capability_id)
-    if fn is None:
-        raise CapabilityError(f"no simulation capability registered for {descriptor.capability_id}")
-    return fn
-
-
 def _call(fn: Callable, descriptor: CapabilityDescriptor, inputs, ctx: ExecutionContext) -> Dict[str, Any]:
     try:
         result = fn(
@@ -71,12 +63,21 @@ def _call(fn: Callable, descriptor: CapabilityDescriptor, inputs, ctx: Execution
 def execute_capability(
     descriptor: CapabilityDescriptor, inputs: Dict[str, Any], ctx: ExecutionContext,
     *, mcp_client: Optional[Any] = None, deep_agent_runner: Optional[Any] = None,
+    stub_inference: bool = False, skill_impls: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-    """Kind-dispatch one capability. Pure w.r.t. host state (no validate/commit/memo)."""
+    """Kind-dispatch one capability. Pure w.r.t. host state (no validate/commit/memo).
+
+    ``stub_inference`` (ADR-047 D2, dev/CI): produce a schema-valid stub for `llm` (and, via a stub
+    ``deep_agent_runner``, for `deep_agent`) instead of a real model call — a `SIM_CAPABILITIES`-free fake.
+    ``skill_impls`` (ADR-047 D2, dev/CI): a ``{capability_id: callable}`` map of `skill` doubles — used
+    instead of importing the descriptor's ``runtime.entrypoint``. It lets a test exercise a structural pack
+    (call-activity / scope / event / compensation wiring) with the behavior moved to the fixture layer, so
+    the platform image carries no in-code capability."""
     kind = _kind(descriptor)
 
     if kind == "skill":
-        return _call(_resolve_skill(descriptor), descriptor, inputs, ctx)
+        fn = (skill_impls or {}).get(descriptor.capability_id)
+        return _call(fn or _resolve_skill(descriptor), descriptor, inputs, ctx)
 
     if kind == "deep_agent":
         # nemoclaw-only: a deep_agent runner is only supplied on the worker/sandbox path. Its
@@ -89,30 +90,20 @@ def execute_capability(
         return _execute_deep_agent(descriptor, inputs, ctx, deep_agent_runner, mcp_client)
 
     if kind == "llm":
-        if ctx.simulation:
-            return _call(_resolve_sim(descriptor), descriptor, inputs, ctx)
+        # ADR-047 D2: dev/CI produce a schema-valid stub; otherwise the real provider path. No sim skill.
+        if stub_inference:
+            from app.engine.executor.stub_inference import stub_outputs
+            return stub_outputs(descriptor, ctx)
         return _execute_llm_real(descriptor, inputs, ctx)
 
     if kind == "mcp":
-        if ctx.simulation:
-            return _call(_resolve_sim(descriptor), descriptor, inputs, ctx)
-        if mcp_client is not None:
-            # Real MCP transport (worker path, ADR-020 Part D; ADR-024). endpoint/tools/
-            # transport/headers come straight from the self-descriptive descriptor; the client
-            # POSTs tools/call to that endpoint. list_provider stays stub in dev (no real OFAC).
-            return _execute_mcp_real(descriptor, inputs, ctx, mcp_client)
-        # No MCP client (native / fake) → paired simulation skill. Boundary logged.
-        fn = SIM_CAPABILITIES.get(descriptor.capability_id)
-        if fn is None:
-            raise NotImplementedError(
-                f"real MCP execution for {descriptor.capability_id} is not available and no "
-                "simulation fallback is registered"
-            )
-        logger.warning(
-            "MCP capability %s: no MCP client on this path — using simulation fallback",
-            descriptor.capability_id,
-        )
-        return _call(fn, descriptor, inputs, ctx)
+        # ADR-047 D2: an `mcp` capability executes through the MCP client (endpoint/tools/transport from the
+        # self-descriptive descriptor, ADR-024) — the HTTP one (worker) or an in-process one (test/dev).
+        # There is no simulation fallback: with no client an MCP call cannot be made (fail closed).
+        if mcp_client is None:
+            raise CapabilityError(
+                f"mcp capability '{descriptor.capability_id}' requires an MCP client (none on this path)")
+        return _execute_mcp_real(descriptor, inputs, ctx, mcp_client)
 
     if kind == "decision":
         # ADR-037: a native DMN decision table — pure over (table, inputs), so it runs identically in
@@ -202,10 +193,16 @@ def _execute_llm_real(descriptor, inputs, ctx: ExecutionContext) -> Dict[str, An
     produced, provider, model = run_real_llm(
         capability_id=descriptor.capability_id, targets=targets, ref=ref,
         inputs=inputs, envelope=ctx.envelope, error_codes=error_codes, cancel=ctx.cancel,
+        # ADR-047: framing is descriptor-sourced (title/description), never a hardcoded domain.
+        title=getattr(descriptor, "title", None), description=getattr(descriptor, "description", None),
     )
     return {
         "outputs": produced,
         "log": f"real LLM [{ref}] ({provider}:{model}) produced {', '.join(produced)}",
+        # Surface the resolved provider/model so a sandbox wrapper can report the REAL provider it routed
+        # to (e.g. nemoclaw), not just its own substrate name — the native↔sandbox transparency guarantee.
+        "provider": provider,
+        "model": model,
     }
 
 
@@ -287,6 +284,10 @@ def _execute_mcp_real(descriptor, inputs, ctx: ExecutionContext, mcp_client) -> 
     except Exception as exc:  # noqa: BLE001
         raise CapabilityError(f"{descriptor.capability_id}: MCP call failed: {exc}") from exc
 
+    # A side-effectful action tool may declare NO bound output artifact — it is called for its effect and
+    # returns only an acknowledgement (a business error already propagated above). Nothing to map then.
+    if not descriptor.outputs:
+        return {"outputs": {}, "log": f"real MCP [{endpoint}:{tool}] acknowledged (no bound output)"}
     artifact_key = descriptor.outputs[0].model_dump(by_alias=True)["schema"].split("@", 1)[0]
     return {
         "outputs": {artifact_key: artifact},

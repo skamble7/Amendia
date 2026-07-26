@@ -43,6 +43,21 @@ class PackBundle:
         return self.manifest.version
 
     @property
+    def trigger_schema(self) -> Optional[Dict[str, Any]]:
+        """ADR-047 D1: the JSON schema of the pack's declared TRIGGER artifact (the inbound envelope's
+        shape), resolved from the pinned schemas — or None when the pack declares no trigger, in which case
+        the dispatcher treats the envelope as opaque. Domain-neutral: the engine never imports a concrete
+        envelope type; the shape is registered data."""
+        ref = getattr(self.manifest, "trigger", None)
+        if not ref:
+            return None
+        bare = _bare(str(ref))
+        for key, schema in self.schemas.items():
+            if _bare(key) == bare:
+                return schema
+        return None
+
+    @property
     def required_execution_profile(self) -> str:
         """The minimum execution profile this pack needs, pinned in resolution at activation
         (ADR-027 Phase 2.5). Older packs with no pin default to the conservative common_subset."""

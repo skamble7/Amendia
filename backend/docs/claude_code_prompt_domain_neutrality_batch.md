@@ -19,7 +19,9 @@ MCP-backed onboarding runbook. Recon each file first; do not hardcode the test p
 - `process-registry/app/services/inference.py:~103`: remove the `or "payment"` fallback; take the domain from the
   session/request and propagate it. If a domain is genuinely unavailable at inference time, that is a caller bug —
   surface it, don't paper over it with `payment`.
-- **Collision guardrail (the actual fix for the reported bug):** at MCP introspection / capability staging, when a
+- **Collision guardrail — ✅ ALREADY SHIPPED (batch-4, 2026-07-21) — SKIP THIS BULLET.** Implemented as a
+  Capabilities-step advisory (`classify_id_collision` + `IdCollision`, hard vs benign, distinct-domain /
+  reuse fixes). Do **not** re-implement. Original intent for reference: at MCP introspection / capability staging, when a
   derived capability id (`cap.<domain>.<tool>`) **collides with an already-active capability** in the catalog,
   flag it as a non-committable finding at the **Capabilities step** (e.g. `capability_id_collision`, naming the id
   and the active version), and steer the operator to a distinct domain. This is generic — it compares against the

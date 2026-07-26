@@ -1,0 +1,368 @@
+{
+  "wire-repair-agentic": {
+    "needs_info_be04": {
+      "artifacts": [
+        "beneficiary",
+        "dossier",
+        "repair",
+        "resolution",
+        "screening"
+      ],
+      "hitl": [
+        [
+          "Task_AssessRepairability",
+          "review_after"
+        ],
+        [
+          "Task_DraftRepair",
+          "review_after"
+        ],
+        [
+          "Task_ApproveRepair",
+          "manual"
+        ],
+        [
+          "Task_SanctionsRescreen",
+          "approve_result"
+        ],
+        [
+          "Task_ApplyRepair",
+          "approve_actions"
+        ],
+        [
+          "Task_NotifyParties",
+          "approve_actions"
+        ]
+      ],
+      "outcome": "End_Resolved",
+      "status": "completed"
+    },
+    "repairable_ac01": {
+      "artifacts": [
+        "beneficiary",
+        "dossier",
+        "repair",
+        "resolution",
+        "screening"
+      ],
+      "hitl": [
+        [
+          "Task_AssessRepairability",
+          "review_after"
+        ],
+        [
+          "Task_DraftRepair",
+          "review_after"
+        ],
+        [
+          "Task_ApproveRepair",
+          "manual"
+        ],
+        [
+          "Task_SanctionsRescreen",
+          "approve_result"
+        ],
+        [
+          "Task_ApplyRepair",
+          "approve_actions"
+        ],
+        [
+          "Task_NotifyParties",
+          "approve_actions"
+        ]
+      ],
+      "outcome": "End_Resolved",
+      "status": "completed"
+    },
+    "repairable_rc01": {
+      "artifacts": [
+        "beneficiary",
+        "dossier",
+        "repair",
+        "resolution",
+        "screening"
+      ],
+      "hitl": [
+        [
+          "Task_AssessRepairability",
+          "review_after"
+        ],
+        [
+          "Task_DraftRepair",
+          "review_after"
+        ],
+        [
+          "Task_ApproveRepair",
+          "manual"
+        ],
+        [
+          "Task_SanctionsRescreen",
+          "approve_result"
+        ],
+        [
+          "Task_ApplyRepair",
+          "approve_actions"
+        ],
+        [
+          "Task_NotifyParties",
+          "approve_actions"
+        ]
+      ],
+      "outcome": "End_Resolved",
+      "status": "completed"
+    },
+    "screening_hit": {
+      "artifacts": [
+        "beneficiary",
+        "dossier",
+        "repair",
+        "resolution",
+        "screening"
+      ],
+      "hitl": [
+        [
+          "Task_AssessRepairability",
+          "review_after"
+        ],
+        [
+          "Task_DraftRepair",
+          "review_after"
+        ],
+        [
+          "Task_ApproveRepair",
+          "manual"
+        ],
+        [
+          "Task_SanctionsRescreen",
+          "approve_result"
+        ],
+        [
+          "Task_ApplyRepair",
+          "approve_actions"
+        ],
+        [
+          "Task_NotifyParties",
+          "approve_actions"
+        ]
+      ],
+      "outcome": "End_Resolved",
+      "status": "completed"
+    }
+  },
+  "wire-repair-dmn": {
+    "needs_info_be04": {
+      "artifacts": [
+        "decision",
+        "dossier"
+      ],
+      "hitl": [],
+      "outcome": "End_Auto",
+      "status": "completed"
+    },
+    "repairable_ac01": {
+      "artifacts": [
+        "decision",
+        "dossier"
+      ],
+      "hitl": [],
+      "outcome": "End_Auto",
+      "status": "completed"
+    },
+    "repairable_rc01": {
+      "artifacts": [
+        "decision",
+        "dossier"
+      ],
+      "hitl": [],
+      "outcome": "End_Auto",
+      "status": "completed"
+    },
+    "screening_hit": {
+      "artifacts": [
+        "decision",
+        "dossier"
+      ],
+      "hitl": [],
+      "outcome": "End_Auto",
+      "status": "completed"
+    }
+  },
+  "wire-repair-screening": {
+    "needs_info_be04": {
+      "artifacts": [
+        "screening",
+        "summary"
+      ],
+      "hitl": [],
+      "outcome": "End_Clean",
+      "status": "completed"
+    },
+    "repairable_ac01": {
+      "artifacts": [
+        "screening",
+        "summary"
+      ],
+      "hitl": [],
+      "outcome": "End_Clean",
+      "status": "completed"
+    },
+    "repairable_rc01": {
+      "artifacts": [
+        "screening",
+        "summary"
+      ],
+      "hitl": [],
+      "outcome": "End_Clean",
+      "status": "completed"
+    },
+    "screening_hit": {
+      "artifacts": [
+        "screening",
+        "summary"
+      ],
+      "hitl": [],
+      "outcome": "End_Hit",
+      "status": "completed"
+    }
+  },
+  "wire-repair-standard": {
+    "needs_info_be04": {
+      "artifacts": [
+        "beneficiary",
+        "dossier",
+        "rfi"
+      ],
+      "hitl": [
+        [
+          "Task_AssessRepairability",
+          "review_after"
+        ],
+        [
+          "Task_ObtainInfo",
+          "manual"
+        ],
+        [
+          "Task_AssessRepairability",
+          "review_after"
+        ],
+        [
+          "Task_ObtainInfo",
+          "manual"
+        ]
+      ],
+      "outcome": null,
+      "status": "waiting_hitl_loop"
+    },
+    "repairable_ac01": {
+      "artifacts": [
+        "beneficiary",
+        "dossier",
+        "repair",
+        "resolution",
+        "screening"
+      ],
+      "hitl": [
+        [
+          "Task_AssessRepairability",
+          "review_after"
+        ],
+        [
+          "Task_DraftRepair",
+          "review_after"
+        ],
+        [
+          "Task_ApproveRepair",
+          "manual"
+        ],
+        [
+          "Task_SanctionsRescreen",
+          "approve_result"
+        ],
+        [
+          "Task_ApplyRepair",
+          "approve_actions"
+        ],
+        [
+          "Task_NotifyParties",
+          "approve_actions"
+        ]
+      ],
+      "outcome": "End_Resolved",
+      "status": "completed"
+    },
+    "repairable_rc01": {
+      "artifacts": [
+        "beneficiary",
+        "dossier",
+        "repair",
+        "resolution",
+        "screening"
+      ],
+      "hitl": [
+        [
+          "Task_AssessRepairability",
+          "review_after"
+        ],
+        [
+          "Task_DraftRepair",
+          "review_after"
+        ],
+        [
+          "Task_ApproveRepair",
+          "manual"
+        ],
+        [
+          "Task_SanctionsRescreen",
+          "approve_result"
+        ],
+        [
+          "Task_ApplyRepair",
+          "approve_actions"
+        ],
+        [
+          "Task_NotifyParties",
+          "approve_actions"
+        ]
+      ],
+      "outcome": "End_Resolved",
+      "status": "completed"
+    },
+    "screening_hit": {
+      "artifacts": [
+        "beneficiary",
+        "dossier",
+        "repair",
+        "resolution",
+        "screening"
+      ],
+      "hitl": [
+        [
+          "Task_AssessRepairability",
+          "review_after"
+        ],
+        [
+          "Task_DraftRepair",
+          "review_after"
+        ],
+        [
+          "Task_ApproveRepair",
+          "manual"
+        ],
+        [
+          "Task_SanctionsRescreen",
+          "approve_result"
+        ],
+        [
+          "Task_ApplyRepair",
+          "approve_actions"
+        ],
+        [
+          "Task_NotifyParties",
+          "approve_actions"
+        ]
+      ],
+      "outcome": "End_Resolved",
+      "status": "completed"
+    }
+  }
+}

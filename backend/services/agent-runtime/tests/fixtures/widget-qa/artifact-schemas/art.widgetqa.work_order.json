@@ -1,0 +1,19 @@
+{
+  "artifact_key": "art.widgetqa.work_order",
+  "version": "1.0.0",
+  "title": "Widget QA work order (process trigger)",
+  "json_schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://amendia.dev/schemas/artifacts/widgetqa/work_order/1.0.0.json",
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["widget_id", "batch_id"],
+    "properties": {
+      "widget_id": { "type": "string" },
+      "batch_id": { "type": "string" },
+      "line": { "type": "string" }
+    }
+  },
+  "compatibility": "backward",
+  "status": "active"
+}

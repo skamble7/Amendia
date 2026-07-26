@@ -189,7 +189,7 @@ async def test_set_capabilities_prefills_field_level_input_map_and_it_persists(s
                           input_sources=assess.suggested_input_source)]
     s = await svc.set_bindings(s.session_id, SetBindingsRequest(bindings=binds), owner=OWNER)
     s = await svc.set_triage(s.session_id, SetTriageRequest(triage_rules=[
-        StagedTriageRule(rule_id="r", priority=1, when={"field": "reason_code", "op": "eq", "value": "AC01"})]),
+        StagedTriageRule(rule_id="r", priority=1, when={"field": "reason_codes", "op": "intersects", "value": ["AC01"]})]),
         owner=OWNER)
     s = await svc.set_policies(s.session_id, SetPoliciesRequest(), owner=OWNER)
     s = await svc.assemble(s.session_id, owner=OWNER)
@@ -257,7 +257,7 @@ async def test_set_bindings_fills_input_map_when_element_name_diverges_from_tool
     assert fields["reason_codes"] == {"from": "trigger", "path": "reason_codes"}
 
     s = await svc.set_triage(s.session_id, SetTriageRequest(triage_rules=[
-        StagedTriageRule(rule_id="r", priority=1, when={"field": "reason_code", "op": "eq", "value": "AC01"})]),
+        StagedTriageRule(rule_id="r", priority=1, when={"field": "reason_codes", "op": "intersects", "value": ["AC01"]})]),
         owner=OWNER)
     s = await svc.set_policies(s.session_id, SetPoliciesRequest(), owner=OWNER)
     s = await svc.assemble(s.session_id, owner=OWNER)

@@ -1,0 +1,37 @@
+{
+  "artifact_key": "art.compliance.screen_party_output",
+  "version": "1.0.0",
+  "title": "Screen party output",
+  "json_schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://amendia.dev/schemas/artifacts/compliance/screen_party_output/1.0.0.json",
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "status": {
+        "type": "string",
+        "enum": [
+          "clear",
+          "hit",
+          "needs_review"
+        ]
+      },
+      "matched_lists": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "score": {
+        "type": "number",
+        "minimum": 0,
+        "maximum": 1
+      }
+    },
+    "required": [
+      "status"
+    ]
+  },
+  "compatibility": "backward",
+  "status": "active"
+}

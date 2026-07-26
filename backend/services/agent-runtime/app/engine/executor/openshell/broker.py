@@ -52,6 +52,7 @@ def spec_to_job(spec: CapabilityRunSpec) -> Dict[str, Any]:
         "envelope": spec.envelope,
         "output_schemas": spec.output_schemas,
         "error_codes": spec.error_codes,        # ADR-035: legal boundary codes
+        "mcp_arguments": spec.mcp_arguments,    # ADR-048/D2: same MCP tool call as the native path
         "mode": spec.mode,
         "approved_action_ids": spec.approved_action_ids,
         "model_config_ref": spec.model_config_ref,

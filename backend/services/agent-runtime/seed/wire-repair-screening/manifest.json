@@ -39,7 +39,7 @@
     }
   ],
   "artifacts": [
-    "art.screening.party_result@^1.0.0",
+    "art.screening.screen_party_output@^1.0.0",
     "art.screening.summary@^1.0.0"
   ],
   "bindings": [
@@ -53,13 +53,36 @@
       "hitl": {
         "mode": "none"
       },
-      "inputs": [],
+      "inputs": [
+        {
+          "name": "trigger",
+          "schema": "art.screening.screen_party_output@^1.0.0",
+          "required": true
+        }
+      ],
       "outputs": [
         {
           "name": "screening",
-          "schema": "art.screening.party_result@^1.0.0"
+          "schema": "art.screening.screen_party_output@^1.0.0"
         }
-      ]
+      ],
+      "input_map": {
+        "trigger": {
+          "fields": {
+            "party": {
+              "from": "trigger",
+              "path": "payment.creditor"
+            },
+            "envelope": {
+              "from": "trigger"
+            },
+            "exception_id": {
+              "from": "trigger",
+              "path": "exception_id"
+            }
+          }
+        }
+      }
     },
     {
       "element_id": "Task_Reduce",
@@ -74,7 +97,7 @@
       "inputs": [
         {
           "name": "screening",
-          "schema": "art.screening.party_result@^1.0.0"
+          "schema": "art.screening.screen_party_output@^1.0.0"
         }
       ],
       "outputs": [

@@ -24,6 +24,7 @@ from app.engine.bundle import PackBundle
 from app.engine.compiler import CompilerError, compile_graph
 from app.engine.engine import ProcessEngine
 from app.engine.executor import InProcessExecutor
+from tests._stub_stack import stub_executor
 from app.models.process_instance import InstanceStatus, ProcessInstance
 from app.services.timer_service import TimerService
 from amendia_contracts.hitl_task import TaskStatus
@@ -127,7 +128,7 @@ async def harness():
     cp = MemorySaver()
     b = _bundle()
     eng = ProcessEngine(registry=None, instance_repo=instances, hitl_repo=hitl, publisher=FakePublisher(),
-                        settings=_Settings(), executor=InProcessExecutor(), checkpointer=cp, timer_service=timers)
+                        settings=_Settings(), executor=stub_executor(), checkpointer=cp, timer_service=timers)
     eng._bundles[(PK, PV)] = b
     eng._graphs[(PK, PV)] = compile_graph(b, eng._executor, simulation=True, checkpointer=cp,
                                           profile="common_executable")
@@ -139,9 +140,9 @@ def test_capstone_pins_common_executable_and_refuses_common_subset():
     assert required_profile(b.bpmn_model) == "common_executable"
     # a common_subset runtime refuses the composed pack at compile
     with pytest.raises(CompilerError):
-        compile_graph(b, InProcessExecutor(), simulation=True, checkpointer=MemorySaver(), profile="common_subset")
+        compile_graph(b, stub_executor(), simulation=True, checkpointer=MemorySaver(), profile="common_subset")
     # a common_executable runtime compiles it
-    compile_graph(b, InProcessExecutor(), simulation=True, checkpointer=MemorySaver(), profile="common_executable")
+    compile_graph(b, stub_executor(), simulation=True, checkpointer=MemorySaver(), profile="common_executable")
 
 
 async def test_capstone_composed_happy_path_runs_end_to_end(harness):

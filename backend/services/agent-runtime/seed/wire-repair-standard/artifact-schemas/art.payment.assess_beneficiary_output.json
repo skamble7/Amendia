@@ -1,0 +1,35 @@
+{
+  "artifact_key": "art.payment.assess_beneficiary_output",
+  "version": "1.0.0",
+  "title": "Assess beneficiary output",
+  "json_schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://amendia.dev/schemas/artifacts/payment/assess_beneficiary_output/1.0.0.json",
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "repair_verdict": {
+        "type": "string",
+        "enum": [
+          "repairable",
+          "unrepairable",
+          "needs_info"
+        ]
+      },
+      "confidence": {
+        "type": "number",
+        "minimum": 0,
+        "maximum": 1
+      },
+      "rationale": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "repair_verdict",
+      "rationale"
+    ]
+  },
+  "compatibility": "backward",
+  "status": "active"
+}

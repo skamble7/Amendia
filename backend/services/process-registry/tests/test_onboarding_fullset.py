@@ -179,7 +179,7 @@ async def test_compose_emits_message_and_call_executors(ce_service):
     s = await _attach_and_stage(ce_service, _FULL_SET)
     s = await ce_service.set_bindings(s.session_id, SetBindingsRequest(bindings=_full_set_bindings()), owner=OWNER)
     s = await ce_service.set_triage(s.session_id, SetTriageRequest(triage_rules=[
-        StagedTriageRule(rule_id="r", priority=1, when={"field": "reason_code", "op": "eq", "value": "AC01"})]), owner=OWNER)
+        StagedTriageRule(rule_id="r", priority=1, when={"field": "reason_codes", "op": "intersects", "value": ["AC01"]})]), owner=OWNER)
     s = await ce_service.set_policies(s.session_id, SetPoliciesRequest(), owner=OWNER)
     manifest, _descs, _regs = ce_service._compose(s)
     by_id = {b.element_id: b for b in manifest.bindings}
@@ -222,7 +222,7 @@ async def test_non_interrupting_esp_refused_at_assemble(ce_service):
     ]
     s = await ce_service.set_bindings(s.session_id, SetBindingsRequest(bindings=binds), owner=OWNER)
     s = await ce_service.set_triage(s.session_id, SetTriageRequest(triage_rules=[
-        StagedTriageRule(rule_id="r", priority=1, when={"field": "reason_code", "op": "eq", "value": "AC01"})]), owner=OWNER)
+        StagedTriageRule(rule_id="r", priority=1, when={"field": "reason_codes", "op": "intersects", "value": ["AC01"]})]), owner=OWNER)
     s = await ce_service.set_policies(s.session_id, SetPoliciesRequest(), owner=OWNER)
     s = await ce_service.assemble(s.session_id, owner=OWNER)
     codes = {f["code"] for f in s.dry_run_report["findings"] if f["severity"] == "error"}
@@ -254,7 +254,7 @@ async def test_e2e_message_pack_onboards_to_active(ce_service, pack_repo):
     ]
     s = await ce_service.set_bindings(s.session_id, SetBindingsRequest(bindings=binds), owner=OWNER)
     s = await ce_service.set_triage(s.session_id, SetTriageRequest(triage_rules=[
-        StagedTriageRule(rule_id="r", priority=1, when={"field": "reason_code", "op": "eq", "value": "AC01"})]), owner=OWNER)
+        StagedTriageRule(rule_id="r", priority=1, when={"field": "reason_codes", "op": "intersects", "value": ["AC01"]})]), owner=OWNER)
     s = await ce_service.set_policies(s.session_id, SetPoliciesRequest(), owner=OWNER)
     s = await ce_service.assemble(s.session_id, owner=OWNER)
     errs = [f for f in s.dry_run_report["findings"] if f["severity"] == "error"]

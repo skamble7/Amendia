@@ -436,4 +436,69 @@ describe("Onboarding wizard", () => {
     expect(screen.getAllByText("cap.payment.screen@^1.0.0").length).toBeGreaterThanOrEqual(2); // dialog + chip
     expect(eagerLoads).toBe(0);   // the step never eager-loaded the whole catalog
   });
+
+  it("triage step authors against the trigger schema — field picker + type-valid ops (batch-4)", async () => {
+    const session = {
+      session_id: "sess-tr", created_by: "owner-1", created_at: "", updated_at: "", state: "triage_set",
+      basics: { pack_key: "p", version: "1.0.0", title: "P", default_domain: "payment" },
+      trigger_fields: { reason_codes: "array", exception_type: "string" },
+      bpmn: { process_id: "P", bpmn_file: "p.bpmn", sha256: "x", service_tasks: [], user_tasks: [], gateways: [], task_names: {}, bindable_elements: [], message_flows: [] },
+      staged_artifacts: [], staged_capabilities: [], reused_capability_refs: [], bindings: [],
+      triage_rules: [], gateway_variables: [], sod_policies: [], roles: [],
+      inferred: { roles: [], bindings: [], gateway_variables: [], capability_candidates: [], artifact_seeds: [], sod_candidates: [], annotations: [] },
+      dry_run_report: null, commit_progress: [], result_pack: null, last_cleared: [],
+    };
+    server.use(http.get(`${REG}/onboarding/sess-tr`, () => HttpResponse.json(session)));
+    renderApp("/registry/onboard/sess-tr", "owner-1");
+
+    // the leaf field is a picker of the schema paths (typed), defaulting to the first (array) field with a
+    // type-valid op — the "eq" that a scalar mindset would pick is NOT offered for the array field.
+    expect(await screen.findByRole("option", { name: /reason_codes · array/ })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: /exception_type · string/ })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "intersects" })).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: "eq" })).not.toBeInTheDocument();   // invalid on an array
+  });
+
+  it("capabilities step surfaces a hard id-collision with a diff and the two fixes (batch-4)", async () => {
+    const session = {
+      session_id: "sess-col", created_by: "owner-1", created_at: "", updated_at: "", state: "capabilities_resolved",
+      basics: { pack_key: "ws_stan", version: "1.0.0", title: "P", default_domain: "payment" },
+      bpmn: { process_id: "P", bpmn_file: "p.bpmn", sha256: "x", service_tasks: [], user_tasks: [], gateways: [], task_names: {}, bindable_elements: [], message_flows: [] },
+      staged_artifacts: [], staged_capabilities: [], reused_capability_refs: [], bindings: [],
+      triage_rules: [], gateway_variables: [], sod_policies: [], roles: [],
+      inferred: { roles: [], bindings: [], gateway_variables: [], capability_candidates: [], artifact_seeds: [], sod_candidates: [], annotations: [] },
+      dry_run_report: null, commit_progress: [], result_pack: null, last_cleared: [],
+    };
+    server.use(
+      http.get(`${REG}/onboarding/sess-col`, () => HttpResponse.json(session)),
+      http.get(`${REG}/capabilities`, () => HttpResponse.json([])),
+      http.post(`${REG}/capabilities/introspect-mcp`, () => HttpResponse.json({
+        endpoint: "http://mcp:8060/mcp", transport: "streamable_http",
+        tools: [{
+          name: "screen_party", description: "Screen a party.", compliance: { compliant: true, reasons: [] },
+          input_schema: { type: "object", properties: { party: { type: "string" } } },
+          output_schema: { type: "object", properties: { hit: { type: "boolean" } } },
+          suggested_input_artifact_key: "art.payment.screen_party_input",
+          suggested_output_artifact_key: "art.payment.screen_party_output",
+          suggested_capability_id: "cap.payment.screen_party",
+          id_collision: {
+            capability_id: "cap.payment.screen_party", severity: "hard", active_version: "1.0.0",
+            active_kind: "skill",
+            diff: "active: kind=skill, in=[], out=[]; introspected: kind=mcp, in=['art.payment.screen_party_input'], out=['art.payment.screen_party_output']",
+          },
+        }],
+      })),
+    );
+    const user = userEvent.setup();
+    renderApp("/registry/onboard/sess-col", "owner-1");
+
+    await user.type(await screen.findByPlaceholderText(/wirefix-mcp/i), "http://mcp:8060/mcp");
+    await user.click(await screen.findByRole("button", { name: /Introspect/i }));
+
+    // the hard collision is surfaced with its contract diff and both one-click fixes
+    expect(await screen.findByText(/Id collision/i)).toBeInTheDocument();
+    expect(screen.getByText(/kind=skill/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Use a distinct domain/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Reuse the existing capability/i })).toBeInTheDocument();
+  });
 });

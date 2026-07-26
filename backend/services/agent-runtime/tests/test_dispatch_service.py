@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import uuid
 from datetime import datetime, timezone
+from types import SimpleNamespace
 
 import pytest
 import pytest_asyncio
@@ -43,14 +44,16 @@ class FakeStore:
 
 
 class FakeEngine:
-    def __init__(self, load_error=None):
+    def __init__(self, load_error=None, trigger_schema=None):
         self.load_error = load_error
         self.started = []
+        self._trigger_schema = trigger_schema
 
     async def load_bundle(self, pack_key, version):
         if self.load_error:
             raise self.load_error
-        return object()
+        # ADR-047 D1: the loaded bundle exposes the pack's declared trigger schema (or None → opaque).
+        return SimpleNamespace(trigger_schema=self._trigger_schema)
 
     async def start(self, instance, envelope):
         self.started.append(instance.process_instance_id)
@@ -126,11 +129,31 @@ async def test_reject_fetch_failed(repos):
 
 
 async def test_reject_envelope_invalid(repos):
+    # ADR-047 D1: the pack declares a trigger schema; an envelope that fails it is rejected (envelope_invalid).
     pub = FakePublisher()
+    trigger = {"type": "object", "required": ["exception_id", "reason_codes"],
+               "properties": {"reason_codes": {"type": "array"}}}
     bad_store = FakeStore(envelope={"not": "a valid envelope"})
-    svc, _ = _svc(repos, store=bad_store, publisher=pub)
+    svc, _ = _svc(repos, engine=FakeEngine(trigger_schema=trigger), store=bad_store, publisher=pub)
     await svc.handle(_event())
     rej = [e for rk, e in pub.events if "dispatch_rejected" in rk]
+    assert rej and rej[0]["reason"] == "envelope_invalid"
+
+
+async def test_opaque_envelope_accepts_any_object_but_rejects_non_object(repos):
+    # ADR-047 D1: a pack with NO declared trigger treats the envelope as opaque — any JSON object is accepted
+    # (no wire-shape assumption), while a non-object is still rejected.
+    pub = FakePublisher()
+    ok_store = FakeStore(envelope={"anything": "goes", "shape": [1, 2]})
+    svc, insts = _svc(repos, engine=FakeEngine(), store=ok_store, publisher=pub)  # trigger_schema=None → opaque
+    await svc.handle(_event())
+    assert not [e for rk, e in pub.events if "dispatch_rejected" in rk]           # accepted
+    assert any("dispatch_accepted" in rk for rk in _routing_keys(pub))
+
+    pub2 = FakePublisher()
+    svc2, _ = _svc(repos, engine=FakeEngine(), store=FakeStore(envelope=["not", "an", "object"]), publisher=pub2)
+    await svc2.handle(_event(exception_id="EXC-NONOBJ"))
+    rej = [e for rk, e in pub2.events if "dispatch_rejected" in rk]
     assert rej and rej[0]["reason"] == "envelope_invalid"
 
 

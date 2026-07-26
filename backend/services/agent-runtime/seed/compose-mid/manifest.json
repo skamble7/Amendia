@@ -55,7 +55,12 @@
           "name": "midmid",
           "schema": "art.compose.val@^1.0.0"
         }
-      ]
+      ],
+      "input_map": {
+        "midin": {
+          "from": "trigger"
+        }
+      }
     },
     {
       "element_id": "CA_MidLeaf",

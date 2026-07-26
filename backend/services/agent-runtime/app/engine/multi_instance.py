@@ -56,13 +56,22 @@ def _resolve_cardinality(mi: MultiInstance, artifacts: Dict[str, Any]) -> Tuple[
         f"{mi.attached_to}: multi-instance has neither cardinality nor collection", reason="mi_unbounded")
 
 
-def _gather_inputs(ctx: NodeContext, artifacts: Dict[str, Any], mi: MultiInstance, item: Any) -> Dict[str, Any]:
-    """Gather the iteration's inputs: the binding's declared inputs from state, with the per-item
-    variable (``item_name``) injected as the collection element rather than read from state."""
+def _gather_inputs(ctx: NodeContext, artifacts: Dict[str, Any], mi: MultiInstance, item: Any,
+                   envelope: Dict[str, Any]) -> Dict[str, Any]:
+    """Gather the iteration's inputs: the per-item variable (``item_name``) is the collection element;
+    an input with an ADR-048 ``input_map`` entry is resolved from the trigger/upstream artifacts (so an
+    MCP-backed MI capability gets its authored tool arguments — ADR-047 D2); any other declared input is
+    read from state by name (shared-name chaining)."""
+    from app.engine.task_runner import _resolve_source  # lazy — avoid import cycle
+    input_map = ctx.input_map or {}
     inputs: Dict[str, Any] = {}
     for spec in ctx.inputs:
         if mi.item_name and spec.name == mi.item_name:
             inputs[spec.name] = item
+            continue
+        src = input_map.get(spec.name)
+        if src is not None:
+            inputs[spec.name] = _resolve_source(src, envelope, artifacts, ctx.element_id)
             continue
         if spec.name not in artifacts:
             raise NodeExecutionError(
@@ -79,7 +88,8 @@ def _run_one(ctx: NodeContext, executor: Executor, simulation: bool, envelope: D
              artifacts: Dict[str, Any], mi: MultiInstance, index: int, item: Any,
              pid: Optional[str]) -> Dict[str, Any]:
     """Execute one iteration and return its produced outputs (keyed by artifact_key)."""
-    inputs = _gather_inputs(ctx, artifacts, mi, item)
+    from app.engine.task_runner import _mcp_arguments  # lazy — avoid import cycle
+    inputs = _gather_inputs(ctx, artifacts, mi, item, envelope)
     exec_ctx = ExecutionContext(
         envelope=envelope, mode="execute", approved_action_ids=None, simulation=simulation,
         extras={
@@ -92,6 +102,9 @@ def _run_one(ctx: NodeContext, executor: Executor, simulation: bool, envelope: D
             # output per iteration even in the cardinality-only case (no collection item).
             "mi_index": index,
             "mi_item": item,
+            # ADR-048 / D2: when the binding authored an input_map, the resolved inputs ARE the MCP tool
+            # argument object (a composite spreads; scalars key by name), mirroring the single-instance path.
+            "mcp_arguments": _mcp_arguments(inputs) if ctx.input_map else None,
         },
     )
     result = executor.execute(ctx.descriptor, inputs, exec_ctx)

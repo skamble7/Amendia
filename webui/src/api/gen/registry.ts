@@ -1223,6 +1223,27 @@ export interface components {
              */
             type: "human";
         };
+        /**
+         * IdCollision
+         * @description Batch-4: the derived ``cap.<domain>.<tool>`` id already exists as an ACTIVE catalog capability. A
+         *     **hard** collision means that active capability's contract (kind and/or input/output artifact keys)
+         *     DIFFERS from what introspection would stage — binding this pack to it later fails ``binding_io_mismatch``;
+         *     steer the operator to a distinct domain or explicit reuse. A **benign** match means the active descriptor
+         *     is contract-compatible (same ``kind: mcp`` + same IO artifact keys) — not a clash but a reuse opportunity.
+         *     Advisory only (non-blocking): the operator decides domain-vs-reuse.
+         */
+        IdCollision: {
+            /** Active Kind */
+            active_kind: string;
+            /** Active Version */
+            active_version: string;
+            /** Capability Id */
+            capability_id: string;
+            /** Diff */
+            diff: string;
+            /** Severity */
+            severity: string;
+        };
         /** InferenceAnnotation */
         InferenceAnnotation: {
             /** Code */
@@ -1323,6 +1344,7 @@ export interface components {
             compliance: components["schemas"]["ToolCompliance"];
             /** Description */
             description?: string | null;
+            id_collision?: components["schemas"]["IdCollision"] | null;
             /** Input Schema */
             input_schema?: {
                 [key: string]: unknown;
@@ -1488,6 +1510,10 @@ export interface components {
             state: components["schemas"]["OnboardingState"];
             /** Triage Rules */
             triage_rules?: components["schemas"]["StagedTriageRule"][];
+            /** Trigger Fields */
+            trigger_fields?: {
+                [key: string]: string;
+            };
             /**
              * Updated At
              * Format: date-time
@@ -1558,6 +1584,8 @@ export interface components {
             title: string;
             /** Triage Rules */
             triage_rules: components["schemas"]["TriageRule-Input"][];
+            /** Trigger */
+            trigger?: string | null;
             /** Updated At */
             updated_at?: string | null;
             /** Version */
@@ -1597,6 +1625,8 @@ export interface components {
             title: string;
             /** Triage Rules */
             triage_rules: components["schemas"]["TriageRule-Output"][];
+            /** Trigger */
+            trigger?: string | null;
             /** Updated At */
             updated_at?: string | null;
             /** Version */

@@ -21,53 +21,22 @@ import json
 import logging
 from typing import Any, Callable, Dict, List, Optional, Protocol
 
-from app.capabilities.wire_repair import SIM_CAPABILITIES
 from app.engine.executor.base import CapabilityError
 
 logger = logging.getLogger(__name__)
 
 
 # --------------------------------------------------------------------------- #
-# Whitelisted read-only investigation tools (dev = stubs; sandbox = registry-brokered MCP).
-# Docstrings + type hints are how Deep Agents derives tool schemas (confirmed).
+# A deep_agent's whitelisted tools are MCP tools (ADR-047 D2): the investigative helpers live on the MCP
+# server, resolved via the registry-brokered MCP client — the platform carries no in-code tool.
 # --------------------------------------------------------------------------- #
-def fetch_attachment(attachment_id: str) -> dict:
-    """Fetch a payment exception attachment's parsed contents by id (read-only)."""
-    return {"attachment_id": attachment_id, "parsed": {"stub": True}}
-
-
-def search_payment_history(account_id: str) -> dict:
-    """Search prior settlement history for an account (read-only)."""
-    return {"account_id": account_id, "prior_settlements": []}
-
-
-def name_match(name_a: str, name_b: str) -> dict:
-    """Fuzzy name-match two party names, returning a 0..1 score (read-only)."""
-    score = 1.0 if name_a.strip().lower() == name_b.strip().lower() else 0.4
-    return {"name_a": name_a, "name_b": name_b, "score": score}
-
-
-_STUB_WORKER_TOOLS: Dict[str, Callable] = {
-    "fetch_attachment": fetch_attachment,
-    "search_payment_history": search_payment_history,
-    "name_match": name_match,
-}
-
-
 def resolve_tools(tool_ids: List[str], *, mcp_client: Optional[Any] = None) -> List[Callable]:
-    """Map whitelisted tool ids → callables. Worker functions are local; MCP tool ids resolve
-    via the in-sandbox registry (ADR-020). Unknown ids fail closed — the registry already
-    validated the whitelist, this is belt-and-suspenders."""
-    resolved: List[Callable] = []
-    for tid in tool_ids:
-        if tid in _STUB_WORKER_TOOLS:
-            resolved.append(_STUB_WORKER_TOOLS[tid])
-        elif mcp_client is not None:
-            # [confirm] how a registry-brokered MCP tool is wrapped as a deepagents tool.
-            resolved.append(_mcp_tool_shim(tid, mcp_client))
-        else:
-            raise CapabilityError(f"deep_agent tool '{tid}' does not resolve on this path")
-    return resolved
+    """Map whitelisted tool ids → callables. Every tool is an MCP tool resolved via the in-sandbox
+    registry-brokered client (ADR-020/D2); with no client an id fails closed."""
+    if mcp_client is None:
+        raise CapabilityError(
+            f"deep_agent tools {tool_ids} require an MCP client (none on this path)")
+    return [_mcp_tool_shim(tid, mcp_client) for tid in tool_ids]
 
 
 def _mcp_tool_shim(tool_id: str, mcp_client: Any, *, endpoint: Optional[str] = None) -> Callable:
@@ -94,21 +63,13 @@ class DeepAgentRunner(Protocol):
 
 
 class FakeDeepAgentRunner:
-    """Deterministic — the CI/dev default. Reuses the paired simulation capability to emit a
-    schema-valid artifact (e.g. a `repair_verdict` with `evidence[]`) with no model/agent loop."""
+    """Deterministic — the CI/dev default (ADR-047 D2). Emits a minimal **schema-valid** artifact straight
+    from the pinned output schema (domain-neutral, no `SIM_CAPABILITIES`, no model/agent loop)."""
 
     async def run(self, *, capability_id, prompt_key, input_artifacts, tools, output_schema,
                   model_ref, budget, envelope, mcp_client=None):
-        fn = SIM_CAPABILITIES.get(capability_id)
-        if fn is None:
-            raise CapabilityError(
-                f"FakeDeepAgentRunner has no simulation for '{capability_id}' — register one in "
-                "SIM_CAPABILITIES for the pilot, or use the real runner"
-            )
-        result = fn(inputs=input_artifacts, envelope=envelope, mode="execute", approved_action_ids=None)
-        outputs = result.get("outputs", {}) or {}
-        # deep_agent capabilities declare exactly one output artifact.
-        return next(iter(outputs.values())) if outputs else {}
+        from app.engine.executor.stub_inference import stub_from_schema
+        return stub_from_schema(output_schema or {})
 
 
 class RealDeepAgentRunner:
@@ -133,10 +94,11 @@ class RealDeepAgentRunner:
             f"\n\nYou MUST end by emitting a SINGLE JSON object (no prose, no fences) that "
             f"validates against this JSON Schema:\n{json.dumps(output_schema)}" if output_schema else ""
         )
+        # ADR-047: domain-neutral framing — the capability's role/task comes from its registered
+        # prompt_key, never a hardcoded business area.
         system_prompt = (
-            f"You are the '{capability_id}' investigative capability in a payments exception "
-            f"workflow. Task: {prompt_key}. Use ONLY the provided tools. Do not take any "
-            f"side-effecting action.{schema_hint}"
+            f"You are the '{capability_id}' capability. Task: {prompt_key}. Use ONLY the provided "
+            f"tools. Do not take any side-effecting action.{schema_hint}"
         )
         # model_ref → inference.local/v1 (ADR-018/020). [confirm] the exact model= string form
         # the harness expects for an OpenAI-compatible managed proxy.
@@ -144,7 +106,7 @@ class RealDeepAgentRunner:
         agent = create_deep_agent(model=model, tools=tool_fns, system_prompt=system_prompt)
 
         user = (
-            f"Payment exception envelope:\n{json.dumps(envelope, default=str)}\n\n"
+            f"Trigger:\n{json.dumps(envelope, default=str)}\n\n"
             f"Upstream artifacts:\n{json.dumps(input_artifacts, default=str)}"
         )
         # Bound the loop via the standard LangGraph recursion_limit (Deep Agents is a LangGraph

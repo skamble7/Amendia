@@ -270,6 +270,11 @@ class ProcessPackManifest(ContractModel, TimestampsMixin):
     title: str
     description: Optional[str] = None
     process: ProcessRef
+    # ADR-047 D1: the pack's declared TRIGGER artifact — the schema of the inbound trigger payload (the
+    # exception envelope) this pack handles. The engine validates the fetched envelope against this schema
+    # (domain-neutral: no concrete envelope type is imported). Additive/optional — a pack that declares no
+    # trigger has its envelope treated as opaque (any JSON object accepted).
+    trigger: Optional[ArtifactRef] = None
     triage_rules: List[TriageRule] = Field(..., min_length=1)
     requires_capabilities: List[RequiresCapability]
     artifacts: List[ArtifactRef]

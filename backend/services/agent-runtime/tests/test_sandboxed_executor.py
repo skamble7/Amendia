@@ -14,11 +14,11 @@ from langgraph.checkpoint.memory import MemorySaver
 from app.config import settings
 from app.engine.bundle import PackBundle
 from app.engine.compiler import compile_graph
-from app.engine.executor import InProcessExecutor, SandboxedExecutor
+from app.engine.executor import SandboxedExecutor
+from tests._stub_stack import stub_executor, stub_fake_client
 from app.engine.executor.base import ExecutionContext
 from app.engine.executor.openshell import (
     CapabilityRunSpec,
-    FakeOpenShellClient,
     SandboxResult,
 )
 from app.engine.state import initial_state
@@ -29,14 +29,22 @@ def _bundle() -> PackBundle:
     return PackBundle.from_seed_dir(settings.SEED_DIR)
 
 
+def _skill_descriptor(pack: str, cap_id: str):
+    # the wire seed is now MCP-backed (ADR-047 D2); a `skill` descriptor comes from a structural fixture pack.
+    from pathlib import Path
+    root = Path(settings.SEED_DIR).parent
+    return PackBundle.from_seed_dir(root / pack).descriptors[cap_id]
+
+
 def _sandboxed_app(client=None):
-    client = client or FakeOpenShellClient(simulation=True)
-    ex = SandboxedExecutor(client, fallback=InProcessExecutor())
+    # ADR-047 D2: the fake OpenShell client runs the SAME injected stub stack as the native path.
+    client = client or stub_fake_client()
+    ex = SandboxedExecutor(client, fallback=stub_executor())
     return compile_graph(_bundle(), ex, simulation=True, checkpointer=MemorySaver())
 
 
 def _native_app():
-    return compile_graph(_bundle(), InProcessExecutor(), simulation=True, checkpointer=MemorySaver())
+    return compile_graph(_bundle(), stub_executor(), simulation=True, checkpointer=MemorySaver())
 
 
 def _initial(reason_code="AC01", exception_id="EXC-SBX"):
@@ -51,20 +59,24 @@ def _initial(reason_code="AC01", exception_id="EXC-SBX"):
 # Unit-level: the fake returns a schema-shaped SandboxResult for llm + mcp specs.
 # --------------------------------------------------------------------------- #
 def test_fake_client_runs_mcp_capability_and_traces():
-    fake = FakeOpenShellClient(simulation=True)
+    # The fake carries the pinned descriptor and delegates to the shared core → a real MCP tool call
+    # (screen_party) through the injected in-process client, so it produces the seed's declared artifact.
+    fake = stub_fake_client()
+    descriptor = _bundle().descriptors["cap.payment.sanctions_screen"]
     spec = CapabilityRunSpec(
         capability_id="cap.payment.sanctions_screen", kind="mcp",
         inputs={}, envelope=make_envelope("AC01"), element_id="Task_Screen",
+        descriptor=descriptor,
     )
     import asyncio
 
     result: SandboxResult = asyncio.run(fake.run_capability(spec))
     assert result.otlp_trace_id.startswith("fake-otlp-Task_Screen-")
-    assert result.outputs["art.compliance.screening_result"]["verdict"] == "clean"
+    assert result.outputs["art.compliance.screen_party_output"]["status"] == "clear"
 
 
 def test_sandboxed_executor_llm_capability_produces_valid_artifact_with_trace():
-    ex = SandboxedExecutor(FakeOpenShellClient(simulation=True), fallback=InProcessExecutor())
+    ex = SandboxedExecutor(stub_fake_client(), fallback=stub_executor())
     b = _bundle()
     descriptor = b.descriptors["cap.payment.draft_repair"]  # kind == llm
     assert (descriptor.kind.value if hasattr(descriptor.kind, "value") else descriptor.kind) == "llm"
@@ -83,16 +95,17 @@ def test_sandboxed_executor_llm_capability_produces_valid_artifact_with_trace():
 
 def test_skill_kind_runs_in_sandbox_with_trace():
     # ADR-020 Part E: skill kinds now run through the sandbox (worker/fake), NOT the in-process
-    # fallback, so they carry a sandbox trace id. Their action stays simulated in dev.
-    ex = SandboxedExecutor(FakeOpenShellClient(simulation=True), fallback=InProcessExecutor())
-    b = _bundle()
-    descriptor = b.descriptors["cap.payment.enrich_investigation"]  # kind == skill
+    # fallback, so they carry a sandbox trace id. Their action stays simulated in dev. The wire seed is
+    # MCP-backed (ADR-047 D2), so the `skill` descriptor comes from a structural fixture pack.
+    ex = SandboxedExecutor(stub_fake_client(), fallback=stub_executor())
+    descriptor = _skill_descriptor("compose-leaf", "cap.compose.leaf")  # kind == skill
+    assert (descriptor.kind.value if hasattr(descriptor.kind, "value") else descriptor.kind) == "skill"
     ctx = ExecutionContext(envelope=make_envelope("AC01"), mode="execute", simulation=True,
-                           extras={"output_schemas": {}, "element_id": "Task_Enrich"})
+                           extras={"output_schemas": {}, "element_id": "Task_Leaf"})
     out = ex.execute(descriptor, {}, ctx)
     assert out["exec_meta"]["via"] == "openshell"
-    assert out["exec_meta"]["otlp_trace_id"].startswith("fake-otlp-Task_Enrich-")
-    assert "art.payment.investigation_dossier" in out["outputs"]
+    assert out["exec_meta"]["otlp_trace_id"].startswith("fake-otlp-Task_Leaf-")
+    assert "art.compose.val" in out["outputs"]
 
 
 # --------------------------------------------------------------------------- #

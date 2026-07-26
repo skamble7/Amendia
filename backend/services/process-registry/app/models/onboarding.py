@@ -365,6 +365,10 @@ class OnboardingSession(BaseModel):
     state: OnboardingState = OnboardingState.INITIATED
 
     basics: Basics
+    # Batch-4: the pack's trigger field/type map (dotpath -> json type), derived from the deployment sample
+    # envelopes at create. Drives schema-aware triage authoring (field picker + type-valid ops). Empty when no
+    # trigger schema is available (the Triage step then falls back to free-text + structural checks only).
+    trigger_fields: Dict[str, str] = Field(default_factory=dict)
     bpmn: Optional[BpmnInventory] = None
     staged_artifacts: List[StagedArtifact] = Field(default_factory=list)
     staged_capabilities: List[StagedCapability] = Field(default_factory=list)
@@ -531,6 +535,21 @@ class ToolCompliance(BaseModel):
     reasons: List[str] = Field(default_factory=list)
 
 
+class IdCollision(BaseModel):
+    """Batch-4: the derived ``cap.<domain>.<tool>`` id already exists as an ACTIVE catalog capability. A
+    **hard** collision means that active capability's contract (kind and/or input/output artifact keys)
+    DIFFERS from what introspection would stage — binding this pack to it later fails ``binding_io_mismatch``;
+    steer the operator to a distinct domain or explicit reuse. A **benign** match means the active descriptor
+    is contract-compatible (same ``kind: mcp`` + same IO artifact keys) — not a clash but a reuse opportunity.
+    Advisory only (non-blocking): the operator decides domain-vs-reuse."""
+
+    capability_id: str
+    severity: str                            # "hard" | "benign"
+    active_version: str
+    active_kind: str
+    diff: str                                # human-readable active-vs-introspected contract diff
+
+
 class IntrospectedTool(BaseModel):
     name: str
     description: Optional[str] = None
@@ -541,6 +560,8 @@ class IntrospectedTool(BaseModel):
     suggested_input_artifact_key: Optional[str] = None
     suggested_output_artifact_key: Optional[str] = None
     suggested_capability_id: Optional[str] = None
+    # Batch-4: set when the derived id collides with an active catalog capability (advisory).
+    id_collision: Optional[IdCollision] = None
 
 
 class IntrospectMcpResponse(BaseModel):

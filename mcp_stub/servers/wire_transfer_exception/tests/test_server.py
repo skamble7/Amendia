@@ -12,10 +12,13 @@ from jsonschema import Draft202012Validator
 from wire_transfer_exception_mcp import schemas as S
 from wire_transfer_exception_mcp.handlers import TOOLS, TOOLS_BY_NAME, check_compliance
 
-EXPECTED_TOOLS = {
+CAPABILITY_TOOLS = {
     "enrich_investigation", "assess_beneficiary", "draft_rfi", "draft_repair", "screen_party",
     "apply_repair", "notify_parties", "record_resolution", "draft_return", "execute_return",
 }
+# ADR-047 D2 — the read-only deep-agent worker tools (ex-in-code _STUB_WORKER_TOOLS).
+WORKER_TOOLS = {"search_payment_history", "name_match", "fetch_attachment"}
+EXPECTED_TOOLS = CAPABILITY_TOOLS | WORKER_TOOLS
 ACTION_TOOLS = {"apply_repair", "notify_parties", "execute_return"}
 
 # One representative input per tool (permissive; the handlers tolerate more/less).
@@ -32,11 +35,14 @@ REP = {
     "record_resolution": {"exception_id": "exc-1"},
     "draft_return": {"exception_id": "exc-1", "dossier": {"payment": {"amount": 125000, "currency": "USD"}}},
     "execute_return": {"exception_id": "exc-1", "return_instruction": {"return_reason_code": "AC04"}},
+    "search_payment_history": {"account_id": "DE89 3704 0044 0532 0130 00"},
+    "name_match": {"name_a": "ACME BENEFICIARY LTD", "name_b": "ACME BENEFICIARY LTD"},
+    "fetch_attachment": {"attachment_id": "att-1"},
 }
 
 
-def test_exactly_ten_capability_tools():
-    assert len(TOOLS) == 10
+def test_expected_tool_set():
+    assert len(TOOLS) == 13
     assert {t["name"] for t in TOOLS} == EXPECTED_TOOLS
 
 
@@ -71,10 +77,21 @@ def test_assess_beneficiary_produces_all_three_verdicts():
     assert h({"repair_hint": "repairable"})["repair_verdict"] == "repairable"
     assert h({"repair_hint": "unrepairable"})["repair_verdict"] == "unrepairable"
     assert h({"repair_hint": "needs_info"})["repair_verdict"] == "needs_info"
-    # steered by reason codes too
+    # steered by reason codes too — the correctable codes (AC01/AC04/RC01) are repairable (D2: aligned to
+    # the wire-repair seed's original behaviour), a hard-unrepairable code stays unrepairable, else needs_info
     assert h({"reason_codes": ["AC01"]})["repair_verdict"] == "repairable"
-    assert h({"reason_codes": ["AC04"]})["repair_verdict"] == "unrepairable"
+    assert h({"reason_codes": ["AC04"]})["repair_verdict"] == "repairable"
+    assert h({"reason_codes": ["RC01"]})["repair_verdict"] == "repairable"
+    assert h({"reason_codes": ["AC06"]})["repair_verdict"] == "unrepairable"
     assert h({})["repair_verdict"] == "needs_info"
+
+
+def test_deep_agent_worker_tools_behavior():
+    # ported verbatim from the runtime's ex-in-code tools (same deterministic behaviour).
+    assert TOOLS_BY_NAME["name_match"]["handler"]({"name_a": "ACME", "name_b": "ACME"})["score"] == 1.0
+    assert TOOLS_BY_NAME["name_match"]["handler"]({"name_a": "ACME", "name_b": "Other"})["score"] == 0.4
+    assert TOOLS_BY_NAME["search_payment_history"]["handler"]({"account_id": "GB00"})["prior_settlements"] == []
+    assert TOOLS_BY_NAME["fetch_attachment"]["handler"]({"attachment_id": "att-9"})["parsed"] == {"stub": True}
 
 
 def test_screen_party_steering():
@@ -114,7 +131,7 @@ async def test_sdk_tools_list_and_structured_call():
 
     async with connect(build_server()) as client:
         listed = await client.list_tools()
-        assert len(listed.tools) == 10
+        assert len(listed.tools) == 13
         assert {t.name for t in listed.tools} == EXPECTED_TOOLS
         for tool in listed.tools:
             assert (tool.inputSchema or {}).get("type") == "object"

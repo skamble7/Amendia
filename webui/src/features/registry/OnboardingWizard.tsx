@@ -737,6 +737,13 @@ function CapabilitiesStep({ session, onDone }: { session: OnboardingSession; onD
   const [busy, setBusy] = useState(false);
   const endpointRef = useRef<HTMLInputElement>(null);
   const toggleReuse = (ref: string) => setReused((r) => r.includes(ref) ? r.filter((x) => x !== ref) : [...r, ref]);
+  // Batch-4: the id namespace used for introspect + staging. Defaults to the pack's domain, but the operator
+  // can switch to a distinct one to clear an id collision (a per-tool override, no basics mutation needed).
+  const [domain, setDomain] = useState(session.basics.default_domain);
+  // A process-scoped alternative derived from the pack key — the one-click "distinct domain" fix.
+  const suggestedDomain = useMemo(
+    () => (session.basics.pack_key || "").toLowerCase().replace(/[^a-z0-9_]+/g, "_").replace(/^_+|_+$/g, ""),
+    [session.basics.pack_key]);
   // ADR-046 (Track 2): inline-authored decision / reduce capabilities + their per-capability errors.
   const [decisions, setDecisions] = useState<DecisionDraft[]>([]);
   const [reduces, setReduces] = useState<ReduceDraft[]>([]);
@@ -770,10 +777,10 @@ function CapabilitiesStep({ session, onDone }: { session: OnboardingSession; onD
     [session.inferred, capCandBySource, session.basics.default_domain],
   );
 
-  async function introspect() {
+  async function introspect(dom: string = domain) {
     setIntrospecting(true);
     try {
-      const res = await introspectMcp({ endpoint, transport, domain: session.basics.default_domain });
+      const res = await introspectMcp({ endpoint, transport, domain: dom });
       setDrafts(res.tools.map((t) => ({
         ...t, selected: false,
         input_artifact_key: t.suggested_input_artifact_key ?? "",
@@ -790,7 +797,7 @@ function CapabilitiesStep({ session, onDone }: { session: OnboardingSession; onD
     setBusy(true); setAuthorErrs({});
     try {
       const tools: CapabilityToolSelection[] = drafts.filter((d) => d.selected && d.compliance.compliant).map((d) => ({
-        tool: d.name, endpoint, transport, domain: session.basics.default_domain,
+        tool: d.name, endpoint, transport, domain,
         input_artifact_key: d.input_artifact_key, output_artifact_key: d.output_artifact_key,
         capability_id: d.capability_id, side_effect: d.side_effect, idempotent: d.idempotent,
         artifact_version: "1.0.0", capability_version: "1.0.0",
@@ -863,7 +870,11 @@ function CapabilitiesStep({ session, onDone }: { session: OnboardingSession; onD
               <option value="streamable_http">streamable_http</option>
               <option value="sse">sse</option>
             </select>
-            <Button disabled={introspecting || !endpoint.trim()} onClick={introspect}>
+            <div className="w-40">
+              <Label className="text-[11px] text-muted-foreground">Id domain</Label>
+              <Input value={domain} onChange={(e) => setDomain(e.target.value)} placeholder="cap.<domain>.<tool>" className="font-mono text-xs" title="The cap.<domain>.<tool> namespace. Switch to a process-scoped domain to clear an id collision." />
+            </div>
+            <Button disabled={introspecting || !endpoint.trim()} onClick={() => introspect()}>
               {introspecting ? <Loader2 className="mr-1 size-4 animate-spin" /> : <Search className="mr-1 size-4" />} Introspect
             </Button>
           </div>
@@ -886,6 +897,37 @@ function CapabilitiesStep({ session, onDone }: { session: OnboardingSession; onD
                       {(d.compliance.reasons ?? []).join("; ")} · see the MCP Implementor Guideline.
                     </p>
                   )}
+                  {/* Batch-4: id-collision advisory — a HARD clash (different active contract) or a benign
+                      reuse nudge. Two one-click fixes: switch to a distinct domain, or reuse the existing cap. */}
+                  {d.id_collision && (() => {
+                    const c = d.id_collision;
+                    const hard = c.severity === "hard";
+                    const reuseRef = `${c.capability_id}@^${c.active_version}`;
+                    return (
+                      <div className={cn("mt-2 rounded-md border p-2 text-xs",
+                        hard ? "border-danger/50 bg-danger-muted/20" : "border-border bg-muted/30")}>
+                        {hard ? (
+                          <>
+                            <p className={cn("font-medium", "text-danger")}>Id collision — <span className="font-mono">{c.capability_id}</span> already exists as an active capability (v{c.active_version}, kind {c.active_kind}) with a <span className="font-medium">different contract</span>. Binding to it would fail at assemble.</p>
+                            <p className="mt-0.5 font-mono text-[10px] text-muted-foreground">{c.diff}</p>
+                          </>
+                        ) : (
+                          <p className="text-muted-foreground">Already in the catalog as <span className="font-mono">{c.capability_id}</span> (v{c.active_version}, compatible) — reuse it instead of staging a duplicate?</p>
+                        )}
+                        <div className="mt-1.5 flex flex-wrap gap-2">
+                          {hard && suggestedDomain && suggestedDomain !== domain && (
+                            <Button variant="outline" size="sm" onClick={() => { setDomain(suggestedDomain); introspect(suggestedDomain); }}>
+                              Use a distinct domain (<span className="font-mono">{suggestedDomain}</span>)
+                            </Button>
+                          )}
+                          <Button variant={hard ? "outline" : "secondary"} size="sm"
+                            onClick={() => { if (!reused.includes(reuseRef)) toggleReuse(reuseRef); patch(d.name, { selected: false }); }}>
+                            {reused.includes(reuseRef) ? "Reusing existing" : "Reuse the existing capability"}
+                          </Button>
+                        </div>
+                      </div>
+                    );
+                  })()}
                   {d.selected && d.compliance.compliant && (
                     <div className="mt-3 grid grid-cols-2 gap-3 border-t border-border pt-3">
                       <Field label="Input artifact" hint="suggested"><Input value={d.input_artifact_key} onChange={(e) => patch(d.name, { input_artifact_key: e.target.value })} className="font-mono text-xs" /></Field>
@@ -1398,6 +1440,18 @@ function BindingsStep({ session, onDone }: { session: OnboardingSession; onDone:
 
 // -- Step 5: triage (predicate tree) ------------------------------------------
 const OPS = ["eq", "ne", "in", "starts_with", "intersects", "exists", "gt", "gte", "lt", "lte"];
+// Batch-4: ops valid per JSON type (mirrors the backend `validate_predicate`), so the Triage step only
+// offers a field's type-compatible operators — no authoring `eq` on an array or `reason_code`-that-doesn't-exist.
+const OPS_BY_TYPE: Record<string, string[]> = {
+  array: ["intersects", "in", "exists"],
+  string: ["eq", "ne", "in", "starts_with", "exists"],
+  number: ["eq", "ne", "in", "gt", "gte", "lt", "lte", "exists"],
+  integer: ["eq", "ne", "in", "gt", "gte", "lt", "lte", "exists"],
+  boolean: ["eq", "ne", "exists"],
+  object: ["exists"],
+};
+const opsForType = (t?: string): string[] => (t && OPS_BY_TYPE[t]) || OPS;      // unknown type → all ops
+const defaultOpForType = (t?: string): string => (t === "array" ? "intersects" : "eq");
 
 function toPredicate(n: any): Record<string, unknown> {
   if (n.leaf) {
@@ -1412,9 +1466,18 @@ function toPredicate(n: any): Record<string, unknown> {
 }
 
 function TriageStep({ session, onDone }: { session: OnboardingSession; onDone: (s: OnboardingSession) => void }) {
+  // Batch-4: the pack's trigger field/type map. When present, leaves author against the real schema (field
+  // picker + type-valid ops) so a non-existent field or an incompatible op can't be authored by hand.
+  const fields = (session.trigger_fields ?? {}) as Record<string, string>;
+  const hasSchema = Object.keys(fields).length > 0;
+  const newLeaf = () => {
+    if (!hasSchema) return { leaf: true, field: "", op: "eq", value: "" };
+    const f = Object.keys(fields)[0]!;                       // first schema field, type-appropriate default op
+    return { leaf: true, field: f, op: defaultOpForType(fields[f]), value: "" };
+  };
   const [ruleId, setRuleId] = useState(session.triage_rules[0]?.rule_id ?? "triage-rule-1");
   const [priority, setPriority] = useState(session.triage_rules[0]?.priority ?? 100);
-  const [tree, setTree] = useState<any>({ kind: "all", children: [{ leaf: true, field: "reason_code", op: "eq", value: "AC01" }] });
+  const [tree, setTree] = useState<any>({ kind: "all", children: [newLeaf()] });
   const [busy, setBusy] = useState(false);
 
   async function submit() {
@@ -1440,7 +1503,7 @@ function TriageStep({ session, onDone }: { session: OnboardingSession; onDone: (
             <Field label="Rule id"><Input value={ruleId} onChange={(e) => setRuleId(e.target.value)} className="font-mono text-xs" /></Field>
             <Field label="Priority"><Input type="number" value={priority} onChange={(e) => setPriority(Number(e.target.value))} /></Field>
           </div>
-          <PredicateEditor node={tree} onChange={setTree} depth={0} onRemove={undefined} />
+          <PredicateEditor node={tree} onChange={setTree} depth={0} onRemove={undefined} fields={fields} newLeaf={newLeaf} />
         </CardContent>
       </Card>
       <StepFooter summary="predicate over envelope fields" busy={busy} onNext={submit} />
@@ -1448,15 +1511,32 @@ function TriageStep({ session, onDone }: { session: OnboardingSession; onDone: (
   );
 }
 
-function PredicateEditor({ node, onChange, depth, onRemove }: { node: any; onChange: (n: any) => void; depth: number; onRemove?: () => void }) {
+function PredicateEditor({ node, onChange, depth, onRemove, fields, newLeaf }: { node: any; onChange: (n: any) => void; depth: number; onRemove?: () => void; fields: Record<string, string>; newLeaf: () => any }) {
+  const hasSchema = Object.keys(fields).length > 0;
   if (node.leaf) {
+    // when the trigger schema is known: field is a picker of its property paths, and op is filtered to the
+    // chosen field's type-valid operators (changing the field resets an incompatible op). Else free-text.
+    const ftype = fields[node.field];
+    const ops = hasSchema ? opsForType(ftype) : OPS;
+    const onField = (f: string) => {
+      const t = fields[f];
+      const op = opsForType(t).includes(node.op) ? node.op : defaultOpForType(t);
+      onChange({ ...node, field: f, op });
+    };
     return (
       <div className="flex flex-wrap items-center gap-2 rounded-md border border-border p-2" style={{ marginLeft: depth * 20 }}>
-        <Input value={node.field} onChange={(e) => onChange({ ...node, field: e.target.value })} className="h-8 w-40 font-mono text-xs" placeholder="reason_code" />
+        {hasSchema ? (
+          <select className={cn(selectCls, "h-8 w-48 font-mono text-xs")} value={node.field} onChange={(e) => onField(e.target.value)}>
+            {!(node.field in fields) && <option value={node.field}>{node.field || "select a field…"}</option>}
+            {Object.entries(fields).map(([f, t]) => <option key={f} value={f}>{f} · {t}</option>)}
+          </select>
+        ) : (
+          <Input value={node.field} onChange={(e) => onChange({ ...node, field: e.target.value })} className="h-8 w-40 font-mono text-xs" placeholder="field" />
+        )}
         <select className={cn(selectCls, "h-8 w-28")} value={node.op} onChange={(e) => onChange({ ...node, op: e.target.value })}>
-          {OPS.map((o) => <option key={o} value={o}>{o}</option>)}
+          {ops.map((o) => <option key={o} value={o}>{o}</option>)}
         </select>
-        <Input value={node.value} onChange={(e) => onChange({ ...node, value: e.target.value })} className="h-8 w-40 font-mono text-xs" placeholder="value" />
+        <Input value={node.value} onChange={(e) => onChange({ ...node, value: e.target.value })} className="h-8 w-40 font-mono text-xs" placeholder={node.op === "in" || node.op === "intersects" ? "a, b, c" : "value"} />
         <div className="flex-1" />
         {onRemove && <Button variant="ghost" size="icon" className="size-8" onClick={onRemove}><Trash2 className="size-3.5" /></Button>}
       </div>
@@ -1476,14 +1556,14 @@ function PredicateEditor({ node, onChange, depth, onRemove }: { node: any; onCha
         <div className="flex-1" />
         {node.kind !== "not" && (
           <>
-            <Button variant="outline" size="sm" onClick={() => onChange({ ...node, children: [...node.children, { leaf: true, field: "amount", op: "gte", value: "0" }] })}><Plus className="mr-1 size-3" />Condition</Button>
+            <Button variant="outline" size="sm" onClick={() => onChange({ ...node, children: [...node.children, newLeaf()] })}><Plus className="mr-1 size-3" />Condition</Button>
             <Button variant="outline" size="sm" onClick={() => onChange({ ...node, children: [...node.children, { kind: "any", children: [] }] })}><Plus className="mr-1 size-3" />Group</Button>
           </>
         )}
         {onRemove && <Button variant="ghost" size="icon" className="size-8" onClick={onRemove}><Trash2 className="size-3.5" /></Button>}
       </div>
       {node.children.map((c: any, i: number) => (
-        <PredicateEditor key={i} node={c} depth={depth + 1} onChange={(nc) => setChild(i, nc)} onRemove={() => removeChild(i)} />
+        <PredicateEditor key={i} node={c} depth={depth + 1} onChange={(nc) => setChild(i, nc)} onRemove={() => removeChild(i)} fields={fields} newLeaf={newLeaf} />
       ))}
     </div>
   );

@@ -12,6 +12,8 @@ from typing import Any, Dict, Optional, Set
 
 from pydantic import ValidationError
 
+from jsonschema import Draft202012Validator
+
 from amendia_contracts.dispatch import (
     DispatchAcceptedEvent,
     DispatchRejectedEvent,
@@ -19,7 +21,6 @@ from amendia_contracts.dispatch import (
     ExceptionDispatchedEvent,
     Trace,
 )
-from amendia_contracts.wire_exception import WireExceptionEnvelope
 
 from app.clients.registry_client import ExceptionStoreClient, RegistryError, RegistryNotFound
 from app.dal.base import DuplicateError
@@ -28,6 +29,21 @@ from app.logging_conf import exception_id_ctx
 from app.models.process_instance import ProcessInstance, compute_idempotency_key
 
 logger = logging.getLogger(__name__)
+
+
+def _validate_trigger(envelope_doc: Any, trigger_schema: Optional[Dict[str, Any]]) -> Optional[str]:
+    """ADR-047 D1 (domain-neutral): validate the fetched trigger payload against the pack's declared trigger
+    schema. Returns a rejection reason string, or None when the envelope is acceptable. With no declared
+    trigger schema the payload is opaque — only a non-object is rejected."""
+    if trigger_schema:
+        errors = sorted(Draft202012Validator(trigger_schema).iter_errors(envelope_doc),
+                        key=lambda e: list(e.path))
+        if errors:
+            return f"envelope invalid: {[e.message for e in errors[:3]]}"
+        return None
+    if not isinstance(envelope_doc, dict):
+        return f"envelope invalid: expected a JSON object, got {type(envelope_doc).__name__}"
+    return None
 
 
 class DispatchService:
@@ -87,17 +103,11 @@ class DispatchService:
                                f"envelope fetch failed: {exc}", correlation_id)
             return
 
-        # Validate the envelope against the wire-exception model.
+        # Load the pack from the registry (validates unknown / not-active). Loaded FIRST so the envelope can
+        # be validated against the pack's OWN declared trigger schema (ADR-047 D1) — the engine assumes no
+        # concrete envelope type.
         try:
-            WireExceptionEnvelope.model_validate(envelope_doc)
-        except ValidationError as exc:
-            await self._reject(event, DispatchRejectionReason.ENVELOPE_INVALID,
-                               f"envelope invalid: {exc.errors()[:3]}", correlation_id)
-            return
-
-        # Load the pack from the registry (validates unknown / not-active).
-        try:
-            await self._engine.load_bundle(pack_key, pack_version)
+            bundle = await self._engine.load_bundle(pack_key, pack_version)
         except RegistryNotFound:
             await self._reject(event, DispatchRejectionReason.UNKNOWN_PACK,
                                f"pack {pack_key}@{pack_version} not found", correlation_id)
@@ -111,6 +121,13 @@ class DispatchService:
         except (RegistryError, ValueError) as exc:
             await self._reject(event, DispatchRejectionReason.UNKNOWN_PACK,
                                f"pack load failed: {exc}", correlation_id)
+            return
+
+        # ADR-047 D1: validate the envelope against the pack's DECLARED trigger artifact schema. When the pack
+        # declares no trigger, the envelope is opaque — accept any JSON object, reject only a non-object.
+        reason = _validate_trigger(envelope_doc, getattr(bundle, "trigger_schema", None))
+        if reason is not None:
+            await self._reject(event, DispatchRejectionReason.ENVELOPE_INVALID, reason, correlation_id)
             return
 
         # Create the instance (created), then accept + start execution.

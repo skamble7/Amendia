@@ -21,9 +21,11 @@ _FIXED_TS = "2025-01-01T00:00:00Z"
 
 ACTION_TOOLS = {"apply_repair", "notify_parties", "execute_return"}
 
-# Reason-code steering for assess_beneficiary (lets the demo drive each gateway branch).
-_REPAIRABLE_CODES = {"AC01", "AC03", "INCORRECT_ACCOUNT", "RQ01"}
-_UNREPAIRABLE_CODES = {"AC04", "AC06", "RC01", "CLOSED_ACCOUNT", "BLOCKED"}
+# Reason-code steering for assess_beneficiary (lets the demo drive each gateway branch). Aligned with the
+# re-homed wire-repair seed's original behaviour (ADR-047 D2): the correctable codes AC01/AC04/RC01 are
+# repairable; explicit `repair_hint` still reaches `unrepairable` for callers that want it.
+_REPAIRABLE_CODES = {"AC01", "AC03", "AC04", "RC01", "INCORRECT_ACCOUNT", "RQ01"}
+_UNREPAIRABLE_CODES = {"AC06", "CLOSED_ACCOUNT", "BLOCKED"}
 
 
 # --------------------------------------------------------------------------- #
@@ -229,7 +231,29 @@ def execute_return(args: Dict[str, Any]) -> Dict[str, Any]:
 
 
 # --------------------------------------------------------------------------- #
-# The tool registry — the 10 capability tools the wizard onboards.
+# Deep-agent worker tools (ADR-047 D2) — read-only investigation helpers a `deep_agent`
+# capability's loop may call. Ported verbatim from the runtime's ex-in-code `_STUB_WORKER_TOOLS`
+# (same deterministic behaviour), so a re-homed deep_agent pack behaves identically.
+# --------------------------------------------------------------------------- #
+
+def search_payment_history(args: Dict[str, Any]) -> Dict[str, Any]:
+    """Search prior settlement history for an account (read-only)."""
+    return {"account_id": str(_dig(args, "account_id", "unknown-account")), "prior_settlements": []}
+
+
+def name_match(args: Dict[str, Any]) -> Dict[str, Any]:
+    """Fuzzy name-match two party names, returning a 0..1 score (read-only)."""
+    a, b = _name(_dig(args, "name_a")), _name(_dig(args, "name_b"))
+    return {"name_a": a, "name_b": b, "score": 1.0 if a.strip().lower() == b.strip().lower() else 0.4}
+
+
+def fetch_attachment(args: Dict[str, Any]) -> Dict[str, Any]:
+    """Fetch a parsed attachment's contents by id (read-only)."""
+    return {"attachment_id": str(_dig(args, "attachment_id", "att-unknown")), "parsed": {"stub": True}}
+
+
+# --------------------------------------------------------------------------- #
+# The tool registry — the 10 capability tools + 3 deep-agent worker tools the wizard onboards.
 # --------------------------------------------------------------------------- #
 
 class ToolSpec(dict):
@@ -265,6 +289,13 @@ TOOLS: List[ToolSpec] = [
           "read_only", S.DRAFT_RETURN_INPUT, S.DRAFT_RETURN_OUTPUT, draft_return),
     _spec("execute_return", "Execute the approved return and notify (side-effectful).",
           "side_effectful", S.EXECUTE_RETURN_INPUT, S.EXECUTE_RETURN_OUTPUT, execute_return),
+    # ADR-047 D2 — deep-agent worker tools (read-only), whitelisted by a deep_agent's runtime.tools.
+    _spec("search_payment_history", "Search prior settlement history for an account (read-only deep-agent tool).",
+          "read_only", S.SEARCH_HISTORY_INPUT, S.SEARCH_HISTORY_OUTPUT, search_payment_history),
+    _spec("name_match", "Fuzzy-match two party names, returning a 0..1 score (read-only deep-agent tool).",
+          "read_only", S.NAME_MATCH_INPUT, S.NAME_MATCH_OUTPUT, name_match),
+    _spec("fetch_attachment", "Fetch a parsed attachment by id (read-only deep-agent tool).",
+          "read_only", S.FETCH_ATTACHMENT_INPUT, S.FETCH_ATTACHMENT_OUTPUT, fetch_attachment),
 ]
 
 TOOLS_BY_NAME: Dict[str, ToolSpec] = {t["name"]: t for t in TOOLS}
@@ -301,7 +332,7 @@ def _has_ref(schema: Any) -> bool:
 def check_compliance(tools: List[ToolSpec] = TOOLS) -> None:
     """Assert every capability tool is Amendia-MCP-compliant. Raises ``AssertionError``
     (with the offending tool + reason) on the first violation."""
-    assert len(tools) == 10, f"expected 10 capability tools, found {len(tools)}"
+    assert len(tools) == 13, f"expected 13 tools (10 capability + 3 deep-agent worker), found {len(tools)}"
     for t in tools:
         n = t["name"]
         insch, outsch = t["input_schema"], t["output_schema"]

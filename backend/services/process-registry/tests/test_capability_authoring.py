@@ -146,7 +146,7 @@ async def test_authored_decision_pack_onboards_to_active(svc, pack_repo, cap_rep
     ]
     s = await svc.set_bindings(s.session_id, SetBindingsRequest(bindings=binds), owner=OWNER)
     s = await svc.set_triage(s.session_id, SetTriageRequest(triage_rules=[
-        StagedTriageRule(rule_id="r", priority=1, when={"field": "reason_code", "op": "eq", "value": "AC01"})]), owner=OWNER)
+        StagedTriageRule(rule_id="r", priority=1, when={"field": "reason_codes", "op": "intersects", "value": ["AC01"]})]), owner=OWNER)
     s = await svc.set_policies(s.session_id, SetPoliciesRequest(), owner=OWNER)
     s = await svc.assemble(s.session_id, owner=OWNER)
     errs = [f for f in s.dry_run_report["findings"] if f["severity"] == "error"]

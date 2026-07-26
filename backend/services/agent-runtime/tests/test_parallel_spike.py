@@ -22,6 +22,7 @@ from app.config import settings
 from app.engine.bundle import PackBundle
 from app.engine.compiler import CompilerError, compile_graph
 from app.engine.executor import InProcessExecutor
+from tests._stub_stack import stub_executor
 from app.engine.state import ProcessState, initial_state
 from amendia_bpmn import parse
 from tests._wire import drive, make_envelope
@@ -63,19 +64,19 @@ def _parallel_bundle() -> PackBundle:
 def test_common_subset_refuses_parallel():
     b = _parallel_bundle()
     with pytest.raises(CompilerError, match="parallelGateway"):
-        compile_graph(b, InProcessExecutor(), simulation=True, checkpointer=MemorySaver(), profile="common_subset")
+        compile_graph(b, stub_executor(), simulation=True, checkpointer=MemorySaver(), profile="common_subset")
 
 
 def test_parallel_profile_compiles_fork_and_join():
     b = _parallel_bundle()
-    app = compile_graph(b, InProcessExecutor(), simulation=True, checkpointer=MemorySaver(), profile="parallel")
+    app = compile_graph(b, stub_executor(), simulation=True, checkpointer=MemorySaver(), profile="parallel")
     nodes = set(app.get_graph().nodes)
     assert {"Gw_Fork", "Gw_Join", "Task_NotifyParties", "Task_RecordResolution"} <= nodes
 
 
 def test_parallel_execution_runs_both_branches():
     b = _parallel_bundle()
-    app = compile_graph(b, InProcessExecutor(), simulation=True, checkpointer=MemorySaver(), profile="parallel")
+    app = compile_graph(b, stub_executor(), simulation=True, checkpointer=MemorySaver(), profile="parallel")
     init = initial_state(
         envelope=make_envelope("AC01", exception_id="EXC-PAR"),
         trace={"correlation_id": "EXC-PAR"},

@@ -1,6 +1,7 @@
 # ADR-047 — Platform domain-neutrality: generic trigger artifact & runtime capability decoupling
 
-**Status:** Proposed
+**Status:** Accepted — **D1 shipped 2026-07-24** (generic trigger artifact; engine no longer imports a
+concrete envelope type). D2 (runtime capability decoupling) pending as its own track.
 **Date:** 2026-07-21
 **Context owner:** Sandeep Kamble
 **Supersedes/relates:** ADR-024 (self-descriptive capability descriptors), ADR-027 (ingest→execute conformance),
@@ -35,6 +36,22 @@ config-level defaults (domain fallback, boot seed) are handled as P0 in the reme
 - `WireExceptionEnvelope` moves to `libs/amendia_contracts` **as a registrable artifact schema used only by the
   wire-transfer test pack** — the engine no longer imports it. The `stub_exception_generator` emits an instance
   of that (data), which onboarding registers as the pack's trigger artifact.
+
+**As implemented (D1, 2026-07-24):**
+- `ProcessPackManifest` gains an optional `trigger` (an artifact ref, e.g. `art.payment.wire_exception@^1.0.0`).
+  Additive — a pack that declares none has its envelope treated as **opaque** (any JSON object accepted).
+- `PackBundle.trigger_schema` resolves the declared trigger artifact's JSON schema from the pinned schemas.
+- `dispatch_service` **loads the pack first**, then validates the fetched envelope against
+  `bundle.trigger_schema` via `jsonschema` (rejecting `envelope_invalid` on failure), or — with no declared
+  trigger — accepts any object and rejects only a non-object. The `from amendia_contracts.wire_exception import
+  WireExceptionEnvelope` engine import is **removed**.
+- The wire-transfer seed registers `art.payment.wire_exception` (the `WireExceptionEnvelope` schema, flattened
+  to a self-contained draft-2020-12 object — no internal `$ref`) and its `wire-repair-standard` manifest declares
+  `trigger: art.payment.wire_exception@^1.0.0`. The wire pack thus validates its envelope **as data**; a
+  non-wire pack runs with zero engine change (opaque, or its own declared trigger).
+- **Not yet:** the onboarding wizard does not author `trigger` (packs onboarded today are opaque); the
+  `stub_exception_generator` wiring and the executor payload-path removal (`mcp_client`/screening/payment_comp)
+  land with **D2** (they live in the per-process capability code D2 re-homes).
 
 ### D2 — The runtime carries no per-process capability code
 

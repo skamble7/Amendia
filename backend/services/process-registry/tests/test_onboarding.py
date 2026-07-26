@@ -69,7 +69,7 @@ async def _walk_to_assembled(svc):
     s = await svc.set_triage(
         s.session_id,
         SetTriageRequest(triage_rules=[StagedTriageRule(rule_id="r1", priority=100,
-                                                        when={"field": "reason_code", "op": "eq", "value": "AC01"})]),
+                                                        when={"field": "reason_codes", "op": "intersects", "value": ["AC01"]})]),
         owner=OWNER,
     )
     s = await svc.set_policies(
@@ -159,23 +159,60 @@ async def test_create_rejects_invalid_domain(onboarding_service):
     assert any(e["field"] == "default_domain" for e in ei.value.detail["errors"])
 
 
-async def test_capability_id_collision_flagged_at_capabilities_step(onboarding_service, cap_repo):
-    # L1 guardrail: a newly-staged id that already exists as an ACTIVE catalog capability is flagged (the
-    # cap.<domain>.* namespace clash) — steering the operator to a distinct domain, not a silent bind at commit.
+async def test_introspect_flags_hard_id_collision_with_contract_diff(onboarding_service, cap_repo):
+    # Batch-4: a derived cap.payment.screen_party colliding with an ACTIVE catalog capability of a DIFFERENT
+    # contract (kind=skill) is flagged at introspect as a HARD collision (the class that later becomes
+    # binding_io_mismatch) — with a diff + the domain/reuse steer. Advisory, not a 422 block.
+    from app.models.onboarding import IntrospectMcpRequest
     await cap_repo.insert(CapabilityDescriptor.model_validate({
         "descriptor_version": "1.0", "capability_id": "cap.payment.screen_party", "version": "1.0.0",
         "title": "existing", "kind": "skill", "side_effect": "read_only", "inputs": [], "outputs": [],
         "runtime": {"kind": "skill", "entrypoint": "app.x:y"},
         "constraints": {"timeout_seconds": 30, "max_retries": 0}, "status": "active"}))
-    s = await onboarding_service.create(
-        CreateSessionRequest(pack_key="dup-pack", version="1.0.0", title="t", default_domain="payment"), owner=OWNER)
-    s = await onboarding_service.attach_bpmn(s.session_id, AttachBpmnRequest(bpmn_xml=MCP_BPMN), owner=OWNER)
-    with pytest.raises(TransitionError) as ei:
-        await onboarding_service.set_capabilities(
-            s.session_id, SetCapabilitiesRequest(tools=[_screen_selection()]), owner=OWNER)
-    assert ei.value.status_code == 422
-    assert any(e.get("code") == "capability_id_collision" and e["capability_id"] == "cap.payment.screen_party"
-               for e in ei.value.detail["errors"])
+    resp = await onboarding_service.introspect_mcp(
+        IntrospectMcpRequest(endpoint="http://mcp.local/mcp", domain="payment"))
+    hit = {t.name: t for t in resp.tools}["screen_party"]
+    assert hit.id_collision is not None
+    assert hit.id_collision.severity == "hard"
+    assert hit.id_collision.active_kind == "skill" and hit.id_collision.active_version == "1.0.0"
+    assert "kind=skill" in hit.id_collision.diff and "kind=mcp" in hit.id_collision.diff
+    # a DISTINCT domain derives a different id → no collision (the operator's fix clears it)
+    resp2 = await onboarding_service.introspect_mcp(
+        IntrospectMcpRequest(endpoint="http://mcp.local/mcp", domain="beneficiary_screening"))
+    assert {t.name: t for t in resp2.tools}["screen_party"].id_collision is None
+
+
+async def test_introspect_benign_match_is_a_reuse_nudge_not_a_collision(onboarding_service, cap_repo):
+    # an active id whose contract is COMPATIBLE (same kind=mcp + same IO artifact keys) is a reuse
+    # opportunity, not a hard clash — surfaced as `benign`, no false alarm.
+    from app.models.onboarding import IntrospectMcpRequest
+    await cap_repo.insert(CapabilityDescriptor.model_validate({
+        "descriptor_version": "1.0", "capability_id": "cap.payment.screen_party", "version": "2.0.0",
+        "title": "existing mcp", "kind": "mcp", "side_effect": "read_only",
+        "inputs": [{"name": "in", "schema": "art.payment.screen_party_input@^1.0.0"}],
+        "outputs": [{"name": "out", "schema": "art.payment.screen_party_output@^1.0.0"}],
+        "runtime": {"kind": "mcp", "endpoint": "http://x/mcp", "tools": ["screen_party"]},
+        "constraints": {"timeout_seconds": 30, "max_retries": 0}, "status": "active"}))
+    resp = await onboarding_service.introspect_mcp(
+        IntrospectMcpRequest(endpoint="http://mcp.local/mcp", domain="payment"))
+    coll = {t.name: t for t in resp.tools}["screen_party"].id_collision
+    assert coll is not None and coll.severity == "benign" and coll.active_version == "2.0.0"
+
+
+def test_classify_id_collision_unit():
+    # the pure classifier: none (fresh), hard (kind differs), benign (compatible mcp contract).
+    from app.services.mcp_introspect import classify_id_collision
+    from types import SimpleNamespace
+    def _io(schema):
+        return SimpleNamespace(name="x", schema_=schema)
+    assert classify_id_collision([], domain="payment", tool="screen_party") is None
+    skill = SimpleNamespace(kind="skill", version="1.0.0", inputs=[], outputs=[])
+    hard = classify_id_collision([skill], domain="payment", tool="screen_party")
+    assert hard.severity == "hard"
+    mcp = SimpleNamespace(kind="mcp", version="1.0.0",
+                          inputs=[_io("art.payment.screen_party_input@^1.0.0")],
+                          outputs=[_io("art.payment.screen_party_output@^1.0.0")])
+    assert classify_id_collision([mcp], domain="payment", tool="screen_party").severity == "benign"
 
 
 def test_seeding_is_opt_in_no_code_default():

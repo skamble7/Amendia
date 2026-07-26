@@ -1935,6 +1935,40 @@
         "title": "HumanExecutor",
         "type": "object"
       },
+      "IdCollision": {
+        "description": "Batch-4: the derived ``cap.<domain>.<tool>`` id already exists as an ACTIVE catalog capability. A\n**hard** collision means that active capability's contract (kind and/or input/output artifact keys)\nDIFFERS from what introspection would stage \u2014 binding this pack to it later fails ``binding_io_mismatch``;\nsteer the operator to a distinct domain or explicit reuse. A **benign** match means the active descriptor\nis contract-compatible (same ``kind: mcp`` + same IO artifact keys) \u2014 not a clash but a reuse opportunity.\nAdvisory only (non-blocking): the operator decides domain-vs-reuse.",
+        "properties": {
+          "active_kind": {
+            "title": "Active Kind",
+            "type": "string"
+          },
+          "active_version": {
+            "title": "Active Version",
+            "type": "string"
+          },
+          "capability_id": {
+            "title": "Capability Id",
+            "type": "string"
+          },
+          "diff": {
+            "title": "Diff",
+            "type": "string"
+          },
+          "severity": {
+            "title": "Severity",
+            "type": "string"
+          }
+        },
+        "required": [
+          "capability_id",
+          "severity",
+          "active_version",
+          "active_kind",
+          "diff"
+        ],
+        "title": "IdCollision",
+        "type": "object"
+      },
       "InferenceAnnotation": {
         "properties": {
           "code": {
@@ -2233,6 +2267,16 @@
               }
             ],
             "title": "Description"
+          },
+          "id_collision": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/IdCollision"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "input_schema": {
             "anyOf": [
@@ -2720,6 +2764,13 @@
             "title": "Triage Rules",
             "type": "array"
           },
+          "trigger_fields": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Trigger Fields",
+            "type": "object"
+          },
           "updated_at": {
             "format": "date-time",
             "title": "Updated At",
@@ -2932,6 +2983,22 @@
             "title": "Triage Rules",
             "type": "array"
           },
+          "trigger": {
+            "anyOf": [
+              {
+                "description": "Versioned reference '<id>@<range-or-pin>'.",
+                "examples": [
+                  "art.payment.draft_repair@^1.0.0"
+                ],
+                "title": "ArtifactRef",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Trigger"
+          },
           "updated_at": {
             "anyOf": [
               {
@@ -3087,6 +3154,22 @@
             "minItems": 1,
             "title": "Triage Rules",
             "type": "array"
+          },
+          "trigger": {
+            "anyOf": [
+              {
+                "description": "Versioned reference '<id>@<range-or-pin>'.",
+                "examples": [
+                  "art.payment.draft_repair@^1.0.0"
+                ],
+                "title": "ArtifactRef",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Trigger"
           },
           "updated_at": {
             "anyOf": [

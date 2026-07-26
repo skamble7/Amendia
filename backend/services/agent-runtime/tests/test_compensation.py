@@ -19,6 +19,7 @@ from app.config import settings
 from app.engine.compensation import pending_compensations
 from app.engine.compiler import CompilerError, compile_graph
 from app.engine.executor import InProcessExecutor
+from tests._structural_tools import STRUCTURAL_IMPLS
 from app.engine.state import initial_state
 from app.engine.task_runner import NodeExecutionError
 from tests._wire import drive, make_envelope
@@ -57,7 +58,7 @@ def _bundle(xml: str):
 
 
 def _run(bundle, *, tid, decide=None):
-    app = compile_graph(bundle, InProcessExecutor(), simulation=True, checkpointer=MemorySaver(),
+    app = compile_graph(bundle, InProcessExecutor(skill_impls=STRUCTURAL_IMPLS), simulation=True, checkpointer=MemorySaver(),
                         profile="common_executable")
     return drive(app, {"configurable": {"thread_id": tid}},
                  initial_state(envelope=make_envelope("AC01"), trace={"correlation_id": "c"},
@@ -174,7 +175,7 @@ def test_targeted_compensation_refused_at_compile():
                                 '<bpmn:compensateEventDefinition activityRef="Release"/>')
     b = _bundle(_proc(spine))
     with pytest.raises(CompilerError, match="targeted"):
-        compile_graph(b, InProcessExecutor(), simulation=True, checkpointer=MemorySaver(),
+        compile_graph(b, InProcessExecutor(skill_impls=STRUCTURAL_IMPLS), simulation=True, checkpointer=MemorySaver(),
                       profile="common_executable")
 
 
@@ -190,5 +191,5 @@ def test_transaction_cancel_refused_at_compile():
         '<bpmn:sequenceFlow id="f3" sourceRef="Debit" targetRef="Cancel"/>')
     b = _bundle(_proc(spine2))
     with pytest.raises(CompilerError, match="transaction"):
-        compile_graph(b, InProcessExecutor(), simulation=True, checkpointer=MemorySaver(),
+        compile_graph(b, InProcessExecutor(skill_impls=STRUCTURAL_IMPLS), simulation=True, checkpointer=MemorySaver(),
                       profile="common_executable")

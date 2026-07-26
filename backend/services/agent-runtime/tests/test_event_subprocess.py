@@ -20,6 +20,7 @@ from app.config import settings
 from app.engine.bundle import PackBundle
 from app.engine.compiler import FAILED_OUTCOME, CompilerError, compile_graph
 from app.engine.executor import InProcessExecutor
+from tests._structural_tools import STRUCTURAL_IMPLS
 from app.engine.executor.base import CapabilityBusinessError
 from app.engine.state import initial_state
 from tests._wire import drive, make_envelope
@@ -42,7 +43,7 @@ class _Block:
     """Sim everything except one capability, which blocks until cancelled (to breach the scope SLA)."""
 
     def __init__(self, cap):
-        self._cap, self._fb = cap, InProcessExecutor()
+        self._cap, self._fb = cap, InProcessExecutor(skill_impls=STRUCTURAL_IMPLS)
 
     def execute(self, d, i, ctx):
         if d.capability_id == self._cap:
@@ -56,7 +57,7 @@ class _Raise:
     """Sim everything except one capability, which raises a modeled business error."""
 
     def __init__(self, cap, code):
-        self._cap, self._code, self._fb = cap, code, InProcessExecutor()
+        self._cap, self._code, self._fb = cap, code, InProcessExecutor(skill_impls=STRUCTURAL_IMPLS)
 
     def execute(self, d, i, ctx):
         if d.capability_id == self._cap:
@@ -126,7 +127,7 @@ def _proc(esp: str, *, defs="", main_extra="") -> str:
 # =========================================================================== #
 def test_timer_esp_within_deadline_completes():
     # the seed's canonical process is a process-level timer ESP; within the deadline it never fires.
-    final = _run(_seed_bundle(), InProcessExecutor(), tid="within")
+    final = _run(_seed_bundle(), InProcessExecutor(skill_impls=STRUCTURAL_IMPLS), tid="within")
     assert final["outcome"] == "End_Done"
     assert set(final["artifacts"]) == {"scr"}           # Screen ran; Handle (the ESP body) did not
     assert "Process_EventHandler" not in (final.get("boundary") or {})
@@ -240,7 +241,7 @@ def test_message_triggered_esp_refused_at_compile():
     xml = _proc(_handle_body("ESP", start))
     b = _bundle(xml)
     with pytest.raises(CompilerError, match="event sub-process"):
-        compile_graph(b, InProcessExecutor(), simulation=True, checkpointer=MemorySaver(),
+        compile_graph(b, InProcessExecutor(skill_impls=STRUCTURAL_IMPLS), simulation=True, checkpointer=MemorySaver(),
                       profile="common_executable")
 
 
@@ -250,7 +251,7 @@ def test_non_interrupting_esp_refused_at_compile():
     xml = _proc(_handle_body("ESP", start))
     b = _bundle(xml)
     with pytest.raises(CompilerError, match="event sub-process"):
-        compile_graph(b, InProcessExecutor(), simulation=True, checkpointer=MemorySaver(),
+        compile_graph(b, InProcessExecutor(skill_impls=STRUCTURAL_IMPLS), simulation=True, checkpointer=MemorySaver(),
                       profile="common_executable")
 
 
@@ -263,5 +264,5 @@ def test_two_timer_esps_on_process_ambiguous_at_compile():
     xml = _proc(esp1 + esp2)
     b = _bundle(xml)
     with pytest.raises(CompilerError):
-        compile_graph(b, InProcessExecutor(), simulation=True, checkpointer=MemorySaver(),
+        compile_graph(b, InProcessExecutor(skill_impls=STRUCTURAL_IMPLS), simulation=True, checkpointer=MemorySaver(),
                       profile="common_executable")

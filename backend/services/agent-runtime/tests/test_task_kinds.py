@@ -23,6 +23,7 @@ from app.engine.bundle import PackBundle
 from app.engine.compiler import CompilerError, compile_graph
 from app.engine.engine import ProcessEngine
 from app.engine.executor import InProcessExecutor
+from tests._stub_stack import stub_executor
 from app.models.process_instance import InstanceStatus, ProcessInstance
 from amendia_contracts.hitl_task import TaskStatus
 from tests._wire import make_envelope, role_user
@@ -79,7 +80,7 @@ async def harness():
 
     def build_engine(bundle):
         eng = ProcessEngine(registry=None, instance_repo=instances, hitl_repo=hitl, publisher=FakePublisher(),
-                            settings=_Settings(), executor=InProcessExecutor(), checkpointer=cp)
+                            settings=_Settings(), executor=stub_executor(), checkpointer=cp)
         eng._bundles[(PK, PV)] = bundle
         eng._graphs[(PK, PV)] = compile_graph(bundle, eng._executor, simulation=True, checkpointer=cp, profile="tasks")
         return eng
@@ -149,5 +150,5 @@ async def test_tasks_profile_guard():
     xml = _retag(_seed_xml(), "Task_EnrichPayment", "serviceTask", "sendTask")
     b = _bundle(xml, {"Task_EnrichPayment": "sendTask"})
     with pytest.raises(CompilerError):
-        compile_graph(b, InProcessExecutor(), simulation=True, checkpointer=MemorySaver(), profile="common_subset")
-    compile_graph(b, InProcessExecutor(), simulation=True, checkpointer=MemorySaver(), profile="tasks")
+        compile_graph(b, stub_executor(), simulation=True, checkpointer=MemorySaver(), profile="common_subset")
+    compile_graph(b, stub_executor(), simulation=True, checkpointer=MemorySaver(), profile="tasks")

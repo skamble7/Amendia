@@ -21,6 +21,7 @@ from app.db.mongo import HITL_TASKS, PROCESS_INSTANCES, create_indexes
 from app.engine.bundle import PackBundle
 from app.engine.compiler import FAILED_OUTCOME, compile_graph
 from app.engine.executor import InProcessExecutor
+from tests._stub_stack import stub_executor
 from app.engine.state import initial_state
 from app.models.process_instance import InstanceStatus, ProcessInstance
 from amendia_contracts.hitl_task import TaskStatus
@@ -65,9 +66,23 @@ def _bundle(xml: str) -> PackBundle:
     return b
 
 
+def _steered_apply_repair(args):
+    """ADR-047 D2: the MCP-native way to model ApplyRepair's failures — an `isError` result carries the
+    business error (routed to a BPMN error boundary); a raised exception is a technical failure. Steered by
+    the reason codes threaded into the tool arguments (RJCT → business, TECHFAIL → technical), else the real
+    server acknowledgement."""
+    codes = args.get("reason_codes") or []
+    if "RJCT" in codes:
+        return {"isError": True, "structuredContent": {"error_code": "PAYMENT_REJECTED"}}
+    if "TECHFAIL" in codes:
+        raise RuntimeError("simulated technical failure at ApplyRepair")
+    from tests._mcp_server_tools import server_tool_map
+    return server_tool_map()["apply_repair"](args)
+
+
 def _graph(xml: str, profile="error_boundary"):
-    return compile_graph(_bundle(xml), InProcessExecutor(), simulation=True,
-                         checkpointer=MemorySaver(), profile=profile)
+    return compile_graph(_bundle(xml), stub_executor(tools={"apply_repair": _steered_apply_repair}),
+                         simulation=True, checkpointer=MemorySaver(), profile=profile)
 
 
 def _initial(reason_codes):
@@ -165,7 +180,7 @@ async def engine_ctx():
     cp = MemorySaver()
     b = _bundle(_error_xml(target="End_Returned"))
     eng = ProcessEngine(registry=None, instance_repo=instances, hitl_repo=hitl, publisher=pub,
-                        settings=_Settings(), executor=InProcessExecutor(), checkpointer=cp)
+                        settings=_Settings(), executor=stub_executor(tools={"apply_repair": _steered_apply_repair}), checkpointer=cp)
     eng._bundles[(PK, PV)] = b
     eng._graphs[(PK, PV)] = compile_graph(b, eng._executor, simulation=True,
                                           checkpointer=cp, profile="error_boundary")

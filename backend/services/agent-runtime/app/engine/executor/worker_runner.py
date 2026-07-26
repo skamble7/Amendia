@@ -31,9 +31,16 @@ def _emit_otlp_trace(spec: Dict[str, Any]) -> str:
     return f"otlp-worker-{rid}-{uuid.uuid4().hex[:8]}"
 
 
-def run_job(job: Dict[str, Any], *, mcp_client: Optional[Any] = None) -> Dict[str, Any]:
+def run_job(job: Dict[str, Any], *, mcp_client: Optional[Any] = None,
+            deep_agent_runner: Optional[Any] = None, stub_inference: bool = False,
+            skill_impls: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Execute one capability job. Never raises — failures are returned as ``ok: False`` so
-    the host surfaces a clean node failure (never a swallowed error)."""
+    the host surfaces a clean node failure (never a swallowed error).
+
+    The `mcp_client` / `deep_agent_runner` / `stub_inference` / `skill_impls` are injectables threaded
+    straight into the shared core — the SAME seam the in-process executor uses (ADR-047 D2). In production
+    the worker builds real clients (below); in dev/CI the host injects the stub stack, so the worker path is
+    transparent to the native path by construction (no per-worker simulation code)."""
     request_id = job.get("request_id")
     spec = job.get("spec") or {}
     spec = {**spec, "_request_id": request_id}
@@ -50,6 +57,7 @@ def run_job(job: Dict[str, Any], *, mcp_client: Optional[Any] = None) -> Dict[st
                 "process_instance_id": spec.get("process_instance_id"),
                 "memo_attempt": spec.get("memo_attempt", 0),
                 "error_codes": spec.get("error_codes", []),   # ADR-035
+                "mcp_arguments": spec.get("mcp_arguments"),   # ADR-048/D2: same tool call as native
             },
         )
         kind = spec.get("kind")
@@ -57,13 +65,14 @@ def run_job(job: Dict[str, Any], *, mcp_client: Optional[Any] = None) -> Dict[st
         if client is None and kind in ("mcp", "deep_agent") and not ctx.simulation:
             from app.engine.executor.mcp_client import build_mcp_client
             client = build_mcp_client(settings)
-        runner = None
-        if kind == "deep_agent":
+        runner = deep_agent_runner
+        if runner is None and kind == "deep_agent":
             from app.engine.executor.deep_agent import build_deep_agent_runner
             runner = build_deep_agent_runner(settings)
 
         result = execute_capability(descriptor, spec.get("inputs", {}), ctx,
-                                    mcp_client=client, deep_agent_runner=runner)
+                                    mcp_client=client, deep_agent_runner=runner,
+                                    stub_inference=stub_inference, skill_impls=skill_impls)
 
         return {
             "request_id": request_id,

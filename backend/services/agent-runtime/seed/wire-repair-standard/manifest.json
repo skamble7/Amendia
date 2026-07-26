@@ -9,6 +9,7 @@
     "process_id": "Process_WireRepairStandard",
     "bpmn_sha256": "cb37e8af87aa4ce3c6d7ddfa5193f01515f11a41615346ca87ac109014b45af7"
   },
+  "trigger": "art.payment.wire_exception@^1.0.0",
   "triage_rules": [
     {
       "rule_id": "wire-uta-repairable-codes",
@@ -73,13 +74,17 @@
     }
   ],
   "artifacts": [
+    "art.compliance.screen_party_output@^1.0.0",
+    "art.compliance.screening_result@^1.0.0",
+    "art.payment.assess_beneficiary_output@^1.0.0",
+    "art.payment.enrich_investigation_output@^1.0.0",
     "art.payment.investigation_dossier@^1.0.0",
-    "art.payment.repair_verdict@^1.0.0",
     "art.payment.repair_instruction@^1.0.0",
+    "art.payment.repair_verdict@^1.0.0",
+    "art.payment.resolution_record@^1.0.0",
     "art.payment.return_instruction@^1.0.0",
     "art.payment.rfi_request@^1.0.0",
-    "art.compliance.screening_result@^1.0.0",
-    "art.payment.resolution_record@^1.0.0"
+    "art.payment.wire_exception@^1.0.0"
   ],
   "bindings": [
     {
@@ -92,13 +97,36 @@
       "hitl": {
         "mode": "none"
       },
-      "inputs": [],
+      "inputs": [
+        {
+          "name": "trigger",
+          "schema": "art.payment.wire_exception@^1.0.0",
+          "required": true
+        }
+      ],
       "outputs": [
         {
           "name": "dossier",
-          "schema": "art.payment.investigation_dossier@^1.0.0"
+          "schema": "art.payment.enrich_investigation_output@^1.0.0"
         }
-      ]
+      ],
+      "input_map": {
+        "trigger": {
+          "fields": {
+            "envelope": {
+              "from": "trigger"
+            },
+            "exception_id": {
+              "from": "trigger",
+              "path": "exception_id"
+            },
+            "reason_codes": {
+              "from": "trigger",
+              "path": "reason_codes"
+            }
+          }
+        }
+      }
     },
     {
       "element_id": "Task_AssessRepairability",
@@ -120,9 +148,26 @@
       "outputs": [
         {
           "name": "beneficiary",
-          "schema": "art.payment.repair_verdict@^1.0.0"
+          "schema": "art.payment.assess_beneficiary_output@^1.0.0"
         }
-      ]
+      ],
+      "input_map": {
+        "dossier": {
+          "fields": {
+            "envelope": {
+              "from": "trigger"
+            },
+            "exception_id": {
+              "from": "trigger",
+              "path": "exception_id"
+            },
+            "reason_codes": {
+              "from": "trigger",
+              "path": "reason_codes"
+            }
+          }
+        }
+      }
     },
     {
       "element_id": "Task_ObtainInfo",
@@ -215,9 +260,30 @@
       "outputs": [
         {
           "name": "screening",
-          "schema": "art.compliance.screening_result@^1.0.0"
+          "schema": "art.compliance.screen_party_output@^1.0.0"
         }
-      ]
+      ],
+      "input_map": {
+        "repair": {
+          "fields": {
+            "envelope": {
+              "from": "trigger"
+            },
+            "exception_id": {
+              "from": "trigger",
+              "path": "exception_id"
+            },
+            "reason_codes": {
+              "from": "trigger",
+              "path": "reason_codes"
+            },
+            "party": {
+              "from": "trigger",
+              "path": "payment.creditor"
+            }
+          }
+        }
+      }
     },
     {
       "element_id": "Task_ApplyRepair",
@@ -240,7 +306,24 @@
           "schema": "art.compliance.screening_result@^1.0.0"
         }
       ],
-      "outputs": []
+      "outputs": [],
+      "input_map": {
+        "repair": {
+          "fields": {
+            "envelope": {
+              "from": "trigger"
+            },
+            "exception_id": {
+              "from": "trigger",
+              "path": "exception_id"
+            },
+            "reason_codes": {
+              "from": "trigger",
+              "path": "reason_codes"
+            }
+          }
+        }
+      }
     },
     {
       "element_id": "Task_NotifyParties",
@@ -259,7 +342,24 @@
           "schema": "art.payment.repair_instruction@^1.0.0"
         }
       ],
-      "outputs": []
+      "outputs": [],
+      "input_map": {
+        "repair": {
+          "fields": {
+            "envelope": {
+              "from": "trigger"
+            },
+            "exception_id": {
+              "from": "trigger",
+              "path": "exception_id"
+            },
+            "reason_codes": {
+              "from": "trigger",
+              "path": "reason_codes"
+            }
+          }
+        }
+      }
     },
     {
       "element_id": "Task_RecordResolution",
@@ -351,14 +451,31 @@
           "schema": "art.payment.return_instruction@^1.0.0"
         }
       ],
-      "outputs": []
+      "outputs": [],
+      "input_map": {
+        "return": {
+          "fields": {
+            "envelope": {
+              "from": "trigger"
+            },
+            "exception_id": {
+              "from": "trigger",
+              "path": "exception_id"
+            },
+            "reason_codes": {
+              "from": "trigger",
+              "path": "reason_codes"
+            }
+          }
+        }
+      }
     }
   ],
   "gateway_variables": [
     {
       "gateway_id": "Gateway_Repairable",
       "variable": "beneficiary.repair_verdict",
-      "source_artifact": "art.payment.repair_verdict"
+      "source_artifact": "art.payment.assess_beneficiary_output"
     }
   ],
   "policies": {

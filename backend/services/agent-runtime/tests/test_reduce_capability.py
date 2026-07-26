@@ -16,6 +16,7 @@ from app.config import settings
 from app.engine.bundle import PackBundle
 from app.engine.compiler import compile_graph
 from app.engine.executor import InProcessExecutor
+from tests._stub_stack import stub_executor
 from app.engine.executor.base import CapabilityBusinessError, CapabilityError, ExecutionContext
 from app.engine.executor.core import execute_capability
 from app.engine.state import initial_state
@@ -26,7 +27,7 @@ SCREENING_SEED = str(settings.SEED_DIR).replace("wire-repair-standard", "wire-re
 
 def _graph():
     b = PackBundle.from_seed_dir(SCREENING_SEED)
-    return compile_graph(b, InProcessExecutor(), simulation=True,
+    return compile_graph(b, stub_executor(), simulation=True,
                          checkpointer=MemorySaver(), profile="common_executable")
 
 

@@ -21,7 +21,13 @@ from app.validation.reduce import validate_reduce_bindings
 from app.dal.artifact_schema_repo import ArtifactSchemaRepository
 from app.dal.capability_repo import CapabilityRepository
 from app.validation.bpmn import BpmnModel, parse_and_validate
-from app.validation.predicates import PredicateSyntaxError, check_predicate, evaluate
+from app.validation.predicates import (
+    PredicateSyntaxError,
+    check_predicate,
+    evaluate,
+    infer_field_types,
+    validate_predicate,
+)
 from app.validation.report import Severity, ValidationReport
 
 APPROVE_ACTIONS = HitlMode.APPROVE_ACTIONS
@@ -608,6 +614,9 @@ class PackValidator:
                             report.error("sod_unknown_element", stage=7, element_id=el,
                                          message=f"SoD element '{el}' is not a BPMN task")
 
+        # Batch-4: the trigger shape for schema-aware triage validation (from the sample envelopes; a declared
+        # trigger artifact would slot in here). Empty ⇒ schema checks degrade to the structural check only.
+        field_types = infer_field_types(sample_envelopes)
         for rule in manifest.triage_rules:
             try:
                 check_predicate(rule.when)
@@ -615,6 +624,10 @@ class PackValidator:
                 report.error("triage_rule_invalid", stage=7,
                              message=f"triage rule '{rule.rule_id}' predicate invalid: {exc}")
                 continue
+            # A field not on the trigger, or an op incompatible with its type, is an ERROR (it silently never
+            # triages at runtime) — not a clean pass.
+            for f in validate_predicate(rule.when, field_types):
+                report.error(f["code"], stage=7, message=f"triage rule '{rule.rule_id}': {f['message']}")
             for env in sample_envelopes:
                 try:
                     matched = evaluate(rule.when, env)

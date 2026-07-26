@@ -20,8 +20,10 @@ summary after parse and focuses the coverage report, capability **reuse is now a
 task** from the inference (a "suggested" chip + the HITL floor applied) so bindings arrive pre-filled, and an
 **unselected capability is a clean field-level `bindings_invalid` error** (never a raw 500 at assemble),
 **domain-neutrality remediation P0** — the capability **domain has no business default** (operator-chosen, else
-derived from the pack_key), a **`capability_id_collision`** guardrail flags a staged id already active in the
-catalog, and **seeding is opt-in** (no hardcoded seed path; the platform boots clean with `SEED_DIR` unset), and
+derived from the pack_key), an **`id_collision`** advisory flags at **introspect** when a derived id already
+exists as an active catalog capability — **hard** (contract differs, with a diff + distinct-domain/reuse fixes)
+vs **benign** (compatible → reuse nudge), and **seeding is opt-in** (no hardcoded seed path; the platform boots
+clean with `SEED_DIR` unset), and
 capability **`input_map`** (ADR-048) — each input's data is sourced from the trigger or an upstream output, so
 an MCP-per-process pack chains and executes (and fails validation, not at runtime, when it can't); finding
 codes, profiles, and endpoints **reconciled against the source on 2026-07-18**).
@@ -200,7 +202,8 @@ chips**. The step's focus is the MCP-introspect section + the inferred candidate
 **Introspect** (`POST /capabilities/introspect-mcp`, body `{endpoint, transport?, headers?, domain}`): connects
 to the MCP server, calls `tools/list`, returns each tool with a **compliance verdict**. Non-compliant tools
 (missing `outputSchema`, non-object root, external `$ref`) **cannot be selected**. Owner-gated, `http(s)`-only,
-timeout-bounded (SSRF surface).
+timeout-bounded (SSRF surface). Each compliant tool also carries an **`id_collision`** classification (batch-4)
+when its derived `cap.<domain>.<tool>` id already exists as an **active** catalog capability — see below.
 
 **Stage** (`POST /onboarding/{id}/capabilities`): for each selected tool, the wizard **infers**:
 - an **input artifact** from `inputSchema` and an **output artifact** from `outputSchema` — normalized to
@@ -215,11 +218,20 @@ timeout-bounded (SSRF surface).
   `side_effectful` forces the binding to `approve_actions` or stricter downstream.
 - **`idempotent`** (safe to blind-retry?).
 
-**Id-collision guardrail:** a newly-staged capability id (`cap.<domain>.<tool>`) that **already exists as an
-active catalog capability** is refused here (`capability_id_collision`, naming the id + active version) — the
-`cap.<domain>` namespace clash is why the domain must be process-scoped. To *reuse* an existing capability, add
-it via **"Reuse a capability"** (the search dialog) instead of re-authoring its id; otherwise pick a distinct
-domain.
+**Id-collision advisory (batch-4):** at **introspect** time each derived `cap.<domain>.<tool>` id is checked
+against the **active** catalog and classified on the tool's `id_collision`:
+- **hard** — an active capability with that id exists whose **contract differs** (kind and/or input/output
+  artifact keys) from what introspection would stage; binding to it later fails `binding_io_mismatch`. The
+  Capabilities step shows the **contract diff** ("active: kind=skill, …; introspected: kind=mcp, …") with two
+  one-click fixes: **use a distinct domain** (an `Id domain` override, defaulting to a process-scoped id derived
+  from the pack key, re-derives every id → no clash) or **reuse the existing capability** (adds it to
+  `reused_capability_refs` instead of staging a duplicate).
+- **benign** — an active id whose contract is **compatible** (`kind: mcp` + the same IO artifact keys): not a
+  clash but a **reuse nudge**.
+
+This is **advisory, non-blocking** — the operator decides domain-vs-reuse. A hard collision they ignore still
+fails the assemble dry-run (`binding_io_mismatch`) as the backstop. (This replaces the earlier hard block at
+staging: the clash is now caught at introspect, where the two fixes live, instead of deep at assemble.)
 
 **Author `decision` / `reduce` inline (ADR-046, `decision_specs[]` / `reduce_specs[]`):** the step has two
 form-driven builders (no code, no MCP server). A **decision-table builder** (input/output columns + hit policy +
@@ -332,8 +344,21 @@ capability-slot nudge (the provider name + suggested id + "introspect for this")
 At least one rule. Each: `rule_id`, `priority` (integer; **lower wins** across matching active packs),
 `description?`, `when` (a **predicate tree**). Predicate: combinators `all`/`any`/`not` over leaves
 `{field, op, value}`, `op ∈ eq, ne, in, starts_with, intersects, exists, gt, gte, lt, lte`. `field` is a
-dot-path into the normalized exception envelope. Validated syntactically and smoke-tested against sample
-envelopes (`triage_rule_invalid` / `triage_rule_smoke`).
+dot-path into the normalized exception envelope.
+
+**Schema-aware validation (batch-4):** when a **trigger schema** is available (the deployment sample envelopes;
+a declared trigger artifact would slot in the same way — `session.trigger_fields` carries the `{dotpath: type}`
+map), the rule is validated against it at `set_triage` **and** the dry-run — not just structurally:
+- a leaf `field` that isn't on the trigger → **`triage_field_unknown`** (blocking), naming the field with a
+  **nearest-match suggestion** (`reason_code` → "did you mean `reason_codes`?"). This is the silent-"No process"
+  bug caught at authoring time.
+- an `op` incompatible with the field's type → **`triage_op_type_mismatch`** (blocking): a scalar op like `eq`
+  on an **array** field (`reason_codes`) is rejected with "use `intersects`"; ordered ops (`gt`/…) only on
+  numbers; `starts_with` only on strings.
+- The **Triage step** authors against the schema: the leaf `field` is a **picker of the trigger's property
+  paths** and the `op` is filtered to the chosen field's **type-valid** operators (so `reason_code`/`eq`-on-array
+  can't be typed by hand). With **no** trigger schema declared, it degrades to **free-text + structural checks
+  only** — nothing hardcoded. Still smoke-tested against sample envelopes (`triage_rule_smoke`, info).
 
 > **Triage is not inferable from the BPMN** — it matches the exception *envelope*, not the diagram. You author
 > it. **Watch priority collisions:** if two active packs match the same envelope, lowest priority wins — scope
@@ -393,7 +418,7 @@ never block. Activation re-validates (defense in depth).
 | 4 · HITL & side-effect policy | `hitl_role_missing`, `side_effect_requires_approve_actions`, `hitl_below_capability_floor` (+ deep_agent rules). |
 | 5 · Artifacts & IO | `unknown_artifact_schema`, `artifact_no_version_in_range`, `artifact_only_deprecated`, `binding_io_mismatch`, `binding_io_schema_incompatible`; `unproduced_input` / `binding_input_unproduced` (ADR-048 — real data-flow: an input must be mapped or produced upstream, **error**). |
 | 6 · Gateway variables | `gateway_variable_unknown_gateway`, `gateway_variable_unproduced`, `gateway_variable_schema_missing`, `gateway_variable_not_required`; `gateway_without_variable` (warn). |
-| 7 · Policies & triage | `sod_too_few_elements`, `sod_unknown_element`, `triage_rule_invalid`; `triage_rule_smoke` (info). |
+| 7 · Policies & triage | `sod_too_few_elements`, `sod_unknown_element`, `triage_rule_invalid`, `triage_field_unknown`, `triage_op_type_mismatch`; `triage_rule_smoke` (info). |
 
 ---
 
@@ -588,7 +613,7 @@ bindings) `dmn_table_malformed`, `dmn_unknown_hit_policy`, `dmn_bad_unary_test`,
 `reduce_output_unmapped`, `reduce_numeric_type`; **cross-pack composition** (ADR-039, call-kind bindings)
 `call_activity_pack_unresolved`, `call_activity_io_unmapped`, `call_activity_io_mismatch`,
 `call_activity_profile_exceeds`; **stage 7** `sod_too_few_elements`, `sod_unknown_element`,
-`triage_rule_invalid`.
+`triage_rule_invalid`, `triage_field_unknown`, `triage_op_type_mismatch`.
 
 **E · Warnings / info (never block):** `capability_not_declared` (warn, stage 3),
 `gateway_without_variable` (warn, stage 6), `decision_ref_mismatch` (warn — advisory `businessRuleTask`

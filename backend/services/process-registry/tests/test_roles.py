@@ -75,7 +75,7 @@ async def _walk_and_commit_with_meta(svc, role_meta):
     s = await svc.set_triage(
         s.session_id,
         SetTriageRequest(triage_rules=[StagedTriageRule(rule_id="r1", priority=100,
-                                                        when={"field": "reason_code", "op": "eq", "value": "AC01"})]),
+                                                        when={"field": "reason_codes", "op": "intersects", "value": ["AC01"]})]),
         owner=OWNER,
     )
     s = await svc.set_policies(
@@ -129,7 +129,7 @@ async def test_set_policies_drops_meta_for_unknown_roles(onboarding_service):
     s = await onboarding_service.set_triage(
         s.session_id,
         SetTriageRequest(triage_rules=[StagedTriageRule(rule_id="r1", priority=100,
-                                                        when={"field": "reason_code", "op": "eq", "value": "AC01"})]),
+                                                        when={"field": "reason_codes", "op": "intersects", "value": ["AC01"]})]),
         owner=OWNER,
     )
     s = await onboarding_service.set_policies(

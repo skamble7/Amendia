@@ -1,0 +1,76 @@
+{
+  "manifest_version": "1.0",
+  "pack_key": "widget-qa",
+  "version": "1.0.0",
+  "title": "Widget QA — fresh-domain neutrality fixture",
+  "description": "A manufacturing-QA process (zero payments overlap) used to prove platform domain-neutrality: it onboards, validates, activates in the registry and executes on the generic runtime with NO app/ change.",
+  "process": {
+    "bpmn_file": "widget-qa.bpmn",
+    "process_id": "Process_WidgetQA",
+    "bpmn_sha256": "6adb947a9168997f4f5d86ce301edbc74a90f04b175ce90bbfb52b8b9454019c"
+  },
+  "trigger": "art.widgetqa.work_order@^1.0.0",
+  "triage_rules": [
+    {
+      "rule_id": "widgetqa-demo",
+      "priority": 100,
+      "description": "Route widget QA work orders through the widget-qa pack.",
+      "when": {
+        "all": [
+          { "field": "widget_id", "op": "exists", "value": true }
+        ]
+      }
+    }
+  ],
+  "requires_capabilities": [
+    { "ref": "cap.widgetqa.inspect@^1.0.0" },
+    { "ref": "cap.widgetqa.certify@^1.0.0" }
+  ],
+  "artifacts": [
+    "art.widgetqa.work_order@^1.0.0",
+    "art.widgetqa.inspection@^1.0.0",
+    "art.widgetqa.certificate@^1.0.0"
+  ],
+  "bindings": [
+    {
+      "element_id": "Task_Inspect",
+      "element_kind": "serviceTask",
+      "executor": { "type": "capability", "capability": "cap.widgetqa.inspect@^1.0.0" },
+      "hitl": { "mode": "none" },
+      "inputs": [
+        { "name": "trigger", "schema": "art.widgetqa.work_order@^1.0.0", "required": true }
+      ],
+      "outputs": [
+        { "name": "inspection", "schema": "art.widgetqa.inspection@^1.0.0" }
+      ],
+      "input_map": {
+        "trigger": {
+          "fields": {
+            "widget": { "from": "trigger", "path": "widget_id" },
+            "work_order": { "from": "trigger" }
+          }
+        }
+      }
+    },
+    {
+      "element_id": "Task_Certify",
+      "element_kind": "serviceTask",
+      "executor": { "type": "capability", "capability": "cap.widgetqa.certify@^1.0.0" },
+      "hitl": { "mode": "none" },
+      "inputs": [
+        { "name": "inspection", "schema": "art.widgetqa.inspection@^1.0.0" }
+      ],
+      "outputs": [
+        { "name": "certificate", "schema": "art.widgetqa.certificate@^1.0.0" }
+      ]
+    }
+  ],
+  "gateway_variables": [
+    {
+      "gateway_id": "Gateway_Grade",
+      "variable": "inspection.grade",
+      "source_artifact": "art.widgetqa.inspection"
+    }
+  ],
+  "status": "draft"
+}

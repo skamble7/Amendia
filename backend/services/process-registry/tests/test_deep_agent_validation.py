@@ -35,14 +35,26 @@ def _agentic_descriptor(*, side_effect="read_only", tools=None) -> CapabilityDes
     })
 
 
+# ADR-047 D2: the deep_agent's investigation tools are MCP tool-capabilities in the pack (no platform
+# `KNOWN_WORKER_TOOLS` whitelist), so its whitelisted `name_match` / `search_payment_history` resolve to
+# registered mcp caps declared in requires_capabilities — exactly as the real agentic seed does.
+_TOOL_CAPS = ("cap.payment.name_match", "cap.payment.search_payment_history")
+
+
+def _tool_cap_descriptors() -> list:
+    return [CapabilityDescriptor.model_validate_json((AGENTIC_SEED / "capabilities" / f"{c}.json").read_text())
+            for c in _TOOL_CAPS]
+
+
 def _manifest_binding_agentic(**over) -> dict:
     d = json.loads((SEED / "manifest.json").read_text())
     for b in d["bindings"]:
         if b["element_id"] == "Task_AssessRepairability":
             b["executor"]["capability"] = f"{_CAP}@^1.0.0"
             b.update(over.get("binding", {}))
-    # keep requires_capabilities resolvable: add the agentic ref
+    # keep requires_capabilities resolvable: the agentic ref + the deep_agent's mcp tool-capabilities.
     d["requires_capabilities"].append({"ref": f"{_CAP}@^1.0.0"})
+    d["requires_capabilities"].extend({"ref": f"{c}@^1.0.0"} for c in _TOOL_CAPS)
     d.update({k: v for k, v in over.items() if k != "binding"})
     return d
 
@@ -57,7 +69,15 @@ def _errs(report):
 
 
 @pytest.fixture
-async def registered_with_agentic(registered, cap_repo):
+async def agentic_tools_registered(registered, cap_repo):
+    """Seed caps/schemas + the deep_agent's mcp tool-capabilities registered (ADR-047 D2)."""
+    for d in _tool_cap_descriptors():
+        await cap_repo.insert(d)
+    return cap_repo
+
+
+@pytest.fixture
+async def registered_with_agentic(agentic_tools_registered, cap_repo):
     await cap_repo.insert(_agentic_descriptor())
     return cap_repo
 
@@ -76,20 +96,20 @@ async def test_deep_agent_without_hitl_gate_rejected(registered_with_agentic, va
     assert "deep_agent_requires_hitl" in _errs(report)
 
 
-async def test_deep_agent_unresolved_tool_rejected(registered, cap_repo, validator):
+async def test_deep_agent_unresolved_tool_rejected(agentic_tools_registered, cap_repo, validator):
     await cap_repo.insert(_agentic_descriptor(tools=["name_match", "totally_unknown_tool"]))
     report = await _validate(validator, _manifest_binding_agentic())
     assert "deep_agent_tool_unresolved" in _errs(report)
 
 
-async def test_side_effectful_deep_agent_without_justification_rejected(registered, cap_repo, validator):
+async def test_side_effectful_deep_agent_without_justification_rejected(agentic_tools_registered, cap_repo, validator):
     await cap_repo.insert(_agentic_descriptor(side_effect="side_effectful"))
     # side_effectful also trips the generic approve_actions floor; assert the deep_agent code fires.
     report = await _validate(validator, _manifest_binding_agentic())
     assert "deep_agent_side_effect_not_justified" in _errs(report)
 
 
-async def test_side_effectful_deep_agent_with_justification_clears_that_rule(registered, cap_repo, validator):
+async def test_side_effectful_deep_agent_with_justification_clears_that_rule(agentic_tools_registered, cap_repo, validator):
     await cap_repo.insert(_agentic_descriptor(side_effect="side_effectful"))
     d = _manifest_binding_agentic(
         deep_agent_justifications={_CAP: "audited: proposes only, human-gated at approve_actions"},
