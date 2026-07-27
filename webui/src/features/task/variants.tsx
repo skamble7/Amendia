@@ -213,10 +213,20 @@ export function ManualVariant({ task, onDecide, pending }: VariantProps) {
   const artifacts = artifactsOf(task);
   const [comment, setComment] = useState("");
   const formId = `manual-${task.task_id}`;
+  // A manual gate may or may not produce an editable artifact. With one (e.g. Task_ObtainInfo) the human
+  // authors/corrects the output; with none (e.g. Task_ApproveRepair — an input to approve, no output) it is an
+  // approve/escalate gate and the "correct it" copy is misleading. Key the copy + primary label off the same
+  // editable signal ArtifactEditor uses. (Decision semantics are unchanged — a no-output gate still submits
+  // `complete` with no edits, handled by ArtifactEditor.)
+  const hasEditable = artifacts.some(isDraft);
 
   return (
     <div className="space-y-4">
-      <p className="text-sm text-muted-foreground">This step is human work. The agent has pre-drafted it — complete or correct it, then complete the task.</p>
+      <p className="text-sm text-muted-foreground">
+        {hasEditable
+          ? "This step is human work. The agent has pre-drafted it — complete or correct it, then complete the task."
+          : "This step is human work. Review the drafted output and approve, or escalate."}
+      </p>
       <ArtifactEditor
         id={formId}
         artifacts={artifacts}
@@ -230,7 +240,7 @@ export function ManualVariant({ task, onDecide, pending }: VariantProps) {
           Escalate
         </Button>
         <Button type="submit" form={formId} variant="success" disabled={pending}>
-          Complete task
+          {hasEditable ? "Complete task" : "Approve"}
         </Button>
       </DecisionRow>
     </div>
