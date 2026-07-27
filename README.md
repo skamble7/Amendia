@@ -337,7 +337,7 @@ persists it to MongoDB, and publishes a thin `exception_raised` event to the `am
 RabbitMQ topic exchange (routing key e.g. `bank-alpha.stub_exception.exception_raised.v1`). It also
 serves the full exception document and attachment bytes back over HTTP, so downstream services can
 fetch details from the `fetch_url` in the event. See `backend/docs/amendia_project_brief.md` and
-`backend/docs/wire-transfer-exception-reference.md`.
+`backend/docs/methodology/worked-examples/wire-transfer-exception-reference.md`.
 
 Bring up mongo + rabbitmq + the stub, generate an exception, and fetch it back:
 

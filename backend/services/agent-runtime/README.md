@@ -16,7 +16,7 @@ collections. Both share the contract models, which now live in `libs/amendia_con
 `app/models/*` modules here are thin re-export shims). This service keeps its own file-based seed path
 for now; it will be retired once the runtime reads registry-activated packs directly.
 
-Source of truth for every model: [`backend/docs/amendia_platform_contracts_v1.md`](../../docs/amendia_platform_contracts_v1.md)
+Source of truth for every model: [`backend/docs/reference/amendia_platform_contracts_v1.md`](../../docs/reference/amendia_platform_contracts_v1.md)
 (shared implementation: `libs/amendia_contracts`).
 
 ## The five contracts (`app/models/`)

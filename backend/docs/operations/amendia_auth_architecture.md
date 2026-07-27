@@ -16,7 +16,7 @@ The trust boundary with the IdP is deliberately thin: `iss` + `sub` (plus email/
 
 A second principle came free from the existing design: **domain authorization already lives in Amendia.** SoD exclusions, `allowed_decisions`, HITL floors, and side-effect policy never touched identity — they operate on Amendia user ids and roles. This work replaces *who the user is* (the dev sign-in stub) without moving any of that logic.
 
-![Auth components](diagrams/auth-components.svg)
+![Auth components](auth-components.svg)
 
 ## 2. Component inventory
 
@@ -85,7 +85,7 @@ Service-to-service and broker-driven flows (dispatch, replies, engine execution)
 
 ## 3. The flows
 
-![Auth flows](diagrams/auth-flows.svg)
+![Auth flows](auth-flows.svg)
 
 **Login (PKCE).** Sign-in screen → redirect to IdP authorize endpoint with PKCE challenge → user authenticates against the customer's IAM (their MFA, their policies — not ours) → code back to the SPA redirect URI → library exchanges code + verifier for tokens → SPA calls `GET /me` → identity service resolves (JIT on first ever login) → UI renders with Amendia identity and roles.
 

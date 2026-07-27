@@ -6,7 +6,7 @@ object (`<id>@<range-or-pin>`), the closed ``HitlMode`` set, regex-backed id/pat
 string types, a stored-document timestamp mixin, and the event ``EventBase`` that
 delegates routing-key construction to ``amendia_common.events.rk``.
 
-Source of truth: ``backend/docs/amendia_platform_contracts_v1.md`` (§0 conventions).
+Source of truth: ``backend/docs/reference/amendia_platform_contracts_v1.md`` (§0 conventions).
 """
 from __future__ import annotations
 

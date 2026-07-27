@@ -827,7 +827,7 @@ others `amendia_agent_runtime_execution_pipeline.md`, `amendia_auth_architecture
 **Seam:** cross-doc references are text citations inside ADR `**Related:**` blocks (manually maintained).
 **Risk:** `openspec/` is wired but empty and unreferenced while real records live in `backend/docs/adr/`; a
 contributor invoking OpenSpec tooling would author into a disconnected location — the two systems can
-silently diverge. (This dossier itself lives at `backend/docs/amendia_bpmn_conformance_dossier.md`, per the
+silently diverge. (This dossier itself lives at `backend/docs/engineering/amendia_bpmn_conformance_dossier.md`, per the
 reference-doc convention, not in `openspec/`.)
 
 ---

@@ -3,7 +3,7 @@
 
 Governing principle: authenticate with the IdP, authorize in Amendia. Only
 ``iss`` + ``sub`` (plus email/name for display) are trusted from tokens; roles
-come from the identity service. See ``backend/docs/amendia_auth_architecture.md``.
+come from the identity service. See ``backend/docs/operations/amendia_auth_architecture.md``.
 """
 from __future__ import annotations
 

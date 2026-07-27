@@ -4,7 +4,7 @@
 This is the business *payload* the stub generator emits and the agent-runtime
 fetches + validates on dispatch — NOT a platform event, so it stays a plain
 ``BaseModel`` (no ContractModel envelope semantics). Structure mirrors
-``backend/docs/wire-transfer-exception-reference.md`` §4 verbatim. The ``payment``
+``backend/docs/methodology/worked-examples/wire-transfer-exception-reference.md`` §4 verbatim. The ``payment``
 block is the wire-specific, pacs.008-shaped section, kept separate so other
 exception types can swap it later.
 
