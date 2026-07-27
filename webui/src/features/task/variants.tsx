@@ -67,13 +67,13 @@ export function ReviewVariant({ task, onDecide, pending }: VariantProps) {
           </>
         ) : (
           <>
-            <Button variant="destructive" onClick={() => guardReject(comment, () => onDecide({ decision: "reject", comment }))} disabled={pending}>
+            <Button type="button" variant="destructive" onClick={() => guardReject(comment, () => onDecide({ decision: "reject", comment }))} disabled={pending}>
               Reject
             </Button>
-            <Button variant="outline" onClick={() => setEditing(true)} disabled={pending}>
+            <Button type="button" variant="outline" onClick={() => setEditing(true)} disabled={pending}>
               Edit & approve
             </Button>
-            <Button variant="success" onClick={() => onDecide({ decision: "approve", comment })} disabled={pending}>
+            <Button type="button" variant="success" onClick={() => onDecide({ decision: "approve", comment })} disabled={pending}>
               Approve
             </Button>
           </>
@@ -94,10 +94,10 @@ export function ApproveResultVariant({ task, onDecide, pending }: VariantProps) 
       <p className="text-xs text-muted-foreground">This result stands or falls as-is — it cannot be edited here.</p>
       <CommentField value={comment} onChange={setComment} />
       <DecisionRow>
-        <Button variant="destructive" onClick={() => guardReject(comment, () => onDecide({ decision: "reject", comment }))} disabled={pending}>
+        <Button type="button" variant="destructive" onClick={() => guardReject(comment, () => onDecide({ decision: "reject", comment }))} disabled={pending}>
           Reject
         </Button>
-        <Button variant="success" onClick={() => onDecide({ decision: "approve", comment })} disabled={pending}>
+        <Button type="button" variant="success" onClick={() => onDecide({ decision: "approve", comment })} disabled={pending}>
           Approve
         </Button>
       </DecisionRow>
@@ -139,7 +139,7 @@ export function AuthorizeActionsVariant({ task, onDecide, pending }: VariantProp
         </div>
         <CommentField value={comment} onChange={setComment} required />
         <DecisionRow>
-          <Button variant="destructive" onClick={() => guardReject(comment, () => onDecide({ decision: "reject", comment }))} disabled={pending}>
+          <Button type="button" variant="destructive" onClick={() => guardReject(comment, () => onDecide({ decision: "reject", comment }))} disabled={pending}>
             Reject
           </Button>
         </DecisionRow>
@@ -196,10 +196,10 @@ export function AuthorizeActionsVariant({ task, onDecide, pending }: VariantProp
       <CommentField value={comment} onChange={setComment} required />
 
       <DecisionRow>
-        <Button variant="destructive" onClick={() => guardReject(comment, () => onDecide({ decision: "reject", comment }))} disabled={pending}>
+        <Button type="button" variant="destructive" onClick={() => guardReject(comment, () => onDecide({ decision: "reject", comment }))} disabled={pending}>
           Reject all
         </Button>
-        <Button variant="success" onClick={approve} disabled={pending}>
+        <Button type="button" variant="success" onClick={approve} disabled={pending}>
           Authorize {allSelected ? "all" : `${selected.size}`}
         </Button>
       </DecisionRow>
@@ -236,7 +236,7 @@ export function ManualVariant({ task, onDecide, pending }: VariantProps) {
       />
       <CommentField value={comment} onChange={setComment} />
       <DecisionRow>
-        <Button variant="destructive" onClick={() => guardReject(comment, () => onDecide({ decision: "escalate", comment }))} disabled={pending}>
+        <Button type="button" variant="destructive" onClick={() => guardReject(comment, () => onDecide({ decision: "escalate", comment }))} disabled={pending}>
           Escalate
         </Button>
         <Button type="submit" form={formId} variant="success" disabled={pending}>

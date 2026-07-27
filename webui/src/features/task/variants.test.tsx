@@ -2,16 +2,17 @@
 // editable artifact (e.g. Task_ObtainInfo) is authoring work ("complete or correct it" + "Complete task"); a
 // gate with none (e.g. Task_ApproveRepair — an input to approve, no output) is an approve/escalate gate, so
 // the "correct it" copy would mislead ("Review … approve" + "Approve").
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, afterEach, vi } from "vitest";
 import { http, HttpResponse } from "msw";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 
 import { server } from "@/test/server";
 import { SERVICE_BASE } from "@/api/config";
 import { setTestToken } from "@/auth/authToken";
 import { synthTask } from "@/test/fixtures";
-import { ManualVariant } from "./variants";
+import { ManualVariant, ReviewVariant } from "./variants";
 import type { HitlTask, PayloadArtifact } from "@/api/types";
 
 function renderVariant(ui: React.ReactElement) {
@@ -49,5 +50,48 @@ describe("ManualVariant — copy matches editability", () => {
     expect(screen.getByText(/complete or correct it/i)).toBeTruthy();
     expect(screen.getByRole("button", { name: "Complete task" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Approve" })).toBeNull();
+  });
+});
+
+const REPAIR_SCHEMA = {
+  type: "object",
+  required: ["uetr"],
+  properties: { uetr: { type: "string" }, justification: { type: "string" } },
+};
+const REPAIR_DRAFT = { uetr: "UETR-abc-123", justification: "IBAN corrected" };
+
+function reviewTask(): HitlTask {
+  return synthTask({
+    hitl_mode: "review_after",
+    payload: {
+      artifacts: [{ name: "repair", schema: "art.payment.repair_instruction@1.0.0", data: REPAIR_DRAFT }] as PayloadArtifact[],
+      proposed_actions: null,
+      context_url: "/x",
+    },
+  });
+}
+
+describe("ReviewVariant — Edit & approve must not implicitly submit", () => {
+  afterEach(() => server.resetHandlers());
+
+  it("clicking 'Edit & approve' reveals the prefilled form and records NO decision; only 'Save edits & approve' submits", async () => {
+    server.use(http.get(`${SERVICE_BASE.registry}/artifact-schemas/:key/:version`, () => HttpResponse.json({ json_schema: REPAIR_SCHEMA })));
+    const onDecide = vi.fn();
+    const user = userEvent.setup();
+    renderVariant(<ReviewVariant task={reviewTask()} onDecide={onDecide} pending={false} />);
+
+    // enter edit mode — this mounts the ArtifactEditor <form>; the button must NOT submit it
+    await user.click(await screen.findByRole("button", { name: /Edit & approve/i }));
+
+    // the prefilled editable form appears…
+    expect(await screen.findByDisplayValue("UETR-abc-123")).toBeTruthy();
+    // …and NO decision was recorded by merely opening the editor
+    expect(onDecide).not.toHaveBeenCalled();
+
+    // only the explicit submitter records the decision
+    await user.click(screen.getByRole("button", { name: /Save edits & approve/i }));
+    await waitFor(() => expect(onDecide).toHaveBeenCalledTimes(1));
+    expect(onDecide.mock.calls[0]![0].decision).toBe("edit_and_approve");
+    expect((onDecide.mock.calls[0]![0].edits as Record<string, unknown>).repair).toMatchObject({ uetr: "UETR-abc-123" });
   });
 });
