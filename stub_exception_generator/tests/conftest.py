@@ -13,9 +13,11 @@ import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 
 from app.dal.exceptions_repo import DuplicateExceptionError
-from app.deps import get_mongo, get_publisher, get_repo
+from app.dal.tickets_repo import DuplicateTicketError
+from app.deps import get_mongo, get_publisher, get_repo, get_ticket_repo
 from app.main import create_app
 from app.models.envelope import StoredException
+from app.models.ticket import StoredTicket
 
 
 class FakeRepository:
@@ -53,6 +55,22 @@ class FakeRepository:
         return items[offset : offset + limit]
 
 
+class FakeTicketRepository:
+    """In-memory stand-in for TicketRepository."""
+
+    def __init__(self) -> None:
+        self.store: dict[str, StoredTicket] = {}
+
+    async def insert(self, stored: StoredTicket) -> StoredTicket:
+        if stored.ticket_id in self.store:
+            raise DuplicateTicketError(stored.ticket_id)
+        self.store[stored.ticket_id] = stored
+        return stored
+
+    async def get(self, ticket_id: str) -> Optional[StoredTicket]:
+        return self.store.get(ticket_id)
+
+
 class FakePublisher:
     """Records published messages; can be flipped to fail."""
 
@@ -81,6 +99,11 @@ def repo() -> FakeRepository:
 
 
 @pytest.fixture
+def ticket_repo() -> FakeTicketRepository:
+    return FakeTicketRepository()
+
+
+@pytest.fixture
 def publisher() -> FakePublisher:
     return FakePublisher()
 
@@ -91,13 +114,14 @@ def mongo() -> FakeMongo:
 
 
 @pytest_asyncio.fixture
-async def client(repo, publisher, mongo):
+async def client(repo, ticket_repo, publisher, mongo):
     from amendia_auth import AuthContext
     from amendia_auth.settings import AuthSettings
 
     app = create_app()
     app.state.auth = AuthContext(AuthSettings(auth_disabled=True, internal_token="test-internal"))
     app.dependency_overrides[get_repo] = lambda: repo
+    app.dependency_overrides[get_ticket_repo] = lambda: ticket_repo
     app.dependency_overrides[get_publisher] = lambda: publisher
     app.dependency_overrides[get_mongo] = lambda: mongo
     transport = ASGITransport(app=app)

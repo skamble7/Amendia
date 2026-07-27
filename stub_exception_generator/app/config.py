@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     MONGO_URI: str = "mongodb://localhost:27017"
     MONGO_DB: str = "amendia"
     MONGO_COLLECTION: str = "exceptions"
+    MONGO_TICKETS_COLLECTION: str = "tickets"
 
     # RabbitMQ
     RABBITMQ_URL: str = "amqp://guest:guest@localhost:5672/"

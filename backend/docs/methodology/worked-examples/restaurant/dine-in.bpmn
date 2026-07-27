@@ -16,6 +16,35 @@
     wire-transfer reference, a friendlier domain. Execution metadata (bindings, HITL, SoD) lives in the
     Amendia annotation manifest (ADR-002), not in this file.</bpmn:documentation>
 
+    <bpmn:laneSet id="LaneSet_DineIn">
+      <bpmn:lane id="Lane_DigitalHost" name="Digital Host">
+        <bpmn:flowNodeRef>Start_PartySeated</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_PresentMenu</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Gateway_OrderOK</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Gateway_AllergenClear</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_GenerateBill</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Gateway_PaymentOK</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>End_ServedPaid</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane id="Lane_Server" name="Server">
+        <bpmn:flowNodeRef>Task_TakeOrder</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_ValidateOrder</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_ReviseOrder</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_ServeOrder</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_ResolvePayment</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane id="Lane_Kitchen" name="Kitchen">
+        <bpmn:flowNodeRef>Task_ScreenAllergens</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_FireTicket</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_PrepareReady</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Boundary_SLA</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane id="Lane_Manager" name="Manager">
+        <bpmn:flowNodeRef>Task_ServiceRecovery</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_ProcessPayment</bpmn:flowNodeRef>
+      </bpmn:lane>
+    </bpmn:laneSet>
+
     <bpmn:startEvent id="Start_PartySeated" name="Party seated">
       <bpmn:outgoing>Flow_Start_Menu</bpmn:outgoing>
     </bpmn:startEvent>
@@ -146,45 +175,49 @@
 
   <bpmndi:BPMNDiagram id="Diagram_RestaurantDineIn">
     <bpmndi:BPMNPlane id="Plane_RestaurantDineIn" bpmnElement="Process_RestaurantDineIn">
-      <bpmndi:BPMNShape id="S_Start" bpmnElement="Start_PartySeated"><dc:Bounds x="150" y="182" width="36" height="36"/></bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="S_Menu" bpmnElement="Task_PresentMenu"><dc:Bounds x="230" y="160" width="120" height="80"/></bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="S_Take" bpmnElement="Task_TakeOrder"><dc:Bounds x="400" y="160" width="120" height="80"/></bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="S_Validate" bpmnElement="Task_ValidateOrder"><dc:Bounds x="570" y="160" width="120" height="80"/></bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="S_GwOrder" bpmnElement="Gateway_OrderOK" isMarkerVisible="true"><dc:Bounds x="745" y="175" width="50" height="50"/></bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="S_Revise" bpmnElement="Task_ReviseOrder"><dc:Bounds x="740" y="320" width="120" height="80"/></bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="S_Screen" bpmnElement="Task_ScreenAllergens"><dc:Bounds x="850" y="160" width="120" height="80"/></bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="S_GwAllergen" bpmnElement="Gateway_AllergenClear" isMarkerVisible="true"><dc:Bounds x="1025" y="175" width="50" height="50"/></bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="S_Fire" bpmnElement="Task_FireTicket"><dc:Bounds x="1130" y="160" width="120" height="80"/></bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="S_Prepare" bpmnElement="Task_PrepareReady"><dc:Bounds x="1300" y="160" width="120" height="80"/></bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="S_SLA" bpmnElement="Boundary_SLA"><dc:Bounds x="1342" y="222" width="36" height="36"/></bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="S_Recovery" bpmnElement="Task_ServiceRecovery"><dc:Bounds x="1300" y="320" width="120" height="80"/></bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="S_Serve" bpmnElement="Task_ServeOrder"><dc:Bounds x="1470" y="160" width="120" height="80"/></bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="S_Bill" bpmnElement="Task_GenerateBill"><dc:Bounds x="1640" y="160" width="120" height="80"/></bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="S_Pay" bpmnElement="Task_ProcessPayment"><dc:Bounds x="1810" y="160" width="120" height="80"/></bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="S_GwPay" bpmnElement="Gateway_PaymentOK" isMarkerVisible="true"><dc:Bounds x="1985" y="175" width="50" height="50"/></bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="S_Resolve" bpmnElement="Task_ResolvePayment"><dc:Bounds x="1810" y="320" width="120" height="80"/></bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="S_End" bpmnElement="End_ServedPaid"><dc:Bounds x="2090" y="182" width="36" height="36"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S_Lane_DigitalHost" bpmnElement="Lane_DigitalHost" isHorizontal="true"><dc:Bounds x="160" y="80" width="2100" height="200"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S_Lane_Server" bpmnElement="Lane_Server" isHorizontal="true"><dc:Bounds x="160" y="280" width="2100" height="200"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S_Lane_Kitchen" bpmnElement="Lane_Kitchen" isHorizontal="true"><dc:Bounds x="160" y="480" width="2100" height="200"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S_Lane_Manager" bpmnElement="Lane_Manager" isHorizontal="true"><dc:Bounds x="160" y="680" width="2100" height="200"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S_Start" bpmnElement="Start_PartySeated"><dc:Bounds x="220" y="162" width="36" height="36"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S_Menu" bpmnElement="Task_PresentMenu"><dc:Bounds x="300" y="140" width="120" height="80"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S_Take" bpmnElement="Task_TakeOrder"><dc:Bounds x="470" y="340" width="120" height="80"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S_Validate" bpmnElement="Task_ValidateOrder"><dc:Bounds x="640" y="340" width="120" height="80"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S_GwOrder" bpmnElement="Gateway_OrderOK" isMarkerVisible="true"><dc:Bounds x="830" y="155" width="50" height="50"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S_Revise" bpmnElement="Task_ReviseOrder"><dc:Bounds x="830" y="340" width="120" height="80"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S_Screen" bpmnElement="Task_ScreenAllergens"><dc:Bounds x="920" y="540" width="120" height="80"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S_GwAllergen" bpmnElement="Gateway_AllergenClear" isMarkerVisible="true"><dc:Bounds x="1110" y="155" width="50" height="50"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S_Fire" bpmnElement="Task_FireTicket"><dc:Bounds x="1200" y="540" width="120" height="80"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S_Prepare" bpmnElement="Task_PrepareReady"><dc:Bounds x="1370" y="540" width="120" height="80"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S_SLA" bpmnElement="Boundary_SLA"><dc:Bounds x="1412" y="602" width="36" height="36"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S_Recovery" bpmnElement="Task_ServiceRecovery"><dc:Bounds x="1370" y="740" width="120" height="80"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S_Serve" bpmnElement="Task_ServeOrder"><dc:Bounds x="1540" y="340" width="120" height="80"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S_Bill" bpmnElement="Task_GenerateBill"><dc:Bounds x="1710" y="140" width="120" height="80"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S_Pay" bpmnElement="Task_ProcessPayment"><dc:Bounds x="1880" y="740" width="120" height="80"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S_GwPay" bpmnElement="Gateway_PaymentOK" isMarkerVisible="true"><dc:Bounds x="2050" y="155" width="50" height="50"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S_Resolve" bpmnElement="Task_ResolvePayment"><dc:Bounds x="1880" y="340" width="120" height="80"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S_End" bpmnElement="End_ServedPaid"><dc:Bounds x="2170" y="162" width="36" height="36"/></bpmndi:BPMNShape>
 
-      <bpmndi:BPMNEdge id="E_Start_Menu" bpmnElement="Flow_Start_Menu"><di:waypoint x="186" y="200"/><di:waypoint x="230" y="200"/></bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="E_Menu_Take" bpmnElement="Flow_Menu_Take"><di:waypoint x="350" y="200"/><di:waypoint x="400" y="200"/></bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="E_Take_Validate" bpmnElement="Flow_Take_Validate"><di:waypoint x="520" y="200"/><di:waypoint x="570" y="200"/></bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="E_Validate_Gw" bpmnElement="Flow_Validate_Gateway"><di:waypoint x="690" y="200"/><di:waypoint x="745" y="200"/></bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="E_OrderOK" bpmnElement="Flow_OrderOK"><di:waypoint x="795" y="200"/><di:waypoint x="850" y="200"/></bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="E_OrderNeedsInfo" bpmnElement="Flow_OrderNeedsInfo"><di:waypoint x="770" y="225"/><di:waypoint x="770" y="320"/></bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="E_Revise_Validate" bpmnElement="Flow_Revise_Validate"><di:waypoint x="740" y="360"/><di:waypoint x="630" y="360"/><di:waypoint x="630" y="240"/></bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="E_Screen_Gw" bpmnElement="Flow_Screen_Gateway"><di:waypoint x="970" y="200"/><di:waypoint x="1025" y="200"/></bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="E_AllergenClear" bpmnElement="Flow_AllergenClear"><di:waypoint x="1075" y="200"/><di:waypoint x="1130" y="200"/></bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="E_AllergenConflict" bpmnElement="Flow_AllergenConflict"><di:waypoint x="1050" y="225"/><di:waypoint x="1050" y="440"/><di:waypoint x="800" y="440"/><di:waypoint x="800" y="400"/></bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="E_Fire_Prepare" bpmnElement="Flow_Fire_Prepare"><di:waypoint x="1250" y="200"/><di:waypoint x="1300" y="200"/></bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="E_SLA_Recovery" bpmnElement="Flow_SLA_Recovery"><di:waypoint x="1360" y="258"/><di:waypoint x="1360" y="320"/></bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="E_Prepare_Serve" bpmnElement="Flow_Prepare_Serve"><di:waypoint x="1420" y="200"/><di:waypoint x="1470" y="200"/></bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="E_Recovery_Serve" bpmnElement="Flow_Recovery_Serve"><di:waypoint x="1420" y="360"/><di:waypoint x="1530" y="360"/><di:waypoint x="1530" y="240"/></bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="E_Serve_Bill" bpmnElement="Flow_Serve_Bill"><di:waypoint x="1590" y="200"/><di:waypoint x="1640" y="200"/></bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="E_Bill_Pay" bpmnElement="Flow_Bill_Pay"><di:waypoint x="1760" y="200"/><di:waypoint x="1810" y="200"/></bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="E_Pay_Gw" bpmnElement="Flow_Pay_Gateway"><di:waypoint x="1930" y="200"/><di:waypoint x="1985" y="200"/></bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="E_PaymentCaptured" bpmnElement="Flow_PaymentCaptured"><di:waypoint x="2035" y="200"/><di:waypoint x="2090" y="200"/></bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="E_PaymentDeclined" bpmnElement="Flow_PaymentDeclined"><di:waypoint x="2010" y="225"/><di:waypoint x="2010" y="360"/><di:waypoint x="1930" y="360"/></bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="E_Resolve_Pay" bpmnElement="Flow_Resolve_Pay"><di:waypoint x="1870" y="320"/><di:waypoint x="1870" y="240"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="E_Start_Menu" bpmnElement="Flow_Start_Menu"><di:waypoint x="256" y="180"/><di:waypoint x="300" y="180"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="E_Menu_Take" bpmnElement="Flow_Menu_Take"><di:waypoint x="420" y="180"/><di:waypoint x="445" y="180"/><di:waypoint x="445" y="380"/><di:waypoint x="470" y="380"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="E_Take_Validate" bpmnElement="Flow_Take_Validate"><di:waypoint x="590" y="380"/><di:waypoint x="640" y="380"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="E_Validate_Gw" bpmnElement="Flow_Validate_Gateway"><di:waypoint x="760" y="380"/><di:waypoint x="795" y="380"/><di:waypoint x="795" y="180"/><di:waypoint x="830" y="180"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="E_OrderOK" bpmnElement="Flow_OrderOK"><di:waypoint x="855" y="205"/><di:waypoint x="855" y="580"/><di:waypoint x="920" y="580"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="E_OrderNeedsInfo" bpmnElement="Flow_OrderNeedsInfo"><di:waypoint x="855" y="205"/><di:waypoint x="855" y="280"/><di:waypoint x="890" y="280"/><di:waypoint x="890" y="340"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="E_Revise_Validate" bpmnElement="Flow_Revise_Validate"><di:waypoint x="830" y="380"/><di:waypoint x="760" y="380"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="E_Screen_Gw" bpmnElement="Flow_Screen_Gateway"><di:waypoint x="1040" y="580"/><di:waypoint x="1075" y="580"/><di:waypoint x="1075" y="180"/><di:waypoint x="1110" y="180"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="E_AllergenClear" bpmnElement="Flow_AllergenClear"><di:waypoint x="1135" y="205"/><di:waypoint x="1135" y="580"/><di:waypoint x="1200" y="580"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="E_AllergenConflict" bpmnElement="Flow_AllergenConflict"><di:waypoint x="1135" y="205"/><di:waypoint x="1135" y="460"/><di:waypoint x="890" y="460"/><di:waypoint x="890" y="420"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="E_Fire_Prepare" bpmnElement="Flow_Fire_Prepare"><di:waypoint x="1320" y="580"/><di:waypoint x="1370" y="580"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="E_SLA_Recovery" bpmnElement="Flow_SLA_Recovery"><di:waypoint x="1430" y="638"/><di:waypoint x="1430" y="740"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="E_Prepare_Serve" bpmnElement="Flow_Prepare_Serve"><di:waypoint x="1490" y="580"/><di:waypoint x="1515" y="580"/><di:waypoint x="1515" y="380"/><di:waypoint x="1540" y="380"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="E_Recovery_Serve" bpmnElement="Flow_Recovery_Serve"><di:waypoint x="1490" y="780"/><di:waypoint x="1600" y="780"/><di:waypoint x="1600" y="420"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="E_Serve_Bill" bpmnElement="Flow_Serve_Bill"><di:waypoint x="1660" y="380"/><di:waypoint x="1685" y="380"/><di:waypoint x="1685" y="180"/><di:waypoint x="1710" y="180"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="E_Bill_Pay" bpmnElement="Flow_Bill_Pay"><di:waypoint x="1770" y="220"/><di:waypoint x="1770" y="700"/><di:waypoint x="1940" y="700"/><di:waypoint x="1940" y="740"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="E_Pay_Gw" bpmnElement="Flow_Pay_Gateway"><di:waypoint x="2000" y="780"/><di:waypoint x="2075" y="780"/><di:waypoint x="2075" y="205"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="E_PaymentCaptured" bpmnElement="Flow_PaymentCaptured"><di:waypoint x="2100" y="180"/><di:waypoint x="2170" y="180"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="E_PaymentDeclined" bpmnElement="Flow_PaymentDeclined"><di:waypoint x="2050" y="180"/><di:waypoint x="2025" y="180"/><di:waypoint x="2025" y="380"/><di:waypoint x="2000" y="380"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="E_Resolve_Pay" bpmnElement="Flow_Resolve_Pay"><di:waypoint x="1940" y="420"/><di:waypoint x="1940" y="740"/></bpmndi:BPMNEdge>
     </bpmndi:BPMNPlane>
   </bpmndi:BPMNDiagram>
 </bpmn:definitions>
