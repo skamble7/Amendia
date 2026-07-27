@@ -12,7 +12,7 @@ import random
 from datetime import datetime, timezone
 from typing import List, Optional
 
-from amendia_contracts.order_ticket import OrderTicketEnvelope
+from app.contracts.order_ticket import OrderTicketEnvelope
 
 from app.models.dining_api import GenerateTicketRequest
 

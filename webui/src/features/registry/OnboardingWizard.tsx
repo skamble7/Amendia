@@ -20,7 +20,7 @@ import { groupByStage, countBySeverity, SEVERITY_VARIANT } from "@/lib/validatio
 import { cn } from "@/lib/utils";
 import {
   assembleOnboarding, attachOnboardingBpmn, commitOnboarding, createOnboardingSession,
-  getOnboardingSession, introspectMcp, setOnboardingBindings, setOnboardingCapabilities,
+  getOnboardingSession, introspectMcp, declareOnboardingTrigger, setOnboardingBindings, setOnboardingCapabilities,
   setOnboardingPolicies, setOnboardingTriage,
   type BindingInput, type CapabilityToolSelection, type IntrospectedTool, type OnbTriageRule,
   type OnbBpmnInventory, type OnbBindableElement, type OnboardingSession, type OnboardingState,
@@ -211,7 +211,7 @@ function SessionWizard({ sessionId }: { sessionId: string }) {
       {step === 1 && <BpmnStep session={session} onDone={(s) => apply(s, 2)} />}
       {step === 2 && <CapabilitiesStep session={session} onDone={(s) => apply(s, 3)} />}
       {step === 3 && <BindingsStep session={session} onDone={(s) => apply(s, 4)} />}
-      {step === 4 && <TriageStep session={session} onDone={(s) => apply(s, 5)} />}
+      {step === 4 && <TriageStep session={session} onDone={(s) => apply(s, 5)} onSession={setSession} />}
       {step === 5 && <PoliciesStep session={session} onDone={(s) => apply(s, 6)} />}
       {step === 6 && <ReviewStep session={session} onChange={(s) => setSession(s)} goStep={setStep} />}
     </>
@@ -1465,9 +1465,74 @@ function toPredicate(n: any): Record<string, unknown> {
   return { [n.kind]: n.children.map(toPredicate) };
 }
 
-function TriageStep({ session, onDone }: { session: OnboardingSession; onDone: (s: OnboardingSession) => void }) {
-  // Batch-4: the pack's trigger field/type map. When present, leaves author against the real schema (field
-  // picker + type-valid ops) so a non-existent field or an incompatible op can't be authored by hand.
+// ADR-049: declare the pack's trigger artifact schema — registers art.<domain>.<name> as ProcessPack.trigger and
+// (backend-flattened) drives the Triage field picker below. No SEED_DIR sample-exception dependency.
+function TriggerDeclareCard({ session, onSession }: { session: OnboardingSession; onSession: (s: OnboardingSession) => void }) {
+  const declared = session.trigger_artifact ?? null;
+  const domain = session.basics.default_domain;
+  const fieldCount = Object.keys(session.trigger_fields ?? {}).length;
+  const [open, setOpen] = useState(!declared && fieldCount === 0);
+  const [artifactKey, setArtifactKey] = useState(declared?.artifact_key ?? `art.${domain}.`);
+  const [title, setTitle] = useState(declared?.title ?? "");
+  const [schemaText, setSchemaText] = useState(declared ? JSON.stringify(declared.json_schema, null, 2) : "");
+  const [busy, setBusy] = useState(false);
+
+  async function declare() {
+    let json_schema: Record<string, unknown>;
+    try { json_schema = JSON.parse(schemaText); }
+    catch { toast.error("Trigger schema is not valid JSON"); return; }
+    setBusy(true);
+    try {
+      const key = artifactKey.trim();
+      const s = await declareOnboardingTrigger(session.session_id, {
+        artifact_key: key, version: "1.0.0", title: title.trim() || key, json_schema,
+      });
+      onSession(s);
+      setOpen(false);
+      toast.success("Trigger declared — the field picker below now offers its properties");
+    } catch (e) {
+      toast.error(extractErrors(e).fields.map((f) => f.message).join("; ") || extractErrors(e).general);
+    } finally { setBusy(false); }
+  }
+
+  return (
+    <Card>
+      <CardHeader className="flex-row items-center justify-between gap-2 space-y-0">
+        <div>
+          <CardTitle>Trigger schema</CardTitle>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {declared
+              ? <>Declared <span className="font-mono">{declared.artifact_key}</span> — its {fieldCount} field{fieldCount === 1 ? "" : "s"} drive the picker below.</>
+              : fieldCount > 0
+                ? <>Using the deployment sample envelopes ({fieldCount} field{fieldCount === 1 ? "" : "s"}). Declare a schema to author against the pack's real trigger.</>
+                : <>No trigger schema — triage falls back to free-text. Declare the trigger JSON-Schema to get a typed field picker.</>}
+          </p>
+        </div>
+        <Button variant="outline" size="sm" onClick={() => setOpen((o) => !o)}>{open ? "Close" : declared ? "Replace" : "Declare"}</Button>
+      </CardHeader>
+      {open && (
+        <CardContent className="space-y-3">
+          <div className="flex gap-3">
+            <Field label="Trigger artifact id"><Input value={artifactKey} onChange={(e) => setArtifactKey(e.target.value)} placeholder={`art.${domain}.order_ticket`} className="font-mono text-xs" /></Field>
+            <Field label="Title"><Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Order ticket (trigger)" /></Field>
+          </div>
+          <Field label="Trigger JSON-Schema">
+            <Textarea value={schemaText} onChange={(e) => setSchemaText(e.target.value)} rows={12} className="font-mono text-xs"
+              placeholder={"{\n  \"type\": \"object\",\n  \"required\": [\"order_type\"],\n  \"properties\": { \"order_type\": { \"type\": \"string\" } }\n}"} />
+          </Field>
+          <div className="flex justify-end">
+            <Button size="sm" disabled={busy || !artifactKey.trim() || !schemaText.trim()} onClick={declare}>{busy ? "Declaring…" : "Declare trigger"}</Button>
+          </div>
+        </CardContent>
+      )}
+    </Card>
+  );
+}
+
+function TriageStep({ session, onDone, onSession }: { session: OnboardingSession; onDone: (s: OnboardingSession) => void; onSession: (s: OnboardingSession) => void }) {
+  // ADR-049: the pack's trigger field/type map — flattened from the DECLARED trigger schema when the operator
+  // declared one (below), else the deployment sample envelopes. When present, leaves author against the real
+  // schema (field picker + type-valid ops) so a non-existent field or an incompatible op can't be hand-authored.
   const fields = (session.trigger_fields ?? {}) as Record<string, string>;
   const hasSchema = Object.keys(fields).length > 0;
   const newLeaf = () => {
@@ -1479,6 +1544,14 @@ function TriageStep({ session, onDone }: { session: OnboardingSession; onDone: (
   const [priority, setPriority] = useState(session.triage_rules[0]?.priority ?? 100);
   const [tree, setTree] = useState<any>({ kind: "all", children: [newLeaf()] });
   const [busy, setBusy] = useState(false);
+
+  // Declaring/replacing the trigger changes the field set (backend also clears any authored rules) → reset the
+  // predicate to a fresh, type-appropriate leaf so the editor never shows a stale field.
+  const fieldsKey = JSON.stringify(fields);
+  useEffect(() => {
+    setTree({ kind: "all", children: [newLeaf()] });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fieldsKey]);
 
   async function submit() {
     setBusy(true);
@@ -1494,8 +1567,9 @@ function TriageStep({ session, onDone }: { session: OnboardingSession; onDone: (
     <div className="space-y-4">
       <p className="flex items-start gap-1.5 rounded-md border border-border bg-surface/40 p-3 text-xs text-muted-foreground">
         <Info className="mt-0.5 size-3.5 shrink-0" />
-        Triage rules describe which exceptions this pack handles — they match the incoming exception <span className="font-medium">envelope</span>, not the diagram, so they are not derivable from the BPMN. Author at least one below.
+        Triage rules describe which exceptions this pack handles — they match the incoming trigger <span className="font-medium">payload</span>, not the diagram, so they are not derivable from the BPMN. Author at least one below.
       </p>
+      <TriggerDeclareCard session={session} onSession={onSession} />
       <Card>
         <CardHeader><CardTitle>Triage rule</CardTitle></CardHeader>
         <CardContent className="space-y-4">

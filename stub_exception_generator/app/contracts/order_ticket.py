@@ -1,7 +1,7 @@
 # amendia_contracts/order_ticket.py
 """Dine-in order-ticket trigger envelope (``pin.dining.order_ticket``).
 
-Sibling of :mod:`amendia_contracts.wire_exception`: the shared, typed shape of the event that STARTS the
+Sibling of :mod:`app.contracts.wire_exception`: the shared, typed shape of the event that STARTS the
 restaurant dine-in process — a seated party ready to order. The stub generator (producer) emits it, and the
 process-registry triage rule matches it to the ``restaurant-dinein`` pack on ``order_type == "dine_in"``.
 

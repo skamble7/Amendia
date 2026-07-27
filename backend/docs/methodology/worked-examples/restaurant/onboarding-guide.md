@@ -139,12 +139,21 @@ authorizes the two irreversible actions:
 (These are naturally satisfied by the server/kitchen/manager role split, and the platform also enforces
 them per-instance from who actually acted.)
 
-**Triage rule** — claim only dine-in tickets, so it never collides with the wire packs:
+**Declare the trigger schema first (ADR-049).** In the wizard's **Triage** step, open the **Trigger schema**
+panel and declare the pack's trigger: set the artifact id to `art.dining.order_ticket` and paste the
+`json_schema` from `schemas/art.dining.order_ticket.json`. The wizard registers it, emits it as the pack's
+`ProcessPack.trigger`, and flattens it into the field picker — so the rule below authors against the **declared
+dining fields** (`order_type`, `dietary_flags`, `party_size`, `requested_items`, `seated_at`, `table`, `tender`,
+`ticket_id`), with **no** dependency on any `SEED_DIR/sample-exception`. (Skip the declaration and the picker
+falls back to the deployment's sample envelopes; the dine-in pack ships none, so declaring is the path.)
+
+**Triage rule** — with the trigger declared, pick `order_type` from the field picker and author the rule that
+claims only dine-in tickets, so it never collides with the wire packs:
 ```json
 { "rule_id": "dine-in", "priority": 200,
   "when": { "all": [ { "field": "order_type", "op": "eq", "value": "dine_in" } ] } }
 ```
-Trigger artifact: `art.dining.order_ticket@^1.0.0`.
+Trigger artifact (declared + emitted as `ProcessPack.trigger`): `art.dining.order_ticket@^1.0.0`.
 
 ---
 

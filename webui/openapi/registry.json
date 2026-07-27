@@ -1592,6 +1592,47 @@
         "title": "DecisionSpec",
         "type": "object"
       },
+      "DeclareTriggerRequest": {
+        "description": "ADR-049: declare the pack's trigger artifact schema. The operator provides the trigger JSON-Schema\n(registered as ``art.<domain>.<name>``); it drives the Triage field picker and is emitted as\n``ProcessPack.trigger``. Same shape as a :class:`StagedArtifact`, but operator-authored, not introspected.",
+        "properties": {
+          "artifact_key": {
+            "title": "Artifact Key",
+            "type": "string"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "json_schema": {
+            "additionalProperties": true,
+            "title": "Json Schema",
+            "type": "object"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "version": {
+            "default": "1.0.0",
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "artifact_key",
+          "title",
+          "json_schema"
+        ],
+        "title": "DeclareTriggerRequest",
+        "type": "object"
+      },
       "DeepAgentBudget": {
         "additionalProperties": false,
         "description": "Hard budget caging a deep_agent loop (ADR-021).",
@@ -2774,6 +2815,16 @@
             },
             "title": "Triage Rules",
             "type": "array"
+          },
+          "trigger_artifact": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StagedArtifact"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "trigger_fields": {
             "additionalProperties": {
@@ -5561,6 +5612,64 @@
           }
         ],
         "summary": "Set Triage",
+        "tags": [
+          "onboarding"
+        ]
+      }
+    },
+    "/onboarding/{session_id}/trigger": {
+      "put": {
+        "description": "ADR-049: declare the pack's trigger artifact schema (drives the Triage field picker).",
+        "operationId": "declare_trigger_onboarding__session_id__trigger_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeclareTriggerRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OnboardingSession"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Declare Trigger",
         "tags": [
           "onboarding"
         ]

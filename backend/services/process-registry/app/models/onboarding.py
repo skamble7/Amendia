@@ -369,6 +369,10 @@ class OnboardingSession(BaseModel):
     # envelopes at create. Drives schema-aware triage authoring (field picker + type-valid ops). Empty when no
     # trigger schema is available (the Triage step then falls back to free-text + structural checks only).
     trigger_fields: Dict[str, str] = Field(default_factory=dict)
+    # ADR-049: the operator-DECLARED trigger artifact schema (art.<domain>.<name>). When set, trigger_fields is
+    # flattened from THIS schema (not the sample envelopes), and it is registered + emitted as the manifest's
+    # ProcessPack.trigger. None ⇒ fall back to the deployment sample envelopes (opaque if there are none).
+    trigger_artifact: Optional[StagedArtifact] = None
     bpmn: Optional[BpmnInventory] = None
     staged_artifacts: List[StagedArtifact] = Field(default_factory=list)
     staged_capabilities: List[StagedCapability] = Field(default_factory=list)
@@ -506,6 +510,18 @@ class BindingInput(BaseModel):
 
 class SetBindingsRequest(BaseModel):
     bindings: List[BindingInput] = Field(default_factory=list)
+
+
+class DeclareTriggerRequest(BaseModel):
+    """ADR-049: declare the pack's trigger artifact schema. The operator provides the trigger JSON-Schema
+    (registered as ``art.<domain>.<name>``); it drives the Triage field picker and is emitted as
+    ``ProcessPack.trigger``. Same shape as a :class:`StagedArtifact`, but operator-authored, not introspected."""
+
+    artifact_key: str
+    version: str = "1.0.0"
+    title: str
+    description: Optional[str] = None
+    json_schema: Dict[str, Any]
 
 
 class SetTriageRequest(BaseModel):

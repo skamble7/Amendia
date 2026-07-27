@@ -167,6 +167,51 @@ def infer_field_types(envelopes: Any) -> dict:
     return out
 
 
+def _schema_json_type(prop: Any) -> str:
+    """A JSON-Schema property node → the json type in :func:`infer_field_types`' vocabulary, so a DECLARED
+    trigger schema and a sample-derived one validate identically. ``integer`` folds to ``number`` (mirrors
+    ``_json_type``, which has no integer); an ``enum`` with no ``type`` takes its first value's type."""
+    if not isinstance(prop, Mapping):
+        return "null"
+    t = prop.get("type")
+    if isinstance(t, list):                       # nullable union → first non-null
+        t = next((x for x in t if x != "null"), None)
+    if not t:
+        enum = prop.get("enum")
+        if isinstance(enum, list) and enum:
+            return _json_type(enum[0])
+        if isinstance(prop.get("properties"), Mapping):
+            return "object"
+        if "items" in prop:
+            return "array"
+        return "string"                           # indeterminate scalar
+    return "number" if t == "integer" else str(t)
+
+
+def flatten_schema_fields(json_schema: Any) -> dict:
+    """Derive a ``{dotpath: json_type}`` map from a DECLARED trigger JSON-Schema (ADR-049) — the schema-first
+    counterpart of :func:`infer_field_types`. Walks ``properties`` (recursing into nested objects); arrays and
+    enums are leaves. Output shape/vocabulary is identical to ``infer_field_types`` so the Triage picker and
+    predicate validation treat a declared trigger exactly like a sample-derived one. Empty ⇒ no schema."""
+    out: dict = {}
+
+    def walk(schema: Any, prefix: str) -> None:
+        if not isinstance(schema, Mapping):
+            return
+        props = schema.get("properties")
+        if not isinstance(props, Mapping):
+            return
+        for k, sub in props.items():
+            path = f"{prefix}{k}"
+            t = _schema_json_type(sub)
+            out[path] = t
+            if t == "object":
+                walk(sub, path + ".")
+
+    walk(json_schema, "")
+    return out
+
+
 def _levenshtein(a: str, b: str) -> int:
     if a == b:
         return 0

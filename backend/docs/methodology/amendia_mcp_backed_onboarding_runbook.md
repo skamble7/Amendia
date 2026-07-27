@@ -76,8 +76,18 @@ task sources `from: artifact` = the upstream task's output (e.g. `Assess.dossier
 `DraftRepair ← assess_beneficiary_output`, …). This is the ADR-048 `input_map`; the wizard pre-suggests it
 (entry→trigger, schema-match→upstream output) and you confirm.
 
-**5 · Triage.** Add at least one rule whose `when` matches the sample exception envelope your generator emits
-(the earlier "no match" info was just a mismatched sample — align the rule or the sample so the smoke test hits).
+**4b · Declare the trigger schema (ADR-049).** The trigger (here `art.wirefix.wire_exception`) is a process
+*input*, not a tool output, so introspection can't see it — declare it in the wizard's **Trigger schema** panel:
+the artifact id `art.wirefix.wire_exception` plus its JSON-Schema (the envelope shape your generator emits).
+The wizard registers it, emits it as the pack's `ProcessPack.trigger`, and flattens it into the Triage field
+picker — so Triage below authors against the **declared envelope fields** (`exception_type`, `payment.msg_type`,
+`reason_codes`, …) with no dependency on `SEED_DIR/sample-exception`. Skip it and the picker falls back to the
+deployment's sample envelopes (the seed path), which still works.
+
+**5 · Triage.** With the trigger declared, pick fields from the picker and add at least one rule (e.g.
+`exception_type == "unable_to_apply"` **and** `payment.msg_type starts_with "pacs.008"`). If you skipped the
+declaration, the rule instead validates against the sample exception envelope your generator emits (the earlier
+"no match" info was just a mismatched sample — align the rule or the sample so the smoke test hits).
 
 **6 · Policies.** Separation-of-duties: approver ≠ agent on ApproveRepair/ApproveReturn (the wizard suggests SoD
 candidates from the lanes); confirm pack roles.

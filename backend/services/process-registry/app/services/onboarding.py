@@ -60,6 +60,7 @@ from app.models.onboarding import (
     SetBindingsRequest,
     SetCapabilitiesRequest,
     SetPoliciesRequest,
+    DeclareTriggerRequest,
     SetTriageRequest,
     StagedArtifact,
     StagedBinding,
@@ -83,11 +84,14 @@ from app.validation.pack_validator import PackValidator
 from app.validation.predicates import (
     PredicateSyntaxError,
     check_predicate,
+    flatten_schema_fields,
     infer_field_types,
     validate_predicate,
 )
 
 _DOMAIN_RE = re.compile(r"^[a-z0-9_]+$")
+# ADR-049: a declared trigger artifact id — art.<domain>.<name> (dots inside <name> allowed).
+_ART_ID_RE = re.compile(r"^art\.[a-z0-9_]+\.[a-z0-9_.]+$")
 _APPROVE_ACTIONS = HitlMode.APPROVE_ACTIONS
 
 # ADR-046 (Track 2): field types for the inferred verdict/summary artifact.
@@ -524,6 +528,45 @@ class OnboardingService:
             })
 
     # ------------------------------------------------------------------ #
+    # 4b) declare_trigger — DECLARED trigger artifact schema (ADR-049)
+    # ------------------------------------------------------------------ #
+    async def declare_trigger(self, session_id: str, req: DeclareTriggerRequest, *, owner: str) -> OnboardingSession:
+        """Declare the pack's trigger artifact schema. Not a state step: an enrichment callable once the process
+        is known (≥ BPMN_ATTACHED). It flattens the DECLARED schema into ``trigger_fields`` (the Triage picker's
+        source), stores it for registration + emission as ``ProcessPack.trigger``, and — because the trigger
+        shape changed — clears any already-authored triage + downstream and regresses to BINDINGS_SET."""
+        s = await self._editable(session_id, owner)
+        if not s.at_least(OnboardingState.BPMN_ATTACHED):
+            raise TransitionError(409, "attach BPMN before declaring the trigger")
+        errors: List[dict] = []
+        if not _ART_ID_RE.match(req.artifact_key or ""):
+            errors.append({"field": "artifact_key",
+                           "message": "trigger artifact id must be art.<domain>.<name> (lowercase)"})
+        if not isinstance(req.json_schema, dict) or req.json_schema.get("type", "object") != "object" \
+                or not isinstance(req.json_schema.get("properties"), dict):
+            errors.append({"field": "json_schema",
+                           "message": "trigger schema must be a JSON object schema with a 'properties' map"})
+        if errors:
+            raise TransitionError(422, {"error": "trigger_invalid", "errors": errors})
+
+        s.trigger_artifact = StagedArtifact(
+            artifact_key=req.artifact_key, version=req.version, title=req.title,
+            description=req.description, json_schema=req.json_schema,
+        )
+        s.trigger_fields = flatten_schema_fields(req.json_schema)
+
+        # The trigger fields changed → any authored triage may reference stale fields. Clear it + downstream.
+        cleared: List[str] = []
+        if s.triage_rules:
+            s.triage_rules = []
+            cleared.append("triage_rules")
+        cleared += self._clear(s, {"gateway_variables", "sod_policies", "dry_run"})
+        if state_rank(s.state) > state_rank(OnboardingState.BINDINGS_SET):
+            s.state = OnboardingState.BINDINGS_SET
+        s.last_cleared = cleared
+        return await self.sessions.save(s)
+
+    # ------------------------------------------------------------------ #
     # 5) set_triage — TRIAGE_SET
     # ------------------------------------------------------------------ #
     async def set_triage(self, session_id: str, req: SetTriageRequest, *, owner: str) -> OnboardingSession:
@@ -533,11 +576,11 @@ class OnboardingService:
         if not req.triage_rules:
             raise TransitionError(422, {"error": "triage_invalid",
                                         "errors": [{"message": "at least one triage rule is required"}]})
-        # Batch-4: schema-aware check against the pack's trigger shape (the deployment sample envelopes; a
-        # declared trigger artifact would slot in the same way). A field that isn't on the trigger, or an op
-        # incompatible with the field's type, is a blocking error here — not a silent "never triages" at
-        # runtime. Degrades to structural-only when no trigger schema is available.
-        field_types = infer_field_types(self._samples)
+        # ADR-049: schema-aware check against the pack's trigger shape — the DECLARED trigger schema when the
+        # operator declared one (s.trigger_fields is flattened from it), else the deployment sample envelopes.
+        # A field not on the trigger, or an op incompatible with its type, is a blocking error here — not a
+        # silent "never triages" at runtime. Degrades to structural-only when no trigger shape is available.
+        field_types = s.trigger_fields or infer_field_types(self._samples)
         errors: List[dict] = []
         for rule in req.triage_rules:
             try:
@@ -1118,6 +1161,12 @@ class OnboardingService:
         staged_arts = {sa.artifact_key: sa for sa in s.staged_artifacts}
         descs = [self._capability_descriptor(sc, staged_arts) for sc in s.staged_capabilities]
         regs = [self._staged_artifact_registration(sa) for sa in s.staged_artifacts]
+        # ADR-049: a declared trigger artifact is registered like any staged schema, listed among the pack
+        # artifacts, and emitted as the pack's ProcessPack.trigger (a pinned ArtifactRef).
+        trigger_ref: Optional[str] = None
+        if s.trigger_artifact:
+            regs.append(self._staged_artifact_registration(s.trigger_artifact))
+            trigger_ref = f"{s.trigger_artifact.artifact_key}@^{s.trigger_artifact.version}"
 
         # requires_capabilities: staged + reused (dedup by ref string).
         req_refs: List[str] = []
@@ -1165,6 +1214,8 @@ class OnboardingService:
                 binding_doc["hitl"] = hitl
             bindings.append(binding_doc)
 
+        if trigger_ref:
+            artifact_refs.append(trigger_ref)
         artifacts = sorted(set(artifact_refs))
         triage = [{"rule_id": r.rule_id, "priority": r.priority, "description": r.description, "when": r.when}
                   for r in s.triage_rules]
@@ -1181,6 +1232,7 @@ class OnboardingService:
             "title": s.basics.title, "description": s.basics.description,
             "process": {"bpmn_file": s.bpmn.bpmn_file, "process_id": s.bpmn.process_id,
                         "bpmn_sha256": s.bpmn.sha256},
+            "trigger": trigger_ref,  # ADR-049: declared trigger artifact (None ⇒ opaque envelope)
             "triage_rules": triage, "requires_capabilities": requires, "artifacts": artifacts,
             "bindings": bindings, "gateway_variables": gvars or None, "policies": policies,
             "status": "draft", "created_by": s.created_by,

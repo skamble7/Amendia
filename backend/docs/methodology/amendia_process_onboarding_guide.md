@@ -283,9 +283,8 @@ field** (ADR-048 D4): reading the tool schemas, it matches every input field to 
 capability, then `set_bindings` **authoritatively** refills each capability binding's `input_sources` from *its
 own* bound capability's schemas + the upstream producers' outputs (filling only inputs the operator left unset)
 — so a task whose **BPMN element name diverges from its tool id** still gets a full field-level map once bound.
-The trigger is **opaque** today (no declared trigger
-artifact — ADR-047 deferred), so a field with no upstream producer defaults to a trigger path (the only
-remaining origin, validated as satisfiable); each pre-filled field carries a **"suggested"** chip and the
+The trigger is **opaque unless the pack declares a trigger artifact** (ADR-049 — see Step 4b); a field with no
+upstream producer defaults to a trigger path (the only remaining origin, validated as satisfiable); each pre-filled field carries a **"suggested"** chip and the
 operator overrides via the composite picker. A binding **without** `input_map` chains by shared artifact name (unchanged). It is
 **validated** (below): an input that is neither mapped nor produced upstream is a hard error, not a runtime
 death. The binding UI renders an executor sub-form per category and shows
@@ -339,6 +338,21 @@ capability-slot nudge (the provider name + suggested id + "introspect for this")
 (approve/reject as-is), `approve_actions` (approve side-effects before they execute — the money-moving gate),
 `manual` (a human performs it; an `assist_capability` may pre-draft).
 
+### Step 4b — Declare the trigger schema · `PUT /onboarding/{id}/trigger` (ADR-049)
+
+The **trigger** is the payload that starts the process. Because it is a process *input* (not a tool output) it
+can't be MCP-introspected — the operator **declares** it: an artifact id `art.<domain>.<name>` plus its
+JSON-Schema, authored in the wizard's **Trigger schema** panel (in the Triage step). The backend registers the
+schema like any staged artifact, emits it as the pack's `ProcessPack.trigger`, and — the point of declaring —
+**flattens it into `session.trigger_fields`** (`{dotpath: json_type}`), which drives the Triage field picker
+and its schema-aware validation. It replaces the previous behaviour of learning the trigger shape from the
+deployment's `SEED_DIR/sample-exception` samples, so **any** domain's pack gets a typed picker with no seed
+dependency.
+
+Declaring is an **enrichment, not a state transition** (callable once BPMN is attached); it changes the field
+set, so it clears any already-authored triage + downstream. A pack that declares **no** trigger falls back to
+the sample envelopes (opaque if there are none) — the wire seed packs onboard exactly as before.
+
 ### Step 5 — Triage · `PUT /onboarding/{id}/triage` → `triage_set`
 
 At least one rule. Each: `rule_id`, `priority` (integer; **lower wins** across matching active packs),
@@ -346,9 +360,10 @@ At least one rule. Each: `rule_id`, `priority` (integer; **lower wins** across m
 `{field, op, value}`, `op ∈ eq, ne, in, starts_with, intersects, exists, gt, gte, lt, lte`. `field` is a
 dot-path into the normalized exception envelope.
 
-**Schema-aware validation (batch-4):** when a **trigger schema** is available (the deployment sample envelopes;
-a declared trigger artifact would slot in the same way — `session.trigger_fields` carries the `{dotpath: type}`
-map), the rule is validated against it at `set_triage` **and** the dry-run — not just structurally:
+**Schema-aware validation (ADR-049):** when a **trigger schema** is available — the **declared trigger
+artifact** when the operator declared one (Step 4b; `session.trigger_fields` is flattened from its JSON-Schema),
+otherwise the deployment sample envelopes — the rule is validated against it at `set_triage` **and** the dry-run
+— not just structurally:
 - a leaf `field` that isn't on the trigger → **`triage_field_unknown`** (blocking), naming the field with a
   **nearest-match suggestion** (`reason_code` → "did you mean `reason_codes`?"). This is the silent-"No process"
   bug caught at authoring time.
