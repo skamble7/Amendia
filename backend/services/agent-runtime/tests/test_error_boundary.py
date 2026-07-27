@@ -68,13 +68,14 @@ def _bundle(xml: str) -> PackBundle:
 
 def _steered_apply_repair(args):
     """ADR-047 D2: the MCP-native way to model ApplyRepair's failures — an `isError` result carries the
-    business error (routed to a BPMN error boundary); a raised exception is a technical failure. Steered by
-    the reason codes threaded into the tool arguments (RJCT → business, TECHFAIL → technical), else the real
-    server acknowledgement."""
-    codes = args.get("reason_codes") or []
-    if "RJCT" in codes:
+    business error (routed to a BPMN error boundary); a raised exception is a technical failure. Steered by a
+    marker in the ``exception_id`` the tool actually receives (RJCT → business, TECHFAIL → technical) — NOT
+    ``reason_codes`` (apply_repair's closed inputSchema doesn't declare that, so the real server would reject
+    it; see test_input_map_contract). Otherwise the real server acknowledgement."""
+    exc = str(args.get("exception_id") or "")
+    if "RJCT" in exc:
         return {"isError": True, "structuredContent": {"error_code": "PAYMENT_REJECTED"}}
-    if "TECHFAIL" in codes:
+    if "TECHFAIL" in exc:
         raise RuntimeError("simulated technical failure at ApplyRepair")
     from tests._mcp_server_tools import server_tool_map
     return server_tool_map()["apply_repair"](args)
@@ -87,7 +88,11 @@ def _graph(xml: str, profile="error_boundary"):
 
 def _initial(reason_codes):
     env = make_envelope("AC01")
-    env["reason_codes"] = reason_codes  # AC01 → repairable path; RJCT/TECHFAIL steer apply_repair
+    env["reason_codes"] = ["AC01"]  # AC01 → repairable path (reaches apply_repair)
+    # Encode any RJCT/TECHFAIL steer into the exception_id — the field apply_repair actually receives (its
+    # closed inputSchema is {exception_id, repair}); reason_codes never reaches it (test_input_map_contract).
+    steer = next((c for c in reason_codes if c in ("RJCT", "TECHFAIL")), None)
+    env["exception_id"] = f"EXC-STEER-{steer}" if steer else "EXC-CLEAN"
     return initial_state(envelope=env, trace={"correlation_id": "c"},
                          pack={"pack_key": PK, "pack_version": PV})
 
@@ -207,7 +212,9 @@ async def test_engine_business_error_completes_not_failed(engine_ctx):
     inst = ProcessInstance.new(process_instance_id="pi-eb", exception_id="E-eb",
                                pack_key=PK, pack_version=PV)
     await instances.insert(inst)
-    env = make_envelope("AC01"); env["reason_codes"] = ["AC01", "RJCT"]
+    env = make_envelope("AC01")
+    env["reason_codes"] = ["AC01"]  # repairable → reaches apply_repair
+    env["exception_id"] = "EXC-STEER-RJCT"  # steer apply_repair via the field it receives (see _steered_apply_repair)
     await eng.start(inst, env)
     final = await _decide_all_gates(eng, engine_ctx["hitl"], "pi-eb")
     # the modeled business error routed to End_Returned — completed, NOT failed

@@ -81,6 +81,7 @@
   "artifacts": [
     "art.compliance.screen_party_output@^1.0.0",
     "art.payment.enrich_investigation_output@^1.0.0",
+    "art.payment.info_resolution@^1.0.0",
     "art.payment.repair_instruction@^1.0.0",
     "art.payment.repair_verdict@^1.0.0",
     "art.payment.resolution_record@^1.0.0",
@@ -145,6 +146,10 @@
         {
           "name": "dossier",
           "schema": "art.payment.enrich_investigation_output@^1.0.0"
+        },
+        {
+          "name": "info_resolution",
+          "schema": "art.payment.info_resolution@^1.0.0"
         }
       ],
       "outputs": [
@@ -152,7 +157,14 @@
           "name": "beneficiary",
           "schema": "art.payment.repair_verdict@^1.0.0"
         }
-      ]
+      ],
+      "input_map": {
+        "info_resolution": {
+          "from": "artifact",
+          "name": "info_resolution",
+          "optional": true
+        }
+      }
     },
     {
       "element_id": "Task_ObtainInfo",
@@ -176,6 +188,10 @@
         {
           "name": "rfi",
           "schema": "art.payment.rfi_request@^1.0.0"
+        },
+        {
+          "name": "info_resolution",
+          "schema": "art.payment.info_resolution@^1.0.0"
         }
       ]
     },
@@ -257,10 +273,6 @@
             "exception_id": {
               "from": "trigger",
               "path": "exception_id"
-            },
-            "reason_codes": {
-              "from": "trigger",
-              "path": "reason_codes"
             }
           }
         }
@@ -291,16 +303,9 @@
       "input_map": {
         "repair": {
           "fields": {
-            "envelope": {
-              "from": "trigger"
-            },
             "exception_id": {
               "from": "trigger",
               "path": "exception_id"
-            },
-            "reason_codes": {
-              "from": "trigger",
-              "path": "reason_codes"
             }
           }
         }
@@ -327,16 +332,9 @@
       "input_map": {
         "repair": {
           "fields": {
-            "envelope": {
-              "from": "trigger"
-            },
             "exception_id": {
               "from": "trigger",
               "path": "exception_id"
-            },
-            "reason_codes": {
-              "from": "trigger",
-              "path": "reason_codes"
             }
           }
         }
@@ -436,16 +434,9 @@
       "input_map": {
         "return": {
           "fields": {
-            "envelope": {
-              "from": "trigger"
-            },
             "exception_id": {
               "from": "trigger",
               "path": "exception_id"
-            },
-            "reason_codes": {
-              "from": "trigger",
-              "path": "reason_codes"
             }
           }
         }

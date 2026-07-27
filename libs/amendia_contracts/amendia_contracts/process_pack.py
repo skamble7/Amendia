@@ -156,6 +156,13 @@ class ArtifactSource(ContractModel):
     from_: Literal["artifact"] = Field(..., alias="from")
     name: str                                                  # the upstream output (artifact) name
     path: Optional[str] = None                                 # dotpath into that artifact, else whole
+    # ADR-048 (rework loops): when the referenced artifact is produced only on a LATER loop iteration (e.g. a
+    # human's ObtainInfo output feeding a re-assessment), it is legitimately absent on the first pass. An
+    # optional source resolves to ``None`` when absent instead of hard-failing — so the re-entered node can
+    # read the human's info once the loop supplies it, and runs clean before the loop exists. Defaults to
+    # ``None`` (not ``False``) so it is omitted from serialized input_maps unless explicitly set — the same
+    # exclude-when-unset treatment as ``path``.
+    optional: Optional[bool] = None
 
 
 class FieldsSource(ContractModel):

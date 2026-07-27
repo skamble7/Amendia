@@ -30,6 +30,7 @@ from app.engine.executor.base import (
 )
 from app.engine.executor.core import execute_capability
 from app.engine.executor.mcp_client import (
+    HttpMcpClient,
     InProcessMcpClient,
     _raise_if_business_error,
     _result_to_artifact,
@@ -271,6 +272,95 @@ def test_result_to_artifact_text_content_json_fallback():
 def test_result_to_artifact_no_structured_result_is_technical():
     with pytest.raises(RuntimeError):
         _result_to_artifact(_CTR(content=["not json"]), "screen_party")
+
+
+# --------------------------------------------------------------------------- #
+# Cold-start resilience: the first tools/call after deploy can race the server's readiness.
+# --------------------------------------------------------------------------- #
+class _FakeStreams:
+    async def __aenter__(self):
+        return (None, None, None)
+
+    async def __aexit__(self, *a):
+        return False
+
+
+class _FakeSession:
+    def __init__(self, read, write, result):
+        self._result = result
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *a):
+        return False
+
+    async def initialize(self):
+        return None
+
+    async def call_tool(self, tool, arguments, **kw):
+        return self._result
+
+
+def _install_flaky_sdk(monkeypatch, *, fail_times, result):
+    import mcp
+    import mcp.client.streamable_http as sh
+    state = {"opens": 0}
+
+    def _open(endpoint, headers=None):
+        state["opens"] += 1
+        if state["opens"] <= fail_times:
+            raise ConnectionError("MCP server not ready (warm-up)")
+        return _FakeStreams()
+
+    monkeypatch.setattr(sh, "streamablehttp_client", _open)
+    monkeypatch.setattr(mcp, "ClientSession", lambda r, w: _FakeSession(r, w, result))
+    return state
+
+
+@pytest.mark.asyncio
+async def test_http_client_retries_transient_transport_error_then_succeeds(monkeypatch):
+    # Two cold-start connection failures, then success — the client's backoff retry rides out the warm-up
+    # instead of hard-failing the first real request after deploy.
+    state = _install_flaky_sdk(monkeypatch, fail_times=2, result=_CTR(structuredContent={"status": "clear"}))
+    client = HttpMcpClient(connect_retries=3, connect_backoff=0.0)
+    out = await client.call_tool(endpoint="http://x/mcp", tool="screen_party",
+                                 arguments={}, transport="streamable_http")
+    assert out == {"status": "clear"}
+    assert state["opens"] == 3, "should have retried past the two transient failures"
+
+
+@pytest.mark.asyncio
+async def test_http_client_gives_up_after_exhausting_retries(monkeypatch):
+    _install_flaky_sdk(monkeypatch, fail_times=99, result=_CTR())
+    client = HttpMcpClient(connect_retries=2, connect_backoff=0.0)
+    with pytest.raises(RuntimeError, match="after 3 attempts"):
+        await client.call_tool(endpoint="http://x/mcp", tool="screen_party",
+                               arguments={}, transport="streamable_http")
+
+
+def test_unwrap_exc_flattens_a_taskgroup_to_its_real_cause():
+    from app.engine.executor.mcp_client import _unwrap_exc
+    # A plain leaf exception → itself.
+    assert _unwrap_exc(ConnectionError("Connection refused")) == "ConnectionError: Connection refused"
+    # An anyio/asyncio ExceptionGroup ("unhandled errors in a TaskGroup") → the buried leaf cause, so a
+    # down/unreachable MCP server names the fault instead of the opaque group message.
+    grp = ExceptionGroup("unhandled errors in a TaskGroup", [ConnectionError("All connection attempts failed")])
+    assert _unwrap_exc(grp) == "ConnectionError: All connection attempts failed"
+    nested = ExceptionGroup("outer", [ExceptionGroup("inner", [RuntimeError("boom")])])
+    assert _unwrap_exc(nested) == "RuntimeError: boom"
+
+
+@pytest.mark.asyncio
+async def test_http_client_does_not_retry_a_business_error(monkeypatch):
+    # A modeled isError business error is a real outcome, not a transient fault — it must NOT be retried.
+    err = _CTR(isError=True, structuredContent={"error_code": "PAYMENT_REJECTED"})
+    state = _install_flaky_sdk(monkeypatch, fail_times=0, result=err)
+    client = HttpMcpClient(connect_retries=3, connect_backoff=0.0)
+    with pytest.raises(CapabilityBusinessError):
+        await client.call_tool(endpoint="http://x/mcp", tool="screen_party",
+                               arguments={}, transport="streamable_http")
+    assert state["opens"] == 1, "a business error must not be retried"
 
 
 # =========================================================================== #

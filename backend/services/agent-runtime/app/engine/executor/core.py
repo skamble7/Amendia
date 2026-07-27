@@ -220,6 +220,12 @@ def _execute_deep_agent(descriptor, inputs, ctx: ExecutionContext, runner, mcp_c
         artifact = _run_blocking(runner.run(
             capability_id=descriptor.capability_id,
             prompt_key=getattr(rt, "prompt_key", ""),
+            # ADR-047: framing is descriptor-sourced (title/description), never a hardcoded domain — mirror
+            # run_real_llm so a deep_agent is instructed the same way an llm capability is (the seed's
+            # registered description is the ONLY channel that carries e.g. the resolution→verdict mapping to the
+            # live model; prompt_key is a bare label with no resolvable text today).
+            title=getattr(descriptor, "title", None),
+            description=getattr(descriptor, "description", None),
             input_artifacts=inputs,
             tools=list(getattr(rt, "tools", []) or []),
             output_schema=output_schema,

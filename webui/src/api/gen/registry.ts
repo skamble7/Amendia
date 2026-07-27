@@ -602,6 +602,8 @@ export interface components {
             from: "artifact";
             /** Name */
             name: string;
+            /** Optional */
+            optional?: boolean | null;
             /** Path */
             path?: string | null;
         };

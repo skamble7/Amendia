@@ -151,6 +151,155 @@ not only the in-process double.
 
 ---
 
+## 6b. Final live-only loop — the LLM-poisoned `repair_hint` (fixed)
+
+The last live-only defect had the same divergence shape as §6, but at the *artifact-schema* layer:
+
+- `art.payment.rfi_request` carried an **optional** `repair_hint` field. The **real** `draft_rfi` LLM
+  auto-filled it `'needs_info'` — restating the problem, not resolving it. The **schema-stub** harness
+  omits optional fields, so the rfi never carried it → harness terminated, **live looped**.
+- The assess binding passed the whole rfi as `provided_info`, and `assess_beneficiary`'s `_dig` is
+  **recursive** (top level *or one level down inside any payload object*) → it dug the nested
+  `repair_hint='needs_info'` back out and re-steered **every** re-assessment. UI proof:
+  `{"repair_verdict":"needs_info","rationale":"steered by repair_hint='needs_info'"}`, looping
+  `Task_AssessRepairability ↔ Task_ObtainInfo` forever.
+- **Fix (seed-only, no platform code):** delete `repair_hint` from `rfi_request` in both packs so the
+  schema-constrained LLM cannot emit it, and drop the now-dangling `repair_hint` source from the assess
+  `input_map`. The loop now flips **purely** on `provided_info` presence → info-obtained → repairable.
+- **Verified against a real running server:** AC01 → `repairable` (no ObtainInfo), BE04 → `needs_info` →
+  ObtainInfo → (rfi present) → `repairable`. Suites: agent-runtime 310 pass / 2 skip, process-registry 241.
+- **Rule added to memory:** never pass a whole LLM-drafted artifact into a tool whose `_dig` recurses — an
+  optional field the real provider fills can collide with the tool's steer keys. Keep request/RFI artifacts
+  free of verdict-shaped fields.
+
+## 6c. Needs-info exit contract — human-authored resolution (addendum §C/§D)
+
+§6b stopped the hang but the flip was semantically hollow: it keyed off *the LLM draft rfi existing*, not off
+the analyst supplying anything, and offered no human-controlled exit. The addendum's exit contract made this
+precise (`Gateway_Repairable` fires the non-default flow ONLY on `repair_verdict ∈ {repairable, unrepairable}`;
+any other value → default → back to Obtain-Info) and identified the real root: **Task_ObtainInfo has no
+draft-RFI service task — `draft_rfi` is bound onto it as an assist, so "accept draft + comment" commits the
+machine's *questions*, never a human *answer*.** The human had no channel to resolve.
+
+**Final design (Option A — dedicated human-authored resolution artifact):**
+
+- New `art.payment.info_resolution {outcome: resolved | cannot_obtain, details?}` as a **second output** of
+  `Task_ObtainInfo` with **no assist** — the `draft_rfi` LLM structurally cannot fabricate it. (Named
+  `info_resolution`, not `resolution`: `Task_RecordResolution` already emits `resolution`.)
+- `assess_beneficiary` keys off `resolution.outcome` at top precedence: `resolved` → repairable → End_Resolved;
+  `cannot_obtain` → unrepairable → DraftReturn → ApproveReturn → ExecuteReturn → **End_Returned** (the §D
+  analyst-controlled terminal exit — no more default-only unbounded loop). `null` on the first pass (no
+  Obtain-Info yet) → reason codes drive. `ASSESS_INPUT` drops `repair_hint`/`provided_info`, adds a nullable
+  `resolution`; the input_map reads it via an ADR-048 optional source.
+
+**Two domain-free platform changes** (flagged, per the seed-only-where-possible convention — a human channel
+that survives resume was not expressible without them):
+
+1. `task_runner._run_manual` — a manual-task output with no assist draft is now surfaced into the gate payload
+   with empty (`{}`) data so the UI renders a blank schema-form; the existing commit loop then REQUIRES the
+   human to author it via `edits` (no draft to fall back on). The platform learns nothing domain-specific.
+2. `process-registry pack_validator._stage5_artifacts_io` — a `human`+assist binding's IO need only be a
+   **superset** of the assist's (assist ⊆ binding; extra outputs are human-authored). Capability executors
+   stay strict set-equal. Without this the pack fails `binding_io_mismatch` (assist drafts `rfi`, not
+   `info_resolution`).
+
+**Verified:** real server boots with the closed schema and honors `resolution` both directions; registry gate
+green over both packs; golden regenerated (needs_info_be04 gains `info_resolution`, one loop, End_Resolved);
+`test_rework_loop.py` asserts the resolved→End_Resolved and cannot_obtain→End_Returned paths on **verdict
+content**, not just artifact names. Suites: agent-runtime 311 pass / 2 skip, process-registry 241 pass. The
+**agentic** pack's BE04 routes straight to repairable (never enters needs-info), so it neither loops nor needs
+the change — left untouched, not the live pack.
+
+## 6d. Empty approve_actions gate for MCP action tools (D2 propose-mode regression)
+
+Same regression class as the loop, one node further on: pre-D2 the action tasks were in-code `skill`s whose
+`propose` returned the action list; the re-home to generic `mcp` capabilities dropped propose semantics.
+`_execute_mcp_real` has no propose branch — it calls the tool and returns `{outputs}` in every mode — so
+`_run_approve_actions` read `proposed_actions=[]`. Live, the gate opened with nothing to authorize (the frontend
+"select ≥1 action" guard wedged the instance); and proposing-by-invoking would have fired the side effect
+*before* approval. The golden net asserts terminal outcomes, not gate contents, so it stayed green.
+
+- **Step 0 finding:** `Task_ApplyRepair` and `Task_NotifyParties` are structurally identical (`kind=mcp`,
+  `side_effect=side_effectful`, no bound output, input_map) and an instrumented AC01 run shows **both** emit
+  `count=0` proposed actions. There is no second code path — ApplyRepair clearing live while NotifyParties
+  didn't was operator conditions, not structure. The one fix covers both (and `Task_ExecuteReturn`).
+- **Fix (domain-free, `task_runner` only):** `_propose_actions` — a `skill` still returns its own
+  side-effect-free `proposed_actions`; an `mcp`/`llm`/`deep_agent` capability that is `side_effectful`
+  **synthesizes exactly one** `ProposedAction` host-side (`action_id` deterministic from pid+element+tool;
+  `kind`=tool name; `summary`=descriptor `title`/`description`; `detail`=the resolved input_map arguments the
+  tool will receive) and the tool is **never invoked** until `mode="execute"` after approval. A `read_only`
+  capability under `approve_actions` is a pack authoring error — left empty, surfaced by the frontend.
+- **Frontend (Step 3, defensive):** `AuthorizeActionsVariant` degrades an empty gate to a "no actions proposed —
+  pack/config error" panel with Reject only; never auto-approves.
+- **Tests (Step 4):** `test_approve_actions_synthesis.py` asserts, on the real `server_tool_map`, that each
+  side-effectful action gate presents ≥1 action whose `detail` equals the args the tool receives, that the tool
+  fires **exactly once and only after approval**, and that the AC06 return branch authorizes `ExecuteReturn` and
+  completes. The golden net now records the action count per `approve_actions` gate (all `1`) and a new
+  `unrepairable_ac06` branch — so an empty gate changes the signature and fails the net going forward.
+- **Verified:** agent-runtime 313 pass / 2 skip, process-registry 241, webui 106/106 + tsc clean.
+
+## 6e. Needs-info loop ported to wire-repair-agentic (deep_agent Assess)
+
+`wire-repair-agentic` had the same `Gateway_Repairable →(default)→ Task_ObtainInfo → Task_AssessRepairability`
+loop, unfixed. It is **not** a copy of standard: its Assess is a `deep_agent` (`cap.payment.assess_beneficiary_agentic`
+→ `art.payment.repair_verdict`), so there is no MCP stub to map `resolution → verdict`. Per the design decision,
+the mapping is domain and lives in the capability's prompt (prod) — never the engine.
+
+- **Seed (Steps 1–3):** copied `art.payment.info_resolution` into the pack (+ registered, 8→9 artifacts); added
+  `info_resolution` as the no-assist 2nd output of `Task_ObtainInfo` (renders as a blank form via the shipped
+  `_run_manual` path); added `info_resolution` as an Assess **input** with an ADR-048 **optional** input_map
+  source (absent-tolerant → null first pass, present on the loop back-edge). Because Assess is a *capability*
+  executor (strict binding⇄capability IO), `info_resolution` was also declared on the capability's `inputs`
+  (standard didn't need this — there resolution is a composite field under one `dossier` input).
+- **Prompt (Step 4):** the mapping's home. The registered prompt is external (keyed by `prompt_key`, no in-repo
+  text); the intent is recorded on the capability `description` (seed data) and must be reflected in
+  `prompt.payment.assess_beneficiary_agentic`.
+- **CI stub (Step 5):** the platform `SchemaStubDeepAgentRunner` emits the first enum (`repairable`) and ignores
+  inputs — so agentic would never enter the loop in CI and a test would be green-but-unverified. Added
+  `tests/_agentic_assess.WireAgenticDeepAgentRunner` (fixture layer, the CI analog of standard's MCP stub) that,
+  for the agentic Assess capability only, **reuses the standard `assess_beneficiary` handler** (identical
+  reason-code + resolution → verdict mapping) and delegates every other deep_agent to the schema stub. Wired as
+  the default deep-agent runner in `tests/_stub_stack` (native/worker/sandbox stay transparent).
+- **Tests (Step 6):** `test_rework_loop_agentic.py` asserts, on the shipping path, `resolved` → `repair_verdict
+  repairable` → End_Resolved and `cannot_obtain` → `unrepairable` → End_Returned, each in exactly one cycle, with
+  `info_resolution` committed and surviving resume — content, not just artifact presence. The D2 golden set now
+  exercises agentic through the loop (BE04 enters+exits; AC06 returns) instead of the old
+  first-enum-`repairable` shortcut that never looped.
+- **No platform change:** the memo visit-count and the `approve_actions` synthesis already covered agentic
+  (confirmed: its action gates present populated lists, count folded into the golden). Verified: agent-runtime
+  315 pass / 2 skip, process-registry 241. **Every wire pack with the needs-info loop is now fixed.**
+
+## 6f. Deep-agent system prompt is now descriptor-framed (title + description)
+
+The agentic port (§6e) put the `resolution → verdict` mapping in the capability's **description**, but the real
+deep-agent runner never sent it: `RealDeepAgentRunner` built `system_prompt` from `capability_id` + `prompt_key`
+(a literal label, no resolvable text) and dropped `title`/`description` — so the rule reached the live model
+through **zero channels**. The llm path (`run_real_llm`) already injects the descriptor; deep_agent didn't — a
+real platform inconsistency, not just this bug. CI was green only because `WireAgenticDeepAgentRunner` bypasses
+the real runner.
+
+- **Change 1 (platform, domain-neutral):** `core._execute_deep_agent` now passes `title`/`description` to the
+  runner; a new pure `deep_agent.build_system_prompt(...)` frames them into the prompt exactly like
+  `run_real_llm` (`You are the '{id}' capability — {title}. {description} Task: {prompt_key}. …`). The
+  `DeepAgentRunner` protocol + all four runners (Real/Fake/SchemaStub/WireAgentic) take the new args.
+- **Change 2:** the agentic assess `description` rewritten as a crisp imperative RULE (present `info_resolution`
+  is authoritative: `resolved`→repairable, `cannot_obtain`→unrepairable; absent/null→assess from dossier), and
+  the stale "reflect this in the registered prompt" meta-note removed (it now goes to the model verbatim).
+- **Change 3:** `test_deep_agent_prompt.py` asserts — with no live LLM — that the constructed prompt contains the
+  descriptor's title + description, and that the real seed capability's mapping text is present in the prompt.
+  This is the assertion that would have caught the gap.
+- **Change 4 — live reachability (reported, not faked):** in **both** the docker-compose dev stack and the default
+  Helm deploy, `AGENTRT_DEEPAGENT_REAL=false` → the factory wires `FakeDeepAgentRunner` (schema stub → first enum
+  `repairable`, ignoring the description AND the resolution input) even in `native`/non-simulation. So **today the
+  agentic Assess does not run the real model at all**: this fix takes effect only when `DEEPAGENT_REAL=true`,
+  which additionally needs the `deepagents` SDK (OpenShell-sandbox-only) and a reachable inference endpoint (dev
+  is the `stub-inference:8055/v1` stub, not a real NIM; prod `inference.local/v1`). **Consequence:** a live
+  agentic needs-info run that exercises the real model — and thus the DoD item "live agentic run terminates both
+  branches" — is **blocked on provisioning the nemoclaw/NIM harness**, not on this code. Until then agentic Assess
+  live uses the fake stub (always `repairable`), which neither reproduces the loop nor honors the instruction.
+- **Verified:** agent-runtime 318 pass / 2 skip. The fix is correct and unit-verified; live confirmation awaits
+  the real deep-agent harness.
+
 ## 7. Open items
 
 - **Done:** runtime consolidated on the MCP SDK (§5) — one client for the platform.

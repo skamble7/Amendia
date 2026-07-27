@@ -427,10 +427,22 @@ class PackValidator:
                 desc = resolved.get(ex.assist_capability.ref_id)
             if desc is None:
                 continue
+            # A capability executor produces/consumes EXACTLY its declared IO (strict set-equality). A human
+            # task with an assist is looser: the assist merely PRE-DRAFTS a subset of the task's IO — the human
+            # authors any remaining outputs (e.g. an explicit resolution artifact the agent must not touch) and
+            # may draw on extra context inputs. So the assist's IO need only be a SUBSET of the binding's; any
+            # extra binding IO is human-authored / human-context, not a mismatch.
+            human_assist = ex.type == "human"
             for side, b_ios, c_ios in (("inputs", b.inputs, desc.inputs), ("outputs", b.outputs, desc.outputs)):
                 b_map = {io.name: io for io in b_ios}
                 c_map = {io.name: io for io in c_ios}
-                if set(b_map) != set(c_map):
+                if human_assist:
+                    missing = set(c_map) - set(b_map)
+                    if missing:
+                        report.error("binding_io_mismatch", stage=5, element_id=b.element_id,
+                                     message=f"{side}: assist {desc.capability_id} {side} {sorted(missing)} "
+                                             f"not declared on the human task binding {sorted(b_map)}")
+                elif set(b_map) != set(c_map):
                     report.error("binding_io_mismatch", stage=5, element_id=b.element_id,
                                  message=f"{side} name set {sorted(b_map)} != capability "
                                          f"{desc.capability_id} {side} {sorted(c_map)}")

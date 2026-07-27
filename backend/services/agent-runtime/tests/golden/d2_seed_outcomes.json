@@ -4,11 +4,21 @@
       "artifacts": [
         "beneficiary",
         "dossier",
+        "info_resolution",
         "repair",
         "resolution",
+        "rfi",
         "screening"
       ],
       "hitl": [
+        [
+          "Task_AssessRepairability",
+          "review_after"
+        ],
+        [
+          "Task_ObtainInfo",
+          "manual"
+        ],
         [
           "Task_AssessRepairability",
           "review_after"
@@ -27,11 +37,13 @@
         ],
         [
           "Task_ApplyRepair",
-          "approve_actions"
+          "approve_actions",
+          1
         ],
         [
           "Task_NotifyParties",
-          "approve_actions"
+          "approve_actions",
+          1
         ]
       ],
       "outcome": "End_Resolved",
@@ -64,11 +76,13 @@
         ],
         [
           "Task_ApplyRepair",
-          "approve_actions"
+          "approve_actions",
+          1
         ],
         [
           "Task_NotifyParties",
-          "approve_actions"
+          "approve_actions",
+          1
         ]
       ],
       "outcome": "End_Resolved",
@@ -101,11 +115,13 @@
         ],
         [
           "Task_ApplyRepair",
-          "approve_actions"
+          "approve_actions",
+          1
         ],
         [
           "Task_NotifyParties",
-          "approve_actions"
+          "approve_actions",
+          1
         ]
       ],
       "outcome": "End_Resolved",
@@ -138,14 +154,44 @@
         ],
         [
           "Task_ApplyRepair",
-          "approve_actions"
+          "approve_actions",
+          1
         ],
         [
           "Task_NotifyParties",
-          "approve_actions"
+          "approve_actions",
+          1
         ]
       ],
       "outcome": "End_Resolved",
+      "status": "completed"
+    },
+    "unrepairable_ac06": {
+      "artifacts": [
+        "beneficiary",
+        "dossier",
+        "return"
+      ],
+      "hitl": [
+        [
+          "Task_AssessRepairability",
+          "review_after"
+        ],
+        [
+          "Task_DraftReturn",
+          "review_after"
+        ],
+        [
+          "Task_ApproveReturn",
+          "manual"
+        ],
+        [
+          "Task_ExecuteReturn",
+          "approve_actions",
+          1
+        ]
+      ],
+      "outcome": "End_Returned",
       "status": "completed"
     }
   },
@@ -178,6 +224,15 @@
       "status": "completed"
     },
     "screening_hit": {
+      "artifacts": [
+        "decision",
+        "dossier"
+      ],
+      "hitl": [],
+      "outcome": "End_Auto",
+      "status": "completed"
+    },
+    "unrepairable_ac06": {
       "artifacts": [
         "decision",
         "dossier"
@@ -223,6 +278,15 @@
       "hitl": [],
       "outcome": "End_Hit",
       "status": "completed"
+    },
+    "unrepairable_ac06": {
+      "artifacts": [
+        "screening",
+        "summary"
+      ],
+      "hitl": [],
+      "outcome": "End_Clean",
+      "status": "completed"
     }
   },
   "wire-repair-standard": {
@@ -230,7 +294,11 @@
       "artifacts": [
         "beneficiary",
         "dossier",
-        "rfi"
+        "info_resolution",
+        "repair",
+        "resolution",
+        "rfi",
+        "screening"
       ],
       "hitl": [
         [
@@ -246,12 +314,30 @@
           "review_after"
         ],
         [
-          "Task_ObtainInfo",
+          "Task_DraftRepair",
+          "review_after"
+        ],
+        [
+          "Task_ApproveRepair",
           "manual"
+        ],
+        [
+          "Task_SanctionsRescreen",
+          "approve_result"
+        ],
+        [
+          "Task_ApplyRepair",
+          "approve_actions",
+          1
+        ],
+        [
+          "Task_NotifyParties",
+          "approve_actions",
+          1
         ]
       ],
-      "outcome": null,
-      "status": "waiting_hitl_loop"
+      "outcome": "End_Resolved",
+      "status": "completed"
     },
     "repairable_ac01": {
       "artifacts": [
@@ -280,11 +366,13 @@
         ],
         [
           "Task_ApplyRepair",
-          "approve_actions"
+          "approve_actions",
+          1
         ],
         [
           "Task_NotifyParties",
-          "approve_actions"
+          "approve_actions",
+          1
         ]
       ],
       "outcome": "End_Resolved",
@@ -317,11 +405,13 @@
         ],
         [
           "Task_ApplyRepair",
-          "approve_actions"
+          "approve_actions",
+          1
         ],
         [
           "Task_NotifyParties",
-          "approve_actions"
+          "approve_actions",
+          1
         ]
       ],
       "outcome": "End_Resolved",
@@ -354,14 +444,44 @@
         ],
         [
           "Task_ApplyRepair",
-          "approve_actions"
+          "approve_actions",
+          1
         ],
         [
           "Task_NotifyParties",
-          "approve_actions"
+          "approve_actions",
+          1
         ]
       ],
       "outcome": "End_Resolved",
+      "status": "completed"
+    },
+    "unrepairable_ac06": {
+      "artifacts": [
+        "beneficiary",
+        "dossier",
+        "return"
+      ],
+      "hitl": [
+        [
+          "Task_AssessRepairability",
+          "review_after"
+        ],
+        [
+          "Task_DraftReturn",
+          "review_after"
+        ],
+        [
+          "Task_ApproveReturn",
+          "manual"
+        ],
+        [
+          "Task_ExecuteReturn",
+          "approve_actions",
+          1
+        ]
+      ],
+      "outcome": "End_Returned",
       "status": "completed"
     }
   }

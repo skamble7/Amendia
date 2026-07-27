@@ -48,6 +48,7 @@ _BRANCHES = {
     "repairable_ac01": dict(reason_code="AC01"),
     "repairable_rc01": dict(reason_code="RC01"),
     "needs_info_be04": dict(reason_code="BE04"),
+    "unrepairable_ac06": dict(reason_code="AC06"),  # return path — covers Task_ExecuteReturn's action gate
     "screening_hit": dict(reason_code="AC01", creditor_name="SANCTIONED PARTY LLC"),
 }
 
@@ -121,8 +122,19 @@ async def _signature(seed_dir: Path, envelope: dict, *, executor=None, max_steps
                 looped = True
                 break
             mode = t.hitl_mode.value
-            hitl_seq.append([t.element_id, mode])
+            entry = [t.element_id, mode]
+            if mode == "approve_actions":
+                # Fold gate CONTENTS into the golden net (ADR-047 D2): a side-effectful action gate MUST present
+                # ≥1 pending action to authorize. Recording the count means an empty gate (the D2 re-home
+                # regression) changes the signature and fails the net, not just a live-only symptom.
+                entry.append(len(getattr(getattr(t, "payload", None), "proposed_actions", None) or []))
+            hitl_seq.append(entry)
             dec = {"decision": "complete" if mode == "manual" else "approve", "decided_by": role_user(t.role)}
+            # The needs-info task now requires the analyst to author the human-only ``info_resolution`` artifact
+            # (no assist draft — the LLM cannot fabricate it). The golden policy resolves positively (info
+            # supplied → repairable) so the needs-info branch reaches its terminal instead of re-prompting.
+            if t.element_id == "Task_ObtainInfo":
+                dec["edits"] = {"info_resolution": {"outcome": "resolved", "details": "golden auto-resolution"}}
             await hitl.transition_status(t.task_id, expected_status=TaskStatus.OPEN, new_status=TaskStatus.DECIDED,
                                          set_fields={"decision": {**dec, "decided_at": _T0.isoformat()}})
             await eng.resume(pid, dec, interrupt_id=t.interrupt_id)

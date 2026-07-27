@@ -21,9 +21,10 @@ _FIXED_TS = "2025-01-01T00:00:00Z"
 
 ACTION_TOOLS = {"apply_repair", "notify_parties", "execute_return"}
 
-# Reason-code steering for assess_beneficiary (lets the demo drive each gateway branch). Aligned with the
-# re-homed wire-repair seed's original behaviour (ADR-047 D2): the correctable codes AC01/AC04/RC01 are
-# repairable; explicit `repair_hint` still reaches `unrepairable` for callers that want it.
+# Reason-code steering for assess_beneficiary (drives each gateway branch on the FIRST pass, before any
+# Obtain-Info). Aligned with the re-homed wire-repair seed's original behaviour (ADR-047 D2): the correctable
+# codes AC01/AC04/RC01 are repairable; AC06/CLOSED_ACCOUNT/BLOCKED are unrepairable; anything else is needs_info.
+# After Obtain-Info, the analyst's explicit `resolution` outcome (not a reason code) decides the exit.
 _REPAIRABLE_CODES = {"AC01", "AC03", "AC04", "RC01", "INCORRECT_ACCOUNT", "RQ01"}
 _UNREPAIRABLE_CODES = {"AC06", "CLOSED_ACCOUNT", "BLOCKED"}
 
@@ -112,11 +113,22 @@ def enrich_investigation(args: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def assess_beneficiary(args: Dict[str, Any]) -> Dict[str, Any]:
-    hint = _dig(args, "repair_hint")
     codes = set(_reason_codes(args))
-    if hint in S.REPAIR_VERDICTS:
-        verdict = hint
-        rationale = f"steered by repair_hint='{hint}'"
+    # ``resolution`` is the analyst's EXPLICIT disposition from Task_ObtainInfo
+    # (art.payment.info_resolution.outcome), threaded by the pack's input_map only AFTER the analyst completes
+    # Obtain-Info. It is a HUMAN-authored artifact with no agent draft, so the value is a genuine resolution —
+    # NOT a value an LLM restated onto the RFI it was drafting (the bug that made the loop non-terminating).
+    # It is the top-precedence terminator for the needs-info rework loop and the only human-controlled exit:
+    #   ``resolved``      → repairable   (the analyst supplied the missing information)
+    #   ``cannot_obtain`` → unrepairable (the analyst could not obtain it → return funds)
+    # Absent/``null`` on the first pass (no Obtain-Info yet) → fall through to the reason-code assessment.
+    resolution = _dig(args, "resolution")
+    if resolution == "resolved":
+        verdict = "repairable"
+        rationale = "analyst supplied the missing information via Obtain-Info; the beneficiary is now repairable"
+    elif resolution == "cannot_obtain":
+        verdict = "unrepairable"
+        rationale = "analyst could not obtain the required information via Obtain-Info — return funds"
     elif codes & _UNREPAIRABLE_CODES:
         verdict = "unrepairable"
         rationale = f"reason codes {sorted(codes & _UNREPAIRABLE_CODES)} indicate the payment cannot be repaired"

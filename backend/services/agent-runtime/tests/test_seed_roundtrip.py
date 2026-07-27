@@ -33,7 +33,7 @@ def test_capabilities_roundtrip():
 
 def test_artifact_schemas_roundtrip():
     files = sorted((SEED / "artifact-schemas").glob("*.json"))
-    assert len(files) == 8   # ADR-047 D2: orphan consumer schemas retired (dossier/verdict/screening drift)
+    assert len(files) == 9   # ADR-047 D2: + art.payment.info_resolution (needs-info human-authored exit)
     for f in files:
         _roundtrip(ArtifactSchemaRegistration, f)
 

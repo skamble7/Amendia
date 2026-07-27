@@ -58,5 +58,6 @@ class SchemaStubDeepAgentRunner:
     default once the in-code simulation is gone. Deep_agent caps declare exactly one output artifact."""
 
     async def run(self, *, capability_id, prompt_key, input_artifacts, tools, output_schema,
-                  model_ref, budget, envelope, mcp_client: Optional[Any] = None) -> Dict[str, Any]:
+                  model_ref, budget, envelope, mcp_client: Optional[Any] = None,
+                  title=None, description=None) -> Dict[str, Any]:
         return stub_from_schema(output_schema or {})

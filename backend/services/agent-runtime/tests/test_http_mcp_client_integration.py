@@ -81,6 +81,26 @@ async def test_real_server_enrich_returns_structured_artifact(mcp_endpoint):
 
 
 @pytest.mark.asyncio
+async def test_real_server_assess_honors_resolution_outcome(mcp_endpoint):
+    # The rework-loop terminator, over the REAL wire: the server VALIDATES arguments against the tool's CLOSED
+    # inputSchema (the in-process handler map does not) — so `resolution` must be a declared field AND the
+    # handler must honour it. This guards the exact live/harness divergence that made the loop spin: the fix is
+    # the analyst's explicit resolution outcome, NOT a field on the LLM-drafted rfi it can auto-fill.
+    client = HttpMcpClient()
+
+    async def assess(args):
+        r = await client.call_tool(endpoint=mcp_endpoint, tool="assess_beneficiary",
+                                   arguments=args, transport="streamable_http")
+        return r["repair_verdict"]
+
+    # first pass — resolution null (as the pack's optional input_map source sends it): reason codes drive.
+    assert await assess({"reason_codes": ["BE04"], "resolution": None}) == "needs_info"
+    # after Obtain-Info — the analyst's explicit outcome is the terminal verdict (both directions).
+    assert await assess({"reason_codes": ["BE04"], "resolution": "resolved"}) == "repairable"
+    assert await assess({"reason_codes": ["BE04"], "resolution": "cannot_obtain"}) == "unrepairable"
+
+
+@pytest.mark.asyncio
 async def test_real_server_tool_error_is_handled_over_the_wire(mcp_endpoint):
     # A tool-level failure (unknown tool → the server's handler raises) surfaces over the real transport as
     # either a modeled business error (isError → ADR-035) or a technical RuntimeError — never an unhandled

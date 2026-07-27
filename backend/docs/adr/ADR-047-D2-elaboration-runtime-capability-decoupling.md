@@ -251,6 +251,98 @@ platform-code change.
   `assess_beneficiary_output`/`enrich_investigation_output`). **agent-runtime 289 passed / 2 skipped;
   process-registry 241 passed.**
 
+**Progress (2026-07-26 cont.) — needs-info rework loop now terminates (seed + platform): DONE.** An MCP-backed
+instance looped forever on `Task_ObtainInfo` — re-creating the same HITL task each completion, never advancing.
+Two coupled causes, both fixed; no side-effect-once regression (confirmed + tested).
+- **The re-assessment had no way to flip (seed).** `Assess` keys on `reason_codes`/`repair_hint`, but nothing
+  fed the human's `ObtainInfo` info back into it — so the re-assessment always returned the same `needs_info`.
+  (`reason_codes` were already wired from the trigger; AC01 already routes to `DraftRepair`, not the loop —
+  verified.) Fix: `art.payment.rfi_request` gains an **optional `repair_hint`** the analyst sets; `Assess`'s
+  input_map reads it from the (loop-produced) `rfi` artifact via a new **optional input source** so it's
+  absent-tolerant on the first pass. The human's `repair_hint: "repairable"` now flips the second assessment.
+- **The memo froze the re-entry (platform).** The per-instance memo key was `(pid, element, inputs_hash,
+  attempt)` — a loop back-edge re-entry with matching inputs returned the frozen prior artifact, so the
+  re-assessment never ran. Fix: the key gains a **`visit`** component derived from the committed `actor_log`
+  (count of this element's prior entries). A HITL **replay** of the same execution has the same count (the
+  node's entry commits only on return) → memo **hit**, **side-effect-once preserved**; a **loop re-entry** has
+  the prior iteration's committed entry → higher count → **miss** → re-run. Threaded host-side via
+  `ctx.extras["memo_visit"]` (native + sandbox/worker).
+- **Platform surface:** `ArtifactSource.optional` (ADR-048; defaults `None` so it's omitted from serialized
+  input_maps unless set), `_resolve_source` honors it (absent artifact → `None`, not a hard fail), and the memo
+  key/threading above. The loop back-edge already makes `rfi` reachable-to-`Assess`, so the registry data-flow
+  check passes unchanged. OpenAPI snapshot + webui `gen:api` re-dumped for the new field.
+- **Tests:** `tests/test_rework_loop.py` — (1) the memo unit test proves same-visit replay hits (side-effect
+  once) while a loop-visit re-entry re-runs; (2) the integration test drives a `BE04` (needs-info) exception,
+  the analyst supplies a `repair_hint` at `ObtainInfo`, and the instance re-assesses to `repairable` and exits
+  to `End_Resolved` — looping exactly once, guarded by a max-steps cap. **Verified it fails (loops → max-steps)
+  on the pre-fix seed.** **agent-runtime 291 passed / 2 skipped; process-registry 241; webui 106.**
+
+**Progress (2026-07-26 cont.) — CORRECTION: the rework loop still looped live; the first fix was harness-only.**
+The prior note claimed termination, but the loop-termination test **fabricated a decision payload**
+(`edits.rfi.repair_hint`) the real UI never sends — so it went green while the deployed stack looped (instance
+`pi-52eb73bbaf66458e`). Classic harness-honors / live-ignores. Root-caused on the deployed MCP path and fixed
+for real:
+- **Dead link (Step-1 trace):** on a *natural* completion the analyst commits the `rfi` draft **without** a
+  `repair_hint` (the `draft_rfi` assist doesn't set it, the UI doesn't add it), so the re-assessment read
+  `repair_hint = None` → `needs_info` → loop. The memo works and does **not** swallow the human's output (the
+  rfi *is* committed; the memo hit is on the assist, correctly reusing the draft). A *second* divergence: the
+  real server **validates arguments against the tool `inputSchema`** (the in-process handler map does not), so
+  an undeclared argument is rejected — the harness never saw it.
+- **Fix (flip on "info obtained", not a magic field):** `assess_beneficiary` resolves a first-pass
+  `needs_info` → `repairable` when `provided_info` (the ObtainInfo output) is present — the robust, natural
+  signal (an explicit `repair_hint` still overrides). Seed: `Assess`'s input_map passes
+  `provided_info: {from: artifact, name: rfi, optional: true}`. Server: `provided_info` **declared in the
+  assess `inputSchema`** (closed schema) + honored in the handler. Now a `BE04` needs-info exception terminates
+  in one cycle on the completion the UI actually sends. **Verified against the real running FastMCP server**
+  (`needs_info` → `repairable` on info-obtained; explicit `unrepairable` overrides).
+- **Cold-start (Step 4):** the first `tools/call` after deploy could race the server's readiness (anyio
+  TaskGroup error); the host's node retries are immediate so all 3 failed in the same instant. `HttpMcpClient`
+  now retries the session with exponential backoff (`connect_retries`/`connect_backoff`) — a modeled business
+  error is never retried.
+- **Tests (Step 3, mandatory):** `test_rework_loop.py` now drives the **natural** completion
+  (`default_decision`, no magic edits) against the wire server's **own** handlers and asserts verdict content +
+  one-cycle termination — it **loops (max-steps) on the pre-fix seed**. `test_http_mcp_client_integration.py`
+  adds an assess-flip test over the **real server** (guarding the inputSchema divergence). Retry unit tests
+  cover transient-then-success, give-up, and no-retry-on-business-error. The `needs_info_be04` golden flips
+  `waiting_hitl_loop` → `End_Resolved` (regenerated). **agent-runtime 296 passed / 2 skipped; process-registry
+  241.**
+- **Deploy:** rebuild the wire_transfer MCP server image (handler + inputSchema) **and** the agent-runtime
+  image (retry), and re-onboard the seed (input_map) — `down -v` + reseed.
+
+**Progress (2026-07-26 cont.) — the REAL root cause: input_map sent undeclared args the MCP server rejects.**
+The loop persisted live even after the `provided_info` fix, and the deployed evidence exposed the true cause: an
+**AC01** (repairable) exception went to `ObtainInfo`. AC01 can only loop if `reason_codes` never reach `assess`
+— pointing past the loop logic to the tool call itself. Traced against the real server:
+- **Divergence:** the MCP server CLOSES every tool `inputSchema` (`additionalProperties:false`, enforced by
+  its own `check_compliance`) and 400-rejects any undeclared argument. But the binding `input_map` composites
+  spread shared context fields (`envelope`, `reason_codes`) into EVERY tool's args — including tools whose
+  schema doesn't declare them. The **in-process test double dispatches straight to the handler with no schema
+  validation**, so the harness was green while the real server rejected the calls. Confirmed over the wire:
+  `assess_beneficiary({reason_codes:[AC01]})` → `repairable`, but `assess_beneficiary({envelope:…,reason_codes:[AC01]})`
+  → `MCP_TOOL_ERROR`. **Audit found the same mismatch on 5 tools** (assess, screen, apply_repair, notify,
+  execute_return — undeclared `envelope`/`reason_codes`).
+- **Fix (reconcile, don't loosen):** the closed inputSchema is a deliberate contract (I tried opening `_input`;
+  the server's `check_compliance` refuses to boot). So the input_maps were reconciled to send ONLY declared
+  fields — 15 undeclared composite fields dropped across the two wire packs. **Verified over the wire:** every
+  tool call now succeeds — `assess(AC01)` → `repairable` (no loop), `assess(BE04)` → `needs_info` →
+  `repairable` on info-obtained, screen/apply/notify all `performed`.
+- **Test (the missing guard):** `tests/test_input_map_contract.py` asserts every mcp binding's `input_map`
+  fields ⊆ the tool's closed `inputSchema` (over all 13 packs) — **proven to fail** when `envelope` is put back
+  on the assess map. `test_http_mcp_client_integration` exercises the same coupling over the wire. This closes
+  the "green while the deployed server 400s" gap for good.
+- **Fallout ported:** `test_error_boundary` steered `apply_repair` via `reason_codes` (which it no longer
+  receives) → re-steered via a marker in `exception_id` (a field it does receive). **agent-runtime 309 passed /
+  2 skipped; process-registry 241; webui 106.**
+- **Deploy:** rebuild the wire_transfer MCP server + agent-runtime images and re-onboard the seed (input_maps).
+  **Lesson:** any tool argument a binding sends must be declared in the tool's inputSchema; the in-process
+  double can't catch an undeclared-arg rejection — always exercise the real server (or the contract test).
+- **Diagnostics (from a down-server incident):** with the MCP server not started, `enrich` failed on every
+  call with the opaque *"unhandled errors in a TaskGroup (1 sub-exception)"* — the SDK buries the real cause
+  (a `ConnectionError`/"connection refused") inside an anyio ExceptionGroup, so a plain down/unreachable server
+  was undiagnosable. `HttpMcpClient` now unwraps the group (`_unwrap_exc`) and reports the leaf cause, so the
+  node error/log reads e.g. *"…failed after N attempts: ConnectError: All connection attempts failed"* — a
+  down server names itself. Unit-tested. **agent-runtime 310 passed / 2 skipped.**
+
 **Relates:** ADR-047 (domain-neutrality; D2 = "the runtime carries no per-process capability code"), ADR-048
 (capability `input_map`), ADR-024 (self-descriptive descriptors), the MCP Implementor Guideline, the MCP-backed
 onboarding runbook (D2's end-to-end proof).

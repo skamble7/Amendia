@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from app.engine.executor import InProcessExecutor
 from app.engine.executor.mcp_client import InProcessMcpClient
-from app.engine.executor.stub_inference import SchemaStubDeepAgentRunner
+from tests._agentic_assess import WireAgenticDeepAgentRunner
 from tests._mcp_server_tools import server_tool_map
 from tests._structural_tools import STRUCTURAL_IMPLS
 
@@ -28,7 +28,7 @@ def stub_executor(*, tools=None, **kw) -> InProcessExecutor:
     (memo/memoize) pass through."""
     return InProcessExecutor(
         mcp_client=_stub_mcp_client(tools),
-        deep_agent_runner=SchemaStubDeepAgentRunner(),
+        deep_agent_runner=WireAgenticDeepAgentRunner(),
         stub_inference=True,
         skill_impls=STRUCTURAL_IMPLS,
         **kw,
@@ -42,7 +42,7 @@ def stub_run_job(job, *, tools=None, **kw):
     return run_job(
         job,
         mcp_client=_stub_mcp_client(tools),
-        deep_agent_runner=SchemaStubDeepAgentRunner(),
+        deep_agent_runner=WireAgenticDeepAgentRunner(),
         stub_inference=True,
         skill_impls=STRUCTURAL_IMPLS,
         **kw,
@@ -57,7 +57,7 @@ def stub_fake_client(*, tools=None, **kw):
     from app.engine.executor.openshell import FakeOpenShellClient
     return FakeOpenShellClient(
         mcp_client=_stub_mcp_client(tools),
-        deep_agent_runner=SchemaStubDeepAgentRunner(),
+        deep_agent_runner=WireAgenticDeepAgentRunner(),
         stub_inference=True,
         skill_impls=STRUCTURAL_IMPLS,
         **kw,

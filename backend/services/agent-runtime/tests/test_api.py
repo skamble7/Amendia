@@ -34,7 +34,7 @@ async def test_capabilities_and_schemas_retrievable(client, seeded):
     caps = (await client.get("/capabilities")).json()
     assert len(caps) == 10
     schemas = (await client.get("/artifact-schemas")).json()
-    assert len(schemas) == 8   # ADR-047 D2: orphan consumer schemas retired
+    assert len(schemas) == 9   # ADR-047 D2: + art.payment.info_resolution (needs-info human exit)
     one = await client.get("/capabilities/cap.payment.sanctions_screen/1.0.0")
     assert one.status_code == 200 and one.json()["kind"] == "mcp"
     rv = await client.get("/artifact-schemas/art.payment.assess_beneficiary_output/1.0.0")

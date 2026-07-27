@@ -273,6 +273,17 @@
             "title": "Name",
             "type": "string"
           },
+          "optional": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Optional"
+          },
           "path": {
             "anyOf": [
               {

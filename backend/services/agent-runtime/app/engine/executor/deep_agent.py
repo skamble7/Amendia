@@ -51,14 +51,31 @@ def _mcp_tool_shim(tool_id: str, mcp_client: Any, *, endpoint: Optional[str] = N
     return _tool
 
 
+def build_system_prompt(capability_id: str, title: Optional[str], description: Optional[str],
+                        prompt_key: str, schema_hint: str = "") -> str:
+    """The deep-agent system prompt — **descriptor-framed** (ADR-047), mirroring ``run_real_llm``.
+
+    ``title``/``description`` come from the capability's registered descriptor and are the ONLY channel that
+    carries its behavioural rules to the live model (``prompt_key`` has no resolvable text today), so both are
+    embedded verbatim when present. Domain-neutral: the platform adds no business nouns of its own."""
+    role = f" — {title}" if title else ""
+    role_desc = f" {description}" if description else ""
+    return (
+        f"You are the '{capability_id}' capability{role}.{role_desc} Task: {prompt_key}. Use ONLY the provided "
+        f"tools. Do not take any side-effecting action.{schema_hint}"
+    )
+
+
 # --------------------------------------------------------------------------- #
 class DeepAgentRunner(Protocol):
     async def run(
         self, *, capability_id: str, prompt_key: str, input_artifacts: Dict[str, Any],
         tools: List[str], output_schema: Optional[dict], model_ref: Optional[str],
         budget: Any, envelope: Dict[str, Any], mcp_client: Optional[Any] = None,
+        title: Optional[str] = None, description: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """Run the bounded loop → a single structured artifact object (host-validated)."""
+        """Run the bounded loop → a single structured artifact object (host-validated). ``title``/``description``
+        are the capability's descriptor framing (ADR-047) — the domain-neutral channel for its instructions."""
         ...
 
 
@@ -67,7 +84,7 @@ class FakeDeepAgentRunner:
     from the pinned output schema (domain-neutral, no `SIM_CAPABILITIES`, no model/agent loop)."""
 
     async def run(self, *, capability_id, prompt_key, input_artifacts, tools, output_schema,
-                  model_ref, budget, envelope, mcp_client=None):
+                  model_ref, budget, envelope, mcp_client=None, title=None, description=None):
         from app.engine.executor.stub_inference import stub_from_schema
         return stub_from_schema(output_schema or {})
 
@@ -80,7 +97,8 @@ class RealDeepAgentRunner:
         self._inference_base_url = inference_base_url
 
     async def run(self, *, capability_id, prompt_key, input_artifacts, tools, output_schema,
-                  model_ref, budget, envelope, mcp_client=None):  # pragma: no cover - integration only
+                  model_ref, budget, envelope, mcp_client=None,
+                  title=None, description=None):  # pragma: no cover - integration only
         try:
             from deepagents import create_deep_agent  # confirmed entrypoint
         except Exception as exc:  # noqa: BLE001
@@ -94,12 +112,12 @@ class RealDeepAgentRunner:
             f"\n\nYou MUST end by emitting a SINGLE JSON object (no prose, no fences) that "
             f"validates against this JSON Schema:\n{json.dumps(output_schema)}" if output_schema else ""
         )
-        # ADR-047: domain-neutral framing — the capability's role/task comes from its registered
-        # prompt_key, never a hardcoded business area.
-        system_prompt = (
-            f"You are the '{capability_id}' capability. Task: {prompt_key}. Use ONLY the provided "
-            f"tools. Do not take any side-effecting action.{schema_hint}"
-        )
+        # ADR-047: domain-neutral framing — the capability's role/task/instructions come from its registered
+        # descriptor (title/description), NOT a hardcoded business area. This mirrors run_real_llm so a deep_agent
+        # is instructed the same way an llm capability is; the description is the channel that carries a
+        # capability's behavioural rules (e.g. the resolution→verdict mapping) to the live model. ``prompt_key``
+        # stays a bare task label until a real prompt store resolves it (out of scope).
+        system_prompt = build_system_prompt(capability_id, title, description, prompt_key, schema_hint)
         # model_ref → inference.local/v1 (ADR-018/020). [confirm] the exact model= string form
         # the harness expects for an OpenAI-compatible managed proxy.
         model = f"openai:{model_ref}" if model_ref else "openai:nemotron-3-ultra"

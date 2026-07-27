@@ -34,6 +34,18 @@ logger = logging.getLogger(__name__)
 _MCP_TOOL_ERROR = "MCP_TOOL_ERROR"
 
 
+def _unwrap_exc(exc: BaseException) -> str:
+    """Flatten an anyio/asyncio ``ExceptionGroup`` — the SDK's ``streamablehttp_client`` raises transport
+    failures inside a task group, surfacing only the opaque *"unhandled errors in a TaskGroup (1 sub-exception)"*.
+    That message hid a plain **down/unreachable server** (a ``ConnectionError``/"Connection refused"). Recurse
+    to the leaf causes so the runtime log names the real fault — reachability vs 4xx/5xx vs protocol."""
+    subs = getattr(exc, "exceptions", None)
+    if subs:
+        return "; ".join(_unwrap_exc(s) for s in subs)
+    text = str(exc).strip()
+    return f"{type(exc).__name__}: {text}" if text else type(exc).__name__
+
+
 def _result_to_artifact(result: Any, tool: str) -> Dict[str, Any]:
     """Map an SDK ``CallToolResult`` (``.isError`` / ``.structuredContent`` / ``.content``) to the tool's
     structured artifact, applying the ADR-035 business-error mapping. A modeled business error
@@ -144,10 +156,19 @@ class HttpMcpClient:
     error → :class:`CapabilityBusinessError` → the BPMN error boundary (ADR-035), unchanged.
     """
 
-    def __init__(self, *, timeout: float = 30.0) -> None:
+    def __init__(self, *, timeout: float = 30.0, connect_retries: int = 3,
+                 connect_backoff: float = 0.5) -> None:
         self._timeout = timeout
+        # Cold-start resilience: the FIRST tools/call after deploy can race the MCP server's readiness (the
+        # session handshake fails with a transport/anyio TaskGroup error while it warms). The host's node-level
+        # retries are immediate (no backoff), so they all fail in the same instant. Retry the session here with
+        # a short exponential backoff to ride out the warm-up — a modeled business error is NEVER retried.
+        self._connect_retries = connect_retries
+        self._connect_backoff = connect_backoff
 
     async def call_tool(self, *, endpoint, tool, arguments, transport, headers=None):
+        import asyncio
+
         from mcp import ClientSession
         if transport == "sse":
             from mcp.client.sse import sse_client as _open
@@ -155,19 +176,34 @@ class HttpMcpClient:
             from mcp.client.streamable_http import streamablehttp_client as _open
 
         hdrs = dict(headers or {})  # non-secret headers / resolved secret-refs
-        try:
-            async with _open(endpoint, headers=hdrs) as streams:
-                read, write = streams[0], streams[1]
-                async with ClientSession(read, write) as session:
-                    await session.initialize()
-                    result = await session.call_tool(
-                        tool, arguments or {},
-                        read_timeout_seconds=timedelta(seconds=self._timeout),
-                    )
-        except Exception as exc:  # noqa: BLE001 — transport/protocol/handshake → technical failure
-            raise RuntimeError(f"MCP call to {endpoint} tool '{tool}' failed: {exc}") from exc
-        # ADR-035 mapping runs OUTSIDE the try so a modeled CapabilityBusinessError propagates unwrapped.
-        return _result_to_artifact(result, tool)
+        last_exc: Optional[Exception] = None
+        for attempt in range(self._connect_retries + 1):
+            try:
+                async with _open(endpoint, headers=hdrs) as streams:
+                    read, write = streams[0], streams[1]
+                    async with ClientSession(read, write) as session:
+                        await session.initialize()
+                        result = await session.call_tool(
+                            tool, arguments or {},
+                            read_timeout_seconds=timedelta(seconds=self._timeout),
+                        )
+                # ADR-035 mapping runs on the SUCCESSFUL result — a modeled CapabilityBusinessError propagates
+                # unwrapped and is not a transport failure, so it is never retried.
+                return _result_to_artifact(result, tool)
+            except CapabilityBusinessError:
+                raise
+            except Exception as exc:  # noqa: BLE001 — transport/protocol/handshake → transient, retry then fail
+                last_exc = exc
+                detail = _unwrap_exc(exc)  # surface the REAL cause, not the opaque "TaskGroup" wrapper
+                if attempt < self._connect_retries:
+                    await asyncio.sleep(self._connect_backoff * (2 ** attempt))
+                    logger.warning("MCP %s tool '%s' transport error (attempt %d/%d), retrying: %s",
+                                   endpoint, tool, attempt + 1, self._connect_retries + 1, detail)
+                    continue
+                raise RuntimeError(
+                    f"MCP call to {endpoint} tool '{tool}' failed after {attempt + 1} attempts: {detail}"
+                ) from exc
+        raise RuntimeError(f"MCP call to {endpoint} tool '{tool}' failed: {last_exc}")  # unreachable
 
 
 def build_mcp_client(settings) -> McpClient:

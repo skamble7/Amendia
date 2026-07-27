@@ -3,7 +3,7 @@
   "capability_id": "cap.payment.assess_beneficiary_agentic",
   "version": "1.0.0",
   "title": "Assess repairability (agentic)",
-  "description": "Read-only investigation via a bounded Deep Agents loop: name-match, payment-history search, and sanctions pre-check, emitting a repair_verdict with evidence[]. deep_agent kind \u2014 nemoclaw-only, HITL-gated, memoized (ADR-021).",
+  "description": "Read-only investigation via a bounded Deep Agents loop: name-match, payment-history search, and sanctions pre-check, emitting a repair_verdict with evidence[]. deep_agent kind \u2014 nemoclaw-only, HITL-gated, memoized (ADR-021). RULE (top-precedence): if the info_resolution input is present, its outcome is AUTHORITATIVE \u2014 set repair_verdict to 'repairable' when outcome is 'resolved', and to 'unrepairable' when outcome is 'cannot_obtain'. ONLY when info_resolution is absent or null, assess repairability from the dossier as normal (repairable / unrepairable / needs_info).",
   "kind": "deep_agent",
   "side_effect": "read_only",
   "idempotent": true,
@@ -11,6 +11,10 @@
     {
       "name": "dossier",
       "schema": "art.payment.enrich_investigation_output@^1.0.0"
+    },
+    {
+      "name": "info_resolution",
+      "schema": "art.payment.info_resolution@^1.0.0"
     }
   ],
   "outputs": [

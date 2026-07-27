@@ -35,6 +35,7 @@ from app.engine.executor import (
     ExecutionContext,
     Executor,
 )
+from app.engine.executor.policy import _kind, _side_effect
 from app.engine.state import actor_entry, now_iso
 
 logger = logging.getLogger(__name__)
@@ -141,15 +142,21 @@ def _run_node(ctx: NodeContext, executor: Executor, simulation: bool, state: Dic
               scope_timers: Optional[List[Any]] = None) -> Dict[str, Any]:
     envelope = state["envelope"]
     inputs = _gather_inputs(ctx, state)
+    # ADR-019 §rework loops: how many times THIS element's capability has already committed — the loop
+    # back-edge visit counter that scopes the memo key. A HITL replay of the current (uncommitted) execution
+    # sees the same count → memo hit; a loop re-entry sees the prior iteration's committed entry → miss →
+    # re-run. Derived from the committed actor_log (never the in-flight run).
+    visit = sum(1 for e in (state.get("actor_log") or [])
+                if e.get("element_id") == ctx.element_id and e.get("kind") == "capability")
 
     if ctx.executor_type == "human":
-        return _run_manual(ctx, executor, simulation, envelope, inputs, state, pid)
+        return _run_manual(ctx, executor, simulation, envelope, inputs, state, pid, memo_visit=visit)
 
     # capability executor
     if ctx.hitl_mode == "approve_actions":
-        return _run_approve_actions(ctx, executor, simulation, envelope, inputs, pid)
+        return _run_approve_actions(ctx, executor, simulation, envelope, inputs, pid, memo_visit=visit)
     if ctx.hitl_mode in ("review_after", "approve_result"):
-        return _run_reviewed(ctx, executor, simulation, envelope, inputs, pid)
+        return _run_reviewed(ctx, executor, simulation, envelope, inputs, pid, memo_visit=visit)
     # mode none — fully autonomous. A deep_agent must never run un-gated (ADR-021 Part D;
     # belt-and-suspenders with the registry check) — fail closed.
     if _is_deep_agent(ctx):
@@ -171,13 +178,14 @@ def _run_node(ctx: NodeContext, executor: Executor, simulation: bool, state: Dic
             deadlines.append((sd, scope_id, scope_seconds))
     if deadlines:
         return _run_autonomous_with_deadline(ctx, executor, simulation, envelope, inputs, pid,
-                                             deadlines, _clock)
-    committed, meta = _produce_outputs(ctx, executor, simulation, envelope, inputs, mode="execute", pid=pid)
+                                             deadlines, _clock, memo_visit=visit)
+    committed, meta = _produce_outputs(ctx, executor, simulation, envelope, inputs, mode="execute",
+                                       pid=pid, memo_visit=visit)
     return _commit(ctx, committed, actor=_cap_id(ctx), kind="capability", cap_meta=meta)
 
 
 def _run_autonomous_with_deadline(ctx, executor, simulation, envelope, inputs, pid,
-                                  deadlines, clock) -> Dict[str, Any]:
+                                  deadlines, clock, *, memo_visit=0) -> Dict[str, Any]:
     """ADR-040/041: run the autonomous capability under the EARLIEST of the supplied deadlines
     (``[(absolute, breach_key, seconds)]`` — a node's own timer boundary and/or its enclosing scope
     budgets), measured by the injected ``clock``. Runs execute+validate (the retry loop shares the one
@@ -192,7 +200,7 @@ def _run_autonomous_with_deadline(ctx, executor, simulation, envelope, inputs, p
     pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix=f"sla-{ctx.element_id}")
     try:
         future = pool.submit(_produce_outputs, ctx, executor, simulation, envelope, inputs,
-                             mode="execute", pid=pid, token=token)
+                             mode="execute", pid=pid, token=token, memo_visit=memo_visit)
         while True:
             try:
                 committed, meta = future.result(timeout=_DEADLINE_POLL_SECONDS)
@@ -225,6 +233,11 @@ def _resolve_source(src: Dict[str, Any], envelope: Dict[str, Any], artifacts: Di
     elif frm == "artifact":
         name = src.get("name")
         if name not in artifacts:                          # a referenced upstream output genuinely absent
+            # ADR-048: an OPTIONAL source is absent-tolerant — it resolves to None on the pass(es) before the
+            # loop produces it (e.g. a re-assessment reading the human's ObtainInfo output), rather than
+            # hard-failing. A non-optional absent artifact is still a real data-flow error.
+            if src.get("optional"):
+                return None
             raise NodeExecutionError(
                 f"{element_id}: input source references artifact '{name}' not produced upstream "
                 f"(have: {sorted(artifacts)})", reason="input_unresolved")
@@ -269,7 +282,7 @@ def _is_deep_agent(ctx: NodeContext) -> bool:
 
 
 def _run_capability(ctx: NodeContext, descriptor, executor, simulation, envelope, inputs, *,
-                    mode, approved=None, pid=None, attempt=0, token=None):
+                    mode, approved=None, pid=None, attempt=0, token=None, memo_visit=0):
     exec_ctx = ExecutionContext(
         envelope=envelope, mode=mode, approved_action_ids=approved, simulation=simulation,
         cancel=token,  # ADR-040: cooperative cancellation token (None on the ordinary path)
@@ -282,6 +295,7 @@ def _run_capability(ctx: NodeContext, descriptor, executor, simulation, envelope
             "element_id": ctx.element_id,
             "process_instance_id": pid,
             "memo_attempt": attempt,
+            "memo_visit": memo_visit,   # ADR-019 §rework loops: loop back-edge re-entry counter
             # ADR-035: the element's legal error boundary codes for the real llm/mcp/deep_agent path.
             "error_codes": ctx.error_codes,
             # ADR-048: when the binding declares an input_map, the resolved inputs ARE the tool-call
@@ -315,7 +329,7 @@ def _validate(spec: OutputSpec, data: Any) -> Optional[str]:
 
 
 def _produce_outputs(ctx, executor, simulation, envelope, inputs, *, mode, approved=None,
-                     pid=None, memo_attempt=0, token=None):
+                     pid=None, memo_attempt=0, token=None, memo_visit=0):
     """Run execute + validate, retrying per the descriptor's idempotency policy.
 
     Returns ``({binding_output_name: data}, exec_meta_or_None)`` — ``exec_meta`` is the
@@ -337,7 +351,8 @@ def _produce_outputs(ctx, executor, simulation, envelope, inputs, *, mode, appro
     for attempt in range(exec_attempts):
         try:
             result = _run_capability(ctx, descriptor, executor, simulation, envelope, inputs,
-                                     mode=mode, approved=approved, pid=pid, attempt=memo_attempt, token=token)
+                                     mode=mode, approved=approved, pid=pid, attempt=memo_attempt,
+                                     token=token, memo_visit=memo_visit)
         except CapabilityError as exc:
             last_err = str(exc)
             logger.warning("execute error for %s (attempt %d/%d): %s",
@@ -357,7 +372,8 @@ def _produce_outputs(ctx, executor, simulation, envelope, inputs, *, mode, appro
             logger.warning("output schema-invalid for %s; retrying once: %s", ctx.element_id, verr)
             try:
                 result = _run_capability(ctx, descriptor, executor, simulation, envelope, inputs,
-                                         mode=mode, approved=approved, pid=pid, attempt=memo_attempt, token=token)
+                                         mode=mode, approved=approved, pid=pid, attempt=memo_attempt,
+                                     token=token, memo_visit=memo_visit)
             except CapabilityError as exc:
                 raise NodeExecutionError(f"{ctx.element_id}: {exc}", reason="execution_error") from exc
             committed, verr2 = _map_and_validate(ctx, result.get("outputs", {}) or {})
@@ -447,9 +463,10 @@ def _is_timeout(resume: Any) -> bool:
 
 
 # --------------------------------------------------------------------------- #
-def _run_reviewed(ctx, executor, simulation, envelope, inputs, pid=None) -> Dict[str, Any]:
+def _run_reviewed(ctx, executor, simulation, envelope, inputs, pid=None, *, memo_visit=0) -> Dict[str, Any]:
     """review_after / approve_result: run, hold output, gate before commit."""
-    committed, meta = _produce_outputs(ctx, executor, simulation, envelope, inputs, mode="execute", pid=pid)
+    committed, meta = _produce_outputs(ctx, executor, simulation, envelope, inputs, mode="execute",
+                                       pid=pid, memo_visit=memo_visit)
     rejects = 0
     while True:
         resume = interrupt(_gate_payload(ctx, artifacts=_gate_artifacts_from_outputs(ctx, committed)))
@@ -473,7 +490,8 @@ def _run_reviewed(ctx, executor, simulation, envelope, inputs, pid=None) -> Dict
             # A genuine reject re-runs the capability under a fresh memo attempt, so replays
             # of this reject on later resumes hit the memo rather than re-invoking (ADR-019).
             committed, meta = _produce_outputs(ctx, executor, simulation, envelope, inputs,
-                                               mode="execute", pid=pid, memo_attempt=rejects)
+                                               mode="execute", pid=pid, memo_attempt=rejects,
+                                               memo_visit=memo_visit)
             continue
         raise NodeExecutionError(f"{ctx.element_id}: unexpected decision {decision!r}", reason="bad_decision")
 
@@ -502,11 +520,54 @@ def _apply_edits(ctx: NodeContext, edits: Any) -> Dict[str, Any]:
     return committed
 
 
-def _run_approve_actions(ctx, executor, simulation, envelope, inputs, pid=None) -> Dict[str, Any]:
+# Kinds whose executor implements a real, side-effect-free ``propose`` that returns its OWN ``proposed_actions``.
+# Only in-code ``skill``s do. ``mcp``/``llm``/``deep_agent`` have no propose — their executor calls the tool in
+# EVERY mode — so proposing by invoking them would perform the side effect BEFORE the human approves. For a
+# side-effectful one we synthesize the pending action host-side and never touch the tool until execute (ADR-047 D2).
+_PROPOSE_CAPABLE_KINDS = {"skill"}
+
+
+def _tool_name(descriptor) -> str:
+    """The action's ``kind`` label for the gate: the mcp tool name, else the capability id (llm/deep_agent)."""
+    rt = getattr(descriptor, "runtime", None)
+    tools = list(getattr(rt, "tools", []) or []) if rt is not None else []
+    return tools[0] if tools else descriptor.capability_id
+
+
+def _synthesize_action(ctx: NodeContext, envelope, inputs, *, pid) -> Dict[str, Any]:
+    """One pending :class:`ProposedAction` for a side-effectful capability whose executor implements no propose.
+    Built from the descriptor + resolved arguments ONLY — no domain knowledge, no tool call. ``action_id`` is
+    deterministic so a HITL replay reconstructs the same id; ``detail`` is the EXACT argument object the tool
+    receives on execute (ADR-048 input_map, else the legacy wrapper — mirrors ``_execute_mcp_real``), so the
+    human authorizes the real payload; ``summary`` is descriptor-sourced (never a hardcoded business noun)."""
+    d = ctx.descriptor
+    tool = _tool_name(d)
+    summary = getattr(d, "title", None) or getattr(d, "description", None) or _cap_id(ctx)
+    detail = _mcp_arguments(inputs) if ctx.input_map else {"envelope": envelope, "inputs": inputs}
+    return {"action_id": f"act::{pid or 'na'}::{ctx.element_id}::{tool}",
+            "kind": tool, "summary": summary, "detail": detail}
+
+
+def _propose_actions(ctx, executor, simulation, envelope, inputs, *, pid, memo_visit) -> List[Dict[str, Any]]:
+    """The actions to present at an approve_actions gate — WITHOUT performing any side effect (ADR-047 D2)."""
+    kind = _kind(ctx.descriptor)
+    if kind in _PROPOSE_CAPABLE_KINDS:
+        # A skill's propose is side-effect-free by contract and returns its own proposed_actions (pre-D2 path).
+        proposal = _run_capability(ctx, ctx.descriptor, executor, simulation, envelope, inputs,
+                                   mode="propose", pid=pid, memo_visit=memo_visit)
+        return proposal.get("proposed_actions", []) or []
+    if _side_effect(ctx.descriptor) == "side_effectful":
+        return [_synthesize_action(ctx, envelope, inputs, pid=pid)]
+    # A read_only capability under approve_actions is a pack authoring error, not a synthesis case — the gate
+    # legitimately has nothing to authorize (the frontend surfaces this rather than deadlocking; Step 3).
+    return []
+
+
+def _run_approve_actions(ctx, executor, simulation, envelope, inputs, pid=None, *, memo_visit=0) -> Dict[str, Any]:
     """approve_actions: propose (no side effects) → gate → execute only on approval."""
-    proposal = _run_capability(ctx, ctx.descriptor, executor, simulation, envelope, inputs,
-                               mode="propose", pid=pid)
-    actions = proposal.get("proposed_actions", []) or []
+    actions = _propose_actions(ctx, executor, simulation, envelope, inputs, pid=pid, memo_visit=memo_visit)
+    logger.info("[%s] approve_actions gate: %d proposed action(s) %s",
+                ctx.element_id, len(actions), [a.get("action_id") for a in actions])
     resume = interrupt(_gate_payload(
         ctx, artifacts=_gate_artifacts(ctx.inputs, inputs), proposed_actions=actions,
     ))
@@ -527,13 +588,13 @@ def _run_approve_actions(ctx, executor, simulation, envelope, inputs, pid=None) 
                    extra_actors=[actor_entry(ctx.element_id, _cap_id(ctx), "capability", meta=meta)])
 
 
-def _run_manual(ctx, executor, simulation, envelope, inputs, state, pid=None) -> Dict[str, Any]:
+def _run_manual(ctx, executor, simulation, envelope, inputs, state, pid=None, *, memo_visit=0) -> Dict[str, Any]:
     """manual: human performs the task; assist_capability may pre-draft."""
     draft_by_name: Dict[str, Any] = {}
     extra_actors: List[Dict[str, Any]] = []
     if ctx.assist_descriptor is not None and ctx.outputs:
         assist = _run_capability(ctx, ctx.assist_descriptor, executor, simulation, envelope, inputs,
-                                 mode="execute", pid=pid)
+                                 mode="execute", pid=pid, memo_visit=memo_visit)
         produced = assist.get("outputs", {}) or {}
         for spec in ctx.outputs:
             if spec.artifact_key in produced:
@@ -547,6 +608,14 @@ def _run_manual(ctx, executor, simulation, envelope, inputs, state, pid=None) ->
     for name, data in draft_by_name.items():
         schema_ref = next((s.schema_ref for s in ctx.outputs if s.name == name), "")
         gate_arts.append({"name": name, "schema": schema_ref, "data": data, "draft": True})
+    # A manual task output that no assist pre-drafted is authored by the human from scratch. Surface its schema
+    # with empty data so the UI renders a blank, schema-driven form; the commit loop below then REQUIRES the
+    # human to supply it via ``edits`` (no draft to fall back on). Domain-free: the platform learns nothing about
+    # the artifact — only that this output has no draft and must be human-authored.
+    for spec in ctx.outputs:
+        if spec.name not in draft_by_name:
+            gate_arts.append({"name": spec.name, "schema": spec.schema_ref, "data": {},
+                              "draft": True, "authored_by_human": True})
 
     resume = interrupt(_gate_payload(ctx, artifacts=gate_arts))
     if _is_timeout(resume):

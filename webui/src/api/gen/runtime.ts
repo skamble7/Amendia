@@ -401,6 +401,21 @@ export interface components {
             status: components["schemas"]["ArtifactStatus"];
         };
         /**
+         * ArtifactSource
+         * @description A named artifact an upstream binding produced, whole or a dotpath into it.
+         */
+        ArtifactSource: {
+            /**
+             * From
+             * @constant
+             */
+            from: "artifact";
+            /** Name */
+            name: string;
+            /** Path */
+            path?: string | null;
+        };
+        /**
          * ArtifactStatus
          * @enum {string}
          */
@@ -413,14 +428,50 @@ export interface components {
              * Element Kind
              * @enum {string}
              */
-            element_kind: "serviceTask" | "userTask" | "messageCatch" | "receiveTask" | "sendTask" | "scriptTask" | "manualTask" | "businessRuleTask";
+            element_kind: "serviceTask" | "userTask" | "messageCatch" | "receiveTask" | "sendTask" | "scriptTask" | "manualTask" | "businessRuleTask" | "callActivity";
             /** Executor */
-            executor: components["schemas"]["CapabilityExecutor"] | components["schemas"]["HumanExecutor"] | components["schemas"]["MessageExecutor"];
+            executor: components["schemas"]["CapabilityExecutor"] | components["schemas"]["HumanExecutor"] | components["schemas"]["MessageExecutor"] | components["schemas"]["CallExecutor"];
             hitl?: components["schemas"]["Hitl"] | null;
             /** Inputs */
             inputs?: components["schemas"]["ArtifactIO"][];
             /** Outputs */
             outputs?: components["schemas"]["ArtifactIO"][];
+            /** Input Map */
+            input_map?: {
+                [key: string]: components["schemas"]["TriggerSource"] | components["schemas"]["ArtifactSource"] | components["schemas"]["FieldsSource"];
+            };
+        };
+        /**
+         * CallExecutor
+         * @description ADR-039: a ``callActivity`` invokes **another pack** as a reusable sub-process (inline-compiled).
+         *     ``pack`` is the callee ``pack_key``; ``version`` a semver range pinned to an exact callee version at
+         *     activation (reproducible forever after). ``input_map`` maps each callee **input binding name** → a
+         *     dotpath into CALLER state (the source must be produced upstream); ``output_map`` maps a **caller
+         *     artifact name** → a callee **output binding name**. No HITL of its own (the callee's own HITL/SoD
+         *     run inline, in the caller instance); ``side_effect`` is derived from the callee (composition is as
+         *     side-effectful as what it calls).
+         */
+        CallExecutor: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "call";
+            /** Pack */
+            pack: string;
+            /**
+             * Version
+             * @default ^1.0.0
+             */
+            version: string;
+            /** Input Map */
+            input_map?: {
+                [key: string]: string;
+            };
+            /** Output Map */
+            output_map?: {
+                [key: string]: string;
+            };
         };
         /** CapabilityDescriptor */
         CapabilityDescriptor: {
@@ -454,7 +505,7 @@ export interface components {
                 [key: string]: unknown;
             } | null;
             /** Runtime */
-            runtime: components["schemas"]["SkillRuntime"] | components["schemas"]["McpRuntime"] | components["schemas"]["LlmRuntime"] | components["schemas"]["DeepAgentRuntime"];
+            runtime: components["schemas"]["SkillRuntime"] | components["schemas"]["McpRuntime"] | components["schemas"]["LlmRuntime"] | components["schemas"]["DeepAgentRuntime"] | components["schemas"]["DecisionRuntime"] | components["schemas"]["ReduceRuntime"];
             constraints?: components["schemas"]["Constraints"] | null;
             /** Owner */
             owner?: string | null;
@@ -478,7 +529,7 @@ export interface components {
          * CapabilityKind
          * @enum {string}
          */
-        CapabilityKind: "skill" | "mcp" | "llm" | "deep_agent";
+        CapabilityKind: "skill" | "mcp" | "llm" | "deep_agent" | "decision" | "reduce";
         /**
          * CapabilityStatus
          * @enum {string}
@@ -541,6 +592,26 @@ export interface components {
             approved_action_ids?: string[] | null;
         };
         /**
+         * DecisionRuntime
+         * @description A native DMN decision (ADR-037). The decision **table** travels inline (normalized JSON),
+         *     pinned with the capability at activation — self-descriptive, like the ``mcp`` runtime (ADR-024),
+         *     so no separate DMN registry. Shape: ``{hit_policy, inputs:[{expression,type?}], outputs:[{name,
+         *     type?,priority_order?}], rules:[{when:[unary_test…], then:[value…], priority?}]}``. The table is
+         *     parsed + structurally validated by the shared evaluator (``amendia_bpmn.dmn``) — the registry
+         *     surfaces its findings as ``dmn_*`` codes, the runtime evaluates it against the bound inputs.
+         */
+        DecisionRuntime: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "decision";
+            /** Table */
+            table: {
+                [key: string]: unknown;
+            };
+        };
+        /**
          * DeepAgentBudget
          * @description Hard budget caging a deep_agent loop (ADR-021).
          */
@@ -578,6 +649,17 @@ export interface components {
              */
             structured_output: boolean;
             budget?: components["schemas"]["DeepAgentBudget"];
+        };
+        /**
+         * FieldsSource
+         * @description Composite: build an object field-by-field (constructs an MCP tool's arguments from a mix of
+         *     trigger + upstream outputs).
+         */
+        FieldsSource: {
+            /** Fields */
+            fields: {
+                [key: string]: components["schemas"]["TriggerSource"] | components["schemas"]["ArtifactSource"] | components["schemas"]["FieldsSource"];
+            };
         };
         /** GatewayVariable */
         GatewayVariable: {
@@ -833,6 +915,8 @@ export interface components {
             /** Description */
             description?: string | null;
             process: components["schemas"]["ProcessRef"];
+            /** Trigger */
+            trigger?: string | null;
             /** Triage Rules */
             triage_rules: components["schemas"]["TriageRule"][];
             /** Requires Capabilities */
@@ -874,6 +958,28 @@ export interface components {
             summary: string;
             /** Detail */
             detail: {
+                [key: string]: unknown;
+            };
+        };
+        /**
+         * ReduceRuntime
+         * @description A collection-reduction / summary capability (ADR-038). Collapses a **list** input artifact into
+         *     a scalar/summary output artifact a gateway can branch on — closing the ADR-036/037 "any/all over a
+         *     list" gap. The ``config`` travels inline (normalized JSON), pinned like any capability. Shape:
+         *     ``{op, source?, item_path?, predicate?, output_field}`` where ``op`` ∈ quantifiers (``any``/``all``/
+         *     ``none``), ``count``, numeric (``sum``/``min``/``max``/``avg``), positional (``first``/``last``); the
+         *     per-item ``predicate`` reuses the bounded DMN unary-test surface (``amendia_bpmn.dmn``) — one FEEL
+         *     surface, no new mini-language. The registry surfaces its findings as ``reduce_*`` codes; the runtime
+         *     evaluates it against the bound list input.
+         */
+        ReduceRuntime: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "reduce";
+            /** Config */
+            config: {
                 [key: string]: unknown;
             };
         };
@@ -974,6 +1080,19 @@ export interface components {
             description?: string | null;
             /** When */
             when: components["schemas"]["AllPredicate"] | components["schemas"]["AnyPredicate"] | components["schemas"]["NotPredicate"] | components["schemas"]["LeafPredicate"];
+        };
+        /**
+         * TriggerSource
+         * @description The process trigger payload (today the exception envelope), whole or a dotpath into it.
+         */
+        TriggerSource: {
+            /**
+             * From
+             * @constant
+             */
+            from: "trigger";
+            /** Path */
+            path?: string | null;
         };
         /** ValidationError */
         ValidationError: {
