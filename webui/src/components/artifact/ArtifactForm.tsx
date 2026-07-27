@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import { useForm, Controller } from "react-hook-form";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -16,13 +16,17 @@ interface FieldSpec {
   required: boolean;
 }
 
-function specFor(key: string, schema: JsonSchema | undefined, required: boolean): FieldSpec {
+function specFor(key: string, schema: JsonSchema | undefined, required: boolean, value: unknown): FieldSpec {
   const t = schemaType(schema);
   let kind: FieldSpec["kind"] = "text";
   if (schema?.enum) kind = "enum";
   else if (t === "boolean") kind = "boolean";
   else if (t === "number" || t === "integer") kind = "number";
   else if (t === "object" || t === "array") kind = "json";
+  // Schema absent/indeterminate (the async fetch hasn't resolved yet): fall back to the runtime VALUE
+  // shape so a complex value is edited as JSON from the first paint, never handed to a text input where
+  // it stringifies to "[object Object]" (the works-only-after-reload bug).
+  else if (Array.isArray(value) || (typeof value === "object" && value !== null)) kind = "json";
   else if (/rationale|justification|message|narrative|comment|detail|notes/i.test(key)) kind = "textarea";
   return { key, schema, kind, required };
 }
@@ -51,14 +55,20 @@ export function ArtifactForm({ id, schema, defaultData, onSubmit, agentDrafted, 
   const fields = useMemo<FieldSpec[]>(() => {
     const required = new Set(schema?.required ?? []);
     const keys = schema?.properties ? Object.keys(schema.properties) : Object.keys(defaultData);
-    return keys.map((k) => specFor(k, schema?.properties?.[k], required.has(k)));
+    return keys.map((k) => specFor(k, schema?.properties?.[k], required.has(k), defaultData[k]));
   }, [schema, defaultData]);
 
   const defaults = useMemo(() => {
     const d: Record<string, unknown> = {};
     for (const f of fields) {
       const v = defaultData[f.key];
-      d[f.key] = f.kind === "json" ? JSON.stringify(v ?? (schemaType(f.schema) === "array" ? [] : {}), null, 2) : v ?? "";
+      // Any object/array value is JSON.stringify'd regardless of the classified kind, so a complex value
+      // can never surface as "[object Object]" — even in the window before the schema resolves.
+      const complex = Array.isArray(v) || (typeof v === "object" && v !== null);
+      d[f.key] =
+        f.kind === "json" || complex
+          ? JSON.stringify(v ?? (schemaType(f.schema) === "array" ? [] : {}), null, 2)
+          : v ?? "";
     }
     return d;
   }, [fields, defaultData]);
@@ -67,9 +77,20 @@ export function ArtifactForm({ id, schema, defaultData, onSubmit, agentDrafted, 
     register,
     control,
     handleSubmit,
-    formState: { errors },
+    reset,
+    formState: { errors, isDirty },
     setError,
   } = useForm({ defaultValues: defaults });
+
+  // react-hook-form applies `defaultValues` only once at mount and does NOT re-apply them when they
+  // recompute. So when the schema resolves async (or the task changes) the memoized `defaults` update but
+  // the form stays stale until a remount — the "works only after reload" symptom. Re-apply on change, but
+  // only while the form is pristine so an in-flight edit is never clobbered.
+  useEffect(() => {
+    if (!isDirty) reset(defaults);
+    // isDirty is intentionally read at run-time, not a trigger — resetting keys off `defaults` changing.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [defaults, reset]);
 
   function submit(values: Record<string, unknown>) {
     const out: Record<string, unknown> = {};
