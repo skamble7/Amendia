@@ -65,8 +65,8 @@ describe("ArtifactEditor — multi-artifact tabs (Part B)", () => {
       </>,
     );
 
-    // a tab per artifact — not just the first
-    expect(screen.getByRole("tab", { name: /Dossier/i })).toBeTruthy();
+    // a tab per artifact — not just the first (the form mounts once its schemas settle)
+    expect(await screen.findByRole("tab", { name: /Dossier/i })).toBeTruthy();
     expect(screen.getByRole("tab", { name: /RFI/i })).toBeTruthy();
     expect(screen.getByRole("tab", { name: /Info resolution/i })).toBeTruthy();
 
@@ -98,7 +98,7 @@ describe("ArtifactEditor — multi-artifact tabs (Part B)", () => {
         <button type="submit" form="ed3">go</button>
       </>,
     );
-    await user.click(screen.getByRole("tab", { name: /RFI/i }));
+    await user.click(await screen.findByRole("tab", { name: /RFI/i }));
     await waitFor(() => expect(screen.getByDisplayValue("Confirm the beneficiary IBAN")).toBeTruthy());
     // switch the rfi tab to raw JSON and edit the blob directly
     await user.click(screen.getByRole("button", { name: /raw json/i }));
