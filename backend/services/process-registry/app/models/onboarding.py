@@ -145,6 +145,10 @@ class InferredBinding(BaseModel):
     # ADR-048 D4: every upstream CAPABILITY element reachable on the flows into this node (nearest-first).
     # The field-level refinement matches this node's input fields against these elements' output schemas.
     upstream_caps: List[str] = Field(default_factory=list)
+    # ADR-050: every upstream PRODUCER element (capability + human/message/call whose binding may declare an
+    # output) reachable on the flows into this node, nearest-first, terminating at the first producer on each
+    # branch. Superset of ``upstream_caps`` — lets a capability input source from a human-authored artifact.
+    upstream_producers: List[str] = Field(default_factory=list)
     suggested_hitl_mode: str = "none"
     source_lane: Optional[str] = None
 
@@ -373,6 +377,11 @@ class OnboardingSession(BaseModel):
     # flattened from THIS schema (not the sample envelopes), and it is registered + emitted as the manifest's
     # ProcessPack.trigger. None ⇒ fall back to the deployment sample envelopes (opaque if there are none).
     trigger_artifact: Optional[StagedArtifact] = None
+    # ADR-050: operator-authored artifact schemas that are neither a tool's I/O nor the trigger (e.g.
+    # art.dining.order, a human task's output shape). Kept apart from ``staged_artifacts`` — which
+    # ``set_capabilities`` rebuilds wholesale from introspection — so re-staging capabilities never drops
+    # them. Registered + listed among the pack artifacts at assemble, and referenceable by a binding output.
+    authored_artifacts: List[StagedArtifact] = Field(default_factory=list)
     bpmn: Optional[BpmnInventory] = None
     staged_artifacts: List[StagedArtifact] = Field(default_factory=list)
     staged_capabilities: List[StagedCapability] = Field(default_factory=list)
@@ -506,6 +515,11 @@ class BindingInput(BaseModel):
     output_map: Dict[str, str] = Field(default_factory=dict)
     # ADR-048: capability input sourcing (input name -> InputSource) — where each input's data comes from.
     input_sources: Dict[str, Any] = Field(default_factory=dict)
+    # ADR-050: a human/message binding may DECLARE the artifact it produces (and, symmetrically, the ones it
+    # reads) — each output ``schema_ref`` referencing a staged/authored/trigger artifact. Ignored for a
+    # capability binding (its IO is mirrored from the capability) and a call binding (uses input/output_map).
+    inputs: List[StagedBindingIO] = Field(default_factory=list)
+    outputs: List[StagedBindingIO] = Field(default_factory=list)
 
 
 class SetBindingsRequest(BaseModel):
@@ -516,6 +530,19 @@ class DeclareTriggerRequest(BaseModel):
     """ADR-049: declare the pack's trigger artifact schema. The operator provides the trigger JSON-Schema
     (registered as ``art.<domain>.<name>``); it drives the Triage field picker and is emitted as
     ``ProcessPack.trigger``. Same shape as a :class:`StagedArtifact`, but operator-authored, not introspected."""
+
+    artifact_key: str
+    version: str = "1.0.0"
+    title: str
+    description: Optional[str] = None
+    json_schema: Dict[str, Any]
+
+
+class DeclareArtifactRequest(BaseModel):
+    """ADR-050: declare (upsert) an operator-authored artifact schema — one that is neither a tool's I/O nor
+    the trigger (e.g. ``art.dining.order``, the shape a human task produces). Same fields as a trigger
+    declaration; stored on ``authored_artifacts`` and registered like any staged schema at assemble. A
+    binding output may then reference it by ``schema_ref``."""
 
     artifact_key: str
     version: str = "1.0.0"

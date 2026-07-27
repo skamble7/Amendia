@@ -329,6 +329,60 @@ describe("Onboarding wizard", () => {
     expect((await screen.findAllByText("suggested")).length).toBeGreaterThanOrEqual(2);
   });
 
+  it("bindings step declares human-task outputs + offers them as an upstream source (ADR-050)", async () => {
+    const be = (over: Record<string, unknown>) => ({
+      name: null, is_multi_instance: false, is_for_compensation: false,
+      compensation_primary: null, in_event_subprocess: false, ...over,
+    });
+    const orderSchema = { type: "object", properties: { order_type: { type: "string" } }, required: ["order_type"] };
+    const session = {
+      session_id: "sess-50", created_by: "owner-1", created_at: "", updated_at: "", state: "bindings_set",
+      basics: { pack_key: "dinein", version: "1.0.0", title: "Dine-in", default_domain: "dining" },
+      bpmn: {
+        process_id: "P", bpmn_file: "p.bpmn", sha256: "x", service_tasks: ["Validate"], user_tasks: ["TakeOrder"],
+        gateways: [], task_names: {},
+        bindable_elements: [
+          be({ element_id: "TakeOrder", element_kind: "userTask", category: "human", name: "Take order" }),
+          be({ element_id: "Validate", element_kind: "serviceTask", category: "capability", name: "Validate order" }),
+        ],
+      },
+      // art.dining.order is an operator-AUTHORED artifact (neither tool I/O nor trigger) → offered in the picker.
+      authored_artifacts: [{ artifact_key: "art.dining.order", version: "1.0.0", title: "Order", json_schema: orderSchema }],
+      staged_artifacts: [
+        { artifact_key: "art.dining.validate_in", version: "1.0.0", title: "in", json_schema: { type: "object", properties: { order: {} } } },
+        { artifact_key: "art.dining.validate_out", version: "1.0.0", title: "out", json_schema: { type: "object", properties: { ok: {} } } },
+      ],
+      reused_capability_refs: [],
+      // TakeOrder already produces `order`; Validate sources its input from that human output.
+      bindings: [
+        { element_id: "TakeOrder", element_kind: "userTask", executor_type: "human", role: "role.dining.server",
+          outputs: [{ name: "order", schema_ref: "art.dining.order@^1.0.0", required: true }] },
+        { element_id: "Validate", element_kind: "serviceTask", executor_type: "capability",
+          capability_ref: "cap.dining.validate@^1.0.0", hitl_mode: "none",
+          input_sources: { validate_in: { from: "artifact", name: "order" } } },
+      ],
+      staged_capabilities: [{ capability_id: "cap.dining.validate", version: "1.0.0", title: "Validate", side_effect: "read_only", input_name: "validate_in", input_artifact_key: "art.dining.validate_in", output_name: "validate_out", output_artifact_key: "art.dining.validate_out", endpoint: "http://x", tool: "validate", transport: "streamable_http", headers: {} }],
+      triage_rules: [], gateway_variables: [], sod_policies: [], roles: [],
+      dry_run_report: null, commit_progress: [], result_pack: null, last_cleared: [], inferred: null,
+    };
+    server.use(
+      http.get(`${REG}/onboarding/sess-50`, () => HttpResponse.json(session)),
+      http.get(`${REG}/capabilities`, () => HttpResponse.json([])),
+      http.get(`${REG}/packs`, () => HttpResponse.json([])),
+    );
+    renderApp("/registry/onboard/sess-50", "owner-1");
+
+    // item 1: the human task shows an OUTPUTS section, pre-filled with its declared `order` output.
+    expect(await screen.findByText(/Outputs — artifact\(s\) this task produces/)).toBeInTheDocument();
+    expect(await screen.findByDisplayValue("order")).toBeInTheDocument();
+    // the artifact-schema picker offers the authored art.dining.order.
+    expect(await screen.findByRole("option", { name: "art.dining.order" })).toBeInTheDocument();
+    // "author new artifact schema" is a first-class affordance in the same picker.
+    expect(await screen.findByRole("option", { name: /Author new artifact schema/ })).toBeInTheDocument();
+    // item 2: the capability's upstream-output source list offers the human output `order (TakeOrder)`.
+    expect(await screen.findByRole("option", { name: "order (TakeOrder)" })).toBeInTheDocument();
+  });
+
   it("bindings step derives the input_map off the BOUND capability even when the element name diverges (ADR-048 D4)", async () => {
     const be = (over: Record<string, unknown>) => ({
       name: null, is_multi_instance: false, is_for_compensation: false,

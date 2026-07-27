@@ -20,11 +20,13 @@ import { groupByStage, countBySeverity, SEVERITY_VARIANT } from "@/lib/validatio
 import { cn } from "@/lib/utils";
 import {
   assembleOnboarding, attachOnboardingBpmn, commitOnboarding, createOnboardingSession,
-  getOnboardingSession, introspectMcp, declareOnboardingTrigger, setOnboardingBindings, setOnboardingCapabilities,
+  getOnboardingSession, introspectMcp, declareOnboardingTrigger, declareOnboardingArtifact,
+  setOnboardingBindings, setOnboardingCapabilities,
   setOnboardingPolicies, setOnboardingTriage,
   type BindingInput, type CapabilityToolSelection, type IntrospectedTool, type OnbTriageRule,
   type OnbBpmnInventory, type OnbBindableElement, type OnboardingSession, type OnboardingState,
   type ValidationReport, type InferenceDraft, type OnbDecisionSpec, type OnbReduceSpec,
+  type OnbBindingIO, type OnbArtifactRequest, type OnbStagedArtifact,
 } from "@/api/services/registry";
 import { useCapabilities, useCapabilitySearch, useOnboardingSessions, usePacks } from "./queries";
 
@@ -210,7 +212,7 @@ function SessionWizard({ sessionId }: { sessionId: string }) {
       {step === 0 && <BasicsStep session={session} onNext={() => setStep(1)} />}
       {step === 1 && <BpmnStep session={session} onDone={(s) => apply(s, 2)} />}
       {step === 2 && <CapabilitiesStep session={session} onDone={(s) => apply(s, 3)} />}
-      {step === 3 && <BindingsStep session={session} onDone={(s) => apply(s, 4)} />}
+      {step === 3 && <BindingsStep session={session} onDone={(s) => apply(s, 4)} onSession={setSession} />}
       {step === 4 && <TriageStep session={session} onDone={(s) => apply(s, 5)} onSession={setSession} />}
       {step === 5 && <PoliciesStep session={session} onDone={(s) => apply(s, 6)} />}
       {step === 6 && <ReviewStep session={session} onChange={(s) => setSession(s)} goStep={setStep} />}
@@ -1093,7 +1095,66 @@ function SourcePicker({ value, onChange, outputs }: {
   );
 }
 
-function BindingsStep({ session, onDone }: { session: OnboardingSession; onDone: (s: OnboardingSession) => void }) {
+// ADR-050: the OUTPUTS section for a human/message binding — declare the artifact(s) the task PRODUCES (an
+// output name + a staged/authored/trigger artifact schema). The operator picks an existing artifact or
+// authors a new one inline (the reusable ArtifactSchemaEditor → declareOnboardingArtifact). A declared output
+// becomes a selectable upstream source for a downstream capability's input (see allOutputs).
+function HumanOutputsEditor({ row, artifactChoices, domain, onChange, onAuthor }: {
+  row: BindingInput;
+  artifactChoices: { key: string; ref: string }[];
+  domain: string;
+  onChange: (outputs: OnbBindingIO[]) => void;
+  onAuthor: (req: OnbArtifactRequest) => Promise<void>;
+}) {
+  const outputs = row.outputs ?? [];
+  const [authoring, setAuthoring] = useState<number | null>(null);   // which output row is authoring a new schema
+  const setOut = (i: number, p: Partial<OnbBindingIO>) => onChange(outputs.map((o, j) => (j === i ? { ...o, ...p } : o)));
+  const addOut = () => onChange([...outputs, { name: "", schema_ref: "", required: true }]);
+  const rmOut = (i: number) => { onChange(outputs.filter((_, j) => j !== i)); setAuthoring(null); };
+
+  return (
+    <div className="mt-3 border-t border-border pt-3">
+      <div className="mb-1.5 flex items-center justify-between">
+        <p className="text-xs font-medium text-muted-foreground">Outputs — artifact(s) this task produces</p>
+        <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={addOut}><Plus className="mr-1 size-3" />Add output</Button>
+      </div>
+      {outputs.length === 0 && (
+        <p className="text-xs text-muted-foreground">None — a downstream capability can't source from this task until it declares an output.</p>
+      )}
+      <div className="space-y-2">
+        {outputs.map((o, i) => (
+          <div key={i} className="space-y-1.5">
+            <div className="flex items-center gap-1.5">
+              <Input value={o.name} onChange={(e) => setOut(i, { name: e.target.value })} placeholder="order" className="h-7 flex-1 font-mono text-[11px]" />
+              <select className={cn(selectCls, "h-7 flex-1 text-[11px]")} value={o.schema_ref ?? ""}
+                onChange={(e) => { if (e.target.value === "__new__") setAuthoring(i); else setOut(i, { schema_ref: e.target.value }); }}>
+                <option value="">Select artifact schema…</option>
+                {artifactChoices.map((a) => <option key={a.ref} value={a.ref}>{a.key}</option>)}
+                <option value="__new__">+ Author new artifact schema…</option>
+              </select>
+              <Button variant="ghost" size="icon" className="size-7" onClick={() => rmOut(i)}><Trash2 className="size-3" /></Button>
+            </div>
+            {authoring === i && (
+              <div className="rounded-md border border-border bg-surface/40 p-2.5">
+                <ArtifactSchemaEditor
+                  domain={domain} idLabel="Artifact id" idPlaceholder={`art.${domain}.order`}
+                  titlePlaceholder="Order" schemaLabel="JSON-Schema" submitLabel="Create artifact"
+                  onDeclare={async (req) => {
+                    await onAuthor(req);
+                    setOut(i, { schema_ref: `${req.artifact_key}@^${req.version}` });
+                    setAuthoring(null);
+                  }}
+                />
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function BindingsStep({ session, onDone, onSession }: { session: OnboardingSession; onDone: (s: OnboardingSession) => void; onSession: (s: OnboardingSession) => void }) {
   const tasks: OnbBindableElement[] = session.bpmn!.bindable_elements;
   const capOptions = useMemo(
     () => [...session.staged_capabilities.map((c) => `${c.capability_id}@^${c.version}`), ...session.reused_capability_refs],
@@ -1188,6 +1249,29 @@ function BindingsStep({ session, onDone }: { session: OnboardingSession; onDone:
   }, [session.staged_capabilities, session.staged_artifacts]);
   const cfOf = (ref?: string | null) => (ref ? capFields[ref.split("@")[0] ?? ""] : undefined);
 
+  // ADR-050: the artifact schemas a human/message output may reference — every staged (tool-inferred) +
+  // authored artifact + the declared trigger, deduped by key, each pinned to a caret range.
+  const artifactChoices = useMemo(() => {
+    const seen = new Set<string>();
+    const out: { key: string; ref: string }[] = [];
+    const add = (a?: OnbStagedArtifact | null) => {
+      if (!a || seen.has(a.artifact_key)) return;
+      seen.add(a.artifact_key);
+      out.push({ key: a.artifact_key, ref: `${a.artifact_key}@^${a.version}` });
+    };
+    for (const a of session.staged_artifacts) add(a);
+    for (const a of session.authored_artifacts ?? []) add(a);
+    add(session.trigger_artifact);
+    return out;
+  }, [session.staged_artifacts, session.authored_artifacts, session.trigger_artifact]);
+
+  // ADR-050: author (upsert) an operator artifact schema, then lift the returned session to the parent so the
+  // new key appears in every output picker. Rows are local state (init-once), so this re-render never loses them.
+  const authorArtifact = async (req: OnbArtifactRequest) => {
+    onSession(await declareOnboardingArtifact(session.session_id, req));
+    toast.success(`Artifact ${req.artifact_key} authored`);
+  };
+
   // One input field's source: an upstream output that carries the field (→ artifact+path), an upstream
   // output named like the field (→ that whole artifact), else the trigger (opaque client-side, mirroring the
   // backend). Whole-map builder: entry (no upstream) → whole trigger; opaque input → whole nearest output.
@@ -1242,6 +1326,7 @@ function BindingsStep({ session, onDone }: { session: OnboardingSession; onDone:
           input_map: existing.input_map ?? {}, output_map: existing.output_map ?? {},
           input_sources: (t.category === "capability" && Object.keys(savedSrc).length === 0)
             ? resolveInputSources(t.element_id, refForInit) : savedSrc,
+          outputs: existing.outputs ?? [],   // ADR-050: human/message declared outputs
         });
       } else {
         if (t.category === "human") {
@@ -1289,7 +1374,12 @@ function BindingsStep({ session, onDone }: { session: OnboardingSession; onDone:
   async function submit() {
     setBusy(true); setFieldErrs({});
     try {
-      onDone(await setOnboardingBindings(session.session_id, { bindings: tasks.map((t) => rows[t.element_id]!) }));
+      // ADR-050: only send fully-authored outputs (both a name and a chosen schema) — a half-filled row would
+      // fail backend validation ("not a staged artifact"). Capability outputs are mirrored server-side anyway.
+      const clean = (r: BindingInput): BindingInput => ({
+        ...r, outputs: (r.outputs ?? []).filter((o) => (o.name ?? "").trim() && (o.schema_ref ?? "").trim()),
+      });
+      onDone(await setOnboardingBindings(session.session_id, { bindings: tasks.map((t) => clean(rows[t.element_id]!)) }));
     } catch (e) {
       const x = extractErrors(e);
       const map: Record<string, string> = {};
@@ -1304,11 +1394,16 @@ function BindingsStep({ session, onDone }: { session: OnboardingSession; onDone:
     } finally { setBusy(false); }
   }
 
-  // ADR-048: the selectable upstream outputs for an artifact source — every capability task's output.
-  const allOutputs = tasks
-    .filter((x) => x.category === "capability")
-    .map((x) => ({ element: x.element_id, name: ioOf(rows[x.element_id]?.capability_ref)?.output }))
-    .filter((o): o is { element: string; name: string } => !!o.name);
+  // ADR-048 + ADR-050: the selectable upstream outputs for an artifact source — every capability task's
+  // output, PLUS every human/message/call task's operator-declared output(s) (so a capability input can
+  // source from a human-authored artifact, e.g. `order (Task_TakeOrder)`).
+  const allOutputs = tasks.flatMap((x) => {
+    if (x.category === "capability") {
+      const name = ioOf(rows[x.element_id]?.capability_ref)?.output;
+      return name ? [{ element: x.element_id, name }] : [];
+    }
+    return (rows[x.element_id]?.outputs ?? []).flatMap((o) => (o.name ? [{ element: x.element_id, name: o.name }] : []));
+  });
   const errorCount = Object.keys(fieldErrs).length;
   return (
     <div className="space-y-3">
@@ -1405,6 +1500,13 @@ function BindingsStep({ session, onDone }: { session: OnboardingSession; onDone:
                 </Field>
               )}
 
+              {/* ADR-050: a human/message task declares the artifact(s) it PRODUCES — first-class outputs a
+                  downstream capability input can source from. */}
+              {(t.category === "human" || t.category === "message") && (
+                <HumanOutputsEditor row={row} artifactChoices={artifactChoices} domain={session.basics.default_domain}
+                  onChange={(outputs) => patch(id, { outputs })} onAuthor={authorArtifact} />
+              )}
+
               {/* ADR-039 call executor: the callee pack + range + IO maps (no HITL of its own). */}
               {t.category === "call" && (
                 <div className="space-y-3">
@@ -1465,6 +1567,52 @@ function toPredicate(n: any): Record<string, unknown> {
   return { [n.kind]: n.children.map(toPredicate) };
 }
 
+// ADR-049/050: reusable "author an artifact schema" affordance — an artifact id + title + JSON-Schema with a
+// submit button. Powers both the pack trigger declaration (ADR-049) and an operator-authored output artifact
+// for a human/message task (ADR-050). `onDeclare` performs the actual PUT; errors are caught + toasted here.
+function ArtifactSchemaEditor({
+  domain, idLabel, idPlaceholder, titlePlaceholder, schemaLabel, submitLabel, initial, onDeclare,
+}: {
+  domain: string;
+  idLabel: string; idPlaceholder: string; titlePlaceholder: string; schemaLabel: string; submitLabel: string;
+  initial?: { artifact_key: string; title?: string | null; json_schema: unknown } | null;
+  onDeclare: (req: OnbArtifactRequest) => Promise<void>;
+}) {
+  const [artifactKey, setArtifactKey] = useState(initial?.artifact_key ?? `art.${domain}.`);
+  const [title, setTitle] = useState(initial?.title ?? "");
+  const [schemaText, setSchemaText] = useState(initial ? JSON.stringify(initial.json_schema, null, 2) : "");
+  const [busy, setBusy] = useState(false);
+
+  async function declare() {
+    let json_schema: Record<string, unknown>;
+    try { json_schema = JSON.parse(schemaText); }
+    catch { toast.error(`${schemaLabel} is not valid JSON`); return; }
+    setBusy(true);
+    try {
+      const key = artifactKey.trim();
+      await onDeclare({ artifact_key: key, version: "1.0.0", title: title.trim() || key, json_schema });
+    } catch (e) {
+      toast.error(extractErrors(e).fields.map((f) => f.message).join("; ") || extractErrors(e).general);
+    } finally { setBusy(false); }
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="flex gap-3">
+        <Field label={idLabel}><Input value={artifactKey} onChange={(e) => setArtifactKey(e.target.value)} placeholder={idPlaceholder} className="font-mono text-xs" /></Field>
+        <Field label="Title"><Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder={titlePlaceholder} /></Field>
+      </div>
+      <Field label={schemaLabel}>
+        <Textarea value={schemaText} onChange={(e) => setSchemaText(e.target.value)} rows={12} className="font-mono text-xs"
+          placeholder={"{\n  \"type\": \"object\",\n  \"required\": [\"order_type\"],\n  \"properties\": { \"order_type\": { \"type\": \"string\" } }\n}"} />
+      </Field>
+      <div className="flex justify-end">
+        <Button size="sm" disabled={busy || !artifactKey.trim() || !schemaText.trim()} onClick={declare}>{busy ? "Saving…" : submitLabel}</Button>
+      </div>
+    </div>
+  );
+}
+
 // ADR-049: declare the pack's trigger artifact schema — registers art.<domain>.<name> as ProcessPack.trigger and
 // (backend-flattened) drives the Triage field picker below. No SEED_DIR sample-exception dependency.
 function TriggerDeclareCard({ session, onSession }: { session: OnboardingSession; onSession: (s: OnboardingSession) => void }) {
@@ -1472,28 +1620,6 @@ function TriggerDeclareCard({ session, onSession }: { session: OnboardingSession
   const domain = session.basics.default_domain;
   const fieldCount = Object.keys(session.trigger_fields ?? {}).length;
   const [open, setOpen] = useState(!declared && fieldCount === 0);
-  const [artifactKey, setArtifactKey] = useState(declared?.artifact_key ?? `art.${domain}.`);
-  const [title, setTitle] = useState(declared?.title ?? "");
-  const [schemaText, setSchemaText] = useState(declared ? JSON.stringify(declared.json_schema, null, 2) : "");
-  const [busy, setBusy] = useState(false);
-
-  async function declare() {
-    let json_schema: Record<string, unknown>;
-    try { json_schema = JSON.parse(schemaText); }
-    catch { toast.error("Trigger schema is not valid JSON"); return; }
-    setBusy(true);
-    try {
-      const key = artifactKey.trim();
-      const s = await declareOnboardingTrigger(session.session_id, {
-        artifact_key: key, version: "1.0.0", title: title.trim() || key, json_schema,
-      });
-      onSession(s);
-      setOpen(false);
-      toast.success("Trigger declared — the field picker below now offers its properties");
-    } catch (e) {
-      toast.error(extractErrors(e).fields.map((f) => f.message).join("; ") || extractErrors(e).general);
-    } finally { setBusy(false); }
-  }
 
   return (
     <Card>
@@ -1511,18 +1637,17 @@ function TriggerDeclareCard({ session, onSession }: { session: OnboardingSession
         <Button variant="outline" size="sm" onClick={() => setOpen((o) => !o)}>{open ? "Close" : declared ? "Replace" : "Declare"}</Button>
       </CardHeader>
       {open && (
-        <CardContent className="space-y-3">
-          <div className="flex gap-3">
-            <Field label="Trigger artifact id"><Input value={artifactKey} onChange={(e) => setArtifactKey(e.target.value)} placeholder={`art.${domain}.order_ticket`} className="font-mono text-xs" /></Field>
-            <Field label="Title"><Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Order ticket (trigger)" /></Field>
-          </div>
-          <Field label="Trigger JSON-Schema">
-            <Textarea value={schemaText} onChange={(e) => setSchemaText(e.target.value)} rows={12} className="font-mono text-xs"
-              placeholder={"{\n  \"type\": \"object\",\n  \"required\": [\"order_type\"],\n  \"properties\": { \"order_type\": { \"type\": \"string\" } }\n}"} />
-          </Field>
-          <div className="flex justify-end">
-            <Button size="sm" disabled={busy || !artifactKey.trim() || !schemaText.trim()} onClick={declare}>{busy ? "Declaring…" : "Declare trigger"}</Button>
-          </div>
+        <CardContent>
+          <ArtifactSchemaEditor
+            domain={domain} idLabel="Trigger artifact id" idPlaceholder={`art.${domain}.order_ticket`}
+            titlePlaceholder="Order ticket (trigger)" schemaLabel="Trigger JSON-Schema" submitLabel="Declare trigger"
+            initial={declared as { artifact_key: string; title?: string | null; json_schema: unknown } | null}
+            onDeclare={async (req) => {
+              onSession(await declareOnboardingTrigger(session.session_id, req));
+              setOpen(false);
+              toast.success("Trigger declared — the field picker below now offers its properties");
+            }}
+          />
         </CardContent>
       )}
     </Card>

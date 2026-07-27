@@ -42,6 +42,14 @@ at the running MCP server, author the few non-introspectable artifacts, and set 
    them) using the JSON in this kit: the trigger `art.dining.order_ticket`, the `art.dining.order`, the
    `art.dining.payment_retry`, and the `llm` capability `cap.dining.draft_order`.
 
+   `art.dining.order` and `art.dining.payment_retry` are **operator-authored artifacts (ADR-050)** — neither
+   a tool's I/O nor the trigger, but the shapes **human** tasks produce. Declare each with the wizard's
+   **"author an artifact schema"** affordance (the same panel that declares the trigger, generalized): paste
+   the `json_schema` from `schemas/art.dining.order.json` / `schemas/art.dining.payment_retry.json`. Once
+   declared, a human binding's **Outputs** section can produce them (Step 2 below), and every downstream
+   capability input can be **sourced from that human output** — `art.dining.order` is where the whole `order`
+   data-flow originates (not the trigger).
+
 > **The one rule that makes the pack valid:** a gateway may only branch on a **`required`,
 > upstream-produced field**, and the binding **output name** is what the FEEL condition reads. So the
 > Validate-order binding's output **must be named `validation`**, Allergen-screen's **`allergen`**, and
@@ -74,10 +82,25 @@ Roles used: **`role.dining.server`** (waitstaff), **`role.dining.kitchen`** (che
 `Task_FireTicket` and `Task_ProcessPayment` are side-effectful → the platform **forces** `≥ approve_actions`
 (the wizard will not let you weaken them). Everything else is your choice; the modes above give the full tour.
 
+**Human outputs are first-class (ADR-050).** The `Outputs` column above is not decoration — for a capability
+task it is mirrored from the tool, but for a **human** task **you declare it**. In each human binding's
+**Outputs** section, add the output and point it at the authored artifact schema you declared in Step 1.3:
+- `Task_TakeOrder` → output **`order`** = `art.dining.order` (its `assist_capability` `cap.dining.draft_order`
+  pre-drafts; the server confirms/edits).
+- `Task_ReviseOrder` → output **`order`** = `art.dining.order` (the loop re-produces the same artifact).
+- `Task_ResolvePayment` → output **`payment_retry`** = `art.dining.payment_retry`.
+
+These declared outputs are what make `order` and `payment_retry` **selectable upstream sources** for the
+capability inputs below — a from-artifact source resolving to a human-authored artifact, not the trigger.
+
 ### 2a. Input maps (the composite field mappings)
 
 Most bindings read a single named artifact and need no map. Four bindings compose fields from the trigger
-and other artifacts — enter these exactly (same shape as the wire manifest):
+and other artifacts — enter these exactly (same shape as the wire manifest). **Where `{from: artifact, name:
+"order"}` appears below, it resolves to `Task_TakeOrder`'s (or, after a revise, `Task_ReviseOrder`'s) declared
+human output (ADR-050) — the wizard's source picker offers it as `order (Task_TakeOrder)`, and it pre-fills for
+you once those human outputs are declared.** So `Task_ValidateOrder`, `Task_ScreenAllergens`,
+`Task_GenerateBill`, and `Task_FireTicket` all read the **human-authored** `order`, not the trigger:
 
 `Task_PresentMenu` (`get_menu`):
 ```json
@@ -114,10 +137,12 @@ and other artifacts — enter these exactly (same shape as the wire manifest):
   "tender_hint": { "from": "trigger",  "path": "tender",  "optional": true }
 }}}
 ```
-On the first pass there is no `payment_retry`, so the trigger's `tender` (the `tender_hint`) decides. On a
-retry, the human's `payment_retry.tender` takes precedence — a non-`declined` tender **captures and ends
-the loop**. This is the same human-authored-precedence pattern that fixes the wire needs-info loop; it is
-why the resolve loop can never spin forever.
+Here `{from: artifact, name: "payment_retry"}` resolves to **`Task_ResolvePayment`'s declared human output**
+(ADR-050) — the source picker offers it as `payment_retry (Task_ResolvePayment)`. On the first pass there is no
+`payment_retry`, so the trigger's `tender` (the `tender_hint`) decides. On a retry, the human's
+`payment_retry.tender` takes precedence — a non-`declined` tender **captures and ends the loop**. This is the
+same human-authored-precedence pattern that fixes the wire needs-info loop; it is why the resolve loop can never
+spin forever.
 
 ---
 

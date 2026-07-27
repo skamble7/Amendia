@@ -203,6 +203,7 @@ export type OnbGatewayVariable = _Schemas["StagedGatewayVariable"];
 export type OnbSod = _Schemas["StagedSod"];
 export type OnbRoleMeta = _Schemas["RoleMeta"];
 export type OnbTriggerRequest = _Schemas["DeclareTriggerRequest"];
+export type OnbArtifactRequest = _Schemas["DeclareArtifactRequest"];   // ADR-050
 export type OnbCommitStep = _Schemas["CommitStep"];
 
 type _Sess = Require<_Schemas["OnboardingSession"],
@@ -259,6 +260,10 @@ export function setOnboardingTriage(id: string, body: { triage_rules: OnbTriageR
 // ADR-049: declare the pack's trigger artifact schema — drives the Triage field picker + emits ProcessPack.trigger.
 export function declareOnboardingTrigger(id: string, body: OnbTriggerRequest): Promise<OnboardingSession> {
   return request<OnboardingSession>("registry", `/onboarding/${id}/trigger`, { method: "PUT", body, silent: true });
+}
+// ADR-050: declare (upsert) an operator-authored artifact schema — one a human/message task can output.
+export function declareOnboardingArtifact(id: string, body: OnbArtifactRequest): Promise<OnboardingSession> {
+  return request<OnboardingSession>("registry", `/onboarding/${id}/artifacts`, { method: "PUT", body, silent: true });
 }
 export function setOnboardingPolicies(id: string, body: { gateway_variables: OnbGatewayVariable[]; sod_policies: OnbSod[]; roles: string[]; role_meta?: Record<string, OnbRoleMeta> }): Promise<OnboardingSession> {
   return request<OnboardingSession>("registry", `/onboarding/${id}/policies`, { method: "PUT", body, silent: true });

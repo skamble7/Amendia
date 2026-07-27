@@ -270,9 +270,10 @@ Per binding: `element_id`, `element_kind`, `executor` (`{type: capability, capab
 `{type: call, pack, version, input_map, output_map}`), `hitl {mode, role}` (capability/human only),
 `inputs`/`outputs` (artifactIO), and — for a capability — an **`input_map`** (ADR-048).
 
-**Input sourcing (ADR-048):** a capability binding's `input_map` declares **where each input's data comes
-from** — `{from: trigger, path?}` (the process trigger, whole or a dotpath), `{from: artifact, name, path?}` (a
-named upstream output), or `{fields: {…}}` (a composite object built from a mix). This is what makes an
+**Input sourcing (ADR-048 + ADR-050):** a capability binding's `input_map` declares **where each input's data
+comes from** — `{from: trigger, path?}` (the process trigger, whole or a dotpath), `{from: artifact, name, path?}`
+(a named upstream output — a capability output **or** a human/message-authored artifact, ADR-050), or
+`{fields: {…}}` (a composite object built from a mix). This is what makes an
 **MCP-per-process pack chain**: introspected tools emit `<tool>_output` and need `<tool>_input`, so per-tool
 inputs never share names — the map wires the entry task from the **trigger** and later tasks from **upstream
 outputs**, and (for `mcp`) becomes the tool-call `arguments`. The step **pre-fills** each source **field by
@@ -281,8 +282,11 @@ field** (ADR-048 D4): reading the tool schemas, it matches every input field to 
 `{fields: {…}}`; an **entry** task sources the whole trigger. The suggestion is keyed off the **bound
 `capability_ref`**, never a name guess: `set_capabilities` seeds an initial hint from the pre-selected
 capability, then `set_bindings` **authoritatively** refills each capability binding's `input_sources` from *its
-own* bound capability's schemas + the upstream producers' outputs (filling only inputs the operator left unset)
-— so a task whose **BPMN element name diverges from its tool id** still gets a full field-level map once bound.
+own* bound capability's schemas + the **upstream producers' outputs** (filling only inputs the operator left
+unset) — so a task whose **BPMN element name diverges from its tool id** still gets a full field-level map once
+bound. **The upstream-producer set is not capability-only (ADR-050):** it also includes any **human/message**
+task that declares an output, so a capability input can auto-source from a **human-authored artifact** (e.g.
+`Task_TakeOrder`'s `order`).
 The trigger is **opaque unless the pack declares a trigger artifact** (ADR-049 — see Step 4b); a field with no
 upstream producer defaults to a trigger path (the only remaining origin, validated as satisfiable); each pre-filled field carries a **"suggested"** chip and the
 operator overrides via the composite picker. A binding **without** `input_map` chains by shared artifact name (unchanged). It is
@@ -352,6 +356,39 @@ dependency.
 Declaring is an **enrichment, not a state transition** (callable once BPMN is attached); it changes the field
 set, so it clears any already-authored triage + downstream. A pack that declares **no** trigger falls back to
 the sample envelopes (opaque if there are none) — the wire seed packs onboard exactly as before.
+
+### Step 4c — Human & message task outputs + operator-authored artifacts (ADR-050)
+
+The trigger and upstream capability outputs are not a process's only data origins: a **human** task also
+**produces** an artifact (a filled form, a decision, a resolution), and a downstream capability reads it. ADR-050
+makes that a first-class part of onboarding — the wizard, not just a hand-authored seed manifest, can now
+author it.
+
+- **Operator-authored artifacts.** An artifact that is **neither** a tool's I/O **nor** the trigger —
+  e.g. `art.dining.order`, the shape a waiter's order form produces — is declared with
+  `PUT /onboarding/{id}/artifacts` (`DeclareArtifactRequest{artifact_key, version, title, description?,
+  json_schema}`), the same "author an artifact schema" affordance generalized from the trigger panel. It is
+  stored on `session.authored_artifacts` (kept **apart** from the introspected `staged_artifacts`, which
+  `set_capabilities` rebuilds, so re-staging never drops it), **upserted** by key, registered at assemble, and
+  listed among the pack `artifacts`. Callable once BPMN is attached; it clears only the dry-run (adding a schema
+  never invalidates bindings).
+- **Human / message bindings declare outputs.** A `human` or `message` binding may carry `outputs` (and
+  symmetrically `inputs`): each an **output name + a `schema_ref`** that must resolve to a **staged, authored, or
+  trigger** artifact. `set_bindings` validates them — names unique within the binding, and each **human/message
+  output name unique across the whole run** (a `{from: artifact, name}` source addresses a produced artifact by
+  name, so a collision would be ambiguous). They emit into the manifest `Binding.outputs`. A capability's outputs
+  stay mirrored from the capability; a `call` declares IO via its `input_map`/`output_map`.
+- **They become selectable data-flow sources.** The "upstream outputs available to a capability input" set now
+  includes human/message/call declared outputs (`inferred.upstream_producers`), so the input-map inference
+  **auto-sources** from a human output and the wizard's source picker **offers** it (e.g.
+  `order (Task_TakeOrder)`). The validator needed no change — its data-flow stage already resolves a from-artifact
+  input against **every** binding's outputs.
+
+In the wizard, a human/message binding shows an **Outputs** section (mirroring the capability input-source
+section): add an output, name it, and pick an existing staged/authored/trigger artifact — or author a new
+artifact schema inline. The seeded wire pack is unaffected (its human `Task_ObtainInfo` → `info_resolution`
+shape already validated); the restaurant dine-in worked example onboards its human `order` / `payment_retry`
+data-flow entirely through this path.
 
 ### Step 5 — Triage · `PUT /onboarding/{id}/triage` → `triage_set`
 

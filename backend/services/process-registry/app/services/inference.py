@@ -157,14 +157,19 @@ def infer_draft(sem: BpmnSemanticModel, domain: str) -> InferenceDraft:
     # upstream element into its actual output name + the real input keys. A hint, fully overridable.
     cap_ids = {n.id for n in sem.flow_nodes
                if TASK_EXECUTOR_CATEGORY.get(n.kind) == "capability" and n.id in connected}
+    # ADR-050: a producer is any element whose binding may DECLARE an output — a capability, or a
+    # human/message/call task (whose output the operator authors at the Bindings step).
+    producer_ids = {n.id for n in sem.flow_nodes
+                    if TASK_EXECUTOR_CATEGORY.get(n.kind) in ("capability", "human", "message", "call")
+                    and n.id in connected}
     preds: Dict[str, set] = {}
     for f in sem.sequence_flows:
         if f.source and f.target:
             preds.setdefault(f.target, set()).add(f.source)
 
-    def _upstream_caps(elem: str) -> List[str]:
-        """Every capability element reachable upstream of ``elem``, NEAREST-FIRST (BFS over predecessors).
-        A capability ancestor terminates that branch (its own inputs are its concern, not this node's)."""
+    def _upstream(elem: str, stop_ids: set) -> List[str]:
+        """Every element of ``stop_ids`` reachable upstream of ``elem``, NEAREST-FIRST (BFS over
+        predecessors). A member of ``stop_ids`` terminates that branch (its own inputs are its concern)."""
         seen: set = set()
         ordered: List[str] = []
         frontier = list(preds.get(elem, ()))
@@ -173,18 +178,21 @@ def infer_draft(sem: BpmnSemanticModel, domain: str) -> InferenceDraft:
             if p in seen:
                 continue
             seen.add(p)
-            if p in cap_ids:
+            if p in stop_ids:
                 if p not in ordered:
                     ordered.append(p)
-                continue                       # stop at a capability ancestor on this branch
+                continue                       # stop at a producer ancestor on this branch
             frontier.extend(preds.get(p, ()))
         return ordered
 
     for b in draft.bindings:
         if b.executor_type != "capability":
             continue
-        ups = _upstream_caps(b.element_id)
+        ups = _upstream(b.element_id, cap_ids)
         b.upstream_caps = ups
+        # ADR-050: the broader producer set (incl. human/message/call) the field-level refinement may source
+        # from once those bindings declare their outputs. Superset of upstream_caps (capabilities still lead).
+        b.upstream_producers = _upstream(b.element_id, producer_ids)
         # Coarse graph-position hint at attach (no schemas yet); refine_input_sources upgrades it to a
         # field-level input_map once capabilities are staged.
         b.suggested_input_source = ({"from": "trigger"} if not ups
