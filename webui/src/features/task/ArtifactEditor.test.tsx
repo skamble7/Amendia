@@ -116,6 +116,37 @@ describe("ArtifactEditor — multi-artifact tabs (Part B)", () => {
     expect((submitted!.info_resolution as Record<string, unknown>).outcome).toBe("cannot_obtain");
   });
 
+  it("does NOT submit the gate when a Raw-JSON toggle inside the form is clicked", async () => {
+    // The read-only dossier tab renders ArtifactView (with its own Raw-JSON toggle) INSIDE ArtifactEditor's
+    // <form>. A type-less <button> defaults to submit — clicking the toggle must NOT fire onSubmit/onDecide.
+    // Editable artifacts are pre-filled VALID so that a stray submit WOULD reach onSubmit (making the bug
+    // detectable, not masked by validation).
+    const validArtifacts = [
+      { name: "dossier", schema: "art.payment.enrich@1.0.0", data: { summary: "context" } },
+      { name: "rfi", schema: "art.payment.rfi_request@1.0.0", data: { channel: "camt.027", questions: ["Q"] }, draft: true },
+      { name: "info_resolution", schema: "art.payment.info_resolution@1.0.0", data: { outcome: "resolved" }, draft: true, authored_by_human: true },
+    ] as unknown as PayloadArtifact[];
+    server.use(schemaHandler());
+    const user = userEvent.setup();
+    let submitCount = 0;
+    renderEditor(
+      <>
+        <ArtifactEditor id="ed4" artifacts={validArtifacts} isEditable={(a) => Boolean((a as Record<string, unknown>).draft)} onSubmit={() => (submitCount += 1)} />
+        <button type="submit" form="ed4">go</button>
+      </>,
+    );
+    // dossier is the default (read-only) tab → its ArtifactView Raw-JSON toggle sits inside the form
+    const rawToggle = await screen.findByRole("button", { name: /raw json/i });
+    await user.click(rawToggle);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(submitCount).toBe(0);                        // toggling raw must not submit the decision…
+    expect(screen.getByText(/"summary"/)).toBeTruthy(); // …it just expanded the raw JSON block
+
+    // control: the explicit submit button DOES submit (proving the gate would have been submittable)
+    await user.click(screen.getByText("go"));
+    await waitFor(() => expect(submitCount).toBe(1));
+  });
+
   it("blocks completion until the required human-authored field is filled", async () => {
     server.use(schemaHandler());
     const user = userEvent.setup();

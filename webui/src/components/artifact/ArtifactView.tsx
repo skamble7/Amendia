@@ -154,6 +154,7 @@ export function ArtifactView({ name, data, schemaRef, artifactKey, className }: 
 
       <div>
         <Button
+          type="button"
           variant="ghost"
           size="sm"
           className="h-7 gap-1 px-2 text-xs text-muted-foreground"

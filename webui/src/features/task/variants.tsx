@@ -58,7 +58,7 @@ export function ReviewVariant({ task, onDecide, pending }: VariantProps) {
       <DecisionRow>
         {editing ? (
           <>
-            <Button variant="ghost" onClick={() => setEditing(false)} disabled={pending}>
+            <Button type="button" variant="ghost" onClick={() => setEditing(false)} disabled={pending}>
               Cancel edit
             </Button>
             <Button type="submit" form={formId} disabled={pending}>
