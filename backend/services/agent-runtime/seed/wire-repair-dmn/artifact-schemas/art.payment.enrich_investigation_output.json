@@ -1,0 +1,75 @@
+{
+  "artifact_key": "art.payment.enrich_investigation_output",
+  "version": "1.0.0",
+  "title": "Enrich investigation output",
+  "json_schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://amendia.dev/schemas/artifacts/payment/enrich_investigation_output/1.0.0.json",
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "exception_id": {
+        "type": "string"
+      },
+      "payment": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "msg_type": {
+            "type": "string"
+          },
+          "amount": {
+            "type": "number"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "creditor": {
+            "type": "string"
+          },
+          "debtor": {
+            "type": "string"
+          }
+        }
+      },
+      "parties": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "role": {
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "account": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "history": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "ts": {
+              "type": "string"
+            },
+            "event": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "required": [
+      "exception_id"
+    ]
+  },
+  "compatibility": "backward",
+  "status": "active"
+}

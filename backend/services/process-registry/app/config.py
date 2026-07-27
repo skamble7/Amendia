@@ -12,10 +12,9 @@ from amendia_bpmn import normalize_profile
 
 from amendia_auth import AuthSettings, load_auth_settings
 
-# Default seed dir: the agent-runtime seed the registry onboards through its own APIs.
-#   config.py -> app -> <service root> -> services
-_SERVICES_DIR = Path(__file__).resolve().parents[2]
-_DEFAULT_SEED_DIR = str(_SERVICES_DIR / "agent-runtime" / "seed" / "wire-repair-standard")
+# L2: no hardcoded default seed. Seeding is opt-in (env-driven): with SEED_DIR unset the service boots
+# clean and seeds nothing. A concrete seed path (e.g. an example pack) belongs in a dev compose / test
+# config — never a code default that assumes one particular process.
 
 
 class Settings(BaseSettings):
@@ -23,8 +22,8 @@ class Settings(BaseSettings):
     MONGO_URI: str = "mongodb://localhost:27017"
     MONGO_DB: str = "amendia"
 
-    # Seeding (drives the seed dataset through the real onboarding APIs)
-    SEED_DIR: str = _DEFAULT_SEED_DIR
+    # Seeding (drives the seed dataset through the real onboarding APIs). Unset by default → no seed.
+    SEED_DIR: str = ""
     SEED_ON_STARTUP: bool = False
 
     # /resolve active-pack cache TTL (seconds)

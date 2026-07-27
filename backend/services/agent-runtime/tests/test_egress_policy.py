@@ -16,6 +16,13 @@ def _descriptors():
     return PackBundle.from_seed_dir(settings.SEED_DIR).descriptors
 
 
+def _skill_descriptor(pack: str, cap_id: str):
+    # the wire seed is now MCP-backed (ADR-047 D2); a `skill` descriptor comes from a structural fixture pack.
+    from pathlib import Path
+    root = Path(settings.SEED_DIR).parent
+    return PackBundle.from_seed_dir(root / pack).descriptors[cap_id]
+
+
 def test_mcp_policy_from_endpoint_and_tools():
     d = _descriptors()["cap.payment.sanctions_screen"]  # kind mcp
     p = derive_egress_policy(d).to_dict()
@@ -23,7 +30,7 @@ def test_mcp_policy_from_endpoint_and_tools():
     assert p["mcp"]["endpoint"]                     # self-descriptive endpoint (ADR-024)
     assert p["mcp"]["tools"]                        # non-empty whitelist from runtime.tools
     assert p["mcp"]["transport"]                    # from runtime.transport
-    assert any("stub-mcp" in h for h in p["allow_hosts"])  # egress host parsed from the endpoint
+    assert any("wirefix-mcp" in h for h in p["allow_hosts"])  # egress host parsed from the endpoint
 
 
 def test_llm_policy_restricts_to_inference_proxy():
@@ -35,7 +42,7 @@ def test_llm_policy_restricts_to_inference_proxy():
 
 
 def test_side_effect_skill_policy_marks_stub_endpoints():
-    d = _descriptors()["cap.payment.apply_repair"]  # kind skill, side_effectful
+    d = _skill_descriptor("payment-compensation", "cap.pay.release")  # kind skill, side_effectful
     p = derive_egress_policy(d).to_dict()
     assert p["kind"] == "skill"
     assert p["side_effect"] == "side_effectful"
@@ -44,7 +51,7 @@ def test_side_effect_skill_policy_marks_stub_endpoints():
 
 
 def test_read_only_skill_policy_minimal_egress():
-    d = _descriptors()["cap.payment.enrich_investigation"]  # kind skill, read_only
+    d = _skill_descriptor("compose-leaf", "cap.compose.leaf")  # kind skill, read_only
     p = derive_egress_policy(d).to_dict()
     assert p["kind"] == "skill"
     assert p["side_effect"] == "read_only"

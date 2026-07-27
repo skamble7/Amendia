@@ -21,9 +21,12 @@ _FIXED_TS = "2025-01-01T00:00:00Z"
 
 ACTION_TOOLS = {"apply_repair", "notify_parties", "execute_return"}
 
-# Reason-code steering for assess_beneficiary (lets the demo drive each gateway branch).
-_REPAIRABLE_CODES = {"AC01", "AC03", "INCORRECT_ACCOUNT", "RQ01"}
-_UNREPAIRABLE_CODES = {"AC04", "AC06", "RC01", "CLOSED_ACCOUNT", "BLOCKED"}
+# Reason-code steering for assess_beneficiary (drives each gateway branch on the FIRST pass, before any
+# Obtain-Info). Aligned with the re-homed wire-repair seed's original behaviour (ADR-047 D2): the correctable
+# codes AC01/AC04/RC01 are repairable; AC06/CLOSED_ACCOUNT/BLOCKED are unrepairable; anything else is needs_info.
+# After Obtain-Info, the analyst's explicit `resolution` outcome (not a reason code) decides the exit.
+_REPAIRABLE_CODES = {"AC01", "AC03", "AC04", "RC01", "INCORRECT_ACCOUNT", "RQ01"}
+_UNREPAIRABLE_CODES = {"AC06", "CLOSED_ACCOUNT", "BLOCKED"}
 
 
 # --------------------------------------------------------------------------- #
@@ -110,11 +113,22 @@ def enrich_investigation(args: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def assess_beneficiary(args: Dict[str, Any]) -> Dict[str, Any]:
-    hint = _dig(args, "repair_hint")
     codes = set(_reason_codes(args))
-    if hint in S.REPAIR_VERDICTS:
-        verdict = hint
-        rationale = f"steered by repair_hint='{hint}'"
+    # ``resolution`` is the analyst's EXPLICIT disposition from Task_ObtainInfo
+    # (art.payment.info_resolution.outcome), threaded by the pack's input_map only AFTER the analyst completes
+    # Obtain-Info. It is a HUMAN-authored artifact with no agent draft, so the value is a genuine resolution —
+    # NOT a value an LLM restated onto the RFI it was drafting (the bug that made the loop non-terminating).
+    # It is the top-precedence terminator for the needs-info rework loop and the only human-controlled exit:
+    #   ``resolved``      → repairable   (the analyst supplied the missing information)
+    #   ``cannot_obtain`` → unrepairable (the analyst could not obtain it → return funds)
+    # Absent/``null`` on the first pass (no Obtain-Info yet) → fall through to the reason-code assessment.
+    resolution = _dig(args, "resolution")
+    if resolution == "resolved":
+        verdict = "repairable"
+        rationale = "analyst supplied the missing information via Obtain-Info; the beneficiary is now repairable"
+    elif resolution == "cannot_obtain":
+        verdict = "unrepairable"
+        rationale = "analyst could not obtain the required information via Obtain-Info — return funds"
     elif codes & _UNREPAIRABLE_CODES:
         verdict = "unrepairable"
         rationale = f"reason codes {sorted(codes & _UNREPAIRABLE_CODES)} indicate the payment cannot be repaired"
@@ -229,7 +243,29 @@ def execute_return(args: Dict[str, Any]) -> Dict[str, Any]:
 
 
 # --------------------------------------------------------------------------- #
-# The tool registry — the 10 capability tools the wizard onboards.
+# Deep-agent worker tools (ADR-047 D2) — read-only investigation helpers a `deep_agent`
+# capability's loop may call. Ported verbatim from the runtime's ex-in-code `_STUB_WORKER_TOOLS`
+# (same deterministic behaviour), so a re-homed deep_agent pack behaves identically.
+# --------------------------------------------------------------------------- #
+
+def search_payment_history(args: Dict[str, Any]) -> Dict[str, Any]:
+    """Search prior settlement history for an account (read-only)."""
+    return {"account_id": str(_dig(args, "account_id", "unknown-account")), "prior_settlements": []}
+
+
+def name_match(args: Dict[str, Any]) -> Dict[str, Any]:
+    """Fuzzy name-match two party names, returning a 0..1 score (read-only)."""
+    a, b = _name(_dig(args, "name_a")), _name(_dig(args, "name_b"))
+    return {"name_a": a, "name_b": b, "score": 1.0 if a.strip().lower() == b.strip().lower() else 0.4}
+
+
+def fetch_attachment(args: Dict[str, Any]) -> Dict[str, Any]:
+    """Fetch a parsed attachment's contents by id (read-only)."""
+    return {"attachment_id": str(_dig(args, "attachment_id", "att-unknown")), "parsed": {"stub": True}}
+
+
+# --------------------------------------------------------------------------- #
+# The tool registry — the 10 capability tools + 3 deep-agent worker tools the wizard onboards.
 # --------------------------------------------------------------------------- #
 
 class ToolSpec(dict):
@@ -265,6 +301,13 @@ TOOLS: List[ToolSpec] = [
           "read_only", S.DRAFT_RETURN_INPUT, S.DRAFT_RETURN_OUTPUT, draft_return),
     _spec("execute_return", "Execute the approved return and notify (side-effectful).",
           "side_effectful", S.EXECUTE_RETURN_INPUT, S.EXECUTE_RETURN_OUTPUT, execute_return),
+    # ADR-047 D2 — deep-agent worker tools (read-only), whitelisted by a deep_agent's runtime.tools.
+    _spec("search_payment_history", "Search prior settlement history for an account (read-only deep-agent tool).",
+          "read_only", S.SEARCH_HISTORY_INPUT, S.SEARCH_HISTORY_OUTPUT, search_payment_history),
+    _spec("name_match", "Fuzzy-match two party names, returning a 0..1 score (read-only deep-agent tool).",
+          "read_only", S.NAME_MATCH_INPUT, S.NAME_MATCH_OUTPUT, name_match),
+    _spec("fetch_attachment", "Fetch a parsed attachment by id (read-only deep-agent tool).",
+          "read_only", S.FETCH_ATTACHMENT_INPUT, S.FETCH_ATTACHMENT_OUTPUT, fetch_attachment),
 ]
 
 TOOLS_BY_NAME: Dict[str, ToolSpec] = {t["name"]: t for t in TOOLS}
@@ -301,7 +344,7 @@ def _has_ref(schema: Any) -> bool:
 def check_compliance(tools: List[ToolSpec] = TOOLS) -> None:
     """Assert every capability tool is Amendia-MCP-compliant. Raises ``AssertionError``
     (with the offending tool + reason) on the first violation."""
-    assert len(tools) == 10, f"expected 10 capability tools, found {len(tools)}"
+    assert len(tools) == 13, f"expected 13 tools (10 capability + 3 deep-agent worker), found {len(tools)}"
     for t in tools:
         n = t["name"]
         insch, outsch = t["input_schema"], t["output_schema"]

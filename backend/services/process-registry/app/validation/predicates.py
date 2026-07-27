@@ -113,6 +113,125 @@ def evaluate(predicate: Any, envelope: Mapping[str, Any]) -> bool:
     raise PredicateSyntaxError(f"unrecognized predicate node: {sorted(node.keys())}")
 
 
+# --------------------------------------------------------------------------- #
+# Schema-aware validation (batch-4) — validate a triage predicate against the pack's trigger schema so a
+# non-existent field (reason_code vs reason_codes) or a type-incompatible op (eq on an array) is an
+# AUTHORING-TIME error, not a silent runtime miss. Domain-neutral: the schema comes from the declared trigger
+# artifact or the deployment's sample envelopes — never a hardcoded field name.
+# --------------------------------------------------------------------------- #
+
+# Ops allowed per JSON type. None ⇒ type unknown ⇒ skip the op check (be lenient).
+_OPS_BY_TYPE: Mapping[str, Any] = {
+    "array":   {"intersects", "in", "exists"},
+    "string":  {"eq", "ne", "in", "starts_with", "exists"},
+    "number":  {"eq", "ne", "in", "gt", "gte", "lt", "lte", "exists"},
+    "integer": {"eq", "ne", "in", "gt", "gte", "lt", "lte", "exists"},
+    "boolean": {"eq", "ne", "exists"},
+    "object":  {"exists"},
+    "null":    None,
+}
+
+
+def _json_type(v: Any) -> str:
+    if isinstance(v, bool):
+        return "boolean"
+    if isinstance(v, (int, float)):
+        return "number"
+    if isinstance(v, str):
+        return "string"
+    if isinstance(v, (list, tuple, set)):
+        return "array"
+    if isinstance(v, Mapping):
+        return "object"
+    return "null"
+
+
+def infer_field_types(envelopes: Any) -> dict:
+    """Derive a ``{dotpath: json_type}`` map from one or more sample envelopes (deployment-provided trigger
+    shape). Merges across samples; a later non-null type upgrades an earlier ``null``. Empty ⇒ no schema."""
+    out: dict = {}
+
+    def walk(obj: Any, prefix: str) -> None:
+        if not isinstance(obj, Mapping):
+            return
+        for k, v in obj.items():
+            path = f"{prefix}{k}"
+            t = _json_type(v)
+            if path not in out or out[path] == "null":
+                out[path] = t
+            if isinstance(v, Mapping):
+                walk(v, path + ".")
+
+    for env in (envelopes or []):
+        walk(env, "")
+    return out
+
+
+def _levenshtein(a: str, b: str) -> int:
+    if a == b:
+        return 0
+    prev = list(range(len(b) + 1))
+    for i, ca in enumerate(a, 1):
+        cur = [i]
+        for j, cb in enumerate(b, 1):
+            cur.append(min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (ca != cb)))
+        prev = cur
+    return prev[-1]
+
+
+def _nearest(field: str, candidates: Any) -> Any:
+    """The closest schema property to ``field`` by edit distance (≤3 and shorter than the field), or None."""
+    best, best_d = None, 99
+    for c in candidates:
+        d = _levenshtein(field, c)
+        if d < best_d:
+            best, best_d = c, d
+    return best if best is not None and best_d <= 3 else None
+
+
+def validate_predicate(predicate: Any, field_types: Any) -> list:
+    """Schema-aware findings for a triage predicate. ``field_types`` is a ``{dotpath: json_type}`` map (from
+    ``infer_field_types`` / a declared trigger schema); when empty the check degrades to a no-op (structural
+    validation via ``check_predicate`` still applies). Returns a list of dict findings:
+    ``triage_field_unknown`` (with a nearest-match ``suggestion``) and ``triage_op_type_mismatch``."""
+    findings: list = []
+    if not field_types:
+        return findings
+
+    def walk(node: Any) -> None:
+        node = _to_dict(node)
+        if not isinstance(node, Mapping):
+            return
+        if "all" in node or "any" in node:
+            for c in node["all" if "all" in node else "any"]:
+                walk(c)
+            return
+        if "not" in node:
+            walk(node["not"])
+            return
+        if "field" in node and "op" in node:
+            field, op = node.get("field"), node.get("op")
+            if not isinstance(field, str) or not field:
+                return  # structural check owns this
+            if field not in field_types:
+                suggestion = _nearest(field, field_types.keys())
+                msg = f"triage field '{field}' is not on the trigger schema"
+                if suggestion:
+                    msg += f" — did you mean '{suggestion}'?"
+                findings.append({"code": "triage_field_unknown", "field": field, "op": op,
+                                 "suggestion": suggestion, "message": msg})
+                return
+            ftype = field_types[field]
+            allowed = _OPS_BY_TYPE.get(ftype)
+            if allowed is not None and op not in allowed:
+                hint = " — use 'intersects'" if ftype == "array" else ""
+                findings.append({"code": "triage_op_type_mismatch", "field": field, "op": op,
+                                 "message": f"op '{op}' is not valid on {ftype} field '{field}'{hint}"})
+
+    walk(predicate)
+    return findings
+
+
 def check_predicate(predicate: Any, *, _depth: int = 0) -> None:
     """Structural syntax check (raises PredicateSyntaxError). No envelope needed."""
     if _depth > 50:

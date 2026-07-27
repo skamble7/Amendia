@@ -62,19 +62,20 @@ async def test_http_roles_endpoint(client, onboarded):
 # --------------------------------------------------------------------------- #
 
 async def _walk_and_commit_with_meta(svc, role_meta):
-    s = await svc.create(CreateSessionRequest(pack_key="mcp-screen", version="1.0.0", title="MCP screen"), owner=OWNER)
+    s = await svc.create(CreateSessionRequest(pack_key="mcp-screen", version="1.0.0", title="MCP screen", default_domain="payment"), owner=OWNER)
     s = await svc.attach_bpmn(s.session_id, AttachBpmnRequest(bpmn_xml=MCP_BPMN), owner=OWNER)
     s = await svc.set_capabilities(s.session_id, SetCapabilitiesRequest(tools=[_screen_selection()]), owner=OWNER)
     binding = BindingInput(
         element_id="Task_Screen", element_kind="serviceTask", executor_type="capability",
         capability_ref="cap.payment.screen_party@^1.0.0", hitl_mode="review_after",
         hitl_role="role.payments.ops_analyst",
+        input_sources={"screen_party_input": {"from": "trigger"}},
     )
     s = await svc.set_bindings(s.session_id, SetBindingsRequest(bindings=[binding]), owner=OWNER)
     s = await svc.set_triage(
         s.session_id,
         SetTriageRequest(triage_rules=[StagedTriageRule(rule_id="r1", priority=100,
-                                                        when={"field": "reason_code", "op": "eq", "value": "AC01"})]),
+                                                        when={"field": "reason_codes", "op": "intersects", "value": ["AC01"]})]),
         owner=OWNER,
     )
     s = await svc.set_policies(
@@ -114,7 +115,7 @@ async def test_missing_meta_falls_back_to_humanized_label(onboarding_service, pa
 
 async def test_set_policies_drops_meta_for_unknown_roles(onboarding_service):
     s = await onboarding_service.create(
-        CreateSessionRequest(pack_key="mcp-screen", version="1.0.0", title="t"), owner=OWNER)
+        CreateSessionRequest(pack_key="mcp-screen", version="1.0.0", title="t", default_domain="payment"), owner=OWNER)
     s = await onboarding_service.attach_bpmn(s.session_id, AttachBpmnRequest(bpmn_xml=MCP_BPMN), owner=OWNER)
     s = await onboarding_service.set_capabilities(
         s.session_id, SetCapabilitiesRequest(tools=[_screen_selection()]), owner=OWNER)
@@ -122,12 +123,13 @@ async def test_set_policies_drops_meta_for_unknown_roles(onboarding_service):
         element_id="Task_Screen", element_kind="serviceTask", executor_type="capability",
         capability_ref="cap.payment.screen_party@^1.0.0", hitl_mode="review_after",
         hitl_role="role.payments.ops_analyst",
+        input_sources={"screen_party_input": {"from": "trigger"}},
     )
     s = await onboarding_service.set_bindings(s.session_id, SetBindingsRequest(bindings=[binding]), owner=OWNER)
     s = await onboarding_service.set_triage(
         s.session_id,
         SetTriageRequest(triage_rules=[StagedTriageRule(rule_id="r1", priority=100,
-                                                        when={"field": "reason_code", "op": "eq", "value": "AC01"})]),
+                                                        when={"field": "reason_codes", "op": "intersects", "value": ["AC01"]})]),
         owner=OWNER,
     )
     s = await onboarding_service.set_policies(

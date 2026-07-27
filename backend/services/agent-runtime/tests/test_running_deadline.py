@@ -22,6 +22,7 @@ from app.config import settings
 from app.engine.bundle import PackBundle
 from app.engine.compiler import CompilerError, compile_graph
 from app.engine.executor import InProcessExecutor
+from tests._stub_stack import stub_executor
 from app.engine.state import initial_state
 from app.engine.task_runner import NodeContext, OutputSpec, make_task_node
 from tests._wire import drive, make_envelope
@@ -148,7 +149,7 @@ def test_non_autonomous_host_refused_at_compile():
     # process-registry suite; side-effectful ⇒ approve_actions, so the hitl guard fires first at compile.)
     b = _bundle(_boundary_on("Task_ApplyRepair"))
     with pytest.raises(CompilerError, match="autonomous"):
-        compile_graph(b, InProcessExecutor(), simulation=True, checkpointer=MemorySaver(),
+        compile_graph(b, stub_executor(), simulation=True, checkpointer=MemorySaver(),
                       profile="common_executable")
 
 
@@ -160,7 +161,7 @@ class _HybridBlock:
 
     def __init__(self, block_cap):
         self._block = block_cap
-        self._fallback = InProcessExecutor()
+        self._fallback = stub_executor()
 
     def execute(self, descriptor, inputs, ctx):
         if descriptor.capability_id == self._block:
@@ -174,7 +175,7 @@ def test_graph_within_deadline_completes_normally():
     # Task_EnrichPayment (read_only, hitl none) with a timer boundary; sim enrich is instant → within
     # the deadline → normal completion, no boundary mark (idle-gate + non-boundary paths unchanged).
     b = _bundle(_boundary_on("Task_EnrichPayment"))
-    app = compile_graph(b, InProcessExecutor(), simulation=True, checkpointer=MemorySaver(),
+    app = compile_graph(b, stub_executor(), simulation=True, checkpointer=MemorySaver(),
                         profile="common_executable")
     env = make_envelope("AC01"); env["reason_codes"] = ["AC01"]
     final, _ = drive(app, {"configurable": {"thread_id": "sla-ok"}},

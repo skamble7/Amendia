@@ -1,0 +1,301 @@
+{
+  "artifact_key": "art.payment.wire_exception",
+  "version": "1.0.0",
+  "title": "Wire exception envelope (pack trigger)",
+  "json_schema": {
+    "description": "The business payload the generator emits.",
+    "properties": {
+      "exception_id": {
+        "title": "Exception Id",
+        "type": "string"
+      },
+      "source": {
+        "properties": {
+          "system": {
+            "title": "System",
+            "type": "string"
+          },
+          "channel": {
+            "title": "Channel",
+            "type": "string"
+          }
+        },
+        "required": [
+          "system",
+          "channel"
+        ],
+        "title": "Source",
+        "type": "object"
+      },
+      "received_at": {
+        "title": "Received At",
+        "type": "string"
+      },
+      "exception_type": {
+        "title": "Exception Type",
+        "type": "string"
+      },
+      "reason_codes": {
+        "items": {
+          "type": "string"
+        },
+        "title": "Reason Codes",
+        "type": "array"
+      },
+      "reason_narrative": {
+        "title": "Reason Narrative",
+        "type": "string"
+      },
+      "status": {
+        "title": "Status",
+        "type": "string"
+      },
+      "payment": {
+        "description": "pacs.008-shaped payment block.",
+        "properties": {
+          "msg_type": {
+            "title": "Msg Type",
+            "type": "string"
+          },
+          "uetr": {
+            "title": "Uetr",
+            "type": "string"
+          },
+          "instruction_id": {
+            "title": "Instruction Id",
+            "type": "string"
+          },
+          "end_to_end_id": {
+            "title": "End To End Id",
+            "type": "string"
+          },
+          "settlement_amount": {
+            "properties": {
+              "currency": {
+                "title": "Currency",
+                "type": "string"
+              },
+              "value": {
+                "title": "Value",
+                "type": "number"
+              }
+            },
+            "required": [
+              "currency",
+              "value"
+            ],
+            "title": "MonetaryAmount",
+            "type": "object"
+          },
+          "value_date": {
+            "title": "Value Date",
+            "type": "string"
+          },
+          "debtor": {
+            "properties": {
+              "name": {
+                "title": "Name",
+                "type": "string"
+              },
+              "account": {
+                "anyOf": [
+                  {
+                    "properties": {
+                      "id": {
+                        "title": "Id",
+                        "type": "string"
+                      },
+                      "scheme": {
+                        "title": "Scheme",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "scheme"
+                    ],
+                    "title": "Account",
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              }
+            },
+            "required": [
+              "name"
+            ],
+            "title": "Party",
+            "type": "object"
+          },
+          "debtor_agent": {
+            "properties": {
+              "bic": {
+                "title": "Bic",
+                "type": "string"
+              }
+            },
+            "required": [
+              "bic"
+            ],
+            "title": "Agent",
+            "type": "object"
+          },
+          "creditor": {
+            "properties": {
+              "name": {
+                "title": "Name",
+                "type": "string"
+              },
+              "account": {
+                "anyOf": [
+                  {
+                    "properties": {
+                      "id": {
+                        "title": "Id",
+                        "type": "string"
+                      },
+                      "scheme": {
+                        "title": "Scheme",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "scheme"
+                    ],
+                    "title": "Account",
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              }
+            },
+            "required": [
+              "name"
+            ],
+            "title": "Party",
+            "type": "object"
+          },
+          "creditor_agent": {
+            "properties": {
+              "bic": {
+                "title": "Bic",
+                "type": "string"
+              }
+            },
+            "required": [
+              "bic"
+            ],
+            "title": "Agent",
+            "type": "object"
+          },
+          "charges": {
+            "title": "Charges",
+            "type": "string"
+          }
+        },
+        "required": [
+          "msg_type",
+          "uetr",
+          "instruction_id",
+          "end_to_end_id",
+          "settlement_amount",
+          "value_date",
+          "debtor",
+          "debtor_agent",
+          "creditor",
+          "creditor_agent",
+          "charges"
+        ],
+        "title": "PaymentDetails",
+        "type": "object"
+      },
+      "related_messages": {
+        "items": {
+          "properties": {
+            "type": {
+              "title": "Type",
+              "type": "string"
+            },
+            "id": {
+              "title": "Id",
+              "type": "string"
+            },
+            "assigner_bic": {
+              "title": "Assigner Bic",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "id",
+            "assigner_bic"
+          ],
+          "title": "RelatedMessage",
+          "type": "object"
+        },
+        "title": "Related Messages",
+        "type": "array"
+      },
+      "attachments": {
+        "items": {
+          "properties": {
+            "attachment_id": {
+              "title": "Attachment Id",
+              "type": "string"
+            },
+            "name": {
+              "title": "Name",
+              "type": "string"
+            },
+            "media_type": {
+              "title": "Media Type",
+              "type": "string"
+            },
+            "sha256": {
+              "title": "Sha256",
+              "type": "string"
+            },
+            "fetch_url": {
+              "title": "Fetch Url",
+              "type": "string"
+            }
+          },
+          "required": [
+            "attachment_id",
+            "name",
+            "media_type",
+            "sha256",
+            "fetch_url"
+          ],
+          "title": "Attachment",
+          "type": "object"
+        },
+        "title": "Attachments",
+        "type": "array"
+      }
+    },
+    "required": [
+      "exception_id",
+      "source",
+      "received_at",
+      "exception_type",
+      "reason_codes",
+      "reason_narrative",
+      "status",
+      "payment"
+    ],
+    "title": "WireExceptionEnvelope",
+    "type": "object",
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://amendia.dev/schemas/artifacts/payment/wire_exception/1.0.0.json"
+  },
+  "compatibility": "backward",
+  "status": "active"
+}

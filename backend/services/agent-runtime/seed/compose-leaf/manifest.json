@@ -55,7 +55,12 @@
           "name": "leafout",
           "schema": "art.compose.val@^1.0.0"
         }
-      ]
+      ],
+      "input_map": {
+        "inp": {
+          "from": "trigger"
+        }
+      }
     }
   ],
   "status": "draft"

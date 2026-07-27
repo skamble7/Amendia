@@ -140,6 +140,43 @@ class ArtifactIO(ContractModel):
     required: bool = True
 
 
+# --------------------------------------------------------------------------- #
+# ADR-048 — capability binding input_map: declare where each input's data comes from, so an
+# MCP-per-process pack (per-tool inputs that don't share names) actually chains at runtime.
+# --------------------------------------------------------------------------- #
+
+class TriggerSource(ContractModel):
+    """The process trigger payload (today the exception envelope), whole or a dotpath into it."""
+    from_: Literal["trigger"] = Field(..., alias="from")
+    path: Optional[str] = None                                 # dotpath into the trigger, else whole
+
+
+class ArtifactSource(ContractModel):
+    """A named artifact an upstream binding produced, whole or a dotpath into it."""
+    from_: Literal["artifact"] = Field(..., alias="from")
+    name: str                                                  # the upstream output (artifact) name
+    path: Optional[str] = None                                 # dotpath into that artifact, else whole
+    # ADR-048 (rework loops): when the referenced artifact is produced only on a LATER loop iteration (e.g. a
+    # human's ObtainInfo output feeding a re-assessment), it is legitimately absent on the first pass. An
+    # optional source resolves to ``None`` when absent instead of hard-failing — so the re-entered node can
+    # read the human's info once the loop supplies it, and runs clean before the loop exists. Defaults to
+    # ``None`` (not ``False``) so it is omitted from serialized input_maps unless explicitly set — the same
+    # exclude-when-unset treatment as ``path``.
+    optional: Optional[bool] = None
+
+
+class FieldsSource(ContractModel):
+    """Composite: build an object field-by-field (constructs an MCP tool's arguments from a mix of
+    trigger + upstream outputs)."""
+    fields: Dict[str, "InputSource"]
+
+
+# Smart union: trigger/artifact carry a "from" tag, fields carries "fields" — disjoint required keys.
+InputSource = Union[TriggerSource, ArtifactSource, FieldsSource]
+
+FieldsSource.model_rebuild()   # resolve the recursive "InputSource" forward ref
+
+
 class Binding(ContractModel):
     element_id: str
     # ADR-033 (Phase 2.7): the full standard BPMN task set (each routes to an executor category).
@@ -155,6 +192,10 @@ class Binding(ContractModel):
     # A message binding's outputs are OPTIONAL: if declared, the delivered payload validates against
     # the pinned artifact schema and commits as that artifact; if absent, the message is a pure signal.
     outputs: List[ArtifactIO] = Field(default_factory=list)
+    # ADR-048 (additive): per-input data source — input name → where its value comes from (the trigger,
+    # a named upstream output, or a composite of both). Optional: a binding without it behaves exactly as
+    # today (shared-name chaining). Keyed by the binding input name.
+    input_map: Dict[str, InputSource] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def _executor_matches_kind(self) -> "Binding":
@@ -236,6 +277,11 @@ class ProcessPackManifest(ContractModel, TimestampsMixin):
     title: str
     description: Optional[str] = None
     process: ProcessRef
+    # ADR-047 D1: the pack's declared TRIGGER artifact — the schema of the inbound trigger payload (the
+    # exception envelope) this pack handles. The engine validates the fetched envelope against this schema
+    # (domain-neutral: no concrete envelope type is imported). Additive/optional — a pack that declares no
+    # trigger has its envelope treated as opaque (any JSON object accepted).
+    trigger: Optional[ArtifactRef] = None
     triage_rules: List[TriageRule] = Field(..., min_length=1)
     requires_capabilities: List[RequiresCapability]
     artifacts: List[ArtifactRef]

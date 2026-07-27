@@ -34,17 +34,17 @@ async def test_capabilities_and_schemas_retrievable(client, seeded):
     caps = (await client.get("/capabilities")).json()
     assert len(caps) == 10
     schemas = (await client.get("/artifact-schemas")).json()
-    assert len(schemas) == 7
+    assert len(schemas) == 9   # ADR-047 D2: + art.payment.info_resolution (needs-info human exit)
     one = await client.get("/capabilities/cap.payment.sanctions_screen/1.0.0")
     assert one.status_code == 200 and one.json()["kind"] == "mcp"
-    rv = await client.get("/artifact-schemas/art.payment.repair_verdict/1.0.0")
+    rv = await client.get("/artifact-schemas/art.payment.assess_beneficiary_output/1.0.0")
     assert rv.status_code == 200
     assert "repair_verdict" in rv.json()["json_schema"]["required"]
 
 
 async def test_capability_kind_filter(client, seeded):
     mcp = (await client.get("/capabilities", params={"kind": "mcp"})).json()
-    assert len(mcp) == 1
+    assert len(mcp) == 6
 
 
 async def test_unknown_returns_404(client, seeded):

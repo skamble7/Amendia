@@ -14,14 +14,11 @@ from amendia_contracts.common import HitlMode
 from amendia_contracts.process_pack import ProcessPackManifest
 from app.validation.report import ValidationReport
 
-# Named worker functions a deep_agent may call (read-only investigation helpers). The actual
-# implementations live in the agent-runtime worker; the registry only checks the id resolves.
-KNOWN_WORKER_TOOLS = {
-    "fetch_attachment",
-    "search_payment_history",
-    "name_match",
-    "screen_party",
-}
+# ADR-047 D2: the platform carries NO domain tool list. A deep_agent's whitelisted tools are MCP tools that
+# must resolve to a **registered MCP capability in the pack** (its investigation tools are declared as mcp
+# tool-capabilities in the pack's `requires_capabilities`, same as any other tool). Kept as an (empty) set so
+# a future platform-level tool — if one is ever genuinely domain-neutral — has a home without a code change.
+KNOWN_WORKER_TOOLS: set = set()
 
 
 def _kind(desc: CapabilityDescriptor) -> str:

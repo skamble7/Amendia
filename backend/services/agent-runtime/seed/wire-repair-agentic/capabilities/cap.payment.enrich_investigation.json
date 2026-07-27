@@ -4,19 +4,29 @@
   "version": "1.0.0",
   "title": "Enrich & investigate payment",
   "description": "Pulls the payment record, gpi/tracker status, account history and attachment summaries into an investigation dossier.",
-  "kind": "skill",
+  "kind": "mcp",
   "side_effect": "read_only",
   "idempotent": true,
-  "inputs": [],
+  "inputs": [
+    {
+      "name": "trigger",
+      "schema": "art.payment.wire_exception@^1.0.0"
+    }
+  ],
   "outputs": [
     {
       "name": "dossier",
-      "schema": "art.payment.investigation_dossier@^1.0.0"
+      "schema": "art.payment.enrich_investigation_output@^1.0.0"
     }
   ],
   "runtime": {
-    "kind": "skill",
-    "entrypoint": "app.capabilities.wire_repair.enrich:run"
+    "kind": "mcp",
+    "endpoint": "http://wirefix-mcp:8060/mcp",
+    "tools": [
+      "enrich_investigation"
+    ],
+    "transport": "streamable_http",
+    "headers": {}
   },
   "constraints": {
     "timeout_seconds": 120,

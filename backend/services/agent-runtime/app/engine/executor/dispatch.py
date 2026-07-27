@@ -39,9 +39,24 @@ class InProcessExecutor:
     disabled so ``native`` stays byte-for-byte unless ``AGENTRT_MEMOIZE_CAPABILITIES`` is set.
     """
 
-    def __init__(self, *, memo: Optional[Any] = None, memoize: bool = False) -> None:
+    def __init__(self, *, memo: Optional[Any] = None, memoize: bool = False,
+                 mcp_client: Optional[Any] = None, deep_agent_runner: Optional[Any] = None,
+                 stub_inference: bool = False, skill_impls: Optional[Dict[str, Any]] = None) -> None:
         self._memo = memo
         self._memoize = memoize
+        # ADR-047 D2: a `{capability_id: callable}` map of skill doubles (dev/CI) so a structural pack runs
+        # with the skill behavior in the fixture layer, not the platform image.
+        self._skill_impls = skill_impls
+        # ADR-047 D2: the MCP client `mcp`-kind capabilities dispatch through — the HTTP client (POSTs
+        # `tools/call` to the descriptor's self-descriptive endpoint, ADR-024) in production, or an
+        # in-process client (server tools as callables) in tests/dev. There is NO simulation fallback:
+        # post-D2 an `mcp` capability with `mcp_client=None` fails closed (see `core.py`). The composition
+        # root (`factory._capability_stack`) must wire this for every executor — production and dev alike.
+        self._mcp_client = mcp_client
+        # ADR-047 D2: a `deep_agent` runner (e.g. SchemaStubDeepAgentRunner) + a `stub_inference` flag that
+        # make `llm`/`deep_agent` caps produce schema-valid stubs — a `SIM_CAPABILITIES`-free dev/CI fake.
+        self._deep_agent_runner = deep_agent_runner
+        self._stub_inference = stub_inference
 
     def execute(
         self, descriptor: CapabilityDescriptor, inputs: Dict[str, Any], ctx: ExecutionContext
@@ -54,9 +69,11 @@ class InProcessExecutor:
     def _execute_uncached(
         self, descriptor: CapabilityDescriptor, inputs: Dict[str, Any], ctx: ExecutionContext
     ) -> Dict[str, Any]:
-        # Native runs the shared core in-process with no MCP client → mcp falls back to the
-        # simulation skill exactly as before (ADR-020: one execution implementation).
-        return execute_capability(descriptor, inputs, ctx, mcp_client=None)
+        # One execution implementation (ADR-020). With no MCP client, `mcp` falls back to the simulation
+        # skill exactly as before; with one injected, `mcp` brokers through it (ADR-047 D2).
+        return execute_capability(descriptor, inputs, ctx, mcp_client=self._mcp_client,
+                                  deep_agent_runner=self._deep_agent_runner,
+                                  stub_inference=self._stub_inference, skill_impls=self._skill_impls)
 
 
 # --------------------------------------------------------------------------- #
@@ -68,28 +85,32 @@ class InProcessExecutor:
 def run_real_llm(
     *, capability_id: str, targets, ref: str, inputs: Dict[str, Any], envelope: Dict[str, Any],
     error_codes: Optional[list] = None, cancel: Optional[Any] = None,
+    title: Optional[str] = None, description: Optional[str] = None,
 ):
     """Prompt the configured model for one schema-constrained JSON object per target.
 
     ``targets`` is a list of ``(artifact_key, json_schema_or_None)``. Returns
     ``(produced, provider, model)`` where ``produced`` maps artifact_key → parsed dict.
 
-    ``error_codes`` (ADR-035) are the legal error boundary codes for this element; when non-empty
-    the system prompt tells the model it MAY, for a *modeled* failure (payment rejected, screening
-    hit, insufficient info), return ``{"business_error": {"code": "<one of the listed codes>",
-    "detail": {...}}}`` instead of the artifact. Such a response is detected and re-raised as a
-    :class:`CapabilityBusinessError` (routed to the boundary); genuine LLM/transport failures and
-    non-JSON output stay a technical :class:`CapabilityError`.
+    The system framing is **descriptor-sourced** and domain-neutral (ADR-047): the capability's role
+    comes from its registered ``title``/``description`` and the artifact it must produce — the platform
+    embeds no business-area noun. ``error_codes`` (ADR-035) are the legal error boundary codes for this
+    element; when non-empty the model MAY, for a *modeled* failure, return
+    ``{"business_error": {"code": "<one of the listed codes>", "detail": {...}}}`` instead of the artifact.
+    Such a response is re-raised as a :class:`CapabilityBusinessError` (routed to the boundary); genuine
+    LLM/transport failures and non-JSON output stay a technical :class:`CapabilityError`.
     """
     client = _llm_client(ref)
     codes = [c for c in (error_codes or []) if c]
     error_hint = (
-        "\n\nIf — and ONLY if — a modeled business failure applies (e.g. the payment is rejected, "
-        "a screening hit, or information is insufficient), you MAY instead return "
+        "\n\nIf — and ONLY if — a modeled business failure applies, you MAY instead return "
         '{"business_error": {"code": "<CODE>", "detail": {...}}} where <CODE> is EXACTLY one of: '
         f"{', '.join(codes)}. Otherwise return the artifact as instructed."
         if codes else ""
     )
+    # Descriptor-sourced role clause — the domain (if any) lives in the registered title/description.
+    role = f" — {title}" if title else ""
+    role_desc = f" {description}" if description else ""
     produced: Dict[str, Any] = {}
     provider = model = None
     for artifact_key, schema in targets:
@@ -104,16 +125,15 @@ def run_real_llm(
             {
                 "role": "system",
                 "content": (
-                    f"You are the '{capability_id}' capability in a payments "
-                    f"exception-repair workflow. Produce a SINGLE JSON object for artifact "
-                    f"'{artifact_key}'. Respond with JSON only — no markdown, no prose, no code "
-                    f"fences.{schema_hint}{error_hint}"
+                    f"You are the '{capability_id}' capability{role}.{role_desc} Produce a SINGLE "
+                    f"JSON object for artifact '{artifact_key}'. Respond with JSON only — no markdown, "
+                    f"no prose, no code fences.{schema_hint}{error_hint}"
                 ),
             },
             {
                 "role": "user",
                 "content": (
-                    f"Payment exception envelope:\n{json.dumps(envelope, default=str)}\n\n"
+                    f"Trigger:\n{json.dumps(envelope, default=str)}\n\n"
                     f"Upstream artifacts (inputs):\n{json.dumps(inputs, default=str)}"
                 ),
             },

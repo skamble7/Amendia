@@ -17,6 +17,7 @@ from app.engine.bundle import PackBundle
 from app.engine.call_activity import CallActivityError, flatten_call_activities
 from app.engine.compiler import CompilerError, compile_graph
 from app.engine.executor import InProcessExecutor
+from tests._structural_tools import STRUCTURAL_IMPLS
 from app.engine.state import initial_state
 from tests._wire import drive, make_envelope
 
@@ -29,7 +30,7 @@ def _provider(pack_key, version):
 
 def _run(pack_key, tid, *, provider=_provider):
     b = PackBundle.from_seed_dir(SEED / pack_key)
-    app = compile_graph(b, InProcessExecutor(), simulation=True, checkpointer=MemorySaver(),
+    app = compile_graph(b, InProcessExecutor(skill_impls=STRUCTURAL_IMPLS), simulation=True, checkpointer=MemorySaver(),
                         profile="common_executable", bundle_provider=provider)
     init = initial_state(envelope=make_envelope("AC01"), trace={"correlation_id": "c"},
                          pack={"pack_key": pack_key, "pack_version": "1.0.0"})
@@ -81,7 +82,7 @@ def test_nested_three_levels_flattens_and_runs():
 def test_cycle_refused():
     b = PackBundle.from_seed_dir(SEED / "compose-cyc-a")
     with pytest.raises(CompilerError, match="cycle"):
-        compile_graph(b, InProcessExecutor(), simulation=True, checkpointer=MemorySaver(),
+        compile_graph(b, InProcessExecutor(skill_impls=STRUCTURAL_IMPLS), simulation=True, checkpointer=MemorySaver(),
                       profile="common_executable", bundle_provider=_provider)
 
 
@@ -94,7 +95,7 @@ def test_depth_refused():
 def test_composite_without_provider_refused():
     b = PackBundle.from_seed_dir(SEED / "compose-caller")
     with pytest.raises(CompilerError):
-        compile_graph(b, InProcessExecutor(), simulation=True, checkpointer=MemorySaver(),
+        compile_graph(b, InProcessExecutor(skill_impls=STRUCTURAL_IMPLS), simulation=True, checkpointer=MemorySaver(),
                       profile="common_executable", bundle_provider=None)
 
 
@@ -111,6 +112,6 @@ def test_pinned_callee_version_from_resolution_is_used():
         seen[pack_key] = version
         return PackBundle.from_seed_dir(SEED / pack_key)
 
-    compile_graph(b, InProcessExecutor(), simulation=True, checkpointer=MemorySaver(),
+    compile_graph(b, InProcessExecutor(skill_impls=STRUCTURAL_IMPLS), simulation=True, checkpointer=MemorySaver(),
                   profile="common_executable", bundle_provider=pinning_provider)
     assert seen["compose-leaf"] == "1.0.0"  # the pinned exact version, not the "^1.0.0" range

@@ -1,0 +1,151 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" id="Defs_Process_WireRepairManual" targetNamespace="http://amendia.example/wire">
+<bpmn:collaboration id="Collab_Process_WireRepairManual">
+  <bpmn:participant id="Participant_Process_WireRepairManual" name="Wire Transfer Exception — Repair / Return (current, manual)" processRef="Process_WireRepairManual"/>
+</bpmn:collaboration>
+<bpmn:process id="Process_WireRepairManual" name="Wire Transfer Exception — Repair / Return (current, manual)" isExecutable="true">
+  <bpmn:laneSet id="LaneSet_1">
+    <bpmn:lane id="Lane_Analyst" name="Ops Analyst">
+      <bpmn:flowNodeRef>Start_Q</bpmn:flowNodeRef>
+      <bpmn:flowNodeRef>Pull</bpmn:flowNodeRef>
+      <bpmn:flowNodeRef>Investigate</bpmn:flowNodeRef>
+      <bpmn:flowNodeRef>Gw</bpmn:flowNodeRef>
+      <bpmn:flowNodeRef>DraftRepair</bpmn:flowNodeRef>
+      <bpmn:flowNodeRef>ReScreen</bpmn:flowNodeRef>
+      <bpmn:flowNodeRef>ApplyRepair</bpmn:flowNodeRef>
+      <bpmn:flowNodeRef>Notify</bpmn:flowNodeRef>
+      <bpmn:flowNodeRef>Record</bpmn:flowNodeRef>
+      <bpmn:flowNodeRef>End_Resolved</bpmn:flowNodeRef>
+      <bpmn:flowNodeRef>ObtainInfo</bpmn:flowNodeRef>
+      <bpmn:flowNodeRef>DraftReturn</bpmn:flowNodeRef>
+      <bpmn:flowNodeRef>ExecuteReturn</bpmn:flowNodeRef>
+      <bpmn:flowNodeRef>End_Returned</bpmn:flowNodeRef>
+    </bpmn:lane>
+    <bpmn:lane id="Lane_Approver" name="Ops Approver">
+      <bpmn:flowNodeRef>ApproveRepair</bpmn:flowNodeRef>
+      <bpmn:flowNodeRef>ApproveReturn</bpmn:flowNodeRef>
+    </bpmn:lane>
+  </bpmn:laneSet>
+  <bpmn:startEvent id="Start_Q" name="Exception lands in ops queue">
+    <bpmn:outgoing>f_start</bpmn:outgoing>
+  </bpmn:startEvent>
+  <bpmn:userTask id="Pull" name="Pull payment from core banking">
+    <bpmn:incoming>f_start</bpmn:incoming>
+    <bpmn:outgoing>f_pull</bpmn:outgoing>
+  </bpmn:userTask>
+  <bpmn:userTask id="Investigate" name="Investigate &amp; assess repairability">
+    <bpmn:incoming>f_pull</bpmn:incoming>
+    <bpmn:incoming>f_info_assess</bpmn:incoming>
+    <bpmn:outgoing>f_inv</bpmn:outgoing>
+  </bpmn:userTask>
+  <bpmn:exclusiveGateway id="Gw" name="Repairable?" default="f_info">
+    <bpmn:incoming>f_inv</bpmn:incoming>
+    <bpmn:outgoing>f_rep</bpmn:outgoing>
+    <bpmn:outgoing>f_unrep</bpmn:outgoing>
+    <bpmn:outgoing>f_info</bpmn:outgoing>
+  </bpmn:exclusiveGateway>
+  <bpmn:userTask id="DraftRepair" name="Draft repair manually">
+    <bpmn:incoming>f_rep</bpmn:incoming>
+    <bpmn:outgoing>f_draft_app</bpmn:outgoing>
+  </bpmn:userTask>
+  <bpmn:userTask id="ReScreen" name="Re-screen sanctions (manual)">
+    <bpmn:incoming>f_app_screen</bpmn:incoming>
+    <bpmn:outgoing>f_screen_apply</bpmn:outgoing>
+  </bpmn:userTask>
+  <bpmn:userTask id="ApplyRepair" name="Key repair into rail &amp; release">
+    <bpmn:incoming>f_screen_apply</bpmn:incoming>
+    <bpmn:outgoing>f_apply_notify</bpmn:outgoing>
+  </bpmn:userTask>
+  <bpmn:userTask id="Notify" name="Notify parties (email / SWIFT)">
+    <bpmn:incoming>f_apply_notify</bpmn:incoming>
+    <bpmn:outgoing>f_notify_rec</bpmn:outgoing>
+  </bpmn:userTask>
+  <bpmn:userTask id="Record" name="Record resolution (spreadsheet)">
+    <bpmn:incoming>f_notify_rec</bpmn:incoming>
+    <bpmn:outgoing>f_rec_end</bpmn:outgoing>
+  </bpmn:userTask>
+  <bpmn:endEvent id="End_Resolved" name="Resolved">
+    <bpmn:incoming>f_rec_end</bpmn:incoming>
+  </bpmn:endEvent>
+  <bpmn:userTask id="ObtainInfo" name="Chase missing info (email / phone)">
+    <bpmn:incoming>f_info</bpmn:incoming>
+    <bpmn:outgoing>f_info_assess</bpmn:outgoing>
+  </bpmn:userTask>
+  <bpmn:userTask id="DraftReturn" name="Draft return (pacs.004)">
+    <bpmn:incoming>f_unrep</bpmn:incoming>
+    <bpmn:outgoing>f_dr_app</bpmn:outgoing>
+  </bpmn:userTask>
+  <bpmn:userTask id="ExecuteReturn" name="Execute return manually">
+    <bpmn:incoming>f_app_exec</bpmn:incoming>
+    <bpmn:outgoing>f_exec_end</bpmn:outgoing>
+  </bpmn:userTask>
+  <bpmn:endEvent id="End_Returned" name="Returned">
+    <bpmn:incoming>f_exec_end</bpmn:incoming>
+  </bpmn:endEvent>
+  <bpmn:userTask id="ApproveRepair" name="Approve repair (four-eyes)">
+    <bpmn:incoming>f_draft_app</bpmn:incoming>
+    <bpmn:outgoing>f_app_screen</bpmn:outgoing>
+  </bpmn:userTask>
+  <bpmn:userTask id="ApproveReturn" name="Approve return (four-eyes)">
+    <bpmn:incoming>f_dr_app</bpmn:incoming>
+    <bpmn:outgoing>f_app_exec</bpmn:outgoing>
+  </bpmn:userTask>
+  <bpmn:sequenceFlow id="f_start" sourceRef="Start_Q" targetRef="Pull"/>
+  <bpmn:sequenceFlow id="f_pull" sourceRef="Pull" targetRef="Investigate"/>
+  <bpmn:sequenceFlow id="f_inv" sourceRef="Investigate" targetRef="Gw"/>
+  <bpmn:sequenceFlow id="f_rep" name="repairable" sourceRef="Gw" targetRef="DraftRepair">
+    <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression" language="https://www.omg.org/spec/DMN/20191111/FEEL/">beneficiary.repair_verdict = &quot;repairable&quot;</bpmn:conditionExpression>
+  </bpmn:sequenceFlow>
+  <bpmn:sequenceFlow id="f_unrep" name="unrepairable" sourceRef="Gw" targetRef="DraftReturn">
+    <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression" language="https://www.omg.org/spec/DMN/20191111/FEEL/">beneficiary.repair_verdict = &quot;unrepairable&quot;</bpmn:conditionExpression>
+  </bpmn:sequenceFlow>
+  <bpmn:sequenceFlow id="f_info" name="needs info" sourceRef="Gw" targetRef="ObtainInfo"/>
+  <bpmn:sequenceFlow id="f_draft_app" sourceRef="DraftRepair" targetRef="ApproveRepair"/>
+  <bpmn:sequenceFlow id="f_app_screen" sourceRef="ApproveRepair" targetRef="ReScreen"/>
+  <bpmn:sequenceFlow id="f_screen_apply" sourceRef="ReScreen" targetRef="ApplyRepair"/>
+  <bpmn:sequenceFlow id="f_apply_notify" sourceRef="ApplyRepair" targetRef="Notify"/>
+  <bpmn:sequenceFlow id="f_notify_rec" sourceRef="Notify" targetRef="Record"/>
+  <bpmn:sequenceFlow id="f_rec_end" sourceRef="Record" targetRef="End_Resolved"/>
+  <bpmn:sequenceFlow id="f_info_assess" sourceRef="ObtainInfo" targetRef="Investigate"/>
+  <bpmn:sequenceFlow id="f_dr_app" sourceRef="DraftReturn" targetRef="ApproveReturn"/>
+  <bpmn:sequenceFlow id="f_app_exec" sourceRef="ApproveReturn" targetRef="ExecuteReturn"/>
+  <bpmn:sequenceFlow id="f_exec_end" sourceRef="ExecuteReturn" targetRef="End_Returned"/>
+</bpmn:process>
+<bpmndi:BPMNDiagram id="Diag"><bpmndi:BPMNPlane id="Plane" bpmnElement="Collab_Process_WireRepairManual">
+  <bpmndi:BPMNShape id="di_pool" bpmnElement="Participant_Process_WireRepairManual" isHorizontal="true"><dc:Bounds x="120" y="100" width="2270" height="424"/></bpmndi:BPMNShape>
+  <bpmndi:BPMNShape id="di_Lane_Analyst" bpmnElement="Lane_Analyst" isHorizontal="true"><dc:Bounds x="150" y="127" width="2240" height="252"/></bpmndi:BPMNShape>
+  <bpmndi:BPMNShape id="di_Lane_Approver" bpmnElement="Lane_Approver" isHorizontal="true"><dc:Bounds x="150" y="367" width="2240" height="132"/></bpmndi:BPMNShape>
+  <bpmndi:BPMNShape id="di_Start_Q" bpmnElement="Start_Q"><dc:Bounds x="282" y="169" width="36" height="36"/></bpmndi:BPMNShape>
+  <bpmndi:BPMNShape id="di_Pull" bpmnElement="Pull"><dc:Bounds x="430" y="150" width="120" height="74"/></bpmndi:BPMNShape>
+  <bpmndi:BPMNShape id="di_Investigate" bpmnElement="Investigate"><dc:Bounds x="620" y="150" width="120" height="74"/></bpmndi:BPMNShape>
+  <bpmndi:BPMNShape id="di_Gw" bpmnElement="Gw"><dc:Bounds x="845" y="162" width="50" height="50"/></bpmndi:BPMNShape>
+  <bpmndi:BPMNShape id="di_DraftRepair" bpmnElement="DraftRepair"><dc:Bounds x="1000" y="150" width="120" height="74"/></bpmndi:BPMNShape>
+  <bpmndi:BPMNShape id="di_ReScreen" bpmnElement="ReScreen"><dc:Bounds x="1380" y="150" width="120" height="74"/></bpmndi:BPMNShape>
+  <bpmndi:BPMNShape id="di_ApplyRepair" bpmnElement="ApplyRepair"><dc:Bounds x="1570" y="150" width="120" height="74"/></bpmndi:BPMNShape>
+  <bpmndi:BPMNShape id="di_Notify" bpmnElement="Notify"><dc:Bounds x="1760" y="150" width="120" height="74"/></bpmndi:BPMNShape>
+  <bpmndi:BPMNShape id="di_Record" bpmnElement="Record"><dc:Bounds x="1950" y="150" width="120" height="74"/></bpmndi:BPMNShape>
+  <bpmndi:BPMNShape id="di_End_Resolved" bpmnElement="End_Resolved"><dc:Bounds x="2182" y="169" width="36" height="36"/></bpmndi:BPMNShape>
+  <bpmndi:BPMNShape id="di_ObtainInfo" bpmnElement="ObtainInfo"><dc:Bounds x="1000" y="270" width="120" height="74"/></bpmndi:BPMNShape>
+  <bpmndi:BPMNShape id="di_DraftReturn" bpmnElement="DraftReturn"><dc:Bounds x="1190" y="270" width="120" height="74"/></bpmndi:BPMNShape>
+  <bpmndi:BPMNShape id="di_ExecuteReturn" bpmnElement="ExecuteReturn"><dc:Bounds x="1950" y="270" width="120" height="74"/></bpmndi:BPMNShape>
+  <bpmndi:BPMNShape id="di_End_Returned" bpmnElement="End_Returned"><dc:Bounds x="2182" y="289" width="36" height="36"/></bpmndi:BPMNShape>
+  <bpmndi:BPMNShape id="di_ApproveRepair" bpmnElement="ApproveRepair"><dc:Bounds x="1190" y="390" width="120" height="74"/></bpmndi:BPMNShape>
+  <bpmndi:BPMNShape id="di_ApproveReturn" bpmnElement="ApproveReturn"><dc:Bounds x="1570" y="390" width="120" height="74"/></bpmndi:BPMNShape>
+  <bpmndi:BPMNEdge id="di_f_start" bpmnElement="f_start"><di:waypoint x="318" y="187"/><di:waypoint x="430" y="187"/></bpmndi:BPMNEdge>
+  <bpmndi:BPMNEdge id="di_f_pull" bpmnElement="f_pull"><di:waypoint x="550" y="187"/><di:waypoint x="620" y="187"/></bpmndi:BPMNEdge>
+  <bpmndi:BPMNEdge id="di_f_inv" bpmnElement="f_inv"><di:waypoint x="740" y="187"/><di:waypoint x="845" y="187"/></bpmndi:BPMNEdge>
+  <bpmndi:BPMNEdge id="di_f_rep" bpmnElement="f_rep"><di:waypoint x="895" y="187"/><di:waypoint x="1000" y="187"/></bpmndi:BPMNEdge>
+  <bpmndi:BPMNEdge id="di_f_unrep" bpmnElement="f_unrep"><di:waypoint x="895" y="187"/><di:waypoint x="1042" y="187"/><di:waypoint x="1042" y="307"/><di:waypoint x="1190" y="307"/></bpmndi:BPMNEdge>
+  <bpmndi:BPMNEdge id="di_f_info" bpmnElement="f_info"><di:waypoint x="895" y="187"/><di:waypoint x="947" y="187"/><di:waypoint x="947" y="307"/><di:waypoint x="1000" y="307"/></bpmndi:BPMNEdge>
+  <bpmndi:BPMNEdge id="di_f_draft_app" bpmnElement="f_draft_app"><di:waypoint x="1120" y="187"/><di:waypoint x="1155" y="187"/><di:waypoint x="1155" y="427"/><di:waypoint x="1190" y="427"/></bpmndi:BPMNEdge>
+  <bpmndi:BPMNEdge id="di_f_app_screen" bpmnElement="f_app_screen"><di:waypoint x="1310" y="427"/><di:waypoint x="1345" y="427"/><di:waypoint x="1345" y="187"/><di:waypoint x="1380" y="187"/></bpmndi:BPMNEdge>
+  <bpmndi:BPMNEdge id="di_f_screen_apply" bpmnElement="f_screen_apply"><di:waypoint x="1500" y="187"/><di:waypoint x="1570" y="187"/></bpmndi:BPMNEdge>
+  <bpmndi:BPMNEdge id="di_f_apply_notify" bpmnElement="f_apply_notify"><di:waypoint x="1690" y="187"/><di:waypoint x="1760" y="187"/></bpmndi:BPMNEdge>
+  <bpmndi:BPMNEdge id="di_f_notify_rec" bpmnElement="f_notify_rec"><di:waypoint x="1880" y="187"/><di:waypoint x="1950" y="187"/></bpmndi:BPMNEdge>
+  <bpmndi:BPMNEdge id="di_f_rec_end" bpmnElement="f_rec_end"><di:waypoint x="2070" y="187"/><di:waypoint x="2182" y="187"/></bpmndi:BPMNEdge>
+  <bpmndi:BPMNEdge id="di_f_info_assess" bpmnElement="f_info_assess"><di:waypoint x="1060" y="344"/><di:waypoint x="1060" y="378"/><di:waypoint x="680" y="378"/><di:waypoint x="680" y="224"/></bpmndi:BPMNEdge>
+  <bpmndi:BPMNEdge id="di_f_dr_app" bpmnElement="f_dr_app"><di:waypoint x="1310" y="307"/><di:waypoint x="1440" y="307"/><di:waypoint x="1440" y="427"/><di:waypoint x="1570" y="427"/></bpmndi:BPMNEdge>
+  <bpmndi:BPMNEdge id="di_f_app_exec" bpmnElement="f_app_exec"><di:waypoint x="1690" y="427"/><di:waypoint x="1820" y="427"/><di:waypoint x="1820" y="307"/><di:waypoint x="1950" y="307"/></bpmndi:BPMNEdge>
+  <bpmndi:BPMNEdge id="di_f_exec_end" bpmnElement="f_exec_end"><di:waypoint x="2070" y="307"/><di:waypoint x="2182" y="307"/></bpmndi:BPMNEdge>
+</bpmndi:BPMNPlane></bpmndi:BPMNDiagram>
+</bpmn:definitions>

@@ -22,7 +22,7 @@ from app.engine.executor import InProcessExecutor, SandboxedExecutor
 from app.engine.executor import dispatch
 from app.engine.executor.base import ExecutionContext
 from app.engine.executor.openshell import FakeOpenShellClient
-from app.capabilities.wire_repair import draft_repair
+from app.engine.executor.stub_inference import stub_from_schema
 from tests._wire import make_envelope
 
 NEMO_REF = "dev.llm.nemoclaw.nemotron-ultra"
@@ -63,9 +63,9 @@ def nemoclaw_wired(monkeypatch, bundle):
     mod.ChatOpenAI = _FakeChatOpenAI
     monkeypatch.setitem(sys.modules, "langchain_openai", mod)
 
-    # Canned artifact = the sim capability's own (guaranteed schema-valid) output.
-    valid = draft_repair.run(inputs={"beneficiary": {}}, envelope=make_envelope("AC01"))
-    _FakeChatOpenAI.canned = json.dumps(valid["outputs"][_ARTIFACT])
+    # Canned artifact = a schema-valid repair_instruction from the pinned schema (ADR-047 D2, no domain code).
+    schema = bundle.schemas[f"{_ARTIFACT}@1.0.0"]
+    _FakeChatOpenAI.canned = json.dumps(stub_from_schema(schema))
 
     nemo_client = LLMClient(PolyllmConfig(default_profile="default", profiles={"default": ModelProfile(
         provider="nemoclaw", model="nemotron-3-ultra",

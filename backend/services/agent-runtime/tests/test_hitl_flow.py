@@ -14,6 +14,7 @@ from app.db.mongo import HITL_TASKS, PROCESS_INSTANCES, create_indexes
 from app.engine.bundle import PackBundle
 from app.engine.engine import ProcessEngine
 from app.engine.executor import InProcessExecutor
+from tests._stub_stack import stub_executor
 from app.models.process_instance import InstanceStatus, ProcessInstance
 from app.services.hitl_service import HitlDecisionService, HitlError
 from tests._wire import make_envelope, role_user
@@ -37,7 +38,7 @@ async def env():
     publisher = FakePublisher()
     engine = ProcessEngine(
         registry=None, instance_repo=instance_repo, hitl_repo=hitl_repo,
-        publisher=publisher, settings=settings, executor=InProcessExecutor(), checkpointer=MemorySaver(),
+        publisher=publisher, settings=settings, executor=stub_executor(), checkpointer=MemorySaver(),
     )
     # inject the bundle so no registry is needed
     engine._bundles[("wire-repair-standard", "1.0.0")] = PackBundle.from_seed_dir(settings.SEED_DIR)
@@ -80,7 +81,7 @@ async def test_first_gate_is_assess_review_with_pinned_schema(env):
     assert [d.value for d in task.allowed_decisions] == ["approve", "edit_and_approve", "reject"]
     # payload artifact carries a pinned schema ref
     art = task.payload.artifacts[0]
-    assert art.schema_ == "art.payment.repair_verdict@1.0.0"
+    assert art.schema_ == "art.payment.assess_beneficiary_output@1.0.0"
     assert art.data["repair_verdict"] == "repairable"
 
 
@@ -195,11 +196,10 @@ async def test_approve_actions_partial_approval_threads_ids(env):
     task = await _open_task(hitl_repo, pid)
     assert task.element_id == "Task_ApplyRepair"
     assert task.hitl_mode.value == "approve_actions"
-    assert task.payload.proposed_actions  # proposed actions present
-    # partial approval with an explicit action id list
+    # ADR-047 D2: MCP action caps have no propose-mode proposed_actions (the HITL gate + the tool's
+    # post-hoc acknowledgement is the MCP reality); approving the gate lets the side-effect tool run.
     await hitl.claim(task.task_id, actor_id="approver-1", actor_roles={task.role})
-    await hitl.decide(task.task_id, actor_id="approver-1", decision="approve",
-                      approved_action_ids=["act-apply-repair"])
+    await hitl.decide(task.task_id, actor_id="approver-1", decision="approve")
     # flow proceeds to NotifyParties
     nxt = await _open_task(hitl_repo, pid)
     assert nxt.element_id == "Task_NotifyParties"

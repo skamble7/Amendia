@@ -39,7 +39,15 @@ def _owner_id(user: AuthenticatedUser = Depends(_owner_user)) -> str:
     return user.amendia_user_id
 
 
+import logging as _logging
+
+_tlog = _logging.getLogger("app.onboarding.transition")
+
+
 def _raise(exc: TransitionError):
+    # Diagnostic: log the field-level detail body (e.g. bindings_invalid -> which element/field)
+    # so a 4xx transition is visible in the service log tail, not just the HTTP status code.
+    _tlog.warning("onboarding transition rejected: status=%s detail=%s", exc.status_code, exc.detail)
     raise HTTPException(status_code=exc.status_code, detail=exc.detail)
 
 

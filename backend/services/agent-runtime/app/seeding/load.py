@@ -1,5 +1,5 @@
 # app/seeding/load.py
-"""Idempotent seed loader for the wire-repair-standard process pack.
+"""Idempotent seed loader for a process pack (domain-agnostic; the pack is chosen by ``SEED_DIR``).
 
 Pipeline per run:
   1. Parse every seed file through its Pydantic contract model.

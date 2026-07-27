@@ -591,6 +591,23 @@ export interface components {
             suggested_artifact_key: string;
         };
         /**
+         * ArtifactSource
+         * @description A named artifact an upstream binding produced, whole or a dotpath into it.
+         */
+        ArtifactSource: {
+            /**
+             * From
+             * @constant
+             */
+            from: "artifact";
+            /** Name */
+            name: string;
+            /** Optional */
+            optional?: boolean | null;
+            /** Path */
+            path?: string | null;
+        };
+        /**
          * ArtifactStatus
          * @enum {string}
          */
@@ -604,10 +621,7 @@ export interface components {
         };
         /** Basics */
         Basics: {
-            /**
-             * Default Domain
-             * @default payment
-             */
+            /** Default Domain */
             default_domain: string;
             /** Description */
             description?: string | null;
@@ -618,8 +632,49 @@ export interface components {
             /** Version */
             version: string;
         };
+        /**
+         * BindableElementSummary
+         * @description ADR-044 (Track 1): one BPMN element the operator must bind, sourced from the parsed
+         *     ``amendia_bpmn`` model's ``bindable_elements()`` (the full standard task set + message elements +
+         *     callActivity). ``category`` routes to the executor sub-form (``TASK_EXECUTOR_CATEGORY``); the
+         *     ``subProcess``/event-subprocess **containers** are never in this list. Per-element metadata drives
+         *     the binding UI (badges) without re-deriving from the diagram.
+         */
+        BindableElementSummary: {
+            /** Called Pack */
+            called_pack?: string | null;
+            /** Called Version */
+            called_version?: string | null;
+            /** Category */
+            category: string;
+            /** Compensation Primary */
+            compensation_primary?: string | null;
+            /** Element Id */
+            element_id: string;
+            /** Element Kind */
+            element_kind: string;
+            /**
+             * In Event Subprocess
+             * @default false
+             */
+            in_event_subprocess: boolean;
+            /**
+             * Is For Compensation
+             * @default false
+             */
+            is_for_compensation: boolean;
+            /**
+             * Is Multi Instance
+             * @default false
+             */
+            is_multi_instance: boolean;
+            /** Message Name */
+            message_name?: string | null;
+            /** Name */
+            name?: string | null;
+        };
         /** Binding */
-        Binding: {
+        "Binding-Input": {
             /** Element Id */
             element_id: string;
             /**
@@ -630,6 +685,31 @@ export interface components {
             /** Executor */
             executor: components["schemas"]["CapabilityExecutor"] | components["schemas"]["HumanExecutor"] | components["schemas"]["MessageExecutor"] | components["schemas"]["CallExecutor"];
             hitl?: components["schemas"]["Hitl"] | null;
+            /** Input Map */
+            input_map?: {
+                [key: string]: components["schemas"]["TriggerSource"] | components["schemas"]["ArtifactSource"] | components["schemas"]["FieldsSource-Input"];
+            };
+            /** Inputs */
+            inputs?: components["schemas"]["ArtifactIO"][];
+            /** Outputs */
+            outputs?: components["schemas"]["ArtifactIO"][];
+        };
+        /** Binding */
+        "Binding-Output": {
+            /** Element Id */
+            element_id: string;
+            /**
+             * Element Kind
+             * @enum {string}
+             */
+            element_kind: "serviceTask" | "userTask" | "messageCatch" | "receiveTask" | "sendTask" | "scriptTask" | "manualTask" | "businessRuleTask" | "callActivity";
+            /** Executor */
+            executor: components["schemas"]["CapabilityExecutor"] | components["schemas"]["HumanExecutor"] | components["schemas"]["MessageExecutor"] | components["schemas"]["CallExecutor"];
+            hitl?: components["schemas"]["Hitl"] | null;
+            /** Input Map */
+            input_map?: {
+                [key: string]: components["schemas"]["TriggerSource"] | components["schemas"]["ArtifactSource"] | components["schemas"]["FieldsSource-Output"];
+            };
             /** Inputs */
             inputs?: components["schemas"]["ArtifactIO"][];
             /** Outputs */
@@ -639,6 +719,10 @@ export interface components {
         BindingInput: {
             /** Assist Capability Ref */
             assist_capability_ref?: string | null;
+            /** Call Pack */
+            call_pack?: string | null;
+            /** Call Version */
+            call_version?: string | null;
             /** Capability Ref */
             capability_ref?: string | null;
             /** Element Id */
@@ -654,6 +738,20 @@ export interface components {
             hitl_mode: string;
             /** Hitl Role */
             hitl_role?: string | null;
+            /** Input Map */
+            input_map?: {
+                [key: string]: string;
+            };
+            /** Input Sources */
+            input_sources?: {
+                [key: string]: unknown;
+            };
+            /** Message Name */
+            message_name?: string | null;
+            /** Output Map */
+            output_map?: {
+                [key: string]: string;
+            };
             /** Role */
             role?: string | null;
         };
@@ -662,6 +760,8 @@ export interface components {
          * @description Parsed BPMN topology the downstream steps hang off of, plus the ADR-027 coverage report.
          */
         BpmnInventory: {
+            /** Bindable Elements */
+            bindable_elements?: components["schemas"]["BindableElementSummary"][];
             /** Bpmn File */
             bpmn_file: string;
             /** Coverage Counts */
@@ -908,11 +1008,8 @@ export interface components {
         };
         /** CreateSessionRequest */
         CreateSessionRequest: {
-            /**
-             * Default Domain
-             * @default payment
-             */
-            default_domain: string;
+            /** Default Domain */
+            default_domain?: string | null;
             /** Description */
             description?: string | null;
             /** Pack Key */
@@ -948,6 +1045,50 @@ export interface components {
             table: {
                 [key: string]: unknown;
             };
+        };
+        /**
+         * DecisionSpec
+         * @description ADR-046 (Track 2): author a native-DMN ``decision`` capability inline (no code, no MCP). The
+         *     ``table`` is the normalized DMN shape (``{hit_policy, inputs, outputs, rules}``); it is structurally
+         *     validated on stage by the shared ``amendia_bpmn.dmn`` checks. The **verdict** output artifact is
+         *     inferred from the table's outputs (each column → a required field a gateway can branch on); the
+         *     **input** references an existing/staged upstream artifact whose fields the input expressions read.
+         */
+        DecisionSpec: {
+            /** Capability Id */
+            capability_id: string;
+            /**
+             * Capability Version
+             * @default 1.0.0
+             */
+            capability_version: string;
+            /** Description */
+            description?: string | null;
+            /** Input Artifact Key */
+            input_artifact_key: string;
+            /**
+             * Input Name
+             * @default in
+             */
+            input_name: string;
+            /** Output Artifact Key */
+            output_artifact_key: string;
+            /**
+             * Output Name
+             * @default verdict
+             */
+            output_name: string;
+            /**
+             * Output Version
+             * @default 1.0.0
+             */
+            output_version: string;
+            /** Table */
+            table: {
+                [key: string]: unknown;
+            };
+            /** Title */
+            title?: string | null;
         };
         /**
          * DeepAgentBudget
@@ -1011,6 +1152,28 @@ export interface components {
             /** Subtype */
             subtype?: string | null;
         };
+        /**
+         * FieldsSource
+         * @description Composite: build an object field-by-field (constructs an MCP tool's arguments from a mix of
+         *     trigger + upstream outputs).
+         */
+        "FieldsSource-Input": {
+            /** Fields */
+            fields: {
+                [key: string]: components["schemas"]["TriggerSource"] | components["schemas"]["ArtifactSource"] | components["schemas"]["FieldsSource-Input"];
+            };
+        };
+        /**
+         * FieldsSource
+         * @description Composite: build an object field-by-field (constructs an MCP tool's arguments from a mix of
+         *     trigger + upstream outputs).
+         */
+        "FieldsSource-Output": {
+            /** Fields */
+            fields: {
+                [key: string]: components["schemas"]["TriggerSource"] | components["schemas"]["ArtifactSource"] | components["schemas"]["FieldsSource-Output"];
+            };
+        };
         /** GatewayConditionSummary */
         GatewayConditionSummary: {
             /** Flow Id */
@@ -1062,6 +1225,27 @@ export interface components {
              */
             type: "human";
         };
+        /**
+         * IdCollision
+         * @description Batch-4: the derived ``cap.<domain>.<tool>`` id already exists as an ACTIVE catalog capability. A
+         *     **hard** collision means that active capability's contract (kind and/or input/output artifact keys)
+         *     DIFFERS from what introspection would stage — binding this pack to it later fails ``binding_io_mismatch``;
+         *     steer the operator to a distinct domain or explicit reuse. A **benign** match means the active descriptor
+         *     is contract-compatible (same ``kind: mcp`` + same IO artifact keys) — not a clash but a reuse opportunity.
+         *     Advisory only (non-blocking): the operator decides domain-vs-reuse.
+         */
+        IdCollision: {
+            /** Active Kind */
+            active_kind: string;
+            /** Active Version */
+            active_version: string;
+            /** Capability Id */
+            capability_id: string;
+            /** Diff */
+            diff: string;
+            /** Severity */
+            severity: string;
+        };
         /** InferenceAnnotation */
         InferenceAnnotation: {
             /** Code */
@@ -1098,13 +1282,21 @@ export interface components {
             executor_type: string;
             /** Source Lane */
             source_lane?: string | null;
+            /** Suggested Capability Id */
+            suggested_capability_id?: string | null;
             /**
              * Suggested Hitl Mode
              * @default none
              */
             suggested_hitl_mode: string;
+            /** Suggested Input Source */
+            suggested_input_source?: {
+                [key: string]: unknown;
+            } | null;
             /** Suggested Role */
             suggested_role?: string | null;
+            /** Upstream Caps */
+            upstream_caps?: string[];
         };
         /** InferredGatewayVariable */
         InferredGatewayVariable: {
@@ -1115,6 +1307,8 @@ export interface components {
         };
         /** InferredRole */
         InferredRole: {
+            /** Description */
+            description?: string | null;
             /** Label */
             label: string;
             /** Role Id */
@@ -1124,11 +1318,8 @@ export interface components {
         };
         /** IntrospectMcpRequest */
         IntrospectMcpRequest: {
-            /**
-             * Domain
-             * @default payment
-             */
-            domain: string;
+            /** Domain */
+            domain?: string | null;
             /** Endpoint */
             endpoint: string;
             /** Headers */
@@ -1155,6 +1346,7 @@ export interface components {
             compliance: components["schemas"]["ToolCompliance"];
             /** Description */
             description?: string | null;
+            id_collision?: components["schemas"]["IdCollision"] | null;
             /** Input Schema */
             input_schema?: {
                 [key: string]: unknown;
@@ -1320,6 +1512,10 @@ export interface components {
             state: components["schemas"]["OnboardingState"];
             /** Triage Rules */
             triage_rules?: components["schemas"]["StagedTriageRule"][];
+            /** Trigger Fields */
+            trigger_fields?: {
+                [key: string]: string;
+            };
             /**
              * Updated At
              * Format: date-time
@@ -1361,7 +1557,7 @@ export interface components {
             /** Artifacts */
             artifacts: string[];
             /** Bindings */
-            bindings: components["schemas"]["Binding"][];
+            bindings: components["schemas"]["Binding-Input"][];
             /** Created At */
             created_at?: string | null;
             /** Created By */
@@ -1390,6 +1586,8 @@ export interface components {
             title: string;
             /** Triage Rules */
             triage_rules: components["schemas"]["TriageRule-Input"][];
+            /** Trigger */
+            trigger?: string | null;
             /** Updated At */
             updated_at?: string | null;
             /** Version */
@@ -1400,7 +1598,7 @@ export interface components {
             /** Artifacts */
             artifacts: string[];
             /** Bindings */
-            bindings: components["schemas"]["Binding"][];
+            bindings: components["schemas"]["Binding-Output"][];
             /** Created At */
             created_at?: string | null;
             /** Created By */
@@ -1429,6 +1627,8 @@ export interface components {
             title: string;
             /** Triage Rules */
             triage_rules: components["schemas"]["TriageRule-Output"][];
+            /** Trigger */
+            trigger?: string | null;
             /** Updated At */
             updated_at?: string | null;
             /** Version */
@@ -1464,6 +1664,49 @@ export interface components {
              * @enum {string}
              */
             kind: "reduce";
+        };
+        /**
+         * ReduceSpec
+         * @description ADR-046 (Track 2): author a ``reduce`` capability inline. The ``config`` is the normalized reduce
+         *     shape (``{op, source?, item_path?, predicate?, output_field}``), structurally validated on stage by
+         *     ``amendia_bpmn.reduce``. The **summary** output artifact is inferred from ``output_field`` + the op's
+         *     result type; the **input** references an existing/staged **list** artifact.
+         */
+        ReduceSpec: {
+            /** Capability Id */
+            capability_id: string;
+            /**
+             * Capability Version
+             * @default 1.0.0
+             */
+            capability_version: string;
+            /** Config */
+            config: {
+                [key: string]: unknown;
+            };
+            /** Description */
+            description?: string | null;
+            /** Input Artifact Key */
+            input_artifact_key: string;
+            /**
+             * Input Name
+             * @default in
+             */
+            input_name: string;
+            /** Output Artifact Key */
+            output_artifact_key: string;
+            /**
+             * Output Name
+             * @default summary
+             */
+            output_name: string;
+            /**
+             * Output Version
+             * @default 1.0.0
+             */
+            output_version: string;
+            /** Title */
+            title?: string | null;
         };
         /** RequiresCapability */
         RequiresCapability: {
@@ -1557,6 +1800,10 @@ export interface components {
         };
         /** SetCapabilitiesRequest */
         SetCapabilitiesRequest: {
+            /** Decision Specs */
+            decision_specs?: components["schemas"]["DecisionSpec"][];
+            /** Reduce Specs */
+            reduce_specs?: components["schemas"]["ReduceSpec"][];
             /** Reused Capability Refs */
             reused_capability_refs?: string[];
             /** Tools */
@@ -1631,6 +1878,10 @@ export interface components {
         StagedBinding: {
             /** Assist Capability Ref */
             assist_capability_ref?: string | null;
+            /** Call Pack */
+            call_pack?: string | null;
+            /** Call Version */
+            call_version?: string | null;
             /** Capability Ref */
             capability_ref?: string | null;
             /** Element Id */
@@ -1646,8 +1897,22 @@ export interface components {
             hitl_mode: string;
             /** Hitl Role */
             hitl_role?: string | null;
+            /** Input Map */
+            input_map?: {
+                [key: string]: string;
+            };
+            /** Input Sources */
+            input_sources?: {
+                [key: string]: unknown;
+            };
             /** Inputs */
             inputs?: components["schemas"]["StagedBindingIO"][];
+            /** Message Name */
+            message_name?: string | null;
+            /** Output Map */
+            output_map?: {
+                [key: string]: string;
+            };
             /** Outputs */
             outputs?: components["schemas"]["StagedBindingIO"][];
             /** Role */
@@ -1667,18 +1932,24 @@ export interface components {
         };
         /**
          * StagedCapability
-         * @description A to-be-registered ``kind: mcp`` capability inferred from one MCP tool.
+         * @description A to-be-registered capability. ``kind: mcp`` is inferred from one MCP tool (endpoint/tool set);
+         *     ADR-046 (Track 2) adds inline-configured ``kind: decision`` (a DMN ``table``) and ``kind: reduce`` (a
+         *     ``config``) authored directly in the wizard — no endpoint, always ``read_only``.
          *
-         *     ``input_artifact_key`` / ``output_artifact_key`` reference two ``StagedArtifact``s
-         *     by key (same session).
+         *     ``input_artifact_key`` / ``output_artifact_key`` reference ``StagedArtifact``s (or an existing
+         *     artifact, for a decision/reduce input) by key.
          */
         StagedCapability: {
             /** Capability Id */
             capability_id: string;
+            /** Config */
+            config?: {
+                [key: string]: unknown;
+            } | null;
             /** Description */
             description?: string | null;
             /** Endpoint */
-            endpoint: string;
+            endpoint?: string | null;
             /** Headers */
             headers?: {
                 [key: string]: string;
@@ -1689,6 +1960,11 @@ export interface components {
             input_artifact_key: string;
             /** Input Name */
             input_name: string;
+            /**
+             * Kind
+             * @default mcp
+             */
+            kind: string;
             /** Min Hitl Mode */
             min_hitl_mode?: string | null;
             /** Output Artifact Key */
@@ -1702,10 +1978,14 @@ export interface components {
             side_effect: string;
             /** Source Tool */
             source_tool?: string | null;
+            /** Table */
+            table?: {
+                [key: string]: unknown;
+            } | null;
             /** Title */
             title: string;
             /** Tool */
-            tool: string;
+            tool?: string | null;
             /**
              * Transport
              * @default streamable_http
@@ -1790,6 +2070,19 @@ export interface components {
             rule_id: string;
             /** When */
             when: components["schemas"]["AllPredicate-Output"] | components["schemas"]["AnyPredicate-Output"] | components["schemas"]["NotPredicate-Output"] | components["schemas"]["LeafPredicate"];
+        };
+        /**
+         * TriggerSource
+         * @description The process trigger payload (today the exception envelope), whole or a dotpath into it.
+         */
+        TriggerSource: {
+            /**
+             * From
+             * @constant
+             */
+            from: "trigger";
+            /** Path */
+            path?: string | null;
         };
         /** ValidationError */
         ValidationError: {
@@ -1979,6 +2272,8 @@ export interface operations {
             query?: {
                 status?: string | null;
                 kind?: string | null;
+                /** @description free-text substring over capability_id + title */
+                q?: string | null;
                 limit?: number;
                 offset?: number;
             };

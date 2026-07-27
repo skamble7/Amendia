@@ -39,8 +39,8 @@
     }
   ],
   "artifacts": [
-    "art.payment.investigation_dossier@^1.0.0",
-    "art.dmn.repair_decision@^1.0.0"
+    "art.dmn.repair_decision@^1.0.0",
+    "art.payment.enrich_investigation_output@^1.0.0"
   ],
   "bindings": [
     {
@@ -53,13 +53,36 @@
       "hitl": {
         "mode": "none"
       },
-      "inputs": [],
+      "inputs": [
+        {
+          "name": "trigger",
+          "schema": "art.payment.enrich_investigation_output@^1.0.0",
+          "required": true
+        }
+      ],
       "outputs": [
         {
           "name": "dossier",
-          "schema": "art.payment.investigation_dossier@^1.0.0"
+          "schema": "art.payment.enrich_investigation_output@^1.0.0"
         }
-      ]
+      ],
+      "input_map": {
+        "trigger": {
+          "fields": {
+            "envelope": {
+              "from": "trigger"
+            },
+            "exception_id": {
+              "from": "trigger",
+              "path": "exception_id"
+            },
+            "reason_codes": {
+              "from": "trigger",
+              "path": "reason_codes"
+            }
+          }
+        }
+      }
     },
     {
       "element_id": "Task_Decide",
@@ -74,7 +97,7 @@
       "inputs": [
         {
           "name": "dossier",
-          "schema": "art.payment.investigation_dossier@^1.0.0"
+          "schema": "art.payment.enrich_investigation_output@^1.0.0"
         }
       ],
       "outputs": [
@@ -82,7 +105,17 @@
           "name": "decision",
           "schema": "art.dmn.repair_decision@^1.0.0"
         }
-      ]
+      ],
+      "input_map": {
+        "dossier": {
+          "fields": {
+            "payment": {
+              "from": "trigger",
+              "path": "payment"
+            }
+          }
+        }
+      }
     }
   ],
   "gateway_variables": [

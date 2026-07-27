@@ -1,0 +1,28 @@
+{
+  "artifact_key": "art.payment.info_resolution",
+  "version": "1.0.0",
+  "title": "Needs-info resolution",
+  "description": "The analyst's explicit disposition after working an Obtain-Info request: either the missing information was supplied (repairable) or it could not be obtained and funds are returned (unrepairable). Human-authored \u2014 there is no agent draft for this artifact.",
+  "json_schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://amendia.dev/schemas/artifacts/payment/info_resolution/1.0.0.json",
+    "type": "object",
+    "required": [
+      "outcome"
+    ],
+    "additionalProperties": false,
+    "properties": {
+      "outcome": {
+        "enum": [
+          "resolved",
+          "cannot_obtain"
+        ]
+      },
+      "details": {
+        "type": "string"
+      }
+    }
+  },
+  "compatibility": "backward",
+  "status": "active"
+}

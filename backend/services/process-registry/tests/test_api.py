@@ -21,7 +21,11 @@ async def test_register_capability_and_409(client):
 
 
 async def test_register_capability_runtime_kind_mismatch_422(client):
-    cap = _cap_json(load_capabilities()[0])  # a skill
+    # an llm cap whose runtime is overridden to mcp → runtime.kind != top-level kind (ADR-047 D2: the
+    # flipped seed has no skill caps, so select an llm one explicitly rather than by list position).
+    llm_cap = next(c for c in load_capabilities()
+                   if (c.kind.value if hasattr(c.kind, "value") else c.kind) == "llm")
+    cap = _cap_json(llm_cap)
     cap["runtime"] = {"kind": "mcp", "endpoint": "http://x", "tools": ["t"]}
     resp = await client.post("/capabilities", json=cap)
     assert resp.status_code == 422  # model validator: runtime.kind must equal kind
@@ -42,9 +46,19 @@ async def test_capabilities_and_schemas_listed(client, registered):
     caps = (await client.get("/capabilities")).json()
     assert len(caps) == 10
     schemas = (await client.get("/artifact-schemas")).json()
-    assert len(schemas) == 7
+    assert len(schemas) == 9  # ADR-047 D2: + art.payment.info_resolution (needs-info human exit)
     one = await client.get("/capabilities/cap.payment.sanctions_screen/1.0.0")
     assert one.status_code == 200 and one.json()["kind"] == "mcp"
+
+
+async def test_capabilities_free_text_search(client, registered):
+    # `q` is a case-insensitive substring over capability_id (+ title) — the on-demand reuse search.
+    all_caps = (await client.get("/capabilities")).json()
+    screen = (await client.get("/capabilities", params={"q": "SCREEN"})).json()   # case-insensitive
+    assert screen and all("screen" in c["capability_id"].lower() or "screen" in (c.get("title") or "").lower()
+                          for c in screen)
+    assert len(screen) < len(all_caps)                                            # actually narrows
+    assert (await client.get("/capabilities", params={"q": "no_such_capability_xyz"})).json() == []
 
 
 async def test_deprecate_capability(client, registered):

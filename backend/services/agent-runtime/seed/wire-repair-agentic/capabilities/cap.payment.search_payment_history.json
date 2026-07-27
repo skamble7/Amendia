@@ -1,0 +1,28 @@
+{
+  "descriptor_version": "1.0",
+  "capability_id": "cap.payment.search_payment_history",
+  "version": "1.0.0",
+  "title": "Search prior settlement history",
+  "description": "Searches an account's prior settlement history (read-only investigation tool for deep_agent).",
+  "kind": "mcp",
+  "side_effect": "read_only",
+  "idempotent": true,
+  "inputs": [],
+  "outputs": [],
+  "runtime": {
+    "kind": "mcp",
+    "endpoint": "http://wirefix-mcp:8060/mcp",
+    "tools": [
+      "search_payment_history"
+    ],
+    "transport": "streamable_http",
+    "headers": {}
+  },
+  "constraints": {
+    "timeout_seconds": 30,
+    "max_retries": 1,
+    "min_hitl_mode": "none"
+  },
+  "owner": "platform",
+  "status": "active"
+}

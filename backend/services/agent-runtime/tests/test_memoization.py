@@ -19,6 +19,7 @@ from app.config import settings
 from app.engine.bundle import PackBundle
 from app.engine.compiler import compile_graph
 from app.engine.executor import InProcessExecutor
+from tests._stub_stack import stub_executor
 from app.engine.executor.base import ExecutionContext
 from app.engine.executor.memo import InMemoryMemoStore, inputs_hash
 from app.engine.state import initial_state
@@ -29,7 +30,7 @@ class CountingExecutor:
     """Wraps InProcessExecutor, counting real (uncached) capability invocations per element."""
 
     def __init__(self, memo=None, memoize=False) -> None:
-        self._inner = InProcessExecutor()
+        self._inner = stub_executor()
         self._memo = memo
         self._memoize = memoize and memo is not None
         self.calls: Dict[str, int] = {}
@@ -156,7 +157,7 @@ class NonDeterministicExecutor:
     deterministic simulation hides it). Phase 2.0."""
 
     def __init__(self, memo=None, memoize=True) -> None:
-        self._inner = InProcessExecutor()
+        self._inner = stub_executor()
         self._memo = memo
         self._memoize = memoize and memo is not None
         self.calls: Dict[str, int] = {}
@@ -241,7 +242,7 @@ def test_memo_is_scoped_per_instance():
 def test_native_byte_identical_with_memoize_off():
     # Flag off (default): memo store present but disabled → capability runs each replay, and
     # the committed artifacts/outcome match the plain InProcessExecutor path exactly.
-    plain = _graph(InProcessExecutor())
+    plain = _graph(stub_executor())
     off = _graph(CountingExecutor(memo=InMemoryMemoStore(), memoize=False))
     from tests._wire import drive
     a, _ = drive(plain, {"configurable": {"thread_id": "pi-x"}}, _initial())

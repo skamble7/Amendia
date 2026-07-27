@@ -43,6 +43,21 @@ class PackBundle:
         return self.manifest.version
 
     @property
+    def trigger_schema(self) -> Optional[Dict[str, Any]]:
+        """ADR-047 D1: the JSON schema of the pack's declared TRIGGER artifact (the inbound envelope's
+        shape), resolved from the pinned schemas — or None when the pack declares no trigger, in which case
+        the dispatcher treats the envelope as opaque. Domain-neutral: the engine never imports a concrete
+        envelope type; the shape is registered data."""
+        ref = getattr(self.manifest, "trigger", None)
+        if not ref:
+            return None
+        bare = _bare(str(ref))
+        for key, schema in self.schemas.items():
+            if _bare(key) == bare:
+                return schema
+        return None
+
+    @property
     def required_execution_profile(self) -> str:
         """The minimum execution profile this pack needs, pinned in resolution at activation
         (ADR-027 Phase 2.5). Older packs with no pin default to the conservative common_subset."""
@@ -156,6 +171,8 @@ def build_node_contexts(bundle: PackBundle) -> Dict[str, NodeContext]:
             if eb.error_code
         ]
 
+        # ADR-048: per-input data source from the manifest binding (by-alias dicts, so "from" is preserved).
+        input_map = {k: v.model_dump(by_alias=True) for k, v in (getattr(mb, "input_map", None) or {}).items()}
         inputs = [IOSpec(name=io["name"], schema_ref=io["schema"]) for io in rb.get("inputs", [])]
         outputs: List[OutputSpec] = []
         for io in rb.get("outputs", []):
@@ -180,5 +197,6 @@ def build_node_contexts(bundle: PackBundle) -> Dict[str, NodeContext]:
             title=element_id,
             message_name=message_name,
             error_codes=error_codes,
+            input_map=input_map,
         )
     return contexts

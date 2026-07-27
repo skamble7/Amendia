@@ -21,53 +21,22 @@ import json
 import logging
 from typing import Any, Callable, Dict, List, Optional, Protocol
 
-from app.capabilities.wire_repair import SIM_CAPABILITIES
 from app.engine.executor.base import CapabilityError
 
 logger = logging.getLogger(__name__)
 
 
 # --------------------------------------------------------------------------- #
-# Whitelisted read-only investigation tools (dev = stubs; sandbox = registry-brokered MCP).
-# Docstrings + type hints are how Deep Agents derives tool schemas (confirmed).
+# A deep_agent's whitelisted tools are MCP tools (ADR-047 D2): the investigative helpers live on the MCP
+# server, resolved via the registry-brokered MCP client — the platform carries no in-code tool.
 # --------------------------------------------------------------------------- #
-def fetch_attachment(attachment_id: str) -> dict:
-    """Fetch a payment exception attachment's parsed contents by id (read-only)."""
-    return {"attachment_id": attachment_id, "parsed": {"stub": True}}
-
-
-def search_payment_history(account_id: str) -> dict:
-    """Search prior settlement history for an account (read-only)."""
-    return {"account_id": account_id, "prior_settlements": []}
-
-
-def name_match(name_a: str, name_b: str) -> dict:
-    """Fuzzy name-match two party names, returning a 0..1 score (read-only)."""
-    score = 1.0 if name_a.strip().lower() == name_b.strip().lower() else 0.4
-    return {"name_a": name_a, "name_b": name_b, "score": score}
-
-
-_STUB_WORKER_TOOLS: Dict[str, Callable] = {
-    "fetch_attachment": fetch_attachment,
-    "search_payment_history": search_payment_history,
-    "name_match": name_match,
-}
-
-
 def resolve_tools(tool_ids: List[str], *, mcp_client: Optional[Any] = None) -> List[Callable]:
-    """Map whitelisted tool ids → callables. Worker functions are local; MCP tool ids resolve
-    via the in-sandbox registry (ADR-020). Unknown ids fail closed — the registry already
-    validated the whitelist, this is belt-and-suspenders."""
-    resolved: List[Callable] = []
-    for tid in tool_ids:
-        if tid in _STUB_WORKER_TOOLS:
-            resolved.append(_STUB_WORKER_TOOLS[tid])
-        elif mcp_client is not None:
-            # [confirm] how a registry-brokered MCP tool is wrapped as a deepagents tool.
-            resolved.append(_mcp_tool_shim(tid, mcp_client))
-        else:
-            raise CapabilityError(f"deep_agent tool '{tid}' does not resolve on this path")
-    return resolved
+    """Map whitelisted tool ids → callables. Every tool is an MCP tool resolved via the in-sandbox
+    registry-brokered client (ADR-020/D2); with no client an id fails closed."""
+    if mcp_client is None:
+        raise CapabilityError(
+            f"deep_agent tools {tool_ids} require an MCP client (none on this path)")
+    return [_mcp_tool_shim(tid, mcp_client) for tid in tool_ids]
 
 
 def _mcp_tool_shim(tool_id: str, mcp_client: Any, *, endpoint: Optional[str] = None) -> Callable:
@@ -82,33 +51,42 @@ def _mcp_tool_shim(tool_id: str, mcp_client: Any, *, endpoint: Optional[str] = N
     return _tool
 
 
+def build_system_prompt(capability_id: str, title: Optional[str], description: Optional[str],
+                        prompt_key: str, schema_hint: str = "") -> str:
+    """The deep-agent system prompt — **descriptor-framed** (ADR-047), mirroring ``run_real_llm``.
+
+    ``title``/``description`` come from the capability's registered descriptor and are the ONLY channel that
+    carries its behavioural rules to the live model (``prompt_key`` has no resolvable text today), so both are
+    embedded verbatim when present. Domain-neutral: the platform adds no business nouns of its own."""
+    role = f" — {title}" if title else ""
+    role_desc = f" {description}" if description else ""
+    return (
+        f"You are the '{capability_id}' capability{role}.{role_desc} Task: {prompt_key}. Use ONLY the provided "
+        f"tools. Do not take any side-effecting action.{schema_hint}"
+    )
+
+
 # --------------------------------------------------------------------------- #
 class DeepAgentRunner(Protocol):
     async def run(
         self, *, capability_id: str, prompt_key: str, input_artifacts: Dict[str, Any],
         tools: List[str], output_schema: Optional[dict], model_ref: Optional[str],
         budget: Any, envelope: Dict[str, Any], mcp_client: Optional[Any] = None,
+        title: Optional[str] = None, description: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """Run the bounded loop → a single structured artifact object (host-validated)."""
+        """Run the bounded loop → a single structured artifact object (host-validated). ``title``/``description``
+        are the capability's descriptor framing (ADR-047) — the domain-neutral channel for its instructions."""
         ...
 
 
 class FakeDeepAgentRunner:
-    """Deterministic — the CI/dev default. Reuses the paired simulation capability to emit a
-    schema-valid artifact (e.g. a `repair_verdict` with `evidence[]`) with no model/agent loop."""
+    """Deterministic — the CI/dev default (ADR-047 D2). Emits a minimal **schema-valid** artifact straight
+    from the pinned output schema (domain-neutral, no `SIM_CAPABILITIES`, no model/agent loop)."""
 
     async def run(self, *, capability_id, prompt_key, input_artifacts, tools, output_schema,
-                  model_ref, budget, envelope, mcp_client=None):
-        fn = SIM_CAPABILITIES.get(capability_id)
-        if fn is None:
-            raise CapabilityError(
-                f"FakeDeepAgentRunner has no simulation for '{capability_id}' — register one in "
-                "SIM_CAPABILITIES for the pilot, or use the real runner"
-            )
-        result = fn(inputs=input_artifacts, envelope=envelope, mode="execute", approved_action_ids=None)
-        outputs = result.get("outputs", {}) or {}
-        # deep_agent capabilities declare exactly one output artifact.
-        return next(iter(outputs.values())) if outputs else {}
+                  model_ref, budget, envelope, mcp_client=None, title=None, description=None):
+        from app.engine.executor.stub_inference import stub_from_schema
+        return stub_from_schema(output_schema or {})
 
 
 class RealDeepAgentRunner:
@@ -119,7 +97,8 @@ class RealDeepAgentRunner:
         self._inference_base_url = inference_base_url
 
     async def run(self, *, capability_id, prompt_key, input_artifacts, tools, output_schema,
-                  model_ref, budget, envelope, mcp_client=None):  # pragma: no cover - integration only
+                  model_ref, budget, envelope, mcp_client=None,
+                  title=None, description=None):  # pragma: no cover - integration only
         try:
             from deepagents import create_deep_agent  # confirmed entrypoint
         except Exception as exc:  # noqa: BLE001
@@ -133,18 +112,19 @@ class RealDeepAgentRunner:
             f"\n\nYou MUST end by emitting a SINGLE JSON object (no prose, no fences) that "
             f"validates against this JSON Schema:\n{json.dumps(output_schema)}" if output_schema else ""
         )
-        system_prompt = (
-            f"You are the '{capability_id}' investigative capability in a payments exception "
-            f"workflow. Task: {prompt_key}. Use ONLY the provided tools. Do not take any "
-            f"side-effecting action.{schema_hint}"
-        )
+        # ADR-047: domain-neutral framing — the capability's role/task/instructions come from its registered
+        # descriptor (title/description), NOT a hardcoded business area. This mirrors run_real_llm so a deep_agent
+        # is instructed the same way an llm capability is; the description is the channel that carries a
+        # capability's behavioural rules (e.g. the resolution→verdict mapping) to the live model. ``prompt_key``
+        # stays a bare task label until a real prompt store resolves it (out of scope).
+        system_prompt = build_system_prompt(capability_id, title, description, prompt_key, schema_hint)
         # model_ref → inference.local/v1 (ADR-018/020). [confirm] the exact model= string form
         # the harness expects for an OpenAI-compatible managed proxy.
         model = f"openai:{model_ref}" if model_ref else "openai:nemotron-3-ultra"
         agent = create_deep_agent(model=model, tools=tool_fns, system_prompt=system_prompt)
 
         user = (
-            f"Payment exception envelope:\n{json.dumps(envelope, default=str)}\n\n"
+            f"Trigger:\n{json.dumps(envelope, default=str)}\n\n"
             f"Upstream artifacts:\n{json.dumps(input_artifacts, default=str)}"
         )
         # Bound the loop via the standard LangGraph recursion_limit (Deep Agents is a LangGraph

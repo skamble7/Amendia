@@ -21,6 +21,7 @@ from app.config import settings
 from app.engine.bundle import PackBundle
 from app.engine.compiler import CompilerError, compile_graph
 from app.engine.executor import InProcessExecutor
+from tests._stub_stack import stub_executor
 from app.engine.executor.core import execute_capability
 from app.engine.multi_instance import (
     make_mi_dispatch_node,
@@ -221,7 +222,7 @@ class MIHybridExecutor:
 
     def __init__(self, mi_cap):
         self._mi_cap = mi_cap
-        self._fallback = InProcessExecutor()
+        self._fallback = stub_executor()
 
     def execute(self, descriptor, inputs, ctx):
         if descriptor.capability_id == self._mi_cap:
@@ -262,7 +263,7 @@ def test_e2e_sequential_multi_instance_aggregates_list():
 def test_e2e_refused_under_common_subset():
     b = _mi_bundle(_mi_xml())
     with pytest.raises(CompilerError, match="multi_instance|multi-instance"):
-        compile_graph(b, InProcessExecutor(), simulation=True, checkpointer=MemorySaver(),
+        compile_graph(b, stub_executor(), simulation=True, checkpointer=MemorySaver(),
                       profile="common_subset")
 
 
@@ -279,5 +280,5 @@ def test_e2e_hitl_gated_mi_refused():
     b.bpmn_model = model
     b.bpmn_xml = xml
     with pytest.raises(CompilerError, match="HITL"):
-        compile_graph(b, InProcessExecutor(), simulation=True, checkpointer=MemorySaver(),
+        compile_graph(b, stub_executor(), simulation=True, checkpointer=MemorySaver(),
                       profile="common_executable")

@@ -122,6 +122,31 @@ export function AuthorizeActionsVariant({ task, onDecide, pending }: VariantProp
 
   const allSelected = selected.size === actions.length;
 
+  // Defensive (ADR-047 D2): a side-effectful approve_actions gate synthesizes ≥1 pending action host-side, so an
+  // EMPTY list means the bound capability is mis-declared (e.g. read_only under approve_actions) — a pack/config
+  // error, not something to authorize. Surface it plainly rather than presenting an un-clickable "Authorize"
+  // that deadlocks the instance. Reject stays available; we never auto-approve.
+  if (actions.length === 0) {
+    return (
+      <div className="space-y-4">
+        <div className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm">
+          <AlertTriangle className="mt-0.5 size-4 shrink-0 text-destructive" />
+          <p>
+            No actions were proposed for this authorization gate. This is a pack/configuration error (a
+            side-effectful task must present the pending action). There is nothing to authorize — reject to
+            unblock, and report the pack binding.
+          </p>
+        </div>
+        <CommentField value={comment} onChange={setComment} required />
+        <DecisionRow>
+          <Button variant="destructive" onClick={() => guardReject(comment, () => onDecide({ decision: "reject", comment }))} disabled={pending}>
+            Reject
+          </Button>
+        </DecisionRow>
+      </div>
+    );
+  }
+
   function approve() {
     if (selected.size === 0) {
       toast.error("Select at least one action to authorize, or reject.");

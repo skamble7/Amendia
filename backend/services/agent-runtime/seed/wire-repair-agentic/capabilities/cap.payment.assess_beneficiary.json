@@ -4,13 +4,13 @@
   "version": "1.0.0",
   "title": "Assess repairability",
   "description": "Judges whether the beneficiary details can be corrected with confidence and emits a repair verdict.",
-  "kind": "skill",
+  "kind": "mcp",
   "side_effect": "read_only",
   "idempotent": true,
   "inputs": [
     {
       "name": "dossier",
-      "schema": "art.payment.investigation_dossier@^1.0.0"
+      "schema": "art.payment.enrich_investigation_output@^1.0.0"
     }
   ],
   "outputs": [
@@ -20,8 +20,13 @@
     }
   ],
   "runtime": {
-    "kind": "skill",
-    "entrypoint": "app.capabilities.wire_repair.assess:run"
+    "kind": "mcp",
+    "endpoint": "http://wirefix-mcp:8060/mcp",
+    "tools": [
+      "assess_beneficiary"
+    ],
+    "transport": "streamable_http",
+    "headers": {}
   },
   "constraints": {
     "timeout_seconds": 120,

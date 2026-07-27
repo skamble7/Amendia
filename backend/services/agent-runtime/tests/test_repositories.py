@@ -50,7 +50,7 @@ async def test_list_filters(mongo, capability_repo):
     for c in SeedLoader(settings.SEED_DIR).load_capabilities():
         await capability_repo.insert(c)
     mcp = await capability_repo.list(kind="mcp")
-    assert len(mcp) == 1 and mcp[0].capability_id == "cap.payment.sanctions_screen"
+    assert len(mcp) == 6 and any(c.capability_id == "cap.payment.sanctions_screen" for c in mcp)
     llm = await capability_repo.list(kind="llm")
     assert {c.capability_id for c in llm} == {
         "cap.payment.draft_rfi", "cap.payment.draft_repair",

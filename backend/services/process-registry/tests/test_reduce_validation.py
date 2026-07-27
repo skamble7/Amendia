@@ -19,7 +19,8 @@ _CAP = "cap.screening.reduce_hits"
 
 
 def _good_config():
-    return {"op": "first", "source": "screening", "item_path": "verdict",
+    # ADR-047 D2: the flipped screening pack's screen tool outputs `status` (was `verdict`).
+    return {"op": "first", "source": "screening", "item_path": "status",
             "predicate": '= "hit"', "output_field": "matched"}
 
 
@@ -27,7 +28,7 @@ def _reduce_descriptor(config=None) -> CapabilityDescriptor:
     return CapabilityDescriptor.model_validate({
         "descriptor_version": "1.0", "capability_id": _CAP, "version": "1.0.0",
         "title": "reduce hits", "kind": "reduce", "side_effect": "read_only", "idempotent": True,
-        "inputs": [{"name": "screening", "schema": "art.screening.party_result@^1.0.0"}],
+        "inputs": [{"name": "screening", "schema": "art.screening.screen_party_output@^1.0.0"}],
         "outputs": [{"name": "summary", "schema": "art.screening.summary@^1.0.0"}],
         "runtime": {"kind": "reduce", "config": config if config is not None else _good_config()},
         "constraints": {"timeout_seconds": 30, "max_retries": 0, "min_hitl_mode": "none"},
@@ -79,7 +80,7 @@ async def test_bad_predicate(registered_screening, cap_repo, schema_repo):
 
 
 async def test_predicate_required(registered_screening, cap_repo, schema_repo):
-    c = {"op": "any", "source": "screening", "item_path": "verdict", "output_field": "matched"}
+    c = {"op": "any", "source": "screening", "item_path": "status", "output_field": "matched"}
     await registered_screening(c)
     assert "reduce_predicate_required" in _errs(await _validate(cap_repo, schema_repo))
 
@@ -97,7 +98,7 @@ async def test_output_unmapped(registered_screening, cap_repo, schema_repo):
 
 
 async def test_numeric_type(registered_screening, cap_repo, schema_repo):
-    # a numeric op reading 'party' (declared type string) → reduce_numeric_type
-    c = {"op": "sum", "source": "screening", "item_path": "party", "output_field": "matched"}
+    # a numeric op reading 'status' (declared type string) → reduce_numeric_type
+    c = {"op": "sum", "source": "screening", "item_path": "status", "output_field": "matched"}
     await registered_screening(c)
     assert "reduce_numeric_type" in _errs(await _validate(cap_repo, schema_repo))

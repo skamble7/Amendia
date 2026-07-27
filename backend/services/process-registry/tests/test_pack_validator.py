@@ -122,7 +122,7 @@ async def test_binding_io_name_mismatch(registered, validator):
     d = manifest_dict()
     for b in d["bindings"]:
         if b["element_id"] == "Task_AssessRepairability":
-            b["outputs"] = [{"name": "wrong_name", "schema": "art.payment.repair_verdict@^1.0.0"}]
+            b["outputs"] = [{"name": "wrong_name", "schema": "art.payment.assess_beneficiary_output@^1.0.0"}]
     report = await _validate(validator, build(d))
     assert "binding_io_mismatch" in _errs(report)
 

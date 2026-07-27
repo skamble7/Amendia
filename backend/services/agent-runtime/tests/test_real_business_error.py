@@ -9,6 +9,7 @@ client / fake LLM client / fake deep_agent runner, no network, no inference.
 """
 from __future__ import annotations
 
+import json
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
@@ -30,10 +31,12 @@ from app.engine.executor.base import (
 from app.engine.executor.core import execute_capability
 from app.engine.executor.mcp_client import (
     HttpMcpClient,
-    StubMcpClient,
+    InProcessMcpClient,
     _raise_if_business_error,
+    _result_to_artifact,
 )
 from app.engine.state import initial_state
+from tests._stub_stack import stub_executor
 from tests._wire import drive, make_envelope
 
 PK, PV = "wire-repair-standard", "1.0.0"
@@ -81,6 +84,14 @@ class _RaisingMcpClient:
         raise RuntimeError("connection reset")
 
 
+def _rejecting_mcp_client(code: str = "PAYMENT_REJECTED") -> InProcessMcpClient:
+    """An in-process MCP client whose `screen_party` tool returns an MCP ``isError`` result — the
+    server-native way to signal a modeled business error (ADR-035). No domain stub in the platform image."""
+    def _reject(_arguments):
+        return {"isError": True, "structuredContent": {"error_code": code}}
+    return InProcessMcpClient({"screen_party": _reject})
+
+
 # --------------------------------------------------------------------------- #
 # Helpers
 # --------------------------------------------------------------------------- #
@@ -102,28 +113,28 @@ def _ctx(bundle, cap_id, *, simulation=False, error_codes=None) -> ExecutionCont
 
 
 def _valid_repair_instruction() -> dict:
-    """A schema-valid repair_instruction artifact — reuse the sim capability's own output."""
-    from app.capabilities.wire_repair.draft_repair import run
-    return run(inputs={"beneficiary": {}}, envelope=make_envelope("AC01"))["outputs"][
-        "art.payment.repair_instruction"
-    ]
+    """A schema-valid repair_instruction artifact (ADR-047 D2: from the pinned schema, no domain code)."""
+    from app.engine.executor.stub_inference import stub_from_schema
+    schema = _bundle().schemas["art.payment.repair_instruction@1.0.0"]
+    return stub_from_schema(schema)
 
 
 class HybridRealExecutor:
-    """Runs the REAL path for a named set of capabilities (with injected fake clients), and the
-    deterministic simulation path for everything else — so a single capability can be exercised on
-    its real code path inside a full sim graph. Implements the ``Executor`` protocol."""
+    """Runs the REAL path for a named set of capabilities (with injected fake clients), and the shared
+    D2 stub stack for everything else — so a single capability can be exercised on its real code path
+    inside an otherwise-stubbed graph. Implements the ``Executor`` protocol."""
 
-    def __init__(self, real_caps, *, mcp_client=None, deep_agent_runner=None) -> None:
+    def __init__(self, real_caps, *, mcp_client=None, deep_agent_runner=None, base=None) -> None:
         self._real = set(real_caps)
         self._mcp = mcp_client
         self._da = deep_agent_runner
+        self._base = base or stub_executor()
 
     def execute(self, descriptor, inputs, ctx):
         if descriptor.capability_id in self._real:
             return execute_capability(descriptor, inputs, replace(ctx, simulation=False),
                                       mcp_client=self._mcp, deep_agent_runner=self._da)
-        return execute_capability(descriptor, inputs, ctx, mcp_client=None)
+        return self._base.execute(descriptor, inputs, ctx)
 
 
 def _seed_xml() -> str:
@@ -197,9 +208,8 @@ def test_non_error_result_is_a_noop():
 
 
 @pytest.mark.asyncio
-async def test_stub_client_error_result_raises_business_error():
-    client = StubMcpClient(error_result={"isError": True,
-                                          "structuredContent": {"error_code": "PAYMENT_REJECTED"}})
+async def test_inprocess_client_error_result_raises_business_error():
+    client = _rejecting_mcp_client()
     with pytest.raises(CapabilityBusinessError):
         await client.call_tool(endpoint="e", tool="screen_party", arguments={}, transport="streamable_http")
 
@@ -207,8 +217,7 @@ async def test_stub_client_error_result_raises_business_error():
 def test_execute_capability_mcp_propagates_business_error_unwrapped():
     b = _bundle()
     d = b.descriptors[MCP_CAP]
-    client = StubMcpClient(error_result={"isError": True,
-                                         "structuredContent": {"error_code": "PAYMENT_REJECTED"}})
+    client = _rejecting_mcp_client()
     with pytest.raises(CapabilityBusinessError) as ei:
         execute_capability(d, {}, _ctx(b, MCP_CAP), mcp_client=client)
     assert ei.value.error_code == "PAYMENT_REJECTED"
@@ -221,49 +230,137 @@ def test_execute_capability_mcp_technical_error_stays_technical():
         execute_capability(d, {}, _ctx(b, MCP_CAP), mcp_client=_RaisingMcpClient())
 
 
+# --------------------------------------------------------------------------- #
+# ADR-035 mapping of an SDK CallToolResult → artifact (HttpMcpClient consolidated on the mcp SDK, D2 §5).
+# `_result_to_artifact` takes anything with .isError/.structuredContent/.content, so a lightweight double
+# stands in for `mcp.types.CallToolResult` — the real-server transport is covered by the integration test.
+# --------------------------------------------------------------------------- #
+class _CTR:
+    """A minimal CallToolResult double. `content` blocks mimic the SDK's TextContent (a `.text` JSON string)."""
+
+    def __init__(self, *, structuredContent=None, content=None, isError=False):
+        self.structuredContent = structuredContent
+        self.content = [SimpleNamespace(text=t) for t in (content or [])]
+        self.isError = isError
+
+
+def test_result_to_artifact_returns_structured_content():
+    out = _result_to_artifact(_CTR(structuredContent={"status": "clear"}), "screen_party")
+    assert out == {"status": "clear"}
+
+
+def test_result_to_artifact_iserror_with_code_raises_business_error():
+    r = _CTR(isError=True, structuredContent={"error_code": "PAYMENT_REJECTED", "reason": "rails"})
+    with pytest.raises(CapabilityBusinessError) as ei:
+        _result_to_artifact(r, "screen_party")
+    assert ei.value.error_code == "PAYMENT_REJECTED"
+    assert ei.value.detail["reason"] == "rails"
+
+
+def test_result_to_artifact_iserror_without_code_falls_back_to_generic():
+    with pytest.raises(CapabilityBusinessError) as ei:
+        _result_to_artifact(_CTR(isError=True, content=["something broke"]), "screen_party")
+    assert ei.value.error_code == "MCP_TOOL_ERROR"
+
+
+def test_result_to_artifact_text_content_json_fallback():
+    # No structuredContent → parse the first JSON text content block (SDK TextContent).
+    out = _result_to_artifact(_CTR(content=[json.dumps({"verdict": "clean"})]), "screen_party")
+    assert out == {"verdict": "clean"}
+
+
+def test_result_to_artifact_no_structured_result_is_technical():
+    with pytest.raises(RuntimeError):
+        _result_to_artifact(_CTR(content=["not json"]), "screen_party")
+
+
+# --------------------------------------------------------------------------- #
+# Cold-start resilience: the first tools/call after deploy can race the server's readiness.
+# --------------------------------------------------------------------------- #
+class _FakeStreams:
+    async def __aenter__(self):
+        return (None, None, None)
+
+    async def __aexit__(self, *a):
+        return False
+
+
+class _FakeSession:
+    def __init__(self, read, write, result):
+        self._result = result
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *a):
+        return False
+
+    async def initialize(self):
+        return None
+
+    async def call_tool(self, tool, arguments, **kw):
+        return self._result
+
+
+def _install_flaky_sdk(monkeypatch, *, fail_times, result):
+    import mcp
+    import mcp.client.streamable_http as sh
+    state = {"opens": 0}
+
+    def _open(endpoint, headers=None):
+        state["opens"] += 1
+        if state["opens"] <= fail_times:
+            raise ConnectionError("MCP server not ready (warm-up)")
+        return _FakeStreams()
+
+    monkeypatch.setattr(sh, "streamablehttp_client", _open)
+    monkeypatch.setattr(mcp, "ClientSession", lambda r, w: _FakeSession(r, w, result))
+    return state
+
+
 @pytest.mark.asyncio
-async def test_http_client_iserror_body_raises_business_error(monkeypatch):
-    body = {"jsonrpc": "2.0", "id": 1,
-            "result": {"isError": True, "structuredContent": {"error_code": "PAYMENT_REJECTED"}}}
-    _install_fake_httpx(monkeypatch, body)
+async def test_http_client_retries_transient_transport_error_then_succeeds(monkeypatch):
+    # Two cold-start connection failures, then success — the client's backoff retry rides out the warm-up
+    # instead of hard-failing the first real request after deploy.
+    state = _install_flaky_sdk(monkeypatch, fail_times=2, result=_CTR(structuredContent={"status": "clear"}))
+    client = HttpMcpClient(connect_retries=3, connect_backoff=0.0)
+    out = await client.call_tool(endpoint="http://x/mcp", tool="screen_party",
+                                 arguments={}, transport="streamable_http")
+    assert out == {"status": "clear"}
+    assert state["opens"] == 3, "should have retried past the two transient failures"
+
+
+@pytest.mark.asyncio
+async def test_http_client_gives_up_after_exhausting_retries(monkeypatch):
+    _install_flaky_sdk(monkeypatch, fail_times=99, result=_CTR())
+    client = HttpMcpClient(connect_retries=2, connect_backoff=0.0)
+    with pytest.raises(RuntimeError, match="after 3 attempts"):
+        await client.call_tool(endpoint="http://x/mcp", tool="screen_party",
+                               arguments={}, transport="streamable_http")
+
+
+def test_unwrap_exc_flattens_a_taskgroup_to_its_real_cause():
+    from app.engine.executor.mcp_client import _unwrap_exc
+    # A plain leaf exception → itself.
+    assert _unwrap_exc(ConnectionError("Connection refused")) == "ConnectionError: Connection refused"
+    # An anyio/asyncio ExceptionGroup ("unhandled errors in a TaskGroup") → the buried leaf cause, so a
+    # down/unreachable MCP server names the fault instead of the opaque group message.
+    grp = ExceptionGroup("unhandled errors in a TaskGroup", [ConnectionError("All connection attempts failed")])
+    assert _unwrap_exc(grp) == "ConnectionError: All connection attempts failed"
+    nested = ExceptionGroup("outer", [ExceptionGroup("inner", [RuntimeError("boom")])])
+    assert _unwrap_exc(nested) == "RuntimeError: boom"
+
+
+@pytest.mark.asyncio
+async def test_http_client_does_not_retry_a_business_error(monkeypatch):
+    # A modeled isError business error is a real outcome, not a transient fault — it must NOT be retried.
+    err = _CTR(isError=True, structuredContent={"error_code": "PAYMENT_REJECTED"})
+    state = _install_flaky_sdk(monkeypatch, fail_times=0, result=err)
+    client = HttpMcpClient(connect_retries=3, connect_backoff=0.0)
     with pytest.raises(CapabilityBusinessError):
-        await HttpMcpClient().call_tool(endpoint="http://x", tool="screen_party",
-                                        arguments={}, transport="streamable_http")
-
-
-@pytest.mark.asyncio
-async def test_http_client_jsonrpc_error_stays_technical(monkeypatch):
-    body = {"jsonrpc": "2.0", "id": 1, "error": {"code": -32000, "message": "boom"}}
-    _install_fake_httpx(monkeypatch, body)
-    with pytest.raises(RuntimeError):  # protocol error → technical (caller maps to CapabilityError)
-        await HttpMcpClient().call_tool(endpoint="http://x", tool="screen_party",
-                                        arguments={}, transport="streamable_http")
-
-
-def _install_fake_httpx(monkeypatch, body):
-    import httpx
-
-    class _Resp:
-        def raise_for_status(self):
-            return None
-
-        def json(self):
-            return body
-
-    class _Client:
-        def __init__(self, **kw):
-            pass
-
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *a):
-            return False
-
-        async def post(self, url, json=None, headers=None):
-            return _Resp()
-
-    monkeypatch.setattr(httpx, "AsyncClient", _Client)
+        await client.call_tool(endpoint="http://x/mcp", tool="screen_party",
+                               arguments={}, transport="streamable_http")
+    assert state["opens"] == 1, "a business error must not be retried"
 
 
 # =========================================================================== #
@@ -316,6 +413,21 @@ def test_run_real_llm_no_error_codes_no_business_error_hint(monkeypatch):
     assert "business_error" not in fake.seen[0][0]["content"]
 
 
+def test_run_real_llm_framing_is_descriptor_sourced_and_domain_neutral(monkeypatch):
+    # ADR-047: the system framing states the capability's role from its registered title/description; the
+    # platform embeds no business-area noun and the user turn labels the trigger generically.
+    fake = _FakeLLMClient('{"verdict": "ok"}')
+    monkeypatch.setattr(dispatch, "_llm_client", lambda ref: fake)
+    dispatch.run_real_llm(capability_id="cap.x.assess", targets=[("art.x.verdict", None)], ref="r",
+                          inputs={"a": 1}, envelope=make_envelope("AC01"),
+                          title="Assess beneficiary", description="Score the beneficiary match.")
+    system = fake.seen[0][0]["content"]
+    user = fake.seen[0][1]["content"]
+    assert "Assess beneficiary" in system and "Score the beneficiary match." in system   # from the descriptor
+    assert "payments exception" not in system.lower() and "exception-repair" not in system.lower()
+    assert user.startswith("Trigger:") and "Payment exception envelope" not in user
+
+
 def test_business_error_from_object_shapes():
     assert business_error_from_object({"business_error": {"code": "X"}}).error_code == "X"
     assert business_error_from_object({"business_error": {"code": "  "}}) is None  # blank
@@ -348,8 +460,7 @@ def test_deep_agent_raised_business_error_propagates_unwrapped():
 # Graph: a real business error routes to the error boundary (ADR-030 routing)
 # =========================================================================== #
 def test_real_mcp_business_error_routes_to_boundary():
-    client = StubMcpClient(error_result={"isError": True,
-                                         "structuredContent": {"error_code": "PAYMENT_REJECTED"}})
+    client = _rejecting_mcp_client()
     ex = HybridRealExecutor([MCP_CAP], mcp_client=client)
     app = _graph(_xml_with_boundary(host="Task_SanctionsRescreen"), ex)
     result, _ = drive(app, {"configurable": {"thread_id": "rbe-mcp"}}, _initial())
@@ -363,8 +474,7 @@ def test_real_mcp_business_error_routes_to_boundary():
 
 def test_real_mcp_unmatched_code_goes_to_failure_sink():
     # tool signals PAYMENT_REJECTED but the boundary catches only SOMETHING_ELSE (no catch-all).
-    client = StubMcpClient(error_result={"isError": True,
-                                         "structuredContent": {"error_code": "PAYMENT_REJECTED"}})
+    client = _rejecting_mcp_client()
     ex = HybridRealExecutor([MCP_CAP], mcp_client=client)
     app = _graph(_xml_with_boundary(host="Task_SanctionsRescreen", code="SOMETHING_ELSE"), ex)
     result, _ = drive(app, {"configurable": {"thread_id": "rbe-mcp-unmatched"}}, _initial())

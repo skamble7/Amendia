@@ -169,6 +169,8 @@ BPMN gateway conditions (FEEL expressions like `beneficiary.repair_verdict = "re
 | `llm` | `prompt_key`, `model_config_key`, `structured_output` | Prompt and model config indirect into config-forge so prompts are versioned/managed, not buried in code; `structured_output` (default true) = output is parsed and validated against the declared output artifact schema. |
 | `deep_agent` | `prompt_key`, `model_config_key`, `tools[]`, `structured_output`, `budget{max_steps,max_tokens}` | ADR-021. A bounded Deep Agents loop; `tools` is the whitelisted toolset (worker functions and/or MCP tool ids) — the **only** tools the loop may call; `model_config_key` resolves to a managed/`nemoclaw` ref; `budget` caps the loop (max_steps → LangGraph recursion_limit). Registry-gated: HITL-required, `read_only`-unless-justified, tools must resolve, nemoclaw-only. |
 
+> **Descriptor-sourced framing (ADR-047, domain-neutral).** For `llm` and `deep_agent`, the system prompt the engine builds is assembled **entirely from registered data** — the capability's `title`/`description` (llm) and `prompt_key` (deep_agent) state the role, and the declared output artifact names what to produce. The platform embeds **no** business-area noun; the trigger is labelled generically ("Trigger:"), never as a concrete envelope type. The `tools` whitelist is likewise descriptor-sourced (its ids resolve against the pack's MCP tools / the deployment's worker-tool registry, not a hardcoded platform list).
+
 ---
 
 ## 5. Artifact schema registration — "the shape of what steps produce"

@@ -23,9 +23,9 @@ from app.engine.executor.base import CapabilityError, ExecutionContext
 from app.engine.executor.core import execute_capability
 from app.engine.executor.deep_agent import FakeDeepAgentRunner
 from app.engine.executor.memo import InMemoryMemoStore
-from app.engine.executor.openshell import FakeOpenShellClient
 from app.engine.executor.policy import INFERENCE_PROXY_HOST, derive_egress_policy
 from app.engine.state import initial_state
+from tests._stub_stack import stub_executor, stub_fake_client
 from tests._wire import default_decision, make_envelope, role_user
 
 AGENTIC_SEED = str(settings.SEED_DIR).replace("wire-repair-standard", "wire-repair-agentic")
@@ -74,14 +74,15 @@ def test_contract_rejects_runtime_kind_mismatch():
 # --------------------------------------------------------------------------- #
 # Fake execution + native fail-closed
 # --------------------------------------------------------------------------- #
-def test_fake_deep_agent_produces_schema_valid_verdict_with_evidence():
+def test_fake_deep_agent_produces_schema_valid_verdict():
+    # ADR-047 D2: the CI/dev deep_agent fake emits a minimal *schema-valid* artifact from the pinned
+    # output schema (no SIM_CAPABILITIES) — the shape is contract-valid; the content is a placeholder.
     b = _bundle()
     d = b.descriptors[_CAP]
     out = execute_capability(d, {"dossier": {}}, _ctx(b), deep_agent_runner=FakeDeepAgentRunner())
     _valid(b, out["outputs"])
     verdict = out["outputs"][_VERDICT]
-    assert verdict["repair_verdict"] in ("repairable", "needs_info")
-    assert verdict["evidence"], "deep_agent must produce evidence[]"
+    assert verdict["repair_verdict"] in ("repairable", "unrepairable", "needs_info")
     assert "deep_agent" in out["log"]
 
 
@@ -112,7 +113,7 @@ class _CountingFakeClient:
     """Wraps FakeOpenShellClient, counting real deep_agent runs by element."""
 
     def __init__(self):
-        self._inner = FakeOpenShellClient(simulation=True)
+        self._inner = stub_fake_client()
         self.calls: Dict[str, int] = {}
 
     async def ping(self):
@@ -125,7 +126,7 @@ class _CountingFakeClient:
 
 
 def _graph(client, memo=None, memoize=False):
-    ex = SandboxedExecutor(client, fallback=InProcessExecutor(), memo=memo, memoize=memoize)
+    ex = SandboxedExecutor(client, fallback=stub_executor(), memo=memo, memoize=memoize)
     return compile_graph(_bundle(), ex, simulation=True, checkpointer=MemorySaver())
 
 
@@ -137,7 +138,7 @@ def _initial(exception_id="EXC-DA"):
 
 def test_sandboxed_requires_memo_for_deep_agent():
     # Fail closed if no memo store is wired for a deep_agent.
-    ex = SandboxedExecutor(FakeOpenShellClient(simulation=True), memo=None, memoize=False)
+    ex = SandboxedExecutor(stub_fake_client(), memo=None, memoize=False)
     b = _bundle()
     with pytest.raises(CapabilityError, match="memoization"):
         ex.execute(b.descriptors[_CAP], {"dossier": {}}, _ctx(b))
@@ -186,7 +187,7 @@ def test_deep_agent_reject_reruns_then_approve_does_not():
 
 
 def test_ac01_runs_to_resolved_through_agentic_pack():
-    client = FakeOpenShellClient(simulation=True)
+    client = stub_fake_client()
     app = _graph(client, memo=InMemoryMemoStore(), memoize=False)
     cfg = {"configurable": {"thread_id": "pi-da-e2e"}}
     from tests._wire import drive

@@ -25,6 +25,7 @@ from app.engine.bundle import PackBundle
 from app.engine.compiler import compile_graph
 from app.engine.engine import ProcessEngine
 from app.engine.executor import InProcessExecutor
+from tests._stub_stack import stub_executor
 from amendia_contracts.hitl_task import TaskStatus
 from app.models.process_instance import InstanceStatus, ProcessInstance
 from app.models.timer import TimerStatus
@@ -118,7 +119,7 @@ async def harness():
     def build_engine(bundle):
         eng = ProcessEngine(
             registry=None, instance_repo=instances, hitl_repo=hitl, publisher=pub,
-            settings=_Settings(), executor=InProcessExecutor(), checkpointer=checkpointer,
+            settings=_Settings(), executor=stub_executor(), checkpointer=checkpointer,
             timer_service=timers,
         )
         graph = compile_graph(bundle, eng._executor, simulation=True,
@@ -307,8 +308,8 @@ def test_timer_pack_requires_timers_profile_to_compile():
     b = _bundle(_boundary_xml())
     # under a lower profile the compilability gate refuses the timer construct
     with pytest.raises(CompilerError):
-        compile_graph(b, InProcessExecutor(), simulation=True,
+        compile_graph(b, stub_executor(), simulation=True,
                       checkpointer=MemorySaver(), profile="common_subset")
     # under the timers profile it compiles
-    compile_graph(b, InProcessExecutor(), simulation=True,
+    compile_graph(b, stub_executor(), simulation=True,
                   checkpointer=MemorySaver(), profile="timers")

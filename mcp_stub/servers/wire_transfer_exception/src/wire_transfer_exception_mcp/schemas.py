@@ -50,9 +50,11 @@ _STR_ARR = {"type": "array", "items": {"type": "string"}}
 
 
 def _input(properties: Dict[str, Any]) -> Dict[str, Any]:
-    """A permissive input: root object, closed at the top level (only the declared payload
-    props), but the payload objects themselves are open. No required fields — the dumb
-    handlers tolerate whatever they get."""
+    """A CLOSED input: root object, ``additionalProperties: false``, no required fields — the dumb handlers
+    tolerate whatever declared props they get and read only what they need. The server's ``check_compliance``
+    ENFORCES the closed root (MCP Implementor Guideline), so every field a binding's ``input_map`` composite
+    sends for this tool MUST be declared here — else the server 400-rejects the call. (That coupling is what a
+    ``input_map ⊆ inputSchema`` contract test guards; the in-process test double skips validation.)"""
     return {"$schema": DRAFT, "type": "object", "additionalProperties": False, "properties": properties}
 
 
@@ -115,8 +117,13 @@ ENRICH_OUTPUT = _output(
 ASSESS_INPUT = _input({
     "dossier": _open(),
     "exception_id": _STR,
-    "repair_hint": {"type": "string", "enum": REPAIR_VERDICTS},
     "reason_codes": _STR_ARR,
+    # ``resolution`` is the analyst's EXPLICIT needs-info disposition (art.payment.info_resolution.outcome),
+    # threaded by the pack's input_map after the analyst completes Obtain-Info. It is a HUMAN-authored artifact
+    # with no agent draft, so — unlike a field on the LLM-drafted rfi — it cannot be auto-filled with a value
+    # that restates the problem. It is the top-precedence terminator for the needs-info rework loop:
+    # ``resolved`` → repairable, ``cannot_obtain`` → unrepairable. ``null`` on the first pass (no Obtain-Info yet).
+    "resolution": {"type": ["string", "null"], "enum": ["resolved", "cannot_obtain", None]},
 })
 
 ASSESS_OUTPUT = _output(
@@ -219,3 +226,31 @@ DRAFT_RETURN_OUTPUT = _output(
 EXECUTE_RETURN_INPUT = _input({"return_instruction": _open(), "exception_id": _STR})
 
 EXECUTE_RETURN_OUTPUT = _ack_output({"return_ref": _STR, "performed_at": _STR})
+
+
+# --------------------------------------------------------------------------- #
+# Deep-agent worker tools (ADR-047 D2) — the read-only investigation helpers a `deep_agent`
+# capability's loop may call. Moved here from the runtime's in-code `_STUB_WORKER_TOOLS` so the
+# platform image carries no domain tool; a deep_agent whitelists them by name via runtime.tools.
+# --------------------------------------------------------------------------- #
+
+SEARCH_HISTORY_INPUT = _input({"account_id": _STR})
+
+SEARCH_HISTORY_OUTPUT = _output(
+    {"account_id": _STR,
+     "prior_settlements": _arr(_closed(
+         {"amount": _NUM, "currency": _STR, "counterparty": _STR, "value_date": _STR}))},
+    ["account_id", "prior_settlements"],
+)
+
+NAME_MATCH_INPUT = _input({"name_a": _STR, "name_b": _STR})
+
+NAME_MATCH_OUTPUT = _output({"name_a": _STR, "name_b": _STR, "score": _NUM},
+                            ["name_a", "name_b", "score"])
+
+FETCH_ATTACHMENT_INPUT = _input({"attachment_id": _STR})
+
+FETCH_ATTACHMENT_OUTPUT = _output(
+    {"attachment_id": _STR, "parsed": _closed({"stub": _BOOL, "text": _STR})},
+    ["attachment_id", "parsed"],
+)

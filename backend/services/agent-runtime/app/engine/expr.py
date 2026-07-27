@@ -7,7 +7,7 @@ Supported forms (whitespace-tolerant; both ``=`` and ``==`` accepted):
 
 The dot-path is resolved against ``state.artifacts`` — its first segment is the
 artifact name (per the manifest ``gateway_variables``), e.g.
-``beneficiary.repair_verdict`` → ``artifacts["beneficiary"]["repair_verdict"]``.
+``result.status`` → ``artifacts["result"]["status"]``.
 Anything else raises ``ConditionSyntaxError`` (the compiler surfaces it with the
 gateway id).
 """

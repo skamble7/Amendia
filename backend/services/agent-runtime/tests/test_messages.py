@@ -33,6 +33,7 @@ from app.engine.bundle import PackBundle
 from app.engine.compiler import compile_graph
 from app.engine.engine import ProcessEngine
 from app.engine.executor import InProcessExecutor
+from tests._stub_stack import stub_executor
 from app.models.process_instance import InstanceStatus, ProcessInstance
 from app.services.message_service import MessageSubscriptionService
 from app.services.timer_service import TimerService
@@ -137,7 +138,7 @@ async def harness():
 
     def build_engine(bundle):
         eng = ProcessEngine(registry=None, instance_repo=instances, hitl_repo=hitl, publisher=pub,
-                            settings=_Settings(), executor=InProcessExecutor(), checkpointer=cp,
+                            settings=_Settings(), executor=stub_executor(), checkpointer=cp,
                             timer_service=timers, message_service=messages)
         eng._bundles[(PK, PV)] = bundle
         eng._graphs[(PK, PV)] = compile_graph(bundle, eng._executor, simulation=True,

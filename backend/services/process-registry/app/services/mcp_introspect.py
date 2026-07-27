@@ -23,6 +23,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Protocol, Tuple
 
 from app.models.onboarding import (
+    IdCollision,
     IntrospectedTool,
     StagedArtifact,
     StagedCapability,
@@ -209,6 +210,36 @@ def suggest_ids(tool_name: str, domain: str) -> Dict[str, str]:
         "output_artifact_key": f"art.{domain}.{name}_output",
         "capability_id": f"cap.{domain}.{name}",
     }
+
+
+def _io_artifact_keys(ios: Any) -> List[str]:
+    """The bare artifact keys (no @range) an existing capability declares for its IO — for a contract diff."""
+    return sorted(str(getattr(io, "schema_", "")).split("@", 1)[0] for io in (ios or []))
+
+
+def classify_id_collision(active: List[Any], *, domain: str, tool: str) -> Optional[IdCollision]:
+    """Batch-4: classify a derived ``cap.<domain>.<tool>`` id against the ACTIVE catalog descriptors for that
+    id. ``None`` → no collision (a fresh id). Otherwise **benign** when the active descriptor is
+    contract-compatible with what introspection would stage (``kind: mcp`` + the same input/output artifact
+    keys) — a reuse opportunity — else **hard** (kind and/or IO contract differ → a later ``binding_io_mismatch``).
+    Domain-neutral: assumes nothing about which ids exist; compares only against the live catalog."""
+    if not active:
+        return None
+    from packaging.version import Version
+    desc = max(active, key=lambda d: Version(d.version))
+    ids = suggest_ids(tool, domain)
+    want_in, want_out = [ids["input_artifact_key"]], [ids["output_artifact_key"]]
+    a_kind = desc.kind.value if hasattr(desc.kind, "value") else str(desc.kind)
+    a_in, a_out = _io_artifact_keys(desc.inputs), _io_artifact_keys(desc.outputs)
+    compatible = a_kind == "mcp" and a_in == want_in and a_out == want_out
+    return IdCollision(
+        capability_id=ids["capability_id"],
+        severity="benign" if compatible else "hard",
+        active_version=desc.version,
+        active_kind=a_kind,
+        diff=(f"active: kind={a_kind}, in={a_in or []}, out={a_out or []}; "
+              f"introspected: kind=mcp, in={want_in}, out={want_out}"),
+    )
 
 
 def introspect_response_tool(tool: RawMcpTool, *, domain: str) -> IntrospectedTool:

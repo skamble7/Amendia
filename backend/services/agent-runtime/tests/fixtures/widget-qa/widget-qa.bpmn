@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
+                  id="Definitions_WidgetQA"
+                  targetNamespace="http://amendia.example/processes/widget-qa"
+                  exporter="Amendia" exporterVersion="0.1">
+  <bpmn:process id="Process_WidgetQA" name="Widget QA" isExecutable="true">
+    <bpmn:documentation>A fresh-domain (manufacturing QA) process with zero payments overlap: inspect a
+    widget, then an exclusive gateway certifies a pass or rejects a fail. Used to prove platform
+    domain-neutrality — it onboards and executes on the generic platform with no app/ change.</bpmn:documentation>
+
+    <bpmn:startEvent id="Start_WorkOrder">
+      <bpmn:outgoing>Flow_Start_Inspect</bpmn:outgoing>
+    </bpmn:startEvent>
+
+    <bpmn:serviceTask id="Task_Inspect" name="Inspect widget">
+      <bpmn:incoming>Flow_Start_Inspect</bpmn:incoming>
+      <bpmn:outgoing>Flow_Inspect_Gw</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <bpmn:exclusiveGateway id="Gateway_Grade" name="Passed inspection?" default="Flow_Reject">
+      <bpmn:incoming>Flow_Inspect_Gw</bpmn:incoming>
+      <bpmn:outgoing>Flow_Pass</bpmn:outgoing>
+      <bpmn:outgoing>Flow_Reject</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+
+    <bpmn:serviceTask id="Task_Certify" name="Certify widget">
+      <bpmn:incoming>Flow_Pass</bpmn:incoming>
+      <bpmn:outgoing>Flow_Certify_End</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <bpmn:endEvent id="End_Certified"><bpmn:incoming>Flow_Certify_End</bpmn:incoming></bpmn:endEvent>
+    <bpmn:endEvent id="End_Rejected"><bpmn:incoming>Flow_Reject</bpmn:incoming></bpmn:endEvent>
+
+    <bpmn:sequenceFlow id="Flow_Start_Inspect" sourceRef="Start_WorkOrder" targetRef="Task_Inspect"/>
+    <bpmn:sequenceFlow id="Flow_Inspect_Gw" sourceRef="Task_Inspect" targetRef="Gateway_Grade"/>
+    <bpmn:sequenceFlow id="Flow_Pass" sourceRef="Gateway_Grade" targetRef="Task_Certify">
+      <bpmn:conditionExpression>inspection.grade == "pass"</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_Reject" sourceRef="Gateway_Grade" targetRef="End_Rejected"/>
+    <bpmn:sequenceFlow id="Flow_Certify_End" sourceRef="Task_Certify" targetRef="End_Certified"/>
+  </bpmn:process>
+</bpmn:definitions>

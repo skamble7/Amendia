@@ -8,24 +8,45 @@
   "side_effect": "read_only",
   "idempotent": true,
   "inputs": [
-    { "name": "repair", "schema": "art.payment.repair_instruction@^1.0.0" }
+    {
+      "name": "repair",
+      "schema": "art.payment.repair_instruction@^1.0.0"
+    }
   ],
   "outputs": [
-    { "name": "screening", "schema": "art.compliance.screening_result@^1.0.0" }
+    {
+      "name": "screening",
+      "schema": "art.compliance.screen_party_output@^1.0.0"
+    }
   ],
   "config_schema": {
     "type": "object",
-    "required": ["list_provider"],
-    "properties": { "list_provider": { "enum": ["stub", "ofac_sim"] } }
+    "required": [
+      "list_provider"
+    ],
+    "properties": {
+      "list_provider": {
+        "enum": [
+          "stub",
+          "ofac_sim"
+        ]
+      }
+    }
   },
   "runtime": {
     "kind": "mcp",
-    "endpoint": "http://stub-mcp:8056/mcp",
-    "tools": ["screen_party"],
+    "endpoint": "http://wirefix-mcp:8060/mcp",
+    "tools": [
+      "screen_party"
+    ],
     "transport": "streamable_http",
     "headers": {}
   },
-  "constraints": { "timeout_seconds": 60, "max_retries": 1, "min_hitl_mode": "approve_result" },
+  "constraints": {
+    "timeout_seconds": 60,
+    "max_retries": 1,
+    "min_hitl_mode": "approve_result"
+  },
   "owner": "platform",
   "status": "active"
 }

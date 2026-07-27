@@ -21,7 +21,13 @@ from app.validation.reduce import validate_reduce_bindings
 from app.dal.artifact_schema_repo import ArtifactSchemaRepository
 from app.dal.capability_repo import CapabilityRepository
 from app.validation.bpmn import BpmnModel, parse_and_validate
-from app.validation.predicates import PredicateSyntaxError, check_predicate, evaluate
+from app.validation.predicates import (
+    PredicateSyntaxError,
+    check_predicate,
+    evaluate,
+    infer_field_types,
+    validate_predicate,
+)
 from app.validation.report import Severity, ValidationReport
 
 APPROVE_ACTIONS = HitlMode.APPROVE_ACTIONS
@@ -421,10 +427,22 @@ class PackValidator:
                 desc = resolved.get(ex.assist_capability.ref_id)
             if desc is None:
                 continue
+            # A capability executor produces/consumes EXACTLY its declared IO (strict set-equality). A human
+            # task with an assist is looser: the assist merely PRE-DRAFTS a subset of the task's IO — the human
+            # authors any remaining outputs (e.g. an explicit resolution artifact the agent must not touch) and
+            # may draw on extra context inputs. So the assist's IO need only be a SUBSET of the binding's; any
+            # extra binding IO is human-authored / human-context, not a mismatch.
+            human_assist = ex.type == "human"
             for side, b_ios, c_ios in (("inputs", b.inputs, desc.inputs), ("outputs", b.outputs, desc.outputs)):
                 b_map = {io.name: io for io in b_ios}
                 c_map = {io.name: io for io in c_ios}
-                if set(b_map) != set(c_map):
+                if human_assist:
+                    missing = set(c_map) - set(b_map)
+                    if missing:
+                        report.error("binding_io_mismatch", stage=5, element_id=b.element_id,
+                                     message=f"{side}: assist {desc.capability_id} {side} {sorted(missing)} "
+                                             f"not declared on the human task binding {sorted(b_map)}")
+                elif set(b_map) != set(c_map):
                     report.error("binding_io_mismatch", stage=5, element_id=b.element_id,
                                  message=f"{side} name set {sorted(b_map)} != capability "
                                          f"{desc.capability_id} {side} {sorted(c_map)}")
@@ -435,19 +453,48 @@ class PackValidator:
                                      message=f"{side} '{name}': binding schema '{b_map[name].schema_}' and "
                                              f"capability schema '{c_map[name].schema_}' share no registered version")
 
-        # input produced upstream (warning)
+        # ADR-048: the seed-state contract. Validate the REAL data-flow — an input is satisfied either by
+        # a same-named upstream output (shared-name chaining) or by an input_map source (the trigger, or a
+        # named upstream artifact). An input that is neither mapped nor produced hard-fails at runtime → error.
         reach = _forward_reach(model)
         producers: Dict[str, List[str]] = {}
         for b in manifest.bindings:
             for io in b.outputs:
                 producers.setdefault(io.name, []).append(b.element_id)
+            # ADR-039: a callActivity's output_map produces its caller-artifact keys at that node.
+            if getattr(b.executor, "type", None) == "call":
+                for caller_artifact in (getattr(b.executor, "output_map", None) or {}):
+                    producers.setdefault(caller_artifact, []).append(b.element_id)
+
+        def _produced_upstream(artifact_name: str, elem: str) -> bool:
+            return any(elem in reach.get(p, set()) for p in producers.get(artifact_name, []) if p != elem)
+
+        def _artifact_refs(src: dict) -> List[str]:
+            # every `from: artifact` name referenced by a source (recursing into `fields`).
+            if "fields" in src:
+                return [n for v in src["fields"].values() for n in _artifact_refs(v)]
+            return [src["name"]] if src.get("from") == "artifact" and src.get("name") else []
+
         for b in manifest.bindings:
+            imap = {k: (v.model_dump(by_alias=True) if hasattr(v, "model_dump") else v)
+                    for k, v in (getattr(b, "input_map", None) or {}).items()}
             for io in b.inputs:
-                ok = any(b.element_id in reach.get(p, set()) for p in producers.get(io.name, []) if p != b.element_id)
-                if not ok:
-                    report.warning("unproduced_input", stage=5, element_id=b.element_id,
-                                   message=f"input '{io.name}' is not produced by any upstream binding "
-                                           f"(assumed seed state)")
+                src = imap.get(io.name)
+                if src is None:
+                    # no map → must chain from a same-named upstream output; else it fails at step 1.
+                    if not _produced_upstream(io.name, b.element_id):
+                        report.error("unproduced_input", stage=5, element_id=b.element_id,
+                                     message=f"input '{io.name}' has no input_map and is not produced by any "
+                                             f"upstream binding — it will fail at runtime; map it from the "
+                                             f"trigger or an upstream output (ADR-048)")
+                    continue
+                # mapped → a `trigger` source is satisfiable (opaque today); each `from: artifact` name
+                # must be produced upstream on the path reaching this node.
+                for name in _artifact_refs(src):
+                    if not _produced_upstream(name, b.element_id):
+                        report.error("binding_input_unproduced", stage=5, element_id=b.element_id,
+                                     message=f"input '{io.name}' maps from artifact '{name}', which is not "
+                                             f"produced by any upstream binding (ADR-048)")
 
     # ------------------------------------------------------------------ #
     # Stage 6 — gateway variables
@@ -579,6 +626,9 @@ class PackValidator:
                             report.error("sod_unknown_element", stage=7, element_id=el,
                                          message=f"SoD element '{el}' is not a BPMN task")
 
+        # Batch-4: the trigger shape for schema-aware triage validation (from the sample envelopes; a declared
+        # trigger artifact would slot in here). Empty ⇒ schema checks degrade to the structural check only.
+        field_types = infer_field_types(sample_envelopes)
         for rule in manifest.triage_rules:
             try:
                 check_predicate(rule.when)
@@ -586,6 +636,10 @@ class PackValidator:
                 report.error("triage_rule_invalid", stage=7,
                              message=f"triage rule '{rule.rule_id}' predicate invalid: {exc}")
                 continue
+            # A field not on the trigger, or an op incompatible with its type, is an ERROR (it silently never
+            # triages at runtime) — not a clean pass.
+            for f in validate_predicate(rule.when, field_types):
+                report.error(f["code"], stage=7, message=f"triage rule '{rule.rule_id}': {f['message']}")
             for env in sample_envelopes:
                 try:
                     matched = evaluate(rule.when, env)

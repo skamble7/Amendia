@@ -89,7 +89,7 @@ async def lifespan(app: FastAPI):
     app.state.hitl_task_repo = hitl_task_repo
     app.state.dispatch_repo = dispatch_repo
 
-    if settings.SEED_ON_STARTUP:
+    if settings.SEED_ON_STARTUP and settings.SEED_DIR:   # L2: opt-in; no SEED_DIR → boot clean
         try:
             report = await SeedLoader(settings.SEED_DIR).load(mongo)
             logger.info("Auto-seed: %s", report.as_dict())

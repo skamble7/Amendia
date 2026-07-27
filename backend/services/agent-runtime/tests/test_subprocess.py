@@ -32,6 +32,7 @@ from app.engine.bundle import PackBundle
 from app.engine.compiler import CompilerError, compile_graph
 from app.engine.engine import ProcessEngine
 from app.engine.executor import InProcessExecutor
+from tests._stub_stack import stub_executor
 from app.models.process_instance import InstanceStatus, ProcessInstance
 from app.services.message_service import MessageSubscriptionService
 from app.services.timer_service import TimerService
@@ -107,7 +108,7 @@ async def harness():
 
     def build_engine(bundle):
         eng = ProcessEngine(registry=None, instance_repo=instances, hitl_repo=hitl, publisher=FakePublisher(),
-                            settings=_Settings(), executor=InProcessExecutor(), checkpointer=cp,
+                            settings=_Settings(), executor=stub_executor(), checkpointer=cp,
                             timer_service=timers, message_service=messages)
         eng._bundles[(PK, PV)] = bundle
         eng._graphs[(PK, PV)] = compile_graph(bundle, eng._executor, simulation=True,
@@ -177,9 +178,9 @@ async def test_nested_hitl_gate_behaves_like_top_level(harness):
 async def test_profile_guard_refuses_subprocess_under_lower_runtime():
     b = _bundle(_wrap_in_subprocess(_seed_xml(), "Task_EnrichPayment"))
     with pytest.raises(CompilerError):
-        compile_graph(b, InProcessExecutor(), simulation=True, checkpointer=MemorySaver(), profile="common_subset")
+        compile_graph(b, stub_executor(), simulation=True, checkpointer=MemorySaver(), profile="common_subset")
     # runs on a subprocess runtime
-    compile_graph(b, InProcessExecutor(), simulation=True, checkpointer=MemorySaver(), profile="subprocess")
+    compile_graph(b, stub_executor(), simulation=True, checkpointer=MemorySaver(), profile="subprocess")
 
 
 async def test_nested_unbound_task_fails_compile():
@@ -187,7 +188,7 @@ async def test_nested_unbound_task_fails_compile():
     xml = _wrap_in_subprocess(_seed_xml(), "Task_EnrichPayment")
     b = _bundle(xml, drop_binding="Task_EnrichPayment")
     with pytest.raises(CompilerError, match="unbound"):
-        compile_graph(b, InProcessExecutor(), simulation=True, checkpointer=MemorySaver(), profile="subprocess")
+        compile_graph(b, stub_executor(), simulation=True, checkpointer=MemorySaver(), profile="subprocess")
 
 
 async def test_nested_two_level_compiles_and_starts(harness):

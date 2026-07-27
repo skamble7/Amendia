@@ -18,11 +18,10 @@ from langgraph.checkpoint.memory import MemorySaver
 from app.config import settings
 from app.engine.bundle import PackBundle
 from app.engine.compiler import compile_graph
-from app.engine.executor import InProcessExecutor, SandboxedExecutor
+from app.engine.executor import SandboxedExecutor
 from app.engine.executor import dispatch
 from app.engine.executor.base import CapabilityError, ExecutionContext
 from app.engine.executor.memo import InMemoryMemoStore
-from app.engine.executor.mcp_client import StubMcpClient
 from app.engine.executor.openshell import (
     BrokerOpenShellClient,
     CapabilityRunSpec,
@@ -31,6 +30,7 @@ from app.engine.executor.openshell import (
 )
 from app.engine.executor.worker_runner import run_job
 from app.engine.state import initial_state
+from tests._stub_stack import stub_executor, stub_run_job
 from tests._wire import default_decision, drive, make_envelope, role_user
 from langgraph.types import Command
 
@@ -39,7 +39,8 @@ def _bundle() -> PackBundle:
     return PackBundle.from_seed_dir(settings.SEED_DIR)
 
 
-def _job_for(cap_id: str, inputs: Dict[str, Any], *, simulation=True, mode="execute", envelope=None):
+def _job_for(cap_id: str, inputs: Dict[str, Any], *, simulation=True, mode="execute",
+             envelope=None, mcp_arguments=None):
     b = _bundle()
     d = b.descriptors[cap_id]
     output_schemas = {}
@@ -51,6 +52,7 @@ def _job_for(cap_id: str, inputs: Dict[str, Any], *, simulation=True, mode="exec
         "spec": {
             "capability_id": cap_id, "kind": d.kind.value, "inputs": inputs,
             "envelope": envelope or make_envelope("AC01"), "output_schemas": output_schemas,
+            "mcp_arguments": mcp_arguments,
             "mode": mode, "approved_action_ids": None, "model_config_ref": None,
             "element_id": "El", "process_instance_id": "pi-1", "memo_attempt": 0,
             "simulation": simulation, "egress_policy": None,
@@ -73,12 +75,14 @@ def _ctx(bundle, cap_id, simulation=True):
 # Shared-core parity
 # --------------------------------------------------------------------------- #
 def test_shared_core_parity_in_process_vs_worker():
+    # ADR-047 D2: native (stub_executor) and worker (stub_run_job) run the SAME injected stub stack over the
+    # shared core → byte-identical outputs. Transparency by construction, no per-worker simulation.
     b = _bundle()
     for cap in ("cap.payment.enrich_investigation", "cap.payment.assess_beneficiary",
                 "cap.payment.sanctions_screen"):
         inputs = {"dossier": {}, "beneficiary": {}}
-        in_proc = InProcessExecutor().execute(b.descriptors[cap], inputs, _ctx(b, cap))
-        worker = run_job(_job_for(cap, inputs))
+        in_proc = stub_executor().execute(b.descriptors[cap], inputs, _ctx(b, cap))
+        worker = stub_run_job(_job_for(cap, inputs))
         assert worker["ok"] is True
         assert worker["result"]["outputs"] == in_proc["outputs"], f"parity mismatch for {cap}"
 
@@ -99,9 +103,9 @@ def _spec(cap_id="cap.payment.sanctions_screen", *, simulation=True, timeout=Non
 
 @pytest.mark.asyncio
 async def test_broker_roundtrip_returns_sandbox_result():
-    client = BrokerOpenShellClient(InMemoryBrokerTransport(run_job))
+    client = BrokerOpenShellClient(InMemoryBrokerTransport(stub_run_job))
     res = await client.run_capability(_spec())
-    assert res.outputs["art.compliance.screening_result"]["verdict"] == "clean"
+    assert res.outputs["art.compliance.screen_party_output"]["status"] == "clear"
     assert res.otlp_trace_id.startswith("otlp-worker-")
 
 
@@ -139,7 +143,7 @@ async def test_broker_correlates_request_id_deterministically():
 
     def capture(job):
         captured.append(job["request_id"])
-        return run_job(job)
+        return stub_run_job(job)
 
     client = BrokerOpenShellClient(InMemoryBrokerTransport(capture))
     await client.run_capability(_spec())
@@ -170,13 +174,17 @@ def test_secrets_not_on_the_wire():
 # --------------------------------------------------------------------------- #
 # D — real MCP transport in the worker (stub client, stub list)
 # --------------------------------------------------------------------------- #
-def test_worker_mcp_uses_client_not_sim_when_not_simulation():
+def test_worker_mcp_uses_client_not_sim():
+    # ADR-047 D2: an `mcp` cap always goes through the MCP client (no simulation fallback). The worker
+    # makes the SAME tool call as native — here the input_map's `party` (payment.creditor) drives the
+    # marker-based `screen_party` stub to a `hit`, proving the real MCP transport path is exercised.
     job = _job_for("cap.payment.sanctions_screen", {}, simulation=False,
-                   envelope=make_envelope("AC01", creditor_name="SANCTIONED HOLDINGS"))
-    reply = run_job(job, mcp_client=StubMcpClient())
+                   envelope=make_envelope("AC01", creditor_name="SANCTIONED HOLDINGS"),
+                   mcp_arguments={"party": {"name": "SANCTIONED HOLDINGS"}})
+    reply = stub_run_job(job)
     assert reply["ok"] is True
-    screening = reply["result"]["outputs"]["art.compliance.screening_result"]
-    assert screening["verdict"] == "hit"          # marker-based stub, real MCP transport path
+    screening = reply["result"]["outputs"]["art.compliance.screen_party_output"]
+    assert screening["status"] == "hit"           # marker-based stub, real MCP transport path
     assert "real MCP" in reply["result"]["log"]
 
 
@@ -184,11 +192,16 @@ def test_worker_mcp_uses_client_not_sim_when_not_simulation():
 # B — llm in the worker routes through run_real_llm (mocked, no inference)
 # --------------------------------------------------------------------------- #
 def test_worker_llm_routes_through_run_real_llm(monkeypatch):
+    # The production llm path in the worker (NOT stub_inference): routes through run_real_llm. The provider
+    # call is mocked (no inference); the returned artifact is a schema-valid stub (ADR-047 D2 — no domain
+    # capability code to import).
     b = _bundle()
-    valid = __import__("app.capabilities.wire_repair.draft_repair", fromlist=["run"]).run(
-        inputs={"beneficiary": {}}, envelope=make_envelope("AC01"))["outputs"]["art.payment.repair_instruction"]
+    from app.engine.executor.stub_inference import stub_from_schema
+    schema = b.schemas["art.payment.repair_instruction@1.0.0"]
+    valid = stub_from_schema(schema)
 
-    def fake_run_real_llm(*, capability_id, targets, ref, inputs, envelope, error_codes=None, cancel=None):
+    def fake_run_real_llm(*, capability_id, targets, ref, inputs, envelope, error_codes=None, cancel=None,
+                          title=None, description=None):
         return ({akey: valid for akey, _ in targets}, "nemoclaw", "nemotron-3-ultra")
 
     monkeypatch.setattr(dispatch, "run_real_llm", fake_run_real_llm)
@@ -202,15 +215,15 @@ def test_worker_llm_routes_through_run_real_llm(monkeypatch):
 # End-to-end AC01 through the broker + worker (no fake, no gateway)
 # --------------------------------------------------------------------------- #
 def _broker_graph(memo=None, memoize=False, counter=None):
-    handler = run_job
+    handler = stub_run_job
     if counter is not None:
         def counting(job):
             el = job["spec"].get("element_id")
             counter[el] = counter.get(el, 0) + 1
-            return run_job(job)
+            return stub_run_job(job)
         handler = counting
     client = BrokerOpenShellClient(InMemoryBrokerTransport(handler))
-    ex = SandboxedExecutor(client, fallback=InProcessExecutor(), memo=memo, memoize=memoize)
+    ex = SandboxedExecutor(client, fallback=stub_executor(), memo=memo, memoize=memoize)
     return compile_graph(_bundle(), ex, simulation=True, checkpointer=MemorySaver())
 
 
@@ -233,7 +246,7 @@ def test_ac01_runs_to_resolved_through_broker_worker():
 
 
 def test_native_vs_broker_worker_invariance():
-    native = compile_graph(_bundle(), InProcessExecutor(), simulation=True, checkpointer=MemorySaver())
+    native = compile_graph(_bundle(), stub_executor(), simulation=True, checkpointer=MemorySaver())
     broker = _broker_graph()
     n, _ = drive(native, {"configurable": {"thread_id": "pi-n"}}, _initial("EXC-INV2"))
     s, _ = drive(broker, {"configurable": {"thread_id": "pi-s"}}, _initial("EXC-INV2"))

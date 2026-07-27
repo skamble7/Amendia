@@ -1,0 +1,26 @@
+{
+  "descriptor_version": "1.0",
+  "capability_id": "cap.widgetqa.inspect",
+  "version": "1.0.0",
+  "title": "Inspect widget",
+  "description": "Inspects a widget from a work order and returns a QA grade via an MCP inspection server.",
+  "kind": "mcp",
+  "side_effect": "read_only",
+  "idempotent": true,
+  "inputs": [
+    { "name": "trigger", "schema": "art.widgetqa.work_order@^1.0.0" }
+  ],
+  "outputs": [
+    { "name": "inspection", "schema": "art.widgetqa.inspection@^1.0.0" }
+  ],
+  "runtime": {
+    "kind": "mcp",
+    "endpoint": "http://stub-mcp:8056/mcp",
+    "tools": ["inspect_widget"],
+    "transport": "streamable_http",
+    "headers": {}
+  },
+  "constraints": { "timeout_seconds": 30, "max_retries": 1, "min_hitl_mode": "none" },
+  "owner": "platform",
+  "status": "active"
+}

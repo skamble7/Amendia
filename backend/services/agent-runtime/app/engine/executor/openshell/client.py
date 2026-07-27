@@ -21,9 +21,7 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Protocol, runtime_checkable
 
-from app.capabilities.wire_repair import SIM_CAPABILITIES
 from app.engine.executor.base import CapabilityError
-from app.engine.executor.dispatch import run_real_llm
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +57,9 @@ class CapabilityRunSpec:
     timeout_seconds: Optional[float] = None
     max_retries: int = 0
     idempotent: bool = False
+    # ADR-048 / ADR-047 D2: the resolved MCP tool-call arguments (from the binding's input_map), threaded so
+    # the sandbox makes the SAME tool call as the native path — the native↔sandbox transparency guarantee.
+    mcp_arguments: Optional[Dict[str, Any]] = None
 
 
 @dataclass
@@ -98,55 +99,48 @@ class FakeOpenShellClient:
     automatically when ``AGENTRT_OPENSHELL_URL`` is unset.
     """
 
-    def __init__(self, *, simulation: bool = True) -> None:
+    def __init__(self, *, simulation: bool = True, mcp_client: Any = None,
+                 stub_inference: bool = False, deep_agent_runner: Any = None,
+                 skill_impls: Any = None) -> None:
+        # ADR-047 D2: the fake runs the SAME `execute_capability` dispatch as the native path (the spec
+        # carries the pinned descriptor), wired to the SAME injected stubs — so native and nemoclaw(fake)
+        # produce identical artifacts by construction, no parallel `SIM_CAPABILITIES` implementation.
         self._simulation = simulation
         self._n = 0
+        self._mcp_client = mcp_client
+        self._stub_inference = stub_inference
+        self._deep_agent_runner = deep_agent_runner
+        self._skill_impls = skill_impls
 
     async def ping(self) -> bool:
         return True
 
     async def run_capability(self, spec: CapabilityRunSpec) -> SandboxResult:
+        from app.engine.executor.base import ExecutionContext
+        from app.engine.executor.core import execute_capability
         self._n += 1
         trace = f"fake-otlp-{spec.element_id or spec.capability_id}-{self._n}"
-
-        if spec.simulation or self._simulation:
-            result = self._run_sim(spec)
-            outputs = result.get("outputs", {}) or {}
-            return SandboxResult(
-                outputs=outputs, otlp_trace_id=trace,
-                provider="openshell-sim", model=spec.capability_id,
-                proposed_actions=result.get("proposed_actions"),
-                log=result.get("log"),
-            )
-
-        # Real path — reuse the exact polyllm primitive the in-process executor uses, so
-        # the fake is a faithful stand-in. (mcp has no real broker in Phase 1 → sim.)
-        if spec.kind == "llm":
-            targets = [(akey, spec.output_schemas.get(akey)) for akey in spec.output_schemas]
-            produced, provider, model = run_real_llm(
-                capability_id=spec.capability_id, targets=targets, ref=spec.model_config_ref,
-                inputs=spec.inputs, envelope=spec.envelope, error_codes=spec.error_codes,
-            )
-            return SandboxResult(outputs=produced, otlp_trace_id=trace, provider=provider, model=model)
-
-        result = self._run_sim(spec)
+        if spec.descriptor is None:
+            raise CapabilityError(f"{spec.capability_id}: sandbox spec carries no pinned descriptor")
+        ctx = ExecutionContext(
+            envelope=spec.envelope, mode=spec.mode, approved_action_ids=spec.approved_action_ids,
+            simulation=spec.simulation, extras={
+                "output_schemas": spec.output_schemas, "element_id": spec.element_id,
+                "error_codes": spec.error_codes, "mcp_arguments": spec.mcp_arguments,
+                "process_instance_id": spec.process_instance_id, "memo_attempt": spec.memo_attempt,
+            })
+        result = execute_capability(
+            spec.descriptor, spec.inputs, ctx, mcp_client=self._mcp_client,
+            deep_agent_runner=self._deep_agent_runner, stub_inference=self._stub_inference,
+            skill_impls=self._skill_impls)
+        # Surface the REAL provider/model the shared core resolved (e.g. nemoclaw for a routed llm) so the
+        # sandbox path reports it exactly as a live gateway would — falling back to the substrate name for
+        # kinds that don't route to a provider (stub/skill/mcp). Preserves native↔sandbox transparency.
         return SandboxResult(
             outputs=result.get("outputs", {}) or {}, otlp_trace_id=trace,
-            provider="openshell-sim", model=spec.capability_id,
-            proposed_actions=result.get("proposed_actions"), log=result.get("log"),
-        )
-
-    @staticmethod
-    def _run_sim(spec: CapabilityRunSpec) -> Dict[str, Any]:
-        fn = SIM_CAPABILITIES.get(spec.capability_id)
-        if fn is None:
-            raise CapabilityError(
-                f"no simulation capability registered for {spec.capability_id}"
-            )
-        return fn(
-            inputs=spec.inputs, envelope=spec.envelope,
-            mode=spec.mode, approved_action_ids=spec.approved_action_ids,
-        )
+            provider=result.get("provider") or "openshell-fake",
+            model=result.get("model") or spec.capability_id,
+            proposed_actions=result.get("proposed_actions"), log=result.get("log"))
 
 
 # --------------------------------------------------------------------------- #

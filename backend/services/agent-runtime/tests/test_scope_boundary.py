@@ -20,6 +20,7 @@ from app.config import settings
 from app.engine.bundle import PackBundle
 from app.engine.compiler import FAILED_OUTCOME, compile_graph
 from app.engine.executor import InProcessExecutor
+from tests._structural_tools import STRUCTURAL_IMPLS
 from app.engine.executor.base import CapabilityBusinessError
 from app.engine.state import initial_state
 from tests._wire import drive, make_envelope
@@ -62,7 +63,7 @@ class _Block:
 
     def __init__(self, cap):
         self._cap = cap
-        self._fb = InProcessExecutor()
+        self._fb = InProcessExecutor(skill_impls=STRUCTURAL_IMPLS)
 
     def execute(self, d, i, ctx):
         if d.capability_id == self._cap:
@@ -77,7 +78,7 @@ class _Raise:
 
     def __init__(self, cap, code):
         self._cap, self._code = cap, code
-        self._fb = InProcessExecutor()
+        self._fb = InProcessExecutor(skill_impls=STRUCTURAL_IMPLS)
 
     def execute(self, d, i, ctx):
         if d.capability_id == self._cap:
@@ -167,7 +168,7 @@ def _seed_bundle() -> PackBundle:
 
 
 def test_scope_sla_within_deadline_completes():
-    final = _run(_seed_bundle(), InProcessExecutor(), tid="within")
+    final = _run(_seed_bundle(), InProcessExecutor(skill_impls=STRUCTURAL_IMPLS), tid="within")
     assert final["outcome"] == "End_Done"
     assert set(final["artifacts"]) == {"a", "b", "c"}      # all three inner tasks ran
     assert "Sub_Timer" not in (final.get("boundary") or {})
