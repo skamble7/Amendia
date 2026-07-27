@@ -11,7 +11,7 @@ It is also the **fetch-back API**: downstream services receive the thin event, t
 call this service to fetch the full exception document and its attachment bytes.
 
 The stored document conforms to the normalized wire exception envelope
-(`pin.payments.wire_exception/1.0`, see `backend/docs/wire-transfer-exception-reference.md` §4),
+(`pin.payments.wire_exception/1.0`, see `backend/docs/methodology/worked-examples/wire-transfer-exception-reference.md` §4),
 wrapped with store-managed metadata (`schema_version`, `created_at`, `updated_at`).
 
 ## Endpoints

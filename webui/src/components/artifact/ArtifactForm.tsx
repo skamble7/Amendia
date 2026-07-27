@@ -1,31 +1,13 @@
-import { useMemo } from "react";
-import { useForm, Controller } from "react-hook-form";
-import { Input } from "@/components/ui/input";
+import { useEffect, useMemo, useState } from "react";
+import { useForm, FormProvider } from "react-hook-form";
+import { Braces, ListTree } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
-import { Label } from "@/components/ui/label";
-import { Checkbox } from "@/components/ui/checkbox";
+import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
-import { humanizeKey, schemaType, type JsonSchema } from "./schema";
+import { type JsonSchema } from "./schema";
 import { zodFromSchema } from "./zodFromSchema";
-
-interface FieldSpec {
-  key: string;
-  schema?: JsonSchema;
-  kind: "enum" | "boolean" | "number" | "text" | "textarea" | "json";
-  required: boolean;
-}
-
-function specFor(key: string, schema: JsonSchema | undefined, required: boolean): FieldSpec {
-  const t = schemaType(schema);
-  let kind: FieldSpec["kind"] = "text";
-  if (schema?.enum) kind = "enum";
-  else if (t === "boolean") kind = "boolean";
-  else if (t === "number" || t === "integer") kind = "number";
-  else if (t === "object" || t === "array") kind = "json";
-  else if (/rationale|justification|message|narrative|comment|detail|notes/i.test(key)) kind = "textarea";
-  return { key, schema, kind, required };
-}
+import { ObjectFieldset, toDefault, parseValues, FieldParseError } from "./ArtifactFields";
 
 export interface ArtifactFormProps {
   /** form element id — parent renders submit buttons with form={id} */
@@ -40,142 +22,165 @@ export interface ArtifactFormProps {
   className?: string;
 }
 
+/** Root-object defaults: structured nodes keep their raw shape (RHF nested fields / field arrays read them);
+ *  freeform/schemaless leaves are JSON-stringified so a textarea shows readable JSON, never "[object Object]". */
+function toFormDefaults(schema: JsonSchema | undefined, data: Record<string, unknown>): Record<string, unknown> {
+  const keys = schema?.properties ? Object.keys(schema.properties) : Object.keys(data);
+  const out: Record<string, unknown> = {};
+  for (const k of keys) out[k] = toDefault(schema?.properties?.[k], data[k], k, 0);
+  return out;
+}
+
 /**
- * Editable artifact form. Fields are derived from the pinned JSON Schema (falling
- * back to the data shape). Scalars/enums/numbers/booleans get native controls;
- * nested objects/arrays get a validated JSON editor. Client-side validation
- * mirrors the schema; the backend re-validates and its 400 detail is surfaced by
- * the caller on mismatch.
+ * Editable artifact form. Fields are derived recursively from the pinned JSON Schema (falling back to the
+ * data shape while the schema loads): objects → nested fieldsets, arrays of objects → repeatable structured
+ * rows, arrays of scalars → repeatable inputs, scalars → native controls. A schemaless/freeform subtree
+ * degrades to a JSON textarea, and a per-form "Raw JSON" toggle is the whole-artifact escape hatch. The
+ * assembled object is validated against the schema-derived zod validator (the backend re-validates).
  */
 export function ArtifactForm({ id, schema, defaultData, onSubmit, agentDrafted, className }: ArtifactFormProps) {
-  const fields = useMemo<FieldSpec[]>(() => {
-    const required = new Set(schema?.required ?? []);
-    const keys = schema?.properties ? Object.keys(schema.properties) : Object.keys(defaultData);
-    return keys.map((k) => specFor(k, schema?.properties?.[k], required.has(k)));
-  }, [schema, defaultData]);
+  const defaults = useMemo(() => toFormDefaults(schema, defaultData), [schema, defaultData]);
+  const [rawMode, setRawMode] = useState(false);
+  const [rawText, setRawText] = useState("");
+  const [rawError, setRawError] = useState<string | undefined>();
 
-  const defaults = useMemo(() => {
-    const d: Record<string, unknown> = {};
-    for (const f of fields) {
-      const v = defaultData[f.key];
-      d[f.key] = f.kind === "json" ? JSON.stringify(v ?? (schemaType(f.schema) === "array" ? [] : {}), null, 2) : v ?? "";
-    }
-    return d;
-  }, [fields, defaultData]);
+  const methods = useForm({ defaultValues: defaults });
+  const { handleSubmit, reset, getValues, setError, formState: { isDirty } } = methods;
 
-  const {
-    register,
-    control,
-    handleSubmit,
-    formState: { errors },
-    setError,
-  } = useForm({ defaultValues: defaults });
+  // react-hook-form applies defaultValues only at mount; re-apply when they recompute (the schema resolves
+  // async, or the task changes) so complex fields hydrate without a remount — only while pristine, so an
+  // in-flight edit is never clobbered.
+  useEffect(() => {
+    if (!isDirty) reset(defaults);
+    // isDirty is read at run-time as a guard, not a trigger — re-hydration keys off `defaults` changing.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [defaults, reset]);
 
-  function submit(values: Record<string, unknown>) {
+  /** Assemble the structured artifact from RHF values, coercing/parsing per schema, then zod-validate. */
+  function submitStructured(values: Record<string, unknown>) {
+    const keys = schema?.properties ? Object.keys(schema.properties) : Object.keys(values);
     const out: Record<string, unknown> = {};
-    for (const f of fields) {
-      const raw = values[f.key];
-      if (f.kind === "json") {
-        try {
-          out[f.key] = raw === "" || raw == null ? undefined : JSON.parse(String(raw));
-        } catch {
-          setError(f.key, { message: "Invalid JSON" });
-          return;
-        }
-      } else if (f.kind === "number") {
-        out[f.key] = raw === "" || raw == null ? undefined : Number(raw);
-      } else if (f.kind === "boolean") {
-        out[f.key] = Boolean(raw);
-      } else {
-        out[f.key] = raw;
+    try {
+      for (const k of keys) {
+        const v = parseValues(schema?.properties?.[k], values[k], k, k, 0);
+        if (v !== undefined) out[k] = v;
       }
-    }
-    // Validate the assembled artifact against the zod validator derived from the
-    // pinned JSON Schema (required fields, enums, number bounds). The backend
-    // re-validates authoritatively; this is fast local feedback.
-    const parsed = zodFromSchema(schema).safeParse(out);
-    if (!parsed.success) {
-      for (const issue of parsed.error.issues) {
-        const key = String(issue.path[0] ?? "");
-        if (key) setError(key, { message: issue.message });
+    } catch (e) {
+      if (e instanceof FieldParseError) {
+        setError(e.path as never, { message: e.message });
+        return;
       }
-      return;
+      throw e;
     }
+    if (!validateAndReport(out)) return;
     onSubmit(out);
   }
 
+  function submitRaw() {
+    let parsed: unknown;
+    try {
+      parsed = rawText.trim() === "" ? {} : JSON.parse(rawText);
+    } catch {
+      setRawError("Invalid JSON");
+      return;
+    }
+    if (!parsed || typeof parsed !== "object") {
+      setRawError("Expected a JSON object");
+      return;
+    }
+    if (!validateAndReport(parsed as Record<string, unknown>, setRawError)) return;
+    onSubmit(parsed as Record<string, unknown>);
+  }
+
+  /** Validate against the schema-derived zod; report issues on the field (structured) or inline (raw). */
+  function validateAndReport(out: Record<string, unknown>, onError?: (m: string) => void): boolean {
+    const parsed = zodFromSchema(schema).safeParse(out);
+    if (parsed.success) return true;
+    if (onError) {
+      const first = parsed.error.issues[0];
+      onError(first ? `${first.path.join(".") || "root"}: ${first.message}` : "Invalid value");
+    } else {
+      for (const issue of parsed.error.issues) {
+        const path = issue.path.join(".");
+        if (path) setError(path as never, { message: issue.message });
+      }
+    }
+    return false;
+  }
+
+  function onFormSubmit(e: React.FormEvent) {
+    if (rawMode) {
+      e.preventDefault();
+      submitRaw();
+      return;
+    }
+    handleSubmit(submitStructured)(e);
+  }
+
+  function toggleRaw() {
+    if (!rawMode) {
+      // structured → raw: seed the blob from the current (assembled) values, best-effort.
+      let seed: Record<string, unknown> = defaultData;
+      try {
+        const values = getValues();
+        const keys = schema?.properties ? Object.keys(schema.properties) : Object.keys(values);
+        const out: Record<string, unknown> = {};
+        for (const k of keys) {
+          const v = parseValues(schema?.properties?.[k], values[k], k, k, 0);
+          if (v !== undefined) out[k] = v;
+        }
+        seed = out;
+      } catch {
+        /* fall back to the original data on any parse issue */
+      }
+      setRawText(JSON.stringify(seed, null, 2));
+      setRawError(undefined);
+      setRawMode(true);
+    } else {
+      // raw → structured: parse the blob back into the form; keep raw mode if it doesn't parse.
+      try {
+        const parsed = rawText.trim() === "" ? {} : JSON.parse(rawText);
+        reset(toFormDefaults(schema, parsed as Record<string, unknown>));
+        setRawError(undefined);
+        setRawMode(false);
+      } catch {
+        setRawError("Fix the JSON before switching back to the form");
+      }
+    }
+  }
+
   return (
-    <form id={id} onSubmit={handleSubmit(submit)} className={cn("space-y-4", className)}>
-      {agentDrafted && (
-        <Badge variant="agent" className="gap-1.5">
-          <span className="size-1.5 rounded-full bg-agent" /> Drafted by agent
-        </Badge>
-      )}
-      {fields.map((f) => {
-        const errMsg = errors[f.key]?.message as string | undefined;
-        return (
-          <div key={f.key} className="space-y-1.5">
-            <Label htmlFor={`${id}-${f.key}`} className="flex items-center gap-1">
-              {humanizeKey(f.key)}
-              {f.required && <span className="text-danger">*</span>}
-            </Label>
+    <FormProvider {...methods}>
+      <form id={id} onSubmit={onFormSubmit} className={cn("space-y-4", className)}>
+        <div className="flex items-center justify-between">
+          {agentDrafted ? (
+            <Badge variant="agent" className="gap-1.5">
+              <span className="size-1.5 rounded-full bg-agent" /> Drafted by agent
+            </Badge>
+          ) : (
+            <span />
+          )}
+          <Button type="button" variant="ghost" size="sm" className="h-7 gap-1 px-2 text-xs text-muted-foreground" onClick={toggleRaw}>
+            {rawMode ? <ListTree className="size-3.5" /> : <Braces className="size-3.5" />}
+            {rawMode ? "Form" : "Raw JSON"}
+          </Button>
+        </div>
 
-            {f.kind === "enum" && (
-              <select
-                id={`${id}-${f.key}`}
-                {...register(f.key, { required: f.required })}
-                className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              >
-                {(f.schema?.enum ?? []).map((opt) => (
-                  <option key={String(opt)} value={String(opt)}>
-                    {String(opt)}
-                  </option>
-                ))}
-              </select>
-            )}
-
-            {f.kind === "boolean" && (
-              <Controller
-                control={control}
-                name={f.key}
-                render={({ field }) => (
-                  <Checkbox
-                    id={`${id}-${f.key}`}
-                    checked={Boolean(field.value)}
-                    onCheckedChange={(v) => field.onChange(Boolean(v))}
-                  />
-                )}
-              />
-            )}
-
-            {f.kind === "number" && (
-              <Input id={`${id}-${f.key}`} type="number" step="any" {...register(f.key, { required: f.required })} />
-            )}
-
-            {f.kind === "text" && (
-              <Input id={`${id}-${f.key}`} {...register(f.key, { required: f.required })} />
-            )}
-
-            {f.kind === "textarea" && (
-              <Textarea id={`${id}-${f.key}`} rows={3} {...register(f.key, { required: f.required })} />
-            )}
-
-            {f.kind === "json" && (
-              <Textarea
-                id={`${id}-${f.key}`}
-                rows={5}
-                className="font-mono text-xs"
-                {...register(f.key, { required: f.required })}
-              />
-            )}
-
-            {errMsg && <p className="text-xs text-danger">{errMsg}</p>}
-            {f.required && errors[f.key]?.type === "required" && !errMsg && (
-              <p className="text-xs text-danger">Required</p>
-            )}
+        {rawMode ? (
+          <div className="space-y-1.5">
+            <Textarea
+              rows={14}
+              className="font-mono text-xs"
+              value={rawText}
+              onChange={(e) => setRawText(e.target.value)}
+              aria-label="Raw JSON"
+            />
+            {rawError && <p className="text-xs text-danger">{rawError}</p>}
           </div>
-        );
-      })}
-    </form>
+        ) : (
+          <ObjectFieldset schema={schema} data={defaultData} idBase={id} depth={0} />
+        )}
+      </form>
+    </FormProvider>
   );
 }

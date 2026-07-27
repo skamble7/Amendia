@@ -3,7 +3,7 @@
 **Audience:** platform / ops engineers running Amendia.
 **Scope:** how to run and test a process pack in either execution mode — locally on Apple Silicon, in dev
 (compose), and in prod (Helm/K8s).
-**Intended location:** `backend/docs/amendia_nemoclaw_operator_runbook.md`.
+**Intended location:** `backend/docs/operations/amendia_nemoclaw_operator_runbook.md`.
 **Backing decisions:** ADR-017 (execution mode), ADR-018 (nemoclaw inference provider), ADR-019
 (memoization + egress policy), ADR-020 (in-sandbox broker worker), ADR-021 (`deep_agent`), ADR-022
 (portable Helm/K8s), **ADR-023 (real OpenShell bring-up — confirmed CLI surface + the AMQP verdict)**.

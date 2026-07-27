@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import { toast } from "sonner";
 import { AlertTriangle, ShieldAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -6,8 +6,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ArtifactView } from "@/components/artifact/ArtifactView";
-import { ArtifactForm } from "@/components/artifact/ArtifactForm";
-import { useArtifactSchema } from "@/components/artifact/useArtifactSchema";
+import { ArtifactEditor } from "./ArtifactEditor";
 import { CommentField, DecisionRow } from "./DecisionKit";
 import type { DecideArgs } from "./useTaskActions";
 import type { HitlTask, PayloadArtifact, ProposedAction } from "@/api/types";
@@ -18,9 +17,13 @@ export interface VariantProps {
   pending: boolean;
 }
 
-function primaryArtifact(task: HitlTask): PayloadArtifact | undefined {
-  return task.payload.artifacts?.[0] ?? undefined;
-}
+const artifactsOf = (task: HitlTask): PayloadArtifact[] => task.payload.artifacts ?? [];
+
+// Payload artifacts carry runtime flags (`draft` / `authored_by_human`) that mark an OUTPUT the human authors,
+// vs a read-only input context artifact. They aren't in the generated type, so read them defensively.
+const isDraft = (a: PayloadArtifact): boolean => Boolean((a as Record<string, unknown>).draft);
+const isAgentDraft = (a: PayloadArtifact): boolean =>
+  isDraft(a) && !(a as Record<string, unknown>).authored_by_human;
 
 function guardReject(comment: string, act: () => void) {
   if (!comment.trim()) {
@@ -33,8 +36,7 @@ function guardReject(comment: string, act: () => void) {
 // ---------------- Review (review_after) ----------------
 
 export function ReviewVariant({ task, onDecide, pending }: VariantProps) {
-  const art = primaryArtifact(task);
-  const { data: schema } = useArtifactSchema(art?.schema);
+  const artifacts = artifactsOf(task);
   const [editing, setEditing] = useState(false);
   const [comment, setComment] = useState("");
   const formId = `edit-${task.task_id}`;
@@ -42,40 +44,44 @@ export function ReviewVariant({ task, onDecide, pending }: VariantProps) {
   return (
     <div className="space-y-4">
       {!editing ? (
-        <ArtifactView name={art?.name} data={art?.data ?? {}} schemaRef={art?.schema} />
+        <ArtifactEditor id={`view-${task.task_id}`} artifacts={artifacts} />
       ) : (
-        <ArtifactForm
+        <ArtifactEditor
           id={formId}
-          schema={schema}
-          defaultData={(art?.data ?? {}) as Record<string, unknown>}
+          artifacts={artifacts}
           onSubmit={(edits) => onDecide({ decision: "edit_and_approve", edits, comment })}
         />
       )}
 
       <CommentField value={comment} onChange={setComment} />
 
+      {/* Distinct keys per action group so React UNMOUNTS one and MOUNTS the other, instead of reconciling the
+          clicked node in place — the "Edit & approve" button (index 1) would otherwise be mutated into the
+          "Save edits & approve" submit button and the browser would run the click's default submit against it. */}
       <DecisionRow>
         {editing ? (
-          <>
-            <Button variant="ghost" onClick={() => setEditing(false)} disabled={pending}>
+          <Fragment key="editing-actions">
+            <Button type="button" variant="ghost" onClick={() => setEditing(false)} disabled={pending}>
               Cancel edit
             </Button>
             <Button type="submit" form={formId} disabled={pending}>
               Save edits & approve
             </Button>
-          </>
+          </Fragment>
         ) : (
-          <>
-            <Button variant="destructive" onClick={() => guardReject(comment, () => onDecide({ decision: "reject", comment }))} disabled={pending}>
+          <Fragment key="review-actions">
+            <Button type="button" variant="destructive" onClick={() => guardReject(comment, () => onDecide({ decision: "reject", comment }))} disabled={pending}>
               Reject
             </Button>
-            <Button variant="outline" onClick={() => setEditing(true)} disabled={pending}>
+            {/* preventDefault() cancels the click's default submit for THIS click, regardless of any in-place
+                type mutation during React's re-render — the definitive per-click guard alongside the keys. */}
+            <Button type="button" variant="outline" onClick={(e) => { e.preventDefault(); setEditing(true); }} disabled={pending}>
               Edit & approve
             </Button>
-            <Button variant="success" onClick={() => onDecide({ decision: "approve", comment })} disabled={pending}>
+            <Button type="button" variant="success" onClick={() => onDecide({ decision: "approve", comment })} disabled={pending}>
               Approve
             </Button>
-          </>
+          </Fragment>
         )}
       </DecisionRow>
     </div>
@@ -85,19 +91,18 @@ export function ReviewVariant({ task, onDecide, pending }: VariantProps) {
 // ---------------- Approve result (approve_result) ----------------
 
 export function ApproveResultVariant({ task, onDecide, pending }: VariantProps) {
-  const art = primaryArtifact(task);
   const [comment, setComment] = useState("");
 
   return (
     <div className="space-y-4">
-      <ArtifactView name={art?.name} data={art?.data ?? {}} schemaRef={art?.schema} />
+      <ArtifactEditor id={`view-${task.task_id}`} artifacts={artifactsOf(task)} />
       <p className="text-xs text-muted-foreground">This result stands or falls as-is — it cannot be edited here.</p>
       <CommentField value={comment} onChange={setComment} />
       <DecisionRow>
-        <Button variant="destructive" onClick={() => guardReject(comment, () => onDecide({ decision: "reject", comment }))} disabled={pending}>
+        <Button type="button" variant="destructive" onClick={() => guardReject(comment, () => onDecide({ decision: "reject", comment }))} disabled={pending}>
           Reject
         </Button>
-        <Button variant="success" onClick={() => onDecide({ decision: "approve", comment })} disabled={pending}>
+        <Button type="button" variant="success" onClick={() => onDecide({ decision: "approve", comment })} disabled={pending}>
           Approve
         </Button>
       </DecisionRow>
@@ -139,7 +144,7 @@ export function AuthorizeActionsVariant({ task, onDecide, pending }: VariantProp
         </div>
         <CommentField value={comment} onChange={setComment} required />
         <DecisionRow>
-          <Button variant="destructive" onClick={() => guardReject(comment, () => onDecide({ decision: "reject", comment }))} disabled={pending}>
+          <Button type="button" variant="destructive" onClick={() => guardReject(comment, () => onDecide({ decision: "reject", comment }))} disabled={pending}>
             Reject
           </Button>
         </DecisionRow>
@@ -196,10 +201,10 @@ export function AuthorizeActionsVariant({ task, onDecide, pending }: VariantProp
       <CommentField value={comment} onChange={setComment} required />
 
       <DecisionRow>
-        <Button variant="destructive" onClick={() => guardReject(comment, () => onDecide({ decision: "reject", comment }))} disabled={pending}>
+        <Button type="button" variant="destructive" onClick={() => guardReject(comment, () => onDecide({ decision: "reject", comment }))} disabled={pending}>
           Reject all
         </Button>
-        <Button variant="success" onClick={approve} disabled={pending}>
+        <Button type="button" variant="success" onClick={approve} disabled={pending}>
           Authorize {allSelected ? "all" : `${selected.size}`}
         </Button>
       </DecisionRow>
@@ -210,28 +215,37 @@ export function AuthorizeActionsVariant({ task, onDecide, pending }: VariantProp
 // ---------------- Manual (manual) ----------------
 
 export function ManualVariant({ task, onDecide, pending }: VariantProps) {
-  const art = primaryArtifact(task);
-  const { data: schema } = useArtifactSchema(art?.schema);
+  const artifacts = artifactsOf(task);
   const [comment, setComment] = useState("");
   const formId = `manual-${task.task_id}`;
+  // A manual gate may or may not produce an editable artifact. With one (e.g. Task_ObtainInfo) the human
+  // authors/corrects the output; with none (e.g. Task_ApproveRepair — an input to approve, no output) it is an
+  // approve/escalate gate and the "correct it" copy is misleading. Key the copy + primary label off the same
+  // editable signal ArtifactEditor uses. (Decision semantics are unchanged — a no-output gate still submits
+  // `complete` with no edits, handled by ArtifactEditor.)
+  const hasEditable = artifacts.some(isDraft);
 
   return (
     <div className="space-y-4">
-      <p className="text-sm text-muted-foreground">This step is human work. The agent has pre-drafted it — complete or correct it, then complete the task.</p>
-      <ArtifactForm
+      <p className="text-sm text-muted-foreground">
+        {hasEditable
+          ? "This step is human work. The agent has pre-drafted it — complete or correct it, then complete the task."
+          : "This step is human work. Review the drafted output and approve, or escalate."}
+      </p>
+      <ArtifactEditor
         id={formId}
-        schema={schema}
-        defaultData={(art?.data ?? {}) as Record<string, unknown>}
-        agentDrafted={!!art}
+        artifacts={artifacts}
+        isEditable={isDraft}
+        agentDrafted={artifacts.some(isAgentDraft)}
         onSubmit={(edits) => onDecide({ decision: "complete", edits, comment })}
       />
       <CommentField value={comment} onChange={setComment} />
       <DecisionRow>
-        <Button variant="destructive" onClick={() => guardReject(comment, () => onDecide({ decision: "escalate", comment }))} disabled={pending}>
+        <Button type="button" variant="destructive" onClick={() => guardReject(comment, () => onDecide({ decision: "escalate", comment }))} disabled={pending}>
           Escalate
         </Button>
         <Button type="submit" form={formId} variant="success" disabled={pending}>
-          Complete task
+          {hasEditable ? "Complete task" : "Approve"}
         </Button>
       </DecisionRow>
     </div>

@@ -318,7 +318,7 @@ Platform config registry (FastAPI + Mongo DB `ConfigForge`). Stores config entri
 `{env}.{kind}[.{provider}][.{platform}].{name}`. The agent-runtime resolves a profile at call time via
 polyllm's `RemoteConfigLoader`. **Secrets are stored as references (`env:` / `file:` / `literal:`), never
 values.** Configure/rotate models here with **no code change or redeploy** — see the
-[LLM configuration guide](../amendia_llm_configuration_guide.md) and **ADR-016**.
+[LLM configuration guide](../operations/amendia_llm_configuration_guide.md) and **ADR-016**.
 
 | Method | Path | Notes |
 |---|---|---|

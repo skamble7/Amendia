@@ -43,8 +43,8 @@ the app come from the identity service's `GET /me`, never parsed from the token.
 **Switching users = sign out, sign in as the other user.** There is no user switcher (that was the old
 placeholder). Separation of duties requires, e.g., that the analyst who drafts a repair is not the person
 who approves it — so sign out as `riya` and back in as `marcus` for the approver gates. The full operator
-narrative is in [`Amendia_User_Guide.md`](../backend/docs/Amendia_User_Guide.md); persona profiles are in
-the [Persona Map](../backend/docs/amendia_persona_map.md).
+narrative is in [`Amendia_User_Guide.md`](../backend/docs/operations/Amendia_User_Guide.md); persona profiles are in
+the [Persona Map](../backend/docs/operations/amendia_persona_map.md).
 
 Auth reads from env only (`.env`): `VITE_OIDC_ISSUER`, `VITE_OIDC_CLIENT_ID`, plus the
 `VITE_IDENTITY_BASE` / `VITE_IDENTITY_URL` proxy targets. In production the two OIDC values point at the

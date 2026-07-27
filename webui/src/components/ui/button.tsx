@@ -37,9 +37,13 @@ export interface ButtonProps
 }
 
 const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
-  ({ className, variant, size, asChild = false, ...props }, ref) => {
+  ({ className, variant, size, asChild = false, type, ...props }, ref) => {
     const Comp = asChild ? Slot : "button";
-    return <Comp className={cn(buttonVariants({ variant, size, className }))} ref={ref} {...props} />;
+    // A <button> with no explicit type defaults to "submit", so any Button inside a <form> silently submits it
+    // (toggles, add/remove, cancel). Default a real button to type="button"; intentional submitters set
+    // type="submit" explicitly. Leave `type` untouched for asChild — the rendered child may not be a <button>.
+    const resolvedType = asChild ? type : (type ?? "button");
+    return <Comp className={cn(buttonVariants({ variant, size, className }))} ref={ref} type={resolvedType} {...props} />;
   },
 );
 Button.displayName = "Button";
