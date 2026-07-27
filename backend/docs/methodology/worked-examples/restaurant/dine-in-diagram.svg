@@ -1,0 +1,84 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="110.0 120.0 2056.0 340.0" width="2056.0" height="340.0" font-family="Segoe UI,Arial">
+<defs><marker id="arw" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth"><path d="M0,0 L8,3 L0,6 z" fill="#5a6b7c"/></marker></defs>
+<rect x="110.0" y="120.0" width="2056.0" height="340.0" fill="#ffffff"/>
+<text x="126.0" y="146.0" font-size="18" font-weight="700" fill="#0f1f2e">Restaurant Dine-In — Order &amp; Service</text>
+<polyline points="186.0,200.0 230.0,200.0" fill="none" stroke="#5a6b7c" stroke-width="1.6" marker-end="url(#arw)"/>
+<polyline points="350.0,200.0 400.0,200.0" fill="none" stroke="#5a6b7c" stroke-width="1.6" marker-end="url(#arw)"/>
+<polyline points="520.0,200.0 570.0,200.0" fill="none" stroke="#5a6b7c" stroke-width="1.6" marker-end="url(#arw)"/>
+<polyline points="690.0,200.0 745.0,200.0" fill="none" stroke="#5a6b7c" stroke-width="1.6" marker-end="url(#arw)"/>
+<polyline points="795.0,200.0 850.0,200.0" fill="none" stroke="#5a6b7c" stroke-width="1.6" marker-end="url(#arw)"/>
+<text x="854.0" y="196.0" font-size="10.5" fill="#7a5a10">ok</text>
+<polyline points="770.0,225.0 770.0,320.0" fill="none" stroke="#5a6b7c" stroke-width="1.6" marker-end="url(#arw)"/>
+<text x="774.0" y="316.0" font-size="10.5" fill="#7a5a10">needs info (default)</text>
+<polyline points="740.0,360.0 630.0,360.0 630.0,240.0" fill="none" stroke="#5a6b7c" stroke-width="1.6" marker-end="url(#arw)"/>
+<polyline points="970.0,200.0 1025.0,200.0" fill="none" stroke="#5a6b7c" stroke-width="1.6" marker-end="url(#arw)"/>
+<polyline points="1075.0,200.0 1130.0,200.0" fill="none" stroke="#5a6b7c" stroke-width="1.6" marker-end="url(#arw)"/>
+<text x="1134.0" y="196.0" font-size="10.5" fill="#7a5a10">clear</text>
+<polyline points="1050.0,225.0 1050.0,440.0 800.0,440.0 800.0,400.0" fill="none" stroke="#5a6b7c" stroke-width="1.6" marker-end="url(#arw)"/>
+<text x="804.0" y="436.0" font-size="10.5" fill="#7a5a10">conflict (default)</text>
+<polyline points="1250.0,200.0 1300.0,200.0" fill="none" stroke="#5a6b7c" stroke-width="1.6" marker-end="url(#arw)"/>
+<polyline points="1360.0,258.0 1360.0,320.0" fill="none" stroke="#5a6b7c" stroke-width="1.6" marker-end="url(#arw)"/>
+<polyline points="1420.0,200.0 1470.0,200.0" fill="none" stroke="#5a6b7c" stroke-width="1.6" marker-end="url(#arw)"/>
+<polyline points="1420.0,360.0 1530.0,360.0 1530.0,240.0" fill="none" stroke="#5a6b7c" stroke-width="1.6" marker-end="url(#arw)"/>
+<polyline points="1590.0,200.0 1640.0,200.0" fill="none" stroke="#5a6b7c" stroke-width="1.6" marker-end="url(#arw)"/>
+<polyline points="1760.0,200.0 1810.0,200.0" fill="none" stroke="#5a6b7c" stroke-width="1.6" marker-end="url(#arw)"/>
+<polyline points="1930.0,200.0 1985.0,200.0" fill="none" stroke="#5a6b7c" stroke-width="1.6" marker-end="url(#arw)"/>
+<polyline points="2035.0,200.0 2090.0,200.0" fill="none" stroke="#5a6b7c" stroke-width="1.6" marker-end="url(#arw)"/>
+<text x="2094.0" y="196.0" font-size="10.5" fill="#7a5a10">captured</text>
+<polyline points="2010.0,225.0 2010.0,360.0 1930.0,360.0" fill="none" stroke="#5a6b7c" stroke-width="1.6" marker-end="url(#arw)"/>
+<text x="2014.0" y="356.0" font-size="10.5" fill="#7a5a10">declined (default)</text>
+<polyline points="1870.0,320.0 1870.0,240.0" fill="none" stroke="#5a6b7c" stroke-width="1.6" marker-end="url(#arw)"/>
+<circle cx="168.0" cy="200.0" r="18.0" fill="#e3f6e3" stroke="#3a8f3a" stroke-width="2"/>
+<text x="168.0" y="231.0" text-anchor="middle" font-size="11" fill="#33475b">Party seated</text>
+<rect x="230.0" y="160.0" width="120.0" height="80.0" rx="9" fill="#e8f0fe" stroke="#3b6fb0" stroke-width="1.8"/>
+<text x="238.0" y="175.0" font-size="9" font-weight="700" fill="#3b6fb0" opacity="0.8">SERVICE (agent)</text>
+<text x="290.0" y="204.0" text-anchor="middle" dominant-baseline="middle" font-size="12" font-family="Segoe UI,Arial" fill="#1a2b3c">Present menu</text>
+<rect x="400.0" y="160.0" width="120.0" height="80.0" rx="9" fill="#fef3e0" stroke="#c9821a" stroke-width="1.8"/>
+<text x="408.0" y="175.0" font-size="9" font-weight="700" fill="#c9821a" opacity="0.8">USER (human)</text>
+<text x="460.0" y="204.0" text-anchor="middle" dominant-baseline="middle" font-size="12" font-family="Segoe UI,Arial" fill="#1a2b3c">Take order</text>
+<rect x="570.0" y="160.0" width="120.0" height="80.0" rx="9" fill="#e8f0fe" stroke="#3b6fb0" stroke-width="1.8"/>
+<text x="578.0" y="175.0" font-size="9" font-weight="700" fill="#3b6fb0" opacity="0.8">SERVICE (agent)</text>
+<text x="630.0" y="204.0" text-anchor="middle" dominant-baseline="middle" font-size="12" font-family="Segoe UI,Arial" fill="#1a2b3c">Validate order</text>
+<polygon points="770.0,175.0 795.0,200.0 770.0,225.0 745.0,200.0" fill="#fff7d6" stroke="#b8952a" stroke-width="2"/>
+<text x="770.0" y="201.0" text-anchor="middle" dominant-baseline="middle" font-size="15" font-weight="700" fill="#b8952a">&#215;</text>
+<text x="770.0" y="167.0" text-anchor="middle" font-size="11" font-weight="600" fill="#33475b">Order valid?</text>
+<rect x="740.0" y="320.0" width="120.0" height="80.0" rx="9" fill="#fef3e0" stroke="#c9821a" stroke-width="1.8"/>
+<text x="748.0" y="335.0" font-size="9" font-weight="700" fill="#c9821a" opacity="0.8">USER (human)</text>
+<text x="800.0" y="364.0" text-anchor="middle" dominant-baseline="middle" font-size="12" font-family="Segoe UI,Arial" fill="#1a2b3c">Revise order</text>
+<rect x="850.0" y="160.0" width="120.0" height="80.0" rx="9" fill="#e8f0fe" stroke="#3b6fb0" stroke-width="1.8"/>
+<text x="858.0" y="175.0" font-size="9" font-weight="700" fill="#3b6fb0" opacity="0.8">SERVICE (agent)</text>
+<text x="910.0" y="197.0" text-anchor="middle" dominant-baseline="middle" font-size="12" font-family="Segoe UI,Arial" fill="#1a2b3c">Allergen &amp;</text><text x="910.0" y="211.0" text-anchor="middle" dominant-baseline="middle" font-size="12" font-family="Segoe UI,Arial" fill="#1a2b3c">dietary screen</text>
+<polygon points="1050.0,175.0 1075.0,200.0 1050.0,225.0 1025.0,200.0" fill="#fff7d6" stroke="#b8952a" stroke-width="2"/>
+<text x="1050.0" y="201.0" text-anchor="middle" dominant-baseline="middle" font-size="15" font-weight="700" fill="#b8952a">&#215;</text>
+<text x="1050.0" y="167.0" text-anchor="middle" font-size="11" font-weight="600" fill="#33475b">Allergens clear?</text>
+<rect x="1130.0" y="160.0" width="120.0" height="80.0" rx="9" fill="#e8f0fe" stroke="#3b6fb0" stroke-width="1.8"/>
+<text x="1138.0" y="175.0" font-size="9" font-weight="700" fill="#3b6fb0" opacity="0.8">SERVICE (agent)</text>
+<text x="1190.0" y="197.0" text-anchor="middle" dominant-baseline="middle" font-size="12" font-family="Segoe UI,Arial" fill="#1a2b3c">Fire ticket to</text><text x="1190.0" y="211.0" text-anchor="middle" dominant-baseline="middle" font-size="12" font-family="Segoe UI,Arial" fill="#1a2b3c">kitchen</text>
+<rect x="1300.0" y="160.0" width="120.0" height="80.0" rx="9" fill="#fef3e0" stroke="#c9821a" stroke-width="1.8"/>
+<text x="1308.0" y="175.0" font-size="9" font-weight="700" fill="#c9821a" opacity="0.8">USER (human)</text>
+<text x="1360.0" y="197.0" text-anchor="middle" dominant-baseline="middle" font-size="12" font-family="Segoe UI,Arial" fill="#1a2b3c">Prepare &amp; mark</text><text x="1360.0" y="211.0" text-anchor="middle" dominant-baseline="middle" font-size="12" font-family="Segoe UI,Arial" fill="#1a2b3c">ready</text>
+<circle cx="1360.0" cy="240.0" r="18.0" fill="#f0e3fb" stroke="#7a3ab5" stroke-width="2"/>
+<circle cx="1360.0" cy="240.0" r="15.0" fill="none" stroke="#7a3ab5" stroke-width="1.4"/>
+<text x="1360.0" y="241.0" text-anchor="middle" dominant-baseline="middle" font-size="12">&#9200;</text>
+<text x="1360.0" y="271.0" text-anchor="middle" font-size="11" fill="#33475b">30 min SLA</text>
+<rect x="1300.0" y="320.0" width="120.0" height="80.0" rx="9" fill="#fef3e0" stroke="#c9821a" stroke-width="1.8"/>
+<text x="1308.0" y="335.0" font-size="9" font-weight="700" fill="#c9821a" opacity="0.8">USER (human)</text>
+<text x="1360.0" y="364.0" text-anchor="middle" dominant-baseline="middle" font-size="12" font-family="Segoe UI,Arial" fill="#1a2b3c">Service recovery</text>
+<rect x="1470.0" y="160.0" width="120.0" height="80.0" rx="9" fill="#fef3e0" stroke="#c9821a" stroke-width="1.8"/>
+<text x="1478.0" y="175.0" font-size="9" font-weight="700" fill="#c9821a" opacity="0.8">USER (human)</text>
+<text x="1530.0" y="204.0" text-anchor="middle" dominant-baseline="middle" font-size="12" font-family="Segoe UI,Arial" fill="#1a2b3c">Serve order</text>
+<rect x="1640.0" y="160.0" width="120.0" height="80.0" rx="9" fill="#e8f0fe" stroke="#3b6fb0" stroke-width="1.8"/>
+<text x="1648.0" y="175.0" font-size="9" font-weight="700" fill="#3b6fb0" opacity="0.8">SERVICE (agent)</text>
+<text x="1700.0" y="204.0" text-anchor="middle" dominant-baseline="middle" font-size="12" font-family="Segoe UI,Arial" fill="#1a2b3c">Generate bill</text>
+<rect x="1810.0" y="160.0" width="120.0" height="80.0" rx="9" fill="#e8f0fe" stroke="#3b6fb0" stroke-width="1.8"/>
+<text x="1818.0" y="175.0" font-size="9" font-weight="700" fill="#3b6fb0" opacity="0.8">SERVICE (agent)</text>
+<text x="1870.0" y="204.0" text-anchor="middle" dominant-baseline="middle" font-size="12" font-family="Segoe UI,Arial" fill="#1a2b3c">Process payment</text>
+<polygon points="2010.0,175.0 2035.0,200.0 2010.0,225.0 1985.0,200.0" fill="#fff7d6" stroke="#b8952a" stroke-width="2"/>
+<text x="2010.0" y="201.0" text-anchor="middle" dominant-baseline="middle" font-size="15" font-weight="700" fill="#b8952a">&#215;</text>
+<text x="2010.0" y="167.0" text-anchor="middle" font-size="11" font-weight="600" fill="#33475b">Payment captured?</text>
+<rect x="1810.0" y="320.0" width="120.0" height="80.0" rx="9" fill="#fef3e0" stroke="#c9821a" stroke-width="1.8"/>
+<text x="1818.0" y="335.0" font-size="9" font-weight="700" fill="#c9821a" opacity="0.8">USER (human)</text>
+<text x="1870.0" y="364.0" text-anchor="middle" dominant-baseline="middle" font-size="12" font-family="Segoe UI,Arial" fill="#1a2b3c">Resolve payment</text>
+<circle cx="2108.0" cy="200.0" r="18.0" fill="#fde3e3" stroke="#b53a3a" stroke-width="3"/>
+<text x="2108.0" y="231.0" text-anchor="middle" font-size="11" fill="#33475b">Served &amp; paid</text>
+</svg>

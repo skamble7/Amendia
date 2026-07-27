@@ -1,0 +1,190 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
+                  xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
+                  xmlns:dc="http://www.omg.org/spec/DD/20100524/DC"
+                  xmlns:di="http://www.omg.org/spec/DD/20100524/DI"
+                  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                  id="Definitions_RestaurantDineIn"
+                  targetNamespace="http://amendia.example/processes/restaurant-dinein"
+                  exporter="Amendia" exporterVersion="0.1">
+  <bpmn:process id="Process_RestaurantDineIn"
+                name="Restaurant Dine-In - Order &amp; Service"
+                isExecutable="true">
+    <bpmn:documentation>The domain-simple "hello world" for Amendia: a seated party orders; the order is
+    validated and allergen-screened (revise loop on a problem); the kitchen fires the ticket under an SLA
+    and prepares it; the party is served and pays (resolve loop on a decline). Same control spine as the
+    wire-transfer reference, a friendlier domain. Execution metadata (bindings, HITL, SoD) lives in the
+    Amendia annotation manifest (ADR-002), not in this file.</bpmn:documentation>
+
+    <bpmn:startEvent id="Start_PartySeated" name="Party seated">
+      <bpmn:outgoing>Flow_Start_Menu</bpmn:outgoing>
+    </bpmn:startEvent>
+
+    <bpmn:serviceTask id="Task_PresentMenu" name="Present menu">
+      <bpmn:incoming>Flow_Start_Menu</bpmn:incoming>
+      <bpmn:outgoing>Flow_Menu_Take</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <bpmn:userTask id="Task_TakeOrder" name="Take order">
+      <bpmn:incoming>Flow_Menu_Take</bpmn:incoming>
+      <bpmn:outgoing>Flow_Take_Validate</bpmn:outgoing>
+    </bpmn:userTask>
+
+    <bpmn:serviceTask id="Task_ValidateOrder" name="Validate order">
+      <bpmn:incoming>Flow_Take_Validate</bpmn:incoming>
+      <bpmn:incoming>Flow_Revise_Validate</bpmn:incoming>
+      <bpmn:outgoing>Flow_Validate_Gateway</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <bpmn:exclusiveGateway id="Gateway_OrderOK" name="Order valid?" default="Flow_OrderNeedsInfo">
+      <bpmn:incoming>Flow_Validate_Gateway</bpmn:incoming>
+      <bpmn:outgoing>Flow_OrderOK</bpmn:outgoing>
+      <bpmn:outgoing>Flow_OrderNeedsInfo</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+
+    <bpmn:userTask id="Task_ReviseOrder" name="Revise order">
+      <bpmn:incoming>Flow_OrderNeedsInfo</bpmn:incoming>
+      <bpmn:incoming>Flow_AllergenConflict</bpmn:incoming>
+      <bpmn:outgoing>Flow_Revise_Validate</bpmn:outgoing>
+    </bpmn:userTask>
+
+    <bpmn:serviceTask id="Task_ScreenAllergens" name="Allergen &amp; dietary screen">
+      <bpmn:incoming>Flow_OrderOK</bpmn:incoming>
+      <bpmn:outgoing>Flow_Screen_Gateway</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <bpmn:exclusiveGateway id="Gateway_AllergenClear" name="Allergens clear?" default="Flow_AllergenConflict">
+      <bpmn:incoming>Flow_Screen_Gateway</bpmn:incoming>
+      <bpmn:outgoing>Flow_AllergenClear</bpmn:outgoing>
+      <bpmn:outgoing>Flow_AllergenConflict</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+
+    <bpmn:serviceTask id="Task_FireTicket" name="Fire ticket to kitchen">
+      <bpmn:incoming>Flow_AllergenClear</bpmn:incoming>
+      <bpmn:outgoing>Flow_Fire_Prepare</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <bpmn:userTask id="Task_PrepareReady" name="Prepare &amp; mark ready">
+      <bpmn:incoming>Flow_Fire_Prepare</bpmn:incoming>
+      <bpmn:outgoing>Flow_Prepare_Serve</bpmn:outgoing>
+    </bpmn:userTask>
+
+    <bpmn:boundaryEvent id="Boundary_SLA" name="30 min SLA" attachedToRef="Task_PrepareReady" cancelActivity="true">
+      <bpmn:outgoing>Flow_SLA_Recovery</bpmn:outgoing>
+      <bpmn:timerEventDefinition>
+        <bpmn:timeDuration xsi:type="bpmn:tFormalExpression">PT30M</bpmn:timeDuration>
+      </bpmn:timerEventDefinition>
+    </bpmn:boundaryEvent>
+
+    <bpmn:userTask id="Task_ServiceRecovery" name="Service recovery">
+      <bpmn:incoming>Flow_SLA_Recovery</bpmn:incoming>
+      <bpmn:outgoing>Flow_Recovery_Serve</bpmn:outgoing>
+    </bpmn:userTask>
+
+    <bpmn:userTask id="Task_ServeOrder" name="Serve order">
+      <bpmn:incoming>Flow_Prepare_Serve</bpmn:incoming>
+      <bpmn:incoming>Flow_Recovery_Serve</bpmn:incoming>
+      <bpmn:outgoing>Flow_Serve_Bill</bpmn:outgoing>
+    </bpmn:userTask>
+
+    <bpmn:serviceTask id="Task_GenerateBill" name="Generate bill">
+      <bpmn:incoming>Flow_Serve_Bill</bpmn:incoming>
+      <bpmn:outgoing>Flow_Bill_Pay</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <bpmn:serviceTask id="Task_ProcessPayment" name="Process payment">
+      <bpmn:incoming>Flow_Bill_Pay</bpmn:incoming>
+      <bpmn:incoming>Flow_Resolve_Pay</bpmn:incoming>
+      <bpmn:outgoing>Flow_Pay_Gateway</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <bpmn:exclusiveGateway id="Gateway_PaymentOK" name="Payment captured?" default="Flow_PaymentDeclined">
+      <bpmn:incoming>Flow_Pay_Gateway</bpmn:incoming>
+      <bpmn:outgoing>Flow_PaymentCaptured</bpmn:outgoing>
+      <bpmn:outgoing>Flow_PaymentDeclined</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+
+    <bpmn:userTask id="Task_ResolvePayment" name="Resolve payment">
+      <bpmn:incoming>Flow_PaymentDeclined</bpmn:incoming>
+      <bpmn:outgoing>Flow_Resolve_Pay</bpmn:outgoing>
+    </bpmn:userTask>
+
+    <bpmn:endEvent id="End_ServedPaid" name="Served &amp; paid">
+      <bpmn:incoming>Flow_PaymentCaptured</bpmn:incoming>
+    </bpmn:endEvent>
+
+    <bpmn:sequenceFlow id="Flow_Start_Menu" sourceRef="Start_PartySeated" targetRef="Task_PresentMenu"/>
+    <bpmn:sequenceFlow id="Flow_Menu_Take" sourceRef="Task_PresentMenu" targetRef="Task_TakeOrder"/>
+    <bpmn:sequenceFlow id="Flow_Take_Validate" sourceRef="Task_TakeOrder" targetRef="Task_ValidateOrder"/>
+    <bpmn:sequenceFlow id="Flow_Validate_Gateway" sourceRef="Task_ValidateOrder" targetRef="Gateway_OrderOK"/>
+    <bpmn:sequenceFlow id="Flow_OrderOK" name="ok" sourceRef="Gateway_OrderOK" targetRef="Task_ScreenAllergens">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression"
+        language="https://www.omg.org/spec/DMN/20191111/FEEL/">validation.order_verdict = "ok"</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_OrderNeedsInfo" name="needs info (default)" sourceRef="Gateway_OrderOK" targetRef="Task_ReviseOrder"/>
+    <bpmn:sequenceFlow id="Flow_Revise_Validate" sourceRef="Task_ReviseOrder" targetRef="Task_ValidateOrder"/>
+    <bpmn:sequenceFlow id="Flow_Screen_Gateway" sourceRef="Task_ScreenAllergens" targetRef="Gateway_AllergenClear"/>
+    <bpmn:sequenceFlow id="Flow_AllergenClear" name="clear" sourceRef="Gateway_AllergenClear" targetRef="Task_FireTicket">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression"
+        language="https://www.omg.org/spec/DMN/20191111/FEEL/">allergen.allergen_status = "clear"</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_AllergenConflict" name="conflict (default)" sourceRef="Gateway_AllergenClear" targetRef="Task_ReviseOrder"/>
+    <bpmn:sequenceFlow id="Flow_Fire_Prepare" sourceRef="Task_FireTicket" targetRef="Task_PrepareReady"/>
+    <bpmn:sequenceFlow id="Flow_SLA_Recovery" sourceRef="Boundary_SLA" targetRef="Task_ServiceRecovery"/>
+    <bpmn:sequenceFlow id="Flow_Prepare_Serve" sourceRef="Task_PrepareReady" targetRef="Task_ServeOrder"/>
+    <bpmn:sequenceFlow id="Flow_Recovery_Serve" sourceRef="Task_ServiceRecovery" targetRef="Task_ServeOrder"/>
+    <bpmn:sequenceFlow id="Flow_Serve_Bill" sourceRef="Task_ServeOrder" targetRef="Task_GenerateBill"/>
+    <bpmn:sequenceFlow id="Flow_Bill_Pay" sourceRef="Task_GenerateBill" targetRef="Task_ProcessPayment"/>
+    <bpmn:sequenceFlow id="Flow_Pay_Gateway" sourceRef="Task_ProcessPayment" targetRef="Gateway_PaymentOK"/>
+    <bpmn:sequenceFlow id="Flow_PaymentCaptured" name="captured" sourceRef="Gateway_PaymentOK" targetRef="End_ServedPaid">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression"
+        language="https://www.omg.org/spec/DMN/20191111/FEEL/">receipt.payment_status = "captured"</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_PaymentDeclined" name="declined (default)" sourceRef="Gateway_PaymentOK" targetRef="Task_ResolvePayment"/>
+    <bpmn:sequenceFlow id="Flow_Resolve_Pay" sourceRef="Task_ResolvePayment" targetRef="Task_ProcessPayment"/>
+  </bpmn:process>
+
+  <bpmndi:BPMNDiagram id="Diagram_RestaurantDineIn">
+    <bpmndi:BPMNPlane id="Plane_RestaurantDineIn" bpmnElement="Process_RestaurantDineIn">
+      <bpmndi:BPMNShape id="S_Start" bpmnElement="Start_PartySeated"><dc:Bounds x="150" y="182" width="36" height="36"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S_Menu" bpmnElement="Task_PresentMenu"><dc:Bounds x="230" y="160" width="120" height="80"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S_Take" bpmnElement="Task_TakeOrder"><dc:Bounds x="400" y="160" width="120" height="80"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S_Validate" bpmnElement="Task_ValidateOrder"><dc:Bounds x="570" y="160" width="120" height="80"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S_GwOrder" bpmnElement="Gateway_OrderOK" isMarkerVisible="true"><dc:Bounds x="745" y="175" width="50" height="50"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S_Revise" bpmnElement="Task_ReviseOrder"><dc:Bounds x="740" y="320" width="120" height="80"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S_Screen" bpmnElement="Task_ScreenAllergens"><dc:Bounds x="850" y="160" width="120" height="80"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S_GwAllergen" bpmnElement="Gateway_AllergenClear" isMarkerVisible="true"><dc:Bounds x="1025" y="175" width="50" height="50"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S_Fire" bpmnElement="Task_FireTicket"><dc:Bounds x="1130" y="160" width="120" height="80"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S_Prepare" bpmnElement="Task_PrepareReady"><dc:Bounds x="1300" y="160" width="120" height="80"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S_SLA" bpmnElement="Boundary_SLA"><dc:Bounds x="1342" y="222" width="36" height="36"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S_Recovery" bpmnElement="Task_ServiceRecovery"><dc:Bounds x="1300" y="320" width="120" height="80"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S_Serve" bpmnElement="Task_ServeOrder"><dc:Bounds x="1470" y="160" width="120" height="80"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S_Bill" bpmnElement="Task_GenerateBill"><dc:Bounds x="1640" y="160" width="120" height="80"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S_Pay" bpmnElement="Task_ProcessPayment"><dc:Bounds x="1810" y="160" width="120" height="80"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S_GwPay" bpmnElement="Gateway_PaymentOK" isMarkerVisible="true"><dc:Bounds x="1985" y="175" width="50" height="50"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S_Resolve" bpmnElement="Task_ResolvePayment"><dc:Bounds x="1810" y="320" width="120" height="80"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S_End" bpmnElement="End_ServedPaid"><dc:Bounds x="2090" y="182" width="36" height="36"/></bpmndi:BPMNShape>
+
+      <bpmndi:BPMNEdge id="E_Start_Menu" bpmnElement="Flow_Start_Menu"><di:waypoint x="186" y="200"/><di:waypoint x="230" y="200"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="E_Menu_Take" bpmnElement="Flow_Menu_Take"><di:waypoint x="350" y="200"/><di:waypoint x="400" y="200"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="E_Take_Validate" bpmnElement="Flow_Take_Validate"><di:waypoint x="520" y="200"/><di:waypoint x="570" y="200"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="E_Validate_Gw" bpmnElement="Flow_Validate_Gateway"><di:waypoint x="690" y="200"/><di:waypoint x="745" y="200"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="E_OrderOK" bpmnElement="Flow_OrderOK"><di:waypoint x="795" y="200"/><di:waypoint x="850" y="200"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="E_OrderNeedsInfo" bpmnElement="Flow_OrderNeedsInfo"><di:waypoint x="770" y="225"/><di:waypoint x="770" y="320"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="E_Revise_Validate" bpmnElement="Flow_Revise_Validate"><di:waypoint x="740" y="360"/><di:waypoint x="630" y="360"/><di:waypoint x="630" y="240"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="E_Screen_Gw" bpmnElement="Flow_Screen_Gateway"><di:waypoint x="970" y="200"/><di:waypoint x="1025" y="200"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="E_AllergenClear" bpmnElement="Flow_AllergenClear"><di:waypoint x="1075" y="200"/><di:waypoint x="1130" y="200"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="E_AllergenConflict" bpmnElement="Flow_AllergenConflict"><di:waypoint x="1050" y="225"/><di:waypoint x="1050" y="440"/><di:waypoint x="800" y="440"/><di:waypoint x="800" y="400"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="E_Fire_Prepare" bpmnElement="Flow_Fire_Prepare"><di:waypoint x="1250" y="200"/><di:waypoint x="1300" y="200"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="E_SLA_Recovery" bpmnElement="Flow_SLA_Recovery"><di:waypoint x="1360" y="258"/><di:waypoint x="1360" y="320"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="E_Prepare_Serve" bpmnElement="Flow_Prepare_Serve"><di:waypoint x="1420" y="200"/><di:waypoint x="1470" y="200"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="E_Recovery_Serve" bpmnElement="Flow_Recovery_Serve"><di:waypoint x="1420" y="360"/><di:waypoint x="1530" y="360"/><di:waypoint x="1530" y="240"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="E_Serve_Bill" bpmnElement="Flow_Serve_Bill"><di:waypoint x="1590" y="200"/><di:waypoint x="1640" y="200"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="E_Bill_Pay" bpmnElement="Flow_Bill_Pay"><di:waypoint x="1760" y="200"/><di:waypoint x="1810" y="200"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="E_Pay_Gw" bpmnElement="Flow_Pay_Gateway"><di:waypoint x="1930" y="200"/><di:waypoint x="1985" y="200"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="E_PaymentCaptured" bpmnElement="Flow_PaymentCaptured"><di:waypoint x="2035" y="200"/><di:waypoint x="2090" y="200"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="E_PaymentDeclined" bpmnElement="Flow_PaymentDeclined"><di:waypoint x="2010" y="225"/><di:waypoint x="2010" y="360"/><di:waypoint x="1930" y="360"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="E_Resolve_Pay" bpmnElement="Flow_Resolve_Pay"><di:waypoint x="1870" y="320"/><di:waypoint x="1870" y="240"/></bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>

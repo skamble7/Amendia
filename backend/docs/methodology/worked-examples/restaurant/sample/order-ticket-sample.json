@@ -1,0 +1,9 @@
+{
+  "ticket_id": "TKT-2026-000042",
+  "order_type": "dine_in",
+  "table": "T12",
+  "party_size": 2,
+  "dietary_flags": ["nuts"],
+  "requested_items": ["Margherita Pizza", "Grilled Salmon", "Sorbet"],
+  "seated_at": "2026-07-27T19:20:00Z"
+}

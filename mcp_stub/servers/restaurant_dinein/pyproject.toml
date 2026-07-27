@@ -1,0 +1,33 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "restaurant-dinein-mcp"
+version = "0.1.0"
+description = "Deterministic (dumb) MCP server exposing the six restaurant dine-in capability tools for Amendia onboarding + runtime integration (the domain-simple hello-world twin of wire_transfer_exception)."
+requires-python = ">=3.11"
+dependencies = [
+    "mcp>=1.9",
+    "starlette>=0.37",
+    "uvicorn>=0.30",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest>=8",
+    "pytest-asyncio>=0.23",
+    "jsonschema>=4.20",
+    "anyio>=4",
+    "httpx>=0.27",
+]
+
+[project.scripts]
+restaurant-dinein-mcp = "restaurant_dinein_mcp.server:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/restaurant_dinein_mcp"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

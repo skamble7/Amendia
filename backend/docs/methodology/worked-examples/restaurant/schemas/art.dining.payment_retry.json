@@ -1,0 +1,23 @@
+{
+  "artifact_key": "art.dining.payment_retry",
+  "version": "1.0.0",
+  "title": "Payment retry disposition",
+  "description": "The human's disposition on the Resolve-payment task after a declined charge: which tender to retry with. Human-authored (no agent draft). It is the TOP-PRECEDENCE input to charge_payment on the retry, so a non-declined tender guarantees the payment-resolution loop terminates — the same human-authored-precedence pattern that fixes the wire needs-info loop. Author this schema in the wizard.",
+  "json_schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://amendia.dev/schemas/artifacts/dining/payment_retry/1.0.0.json",
+    "type": "object",
+    "required": ["tender"],
+    "additionalProperties": false,
+    "properties": {
+      "tender": {
+        "type": "string",
+        "enum": ["card", "cash", "mobile", "declined"],
+        "description": "Retry with this tender. Any value other than \"declined\" captures and ends the loop."
+      },
+      "note": { "type": "string" }
+    }
+  },
+  "compatibility": "backward",
+  "status": "active"
+}
