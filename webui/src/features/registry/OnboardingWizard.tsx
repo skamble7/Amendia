@@ -863,8 +863,8 @@ function CapabilitiesStep({ session, onDone }: { session: OnboardingSession; onD
           <div className="flex items-end gap-2">
             <div className="flex-1">
               <Label>MCP server URL</Label>
-              <Input ref={endpointRef} value={endpoint} onChange={(e) => setEndpoint(e.target.value)} placeholder="http://wirefix-mcp:8060/mcp" />
-              <p className="mt-1 text-xs text-muted-foreground">Use the <span className="font-medium">deployment-facing</span> URL (e.g. the Docker service alias like <span className="font-mono">http://wirefix-mcp:8060/mcp</span>) — <span className="font-medium">not</span> <span className="font-mono">localhost</span>. The registry connects from inside its container, so localhost reaches the container itself, not your host (that URL only works for MCP Inspector).</p>
+              <Input ref={endpointRef} value={endpoint} onChange={(e) => setEndpoint(e.target.value)} placeholder="http://<your-mcp-service>:<port>/mcp" />
+              <p className="mt-1 text-xs text-muted-foreground">Use the <span className="font-medium">deployment-facing</span> URL (e.g. the Docker service alias like <span className="font-mono">http://&lt;your-mcp-service&gt;:&lt;port&gt;/mcp</span>) — <span className="font-medium">not</span> <span className="font-mono">localhost</span>. The registry connects from inside its container, so localhost reaches the container itself, not your host (that URL only works for MCP Inspector).</p>
             </div>
             <select className={cn(selectCls, "w-40")} value={transport} onChange={(e) => setTransport(e.target.value)}>
               <option value="streamable_http">streamable_http</option>
@@ -1359,7 +1359,7 @@ function BindingsStep({ session, onDone }: { session: OnboardingSession; onDone:
                         )}
                       </div>
                     ) : (
-                      <Input value={row.role ?? ""} onChange={(e) => patch(id, { role: e.target.value })} placeholder="role.payments.ops_analyst" className="font-mono text-xs" />
+                      <Input value={row.role ?? ""} onChange={(e) => patch(id, { role: e.target.value })} placeholder="role.<domain>.<lane>" className="font-mono text-xs" />
                     )}
                   </Field>
                   <Field label="HITL mode">
@@ -1369,7 +1369,7 @@ function BindingsStep({ session, onDone }: { session: OnboardingSession; onDone:
                   </Field>
                   <Field label="Role">
                     {row.hitl_mode !== "none"
-                      ? <Input value={row.hitl_role ?? ""} onChange={(e) => patch(id, { hitl_role: e.target.value })} placeholder="role.payments.ops_approver" className="font-mono text-xs" />
+                      ? <Input value={row.hitl_role ?? ""} onChange={(e) => patch(id, { hitl_role: e.target.value })} placeholder="role.<domain>.<lane>" className="font-mono text-xs" />
                       : <p className="py-2 text-xs text-muted-foreground">not required for mode none</p>}
                   </Field>
                 </div>
@@ -1461,7 +1461,7 @@ function toPredicate(n: any): Record<string, unknown> {
     else if (["gt", "gte", "lt", "lte"].includes(n.op) && n.value !== "" && !isNaN(Number(n.value))) value = Number(n.value);
     return { field: n.field, op: n.op, value };
   }
-  if (n.kind === "not") return { not: toPredicate(n.children[0] ?? { leaf: true, field: "reason_code", op: "eq", value: "" }) };
+  if (n.kind === "not") return { not: toPredicate(n.children[0] ?? { leaf: true, field: "", op: "eq", value: "" }) };
   return { [n.kind]: n.children.map(toPredicate) };
 }
 
@@ -1649,7 +1649,7 @@ function PoliciesStep({ session, onDone }: { session: OnboardingSession; onDone:
           {gateways.map((g) => (
             <div key={g} className="grid grid-cols-2 gap-3 rounded-md border border-border p-3">
               <p className="col-span-2 font-mono text-xs font-medium">{g}</p>
-              <Field label="Decision variable (dot-path)"><Input value={gvars[g]!.variable} onChange={(e) => setGvars({ ...gvars, [g]: { ...gvars[g]!, variable: e.target.value } })} placeholder="beneficiary.repair_verdict" className="font-mono text-xs" /></Field>
+              <Field label="Decision variable (dot-path)"><Input value={gvars[g]!.variable} onChange={(e) => setGvars({ ...gvars, [g]: { ...gvars[g]!, variable: e.target.value } })} placeholder="<output>.<field>" className="font-mono text-xs" /></Field>
               <Field label="Source artifact">
                 <select className={selectCls} value={gvars[g]!.source_artifact} onChange={(e) => setGvars({ ...gvars, [g]: { ...gvars[g]!, source_artifact: e.target.value } })}>
                   <option value="">Select…</option>
@@ -1730,7 +1730,7 @@ function PoliciesStep({ session, onDone }: { session: OnboardingSession; onDone:
           ))}
           <Input value={roleInput} onChange={(e) => setRoleInput(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter" && roleInput.trim()) { setRoles(Array.from(new Set([...roles, roleInput.trim()]))); setRoleInput(""); } }}
-            placeholder="role.payments.ops_approver + Enter" className="w-72 font-mono text-xs" />
+            placeholder="role.<domain>.<lane> + Enter" className="w-72 font-mono text-xs" />
         </CardContent>
       </Card>
 

@@ -492,7 +492,7 @@ describe("Onboarding wizard", () => {
     const user = userEvent.setup();
     renderApp("/registry/onboard/sess-col", "owner-1");
 
-    await user.type(await screen.findByPlaceholderText(/wirefix-mcp/i), "http://mcp:8060/mcp");
+    await user.type(await screen.findByPlaceholderText(/your-mcp-service/i), "http://mcp:8060/mcp");
     await user.click(await screen.findByRole("button", { name: /Introspect/i }));
 
     // the hard collision is surfaced with its contract diff and both one-click fixes
