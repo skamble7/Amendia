@@ -1,7 +1,8 @@
 // ArtifactForm.test.tsx — Part A: agent-draft hydration. A complex agent-drafted field (an array of
-// objects, e.g. corrections on Task_ApproveRepair) must render as editable JSON on the FIRST paint — before
-// the artifact schema resolves async — and never as "[object Object]". Previously the field was classified as
-// text (schema-only), the raw array hit a text input, and only a remount (inbox back-nav / reload) fixed it.
+// objects, e.g. corrections on Task_ApproveRepair) must render without "[object Object]" on the FIRST paint —
+// before the artifact schema resolves async — and must re-hydrate (no remount) once the schema arrives.
+// Previously the field was classified from the schema only, the raw array hit a text input, and only a
+// remount (inbox back-nav / reload) fixed it.
 import { describe, it, expect } from "vitest";
 import { render, screen } from "@testing-library/react";
 
@@ -41,17 +42,20 @@ describe("ArtifactForm — agent-draft hydration", () => {
     expect(JSON.parse(value)).toEqual(CORRECTIONS); // structured value, editable as JSON immediately
   });
 
-  it("re-hydrates when the schema resolves async — no remount needed", () => {
-    const { rerender } = render(
+  it("re-hydrates into structured fields when the schema resolves async — no remount, no [object Object]", () => {
+    const { rerender, container } = render(
       <ArtifactForm id="f" schema={undefined} defaultData={DATA} onSubmit={() => {}} />,
     );
-    expect(fieldValue(/Corrections/)).not.toContain("[object Object]");
+    expect(fieldValue(/Corrections/)).not.toContain("[object Object]"); // pre-schema: JSON textarea
 
     // simulate the async schema arriving on a later render (react-query resolving)
     rerender(<ArtifactForm id="f" schema={SCHEMA} defaultData={DATA} onSubmit={() => {}} />);
 
-    const value = fieldValue(/Corrections/);
-    expect(value).not.toContain("[object Object]");
-    expect(JSON.parse(value)).toEqual(CORRECTIONS);
+    // post-schema: the array-of-objects renders as structured rows populated from the draft (Part B),
+    // re-hydrated without a remount — the correction values are in real inputs, never "[object Object]".
+    expect(screen.getByDisplayValue("creditor_account")).toBeTruthy();
+    expect(screen.getByDisplayValue("GB111")).toBeTruthy();
+    expect(screen.getByDisplayValue("GB222")).toBeTruthy();
+    expect(container.textContent).not.toContain("[object Object]");
   });
 });
