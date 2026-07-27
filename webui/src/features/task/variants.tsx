@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import { toast } from "sonner";
 import { AlertTriangle, ShieldAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -55,28 +55,33 @@ export function ReviewVariant({ task, onDecide, pending }: VariantProps) {
 
       <CommentField value={comment} onChange={setComment} />
 
+      {/* Distinct keys per action group so React UNMOUNTS one and MOUNTS the other, instead of reconciling the
+          clicked node in place — the "Edit & approve" button (index 1) would otherwise be mutated into the
+          "Save edits & approve" submit button and the browser would run the click's default submit against it. */}
       <DecisionRow>
         {editing ? (
-          <>
+          <Fragment key="editing-actions">
             <Button type="button" variant="ghost" onClick={() => setEditing(false)} disabled={pending}>
               Cancel edit
             </Button>
             <Button type="submit" form={formId} disabled={pending}>
               Save edits & approve
             </Button>
-          </>
+          </Fragment>
         ) : (
-          <>
+          <Fragment key="review-actions">
             <Button type="button" variant="destructive" onClick={() => guardReject(comment, () => onDecide({ decision: "reject", comment }))} disabled={pending}>
               Reject
             </Button>
-            <Button type="button" variant="outline" onClick={() => setEditing(true)} disabled={pending}>
+            {/* preventDefault() cancels the click's default submit for THIS click, regardless of any in-place
+                type mutation during React's re-render — the definitive per-click guard alongside the keys. */}
+            <Button type="button" variant="outline" onClick={(e) => { e.preventDefault(); setEditing(true); }} disabled={pending}>
               Edit & approve
             </Button>
             <Button type="button" variant="success" onClick={() => onDecide({ decision: "approve", comment })} disabled={pending}>
               Approve
             </Button>
-          </>
+          </Fragment>
         )}
       </DecisionRow>
     </div>
