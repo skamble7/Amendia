@@ -34,6 +34,27 @@ logger = logging.getLogger(__name__)
 _MCP_TOOL_ERROR = "MCP_TOOL_ERROR"
 
 
+def _open_streamable_http(url: str, headers: Optional[Dict[str, str]]):
+    """Open a streamable-http MCP session as an async context manager, tolerant of the SDK's rename +
+    signature change: `streamablehttp_client(url, headers=...)` → `streamable_http_client(url, *,
+    http_client=...)` (headers now ride on an httpx client). Prefers the current API; falls back to the legacy
+    one so tool calls work across mcp versions."""
+    from mcp.client import streamable_http as _shttp
+    new = getattr(_shttp, "streamable_http_client", None)
+    if new is not None:
+        factory = getattr(_shttp, "create_mcp_http_client", None)
+        if headers and factory is not None:
+            return new(url, http_client=factory(headers=headers))
+        return new(url)
+    old = getattr(_shttp, "streamablehttp_client", None)
+    if old is not None:
+        return old(url, headers=headers)
+    raise RuntimeError(  # pragma: no cover - dependency guard
+        "the installed mcp package exposes no streamable-http client "
+        "(neither streamable_http_client nor streamablehttp_client)"
+    )
+
+
 def _unwrap_exc(exc: BaseException) -> str:
     """Flatten an anyio/asyncio ``ExceptionGroup`` — the SDK's ``streamablehttp_client`` raises transport
     failures inside a task group, surfacing only the opaque *"unhandled errors in a TaskGroup (1 sub-exception)"*.
@@ -170,16 +191,17 @@ class HttpMcpClient:
         import asyncio
 
         from mcp import ClientSession
-        if transport == "sse":
-            from mcp.client.sse import sse_client as _open
-        else:
-            from mcp.client.streamable_http import streamablehttp_client as _open
 
         hdrs = dict(headers or {})  # non-secret headers / resolved secret-refs
         last_exc: Optional[Exception] = None
         for attempt in range(self._connect_retries + 1):
             try:
-                async with _open(endpoint, headers=hdrs) as streams:
+                if transport == "sse":
+                    from mcp.client.sse import sse_client
+                    opener = sse_client(endpoint, headers=hdrs)
+                else:
+                    opener = _open_streamable_http(endpoint, hdrs)
+                async with opener as streams:
                     read, write = streams[0], streams[1]
                     async with ClientSession(read, write) as session:
                         await session.initialize()

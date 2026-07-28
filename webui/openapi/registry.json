@@ -775,6 +775,17 @@
             "title": "Output Map",
             "type": "object"
           },
+          "output_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Output Name"
+          },
           "outputs": {
             "items": {
               "$ref": "#/components/schemas/StagedBindingIO"
@@ -2213,6 +2224,17 @@
             ],
             "title": "Suggested Input Source"
           },
+          "suggested_output_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Suggested Output Name"
+          },
           "suggested_role": {
             "anyOf": [
               {
@@ -2452,6 +2474,11 @@
               }
             ],
             "title": "Suggested Output Artifact Key"
+          },
+          "suggested_side_effect": {
+            "default": "read_only",
+            "title": "Suggested Side Effect",
+            "type": "string"
           }
         },
         "required": [

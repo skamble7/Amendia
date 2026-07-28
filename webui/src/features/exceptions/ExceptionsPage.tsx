@@ -30,7 +30,7 @@ export function ExceptionsPage() {
     <>
       <PageHeader
         title="Exceptions"
-        description="Payment exceptions and their ingestion lifecycle."
+        description="Incoming triggers and their ingestion lifecycle."
         badge={isFetching ? <LiveDot /> : undefined}
         actions={
           <div className="flex items-center gap-2">

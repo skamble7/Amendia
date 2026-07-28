@@ -795,6 +795,8 @@ export interface components {
             output_map?: {
                 [key: string]: string;
             };
+            /** Output Name */
+            output_name?: string | null;
             /** Outputs */
             outputs?: components["schemas"]["StagedBindingIO"][];
             /** Role */
@@ -1385,6 +1387,8 @@ export interface components {
             suggested_input_source?: {
                 [key: string]: unknown;
             } | null;
+            /** Suggested Output Name */
+            suggested_output_name?: string | null;
             /** Suggested Role */
             suggested_role?: string | null;
             /** Upstream Caps */
@@ -1457,6 +1461,11 @@ export interface components {
             suggested_input_artifact_key?: string | null;
             /** Suggested Output Artifact Key */
             suggested_output_artifact_key?: string | null;
+            /**
+             * Suggested Side Effect
+             * @default read_only
+             */
+            suggested_side_effect: string;
         };
         /** LaneSummary */
         LaneSummary: {

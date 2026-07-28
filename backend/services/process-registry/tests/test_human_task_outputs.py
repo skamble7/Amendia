@@ -116,11 +116,13 @@ async def test_human_output_binding_rejects_unstaged_schema_ref(svc):
     assert "not a staged, authored, or trigger artifact" in str(ei.value)
 
 
-async def test_human_output_name_must_be_unique_across_the_run(svc):
+async def test_human_output_name_on_a_different_artifact_errors(svc):
+    # ADR-052 E1: the same output NAME mapping to DIFFERENT artifacts is still ambiguous → error. Here the
+    # human output `validate_order_output` (→ art.dining.order) collides with the capability's output of the
+    # same name (→ art.dining.validate_order_output).
     s = await _through_bindings(svc)
     s = await svc.declare_artifact(s.session_id, DeclareArtifactRequest(
         artifact_key="art.dining.order", title="Order", json_schema=_ORDER_SCHEMA), owner=OWNER)
-    # the capability's output is named `validate_order_output`; collide the human output with it.
     binds = [
         BindingInput(element_id="TakeOrder", element_kind="userTask", executor_type="human", role="role.server",
                      outputs=[StagedBindingIO(name="validate_order_output", schema_ref="art.dining.order@^1.0.0")]),
@@ -129,7 +131,48 @@ async def test_human_output_name_must_be_unique_across_the_run(svc):
     ]
     with pytest.raises(TransitionError) as ei:
         await svc.set_bindings(s.session_id, SetBindingsRequest(bindings=binds), owner=OWNER)
-    assert "unique across the run" in str(ei.value)
+    assert "different artifact" in str(ei.value)
+
+
+# start → TakeOrder(human) → ReviseOrder(human) → ValidateOrder(capability) → End — the revise loop's two
+# human writers of the same artifact, plus a capability so the pack has a staged capability (wizard gate).
+_REVISE_BPMN = f"""<bpmn:definitions {_NS}>
+  <bpmn:process id="P" isExecutable="true">
+    <bpmn:startEvent id="S"><bpmn:outgoing>f1</bpmn:outgoing></bpmn:startEvent>
+    <bpmn:userTask id="TakeOrder" name="Take order"><bpmn:incoming>f1</bpmn:incoming><bpmn:outgoing>f2</bpmn:outgoing></bpmn:userTask>
+    <bpmn:userTask id="ReviseOrder" name="Revise order"><bpmn:incoming>f2</bpmn:incoming><bpmn:outgoing>f3</bpmn:outgoing></bpmn:userTask>
+    <bpmn:serviceTask id="ValidateOrder" name="Validate order"><bpmn:incoming>f3</bpmn:incoming><bpmn:outgoing>f4</bpmn:outgoing></bpmn:serviceTask>
+    <bpmn:endEvent id="E"><bpmn:incoming>f4</bpmn:incoming></bpmn:endEvent>
+    <bpmn:sequenceFlow id="f1" sourceRef="S" targetRef="TakeOrder"/>
+    <bpmn:sequenceFlow id="f2" sourceRef="TakeOrder" targetRef="ReviseOrder"/>
+    <bpmn:sequenceFlow id="f3" sourceRef="ReviseOrder" targetRef="ValidateOrder"/>
+    <bpmn:sequenceFlow id="f4" sourceRef="ValidateOrder" targetRef="E"/>
+  </bpmn:process>
+</bpmn:definitions>"""
+
+
+async def test_revise_loop_same_output_name_same_artifact_ok(svc):
+    # ADR-052 E1: two human tasks legitimately produce the SAME artifact under the SAME name (Revise supersedes
+    # TakeOrder; the runtime reads the latest write) — this must validate clean, not collide.
+    s = await svc.create(CreateSessionRequest(pack_key="dinein-revise", version="1.0.0", title="t",
+                                              default_domain="dining"), owner=OWNER)
+    s = await svc.attach_bpmn(s.session_id, AttachBpmnRequest(bpmn_xml=_REVISE_BPMN), owner=OWNER)
+    s = await svc.set_capabilities(s.session_id, SetCapabilitiesRequest(tools=[_VALIDATE_TOOL]), owner=OWNER)
+    s = await svc.declare_artifact(s.session_id, DeclareArtifactRequest(
+        artifact_key="art.dining.order", title="Order", json_schema=_ORDER_SCHEMA), owner=OWNER)
+    binds = [
+        BindingInput(element_id="TakeOrder", element_kind="userTask", executor_type="human", role="role.server",
+                     outputs=[StagedBindingIO(name="order", schema_ref="art.dining.order@^1.0.0")]),
+        BindingInput(element_id="ReviseOrder", element_kind="userTask", executor_type="human", role="role.server",
+                     outputs=[StagedBindingIO(name="order", schema_ref="art.dining.order@^1.0.0")]),
+        BindingInput(element_id="ValidateOrder", element_kind="serviceTask", executor_type="capability",
+                     capability_ref="cap.dining.validate_order@^1.0.0", hitl_mode="none"),
+    ]
+    s = await svc.set_bindings(s.session_id, SetBindingsRequest(bindings=binds), owner=OWNER)
+    # both human writers of `order` reference art.dining.order → clean; both outputs persist.
+    names = {b.element_id: [(o.name, o.schema_ref.split("@", 1)[0]) for o in b.outputs] for b in s.bindings}
+    assert names["TakeOrder"] == [("order", "art.dining.order")]
+    assert names["ReviseOrder"] == [("order", "art.dining.order")]
 
 
 async def test_capability_input_sources_from_human_authored_output_end_to_end(svc):

@@ -8,7 +8,11 @@ version = "0.1.0"
 description = "Deterministic (dumb) MCP server exposing the six restaurant dine-in capability tools for Amendia onboarding + runtime integration (the domain-simple hello-world twin of wire_transfer_exception)."
 requires-python = ">=3.11"
 dependencies = [
-    "mcp>=1.9",
+    # Cap below mcp 1.29 / 2.0: those releases restructured the low-level `Server` API (dropped the
+    # `@server.list_tools()` / `@server.call_tool()` decorators this stub is built on) and renamed the
+    # streamable-http client. Pin to the 1.28.x line the sibling wire stub is tested against so
+    # `pip install .` (the Dockerfile, which ignores any lock) resolves a compatible SDK.
+    "mcp>=1.9,<1.29",
     "starlette>=0.37",
     "uvicorn>=0.30",
 ]

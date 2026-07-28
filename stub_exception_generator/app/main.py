@@ -23,6 +23,7 @@ from app.events.rabbit import RabbitPublisher
 from app.logging_conf import configure_logging
 from app.middleware.request_id import RequestIDMiddleware
 from app.routers import exceptions as exceptions_router
+from app.routers import generators as generators_router
 from app.routers import health as health_router
 from app.routers import tickets as tickets_router
 
@@ -78,6 +79,8 @@ def create_app() -> FastAPI:
     # token too. Under compat-stub, endpoints are exempt when no bearer is present.
     app.include_router(exceptions_router.router, dependencies=[Depends(principal_or_internal)])
     app.include_router(tickets_router.router, dependencies=[Depends(principal_or_internal)])
+    # Domain-neutral discovery: the UI reads this catalog to offer trigger sources without hardcoding any domain.
+    app.include_router(generators_router.router, dependencies=[Depends(principal_or_internal)])
     return app
 
 

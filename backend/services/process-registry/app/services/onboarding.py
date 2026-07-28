@@ -418,6 +418,9 @@ class OnboardingService:
         # ADR-050: the set of artifact keys a human/message binding output may reference — every staged
         # (tool-inferred), authored, and the declared trigger artifact.
         staged_keys = self._staged_artifact_keys(s)
+        # ADR-051: the inferred output-name default per capability element (the gateway-condition first segment
+        # it feeds, if any) — applied when the operator didn't set an explicit output_name.
+        sugg_out = {ib.element_id: ib.suggested_output_name for ib in (s.inferred.bindings if s.inferred else [])}
 
         for b in req.bindings:
             bound_ids.append(b.element_id)
@@ -464,6 +467,13 @@ class OnboardingService:
                     else:
                         side_effect, floor, io_inputs, io_outputs = cap_io
                         self._check_hitl_guard(b, side_effect, floor, errors)
+                        # ADR-051: rename the mirrored output so a fed gateway can branch on it. Precedence:
+                        # operator-set output_name → inferred gateway default → the capability's <tool>_output.
+                        # The artifact schema_ref is unchanged (only the addressable output NAME changes).
+                        chosen = (b.output_name or "").strip() or sugg_out.get(b.element_id)
+                        if chosen and io_outputs:
+                            io_outputs = [StagedBindingIO(name=chosen, schema_ref=io_outputs[0].schema_ref,
+                                                          required=io_outputs[0].required)]
             elif b.executor_type == "human":
                 if not b.role:
                     errors.append({"element_id": b.element_id, "field": "role",
@@ -511,21 +521,25 @@ class OnboardingService:
             errors.append({"element_id": task_id, "field": "element_id",
                            "message": "BPMN element has no binding"})
 
-        # ADR-050: an operator-DECLARED human/message output name must be unique across the run — a
-        # from-artifact input source addresses a produced artifact by name (manifest input_map +
-        # PackValidator resolution), so a collision would be ambiguous. Capability outputs are mirrored from
-        # the capability and legitimately repeat when a capability is bound to several elements (resolved
-        # first-wins downstream, as before), so a collision is only an error when it involves an authored one.
-        out_owner: Dict[str, Tuple[str, str]] = {}
+        # ADR-050 + ADR-052 E1: a human/message output name must map to a SINGLE artifact across the run — a
+        # from-artifact input source addresses a produced artifact by name (manifest input_map + PackValidator
+        # resolution), so the same name pointing at DIFFERENT artifacts is ambiguous and rejected. But the same
+        # name referencing the SAME artifact is legitimate: a revise loop has Task_TakeOrder and
+        # Task_ReviseOrder both produce `order` (= art.dining.order); the runtime reads the latest write.
+        # Capability outputs are mirrored from the capability and legitimately repeat (only flagged when the
+        # collision involves a human/message binding on a DIFFERENT artifact).
+        out_owner: Dict[str, Tuple[str, str, str]] = {}      # output name -> (element_id, executor_type, artifact_key)
         for sb in staged:
             for io in sb.outputs:
+                art_key = (io.schema_ref or "").split("@", 1)[0]
                 prior = out_owner.get(io.name)
-                if prior and prior[0] != sb.element_id and \
+                if prior and prior[0] != sb.element_id and prior[2] != art_key and \
                         ("human" in (prior[1], sb.executor_type) or "message" in (prior[1], sb.executor_type)):
                     errors.append({"element_id": sb.element_id, "field": "outputs",
-                                   "message": f"output name '{io.name}' already produced by "
-                                              f"'{prior[0]}' — a human/message output must be unique across the run"})
-                out_owner.setdefault(io.name, (sb.element_id, sb.executor_type))
+                                   "message": f"output name '{io.name}' is already produced by '{prior[0]}' with a "
+                                              f"different artifact ('{prior[2]}' vs '{art_key}') — a human/message "
+                                              f"output name must reference a single artifact across the run"})
+                out_owner.setdefault(io.name, (sb.element_id, sb.executor_type, art_key))
 
         if errors:
             raise TransitionError(422, {"error": "bindings_invalid", "errors": errors})
@@ -729,7 +743,10 @@ class OnboardingService:
         schema_overlay = _SchemaOverlay(self.schemas, staged_regs)
         validator = PackValidator(cap_overlay, schema_overlay, profile=self.profile)  # type: ignore[arg-type]
         bpmn_xml = await self.bpmn.get_xml(self._staging_pk(s), s.basics.version)
-        report = await validator.validate(manifest, bpmn_xml, sample_envelopes=self._samples)
+        # ADR-049: hand Stage 7 the DECLARED trigger schema (staged, not yet registered) so triage validates
+        # against the pack's own fields, not the deployment sample envelopes.
+        report = await validator.validate(manifest, bpmn_xml, sample_envelopes=self._samples,
+                                          trigger_schema=s.trigger_artifact.json_schema if s.trigger_artifact else None)
 
         s.dry_run_report = report.model_dump(mode="json")
         s.state = self._advance(s.state, OnboardingState.ASSEMBLED)
@@ -824,7 +841,8 @@ class OnboardingService:
         _mark("validate", "running")
         manifest = await self.packs.get(pk, ver)  # reload with current sha/status
         validator = PackValidator(self.caps, self.schemas, profile=self.profile)
-        report = await validator.validate(manifest, bpmn_xml, sample_envelopes=self._samples)
+        report = await validator.validate(manifest, bpmn_xml, sample_envelopes=self._samples,
+                                          trigger_schema=s.trigger_artifact.json_schema if s.trigger_artifact else None)
         await self.packs.save_validation_report(pk, ver, report.model_dump(mode="json"))
         s.dry_run_report = report.model_dump(mode="json")
         if not report.ok:

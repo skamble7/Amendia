@@ -55,6 +55,14 @@ at the running MCP server, author the few non-introspectable artifacts, and set 
 > Validate-order binding's output **must be named `validation`**, Allergen-screen's **`allergen`**, and
 > Process-payment's **`receipt`** — matching the BPMN conditions
 > `validation.order_verdict = "ok"`, `allergen.allergen_status = "clear"`, `receipt.payment_status = "captured"`.
+>
+> **You don't type these by hand (ADR-051).** The wizard **auto-names** a capability's output from the gateway
+> it feeds: because `Task_ValidateOrder` flows into `Gateway_OrderOK` (condition `validation.order_verdict`),
+> its output defaults to **`validation`** — likewise **`allergen`** (`Task_ScreenAllergens` → `Gateway_AllergenClear`)
+> and **`receipt`** (`Task_ProcessPayment` → `Gateway_PaymentOK`). Each Bindings row shows an editable **Output
+> name** field with a "from gateway" chip; leave it as-is so the gateways branch. (Absent this, introspection
+> would name them `validate_order_output` / … , which no condition matches — a silently non-branching gateway,
+> now caught at Review with `gateway_condition_unproduced`.)
 
 ---
 
@@ -155,6 +163,14 @@ spin forever.
 | `Gateway_OrderOK` | `validation.order_verdict` | `art.dining.order_validation` | `ok` → screen; **default** `needs_info` → revise |
 | `Gateway_AllergenClear` | `allergen.allergen_status` | `art.dining.allergen_result` | `clear` → fire; **default** `conflict` → revise |
 | `Gateway_PaymentOK` | `receipt.payment_status` | `art.dining.payment_receipt` | `captured` → end; **default** `declined` → resolve |
+
+**In the wizard (Policies step).** Each gateway pre-fills its **Decision variable** from the BPMN condition —
+`validation.order_verdict`, `allergen.allergen_status`, `receipt.payment_status`. The variable's **first
+segment lines up with the output name you set in Bindings** (`validation` / `allergen` / `receipt`, ADR-051):
+that alignment is exactly what lets the gateway resolve (the variable's first segment IS the produced output
+name). You only add the **Source artifact** — the output artifact of the capability feeding the gateway
+(`art.dining.order_validation` / `art.dining.allergen_result` / `art.dining.payment_receipt`), whose
+`required` field the branch reads. If you renamed a capability's output in Bindings, use the same name here.
 
 **Separation of duties (`distinct_actor`)** — the person who authored the order must not be the person who
 authorizes the two irreversible actions:

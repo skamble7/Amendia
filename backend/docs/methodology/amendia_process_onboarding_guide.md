@@ -270,6 +270,20 @@ Per binding: `element_id`, `element_kind`, `executor` (`{type: capability, capab
 `{type: call, pack, version, input_map, output_map}`), `hitl {mode, role}` (capability/human only),
 `inputs`/`outputs` (artifactIO), and — for a capability — an **`input_map`** (ADR-048).
 
+**Output naming (ADR-051):** a capability binding's `outputs[].name` is **settable** (its artifact `schema_ref`
+is unchanged — only the addressable name changes). This matters because the runtime resolves a gateway
+condition against binding **output names** (`state.artifacts["validation"]["order_verdict"]` for
+`validation.order_verdict`), not against `<tool>_output`. Introspection defaults the name to `<tool>_output`, so
+the wizard **auto-defaults** it to the gateway a task feeds: for a capability immediately upstream of an
+`exclusiveGateway`, the default is the gateway condition's **first segment** (`validation` / `allergen` /
+`receipt`), else `<tool>_output`. Deterministic (graph position + condition text), editable, precedence
+**operator-set → gateway default → `<tool>_output`**. The Bindings step shows an editable **Output name** field
+(with a "from gateway" chip on the inferred default); the upstream-output picker and the input-map suggestion use
+the chosen name, and the gateway's inferred decision-variable first segment lines up with it (both come from the
+same condition). Human/message outputs (ADR-050) keep their own declared names; a `call` binding uses its
+`output_map`. A mismatch — a gateway condition whose first segment names no produced output — is a Stage-6
+**error** (`gateway_condition_unproduced`), not a silently non-branching gateway.
+
 **Input sourcing (ADR-048 + ADR-050):** a capability binding's `input_map` declares **where each input's data
 comes from** — `{from: trigger, path?}` (the process trigger, whole or a dotpath), `{from: artifact, name, path?}`
 (a named upstream output — a capability output **or** a human/message-authored artifact, ADR-050), or
@@ -469,7 +483,7 @@ never block. Activation re-validates (defense in depth).
 | 3 · Capability resolution | `unknown_capability`, `capability_no_version_in_range`, `capability_only_deprecated`; `capability_not_declared` (warn). |
 | 4 · HITL & side-effect policy | `hitl_role_missing`, `side_effect_requires_approve_actions`, `hitl_below_capability_floor` (+ deep_agent rules). |
 | 5 · Artifacts & IO | `unknown_artifact_schema`, `artifact_no_version_in_range`, `artifact_only_deprecated`, `binding_io_mismatch`, `binding_io_schema_incompatible`; `unproduced_input` / `binding_input_unproduced` (ADR-048 — real data-flow: an input must be mapped or produced upstream, **error**). |
-| 6 · Gateway variables | `gateway_variable_unknown_gateway`, `gateway_variable_unproduced`, `gateway_variable_schema_missing`, `gateway_variable_not_required`; `gateway_without_variable` (warn). |
+| 6 · Gateway variables | `gateway_variable_unknown_gateway`, `gateway_variable_unproduced`, `gateway_variable_schema_missing`, `gateway_variable_not_required`; `gateway_condition_unproduced`, `gateway_condition_field_not_required` (ADR-051 — the raw condition's first segment must name a produced output carrying the required field); `gateway_without_variable` (warn). |
 | 7 · Policies & triage | `sod_too_few_elements`, `sod_unknown_element`, `triage_rule_invalid`, `triage_field_unknown`, `triage_op_type_mismatch`; `triage_rule_smoke` (info). |
 
 ---
@@ -658,7 +672,8 @@ is refused — the event sub-process body/handler is excluded), `bpmn_compensati
 `binding_io_schema_incompatible`, `unproduced_input` (ADR-048 — an input neither mapped nor produced upstream;
 now an **error**), `binding_input_unproduced` (ADR-048 — an `input_map` referencing an unproduced artifact);
 **stage 6** `gateway_variable_unknown_gateway`, `gateway_variable_unproduced`,
-`gateway_variable_schema_missing`, `gateway_variable_not_required`; **native DMN** (ADR-037, decision-kind
+`gateway_variable_schema_missing`, `gateway_variable_not_required`, `gateway_condition_unproduced` (ADR-051),
+`gateway_condition_field_not_required` (ADR-051); **native DMN** (ADR-037, decision-kind
 bindings) `dmn_table_malformed`, `dmn_unknown_hit_policy`, `dmn_bad_unary_test`, `dmn_input_unresolved`,
 `dmn_output_unmapped`, `dmn_rules_overlap`; **collection reduction** (ADR-038, reduce-kind bindings)
 `reduce_unknown_op`, `reduce_bad_predicate`, `reduce_predicate_required`, `reduce_source_missing`,

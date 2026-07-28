@@ -383,6 +383,141 @@ describe("Onboarding wizard", () => {
     expect(await screen.findByRole("option", { name: "order (TakeOrder)" })).toBeInTheDocument();
   });
 
+  it("bindings step shows an editable capability output name defaulted from the fed gateway (ADR-051)", async () => {
+    const be = (over: Record<string, unknown>) => ({
+      name: null, is_multi_instance: false, is_for_compensation: false,
+      compensation_primary: null, in_event_subprocess: false, ...over,
+    });
+    const session = {
+      session_id: "sess-51", created_by: "owner-1", created_at: "", updated_at: "", state: "bindings_set",
+      basics: { pack_key: "dinein", version: "1.0.0", title: "D", default_domain: "dining" },
+      bpmn: {
+        process_id: "P", bpmn_file: "p.bpmn", sha256: "x", service_tasks: ["ValidateOrder"], user_tasks: [],
+        gateways: ["Gateway_OrderOK"], task_names: {},
+        // a second capability downstream so the upstream-output picker can offer ValidateOrder's chosen name
+        bindable_elements: [
+          be({ element_id: "ValidateOrder", element_kind: "serviceTask", category: "capability", name: "Validate order" }),
+          be({ element_id: "Bill", element_kind: "serviceTask", category: "capability", name: "Generate bill" }),
+        ],
+      },
+      staged_artifacts: [], reused_capability_refs: [], bindings: [],
+      staged_capabilities: [
+        { capability_id: "cap.dining.validate_order", version: "1.0.0", title: "Validate", side_effect: "read_only", input_name: "validate_order_input", input_artifact_key: "art.dining.validate_order_input", output_name: "validate_order_output", output_artifact_key: "art.dining.validate_order_output", endpoint: "http://x", tool: "validate_order", transport: "streamable_http", headers: {} },
+        { capability_id: "cap.dining.generate_bill", version: "1.0.0", title: "Bill", side_effect: "read_only", input_name: "generate_bill_input", input_artifact_key: "art.dining.generate_bill_input", output_name: "generate_bill_output", output_artifact_key: "art.dining.generate_bill_output", endpoint: "http://x", tool: "generate_bill", transport: "streamable_http", headers: {} },
+      ],
+      triage_rules: [], gateway_variables: [], sod_policies: [], roles: [],
+      inferred: {
+        roles: [], gateway_variables: [{ gateway_id: "Gateway_OrderOK", variable: "validation.order_verdict" }],
+        artifact_seeds: [], sod_candidates: [], annotations: [],
+        capability_candidates: [
+          { source: "ValidateOrder", suggested_capability_id: "cap.dining.validate_order", kind_hint: "mcp", needs_endpoint: true },
+          { source: "Bill", suggested_capability_id: "cap.dining.generate_bill", kind_hint: "mcp", needs_endpoint: true },
+        ],
+        bindings: [
+          { element_id: "ValidateOrder", element_kind: "serviceTask", executor_type: "capability", suggested_capability_id: "cap.dining.validate_order", suggested_input_source: { validate_order_input: { from: "trigger" } }, upstream_caps: [], upstream_producers: [], suggested_output_name: "validation", suggested_hitl_mode: "none", source_lane: null },
+          { element_id: "Bill", element_kind: "serviceTask", executor_type: "capability", suggested_capability_id: "cap.dining.generate_bill", suggested_input_source: { generate_bill_input: { from: "artifact", element: "ValidateOrder" } }, upstream_caps: ["ValidateOrder"], upstream_producers: ["ValidateOrder"], suggested_hitl_mode: "none", source_lane: null },
+        ],
+      },
+      dry_run_report: null, commit_progress: [], result_pack: null, last_cleared: [],
+    };
+    server.use(
+      http.get(`${REG}/onboarding/sess-51`, () => HttpResponse.json(session)),
+      http.get(`${REG}/capabilities`, () => HttpResponse.json([])),
+      http.get(`${REG}/packs`, () => HttpResponse.json([])),
+    );
+    renderApp("/registry/onboard/sess-51", "owner-1");
+
+    // the output-name field is pre-filled with the gateway-derived name (not validate_order_output)…
+    expect(await screen.findByDisplayValue("validation")).toBeInTheDocument();
+    // …carrying a "from gateway" provenance chip.
+    expect(await screen.findByText("from gateway")).toBeInTheDocument();
+    // and the downstream capability's upstream-output picker offers the CHOSEN name, not <tool>_output.
+    expect(await screen.findByRole("option", { name: "validation (ValidateOrder)" })).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: "validate_order_output (ValidateOrder)" })).not.toBeInTheDocument();
+  });
+
+  it("bindings step auto-sources a capability input FIELD from a human output (ADR-052 E3)", async () => {
+    const be = (over: Record<string, unknown>) => ({
+      name: null, is_multi_instance: false, is_for_compensation: false,
+      compensation_primary: null, in_event_subprocess: false, ...over,
+    });
+    const art = (key: string, props: Record<string, unknown>) =>
+      ({ artifact_key: key, version: "1.0.0", title: key, json_schema: { type: "object", properties: props } });
+    const session = {
+      session_id: "sess-e3i", created_by: "owner-1", created_at: "", updated_at: "", state: "bindings_set",
+      basics: { pack_key: "dinein", version: "1.0.0", title: "D", default_domain: "dining" },
+      bpmn: {
+        process_id: "P", bpmn_file: "p.bpmn", sha256: "x", service_tasks: ["ValidateOrder"], user_tasks: ["TakeOrder"],
+        gateways: [], task_names: {},
+        bindable_elements: [
+          be({ element_id: "TakeOrder", element_kind: "userTask", category: "human", name: "Take order" }),
+          be({ element_id: "ValidateOrder", element_kind: "serviceTask", category: "capability", name: "Validate order" }),
+        ],
+      },
+      staged_artifacts: [
+        art("art.dining.validate_order_input", { order: {}, table: {} }),
+        art("art.dining.validate_order_output", { ok: {} }),
+      ],
+      authored_artifacts: [art("art.dining.order", { order_type: {} })],
+      reused_capability_refs: [],
+      // TakeOrder (human) produces `order`; ValidateOrder's input carries an `order` field.
+      bindings: [
+        { element_id: "TakeOrder", element_kind: "userTask", executor_type: "human", role: "role.dining.server",
+          outputs: [{ name: "order", schema_ref: "art.dining.order@^1.0.0", required: true }] },
+      ],
+      staged_capabilities: [{ capability_id: "cap.dining.validate_order", version: "1.0.0", title: "Validate", side_effect: "read_only", input_name: "validate_order_input", input_artifact_key: "art.dining.validate_order_input", output_name: "validate_order_output", output_artifact_key: "art.dining.validate_order_output", endpoint: "http://x", tool: "validate_order", transport: "streamable_http", headers: {} }],
+      triage_rules: [], gateway_variables: [], sod_policies: [], roles: [],
+      inferred: {
+        roles: [], gateway_variables: [], artifact_seeds: [], sod_candidates: [], annotations: [],
+        capability_candidates: [{ source: "ValidateOrder", suggested_capability_id: "cap.dining.validate_order", kind_hint: "mcp", needs_endpoint: true }],
+        bindings: [
+          { element_id: "TakeOrder", element_kind: "userTask", executor_type: "human", suggested_role: "role.dining.server", suggested_hitl_mode: "manual", source_lane: null },
+          { element_id: "ValidateOrder", element_kind: "serviceTask", executor_type: "capability", suggested_capability_id: "cap.dining.validate_order", suggested_input_source: {}, upstream_caps: [], upstream_producers: ["TakeOrder"], suggested_hitl_mode: "none", source_lane: null },
+        ],
+      },
+      dry_run_report: null, commit_progress: [], result_pack: null, last_cleared: [],
+    };
+    server.use(
+      http.get(`${REG}/onboarding/sess-e3i`, () => HttpResponse.json(session)),
+      http.get(`${REG}/capabilities`, () => HttpResponse.json([])),
+      http.get(`${REG}/packs`, () => HttpResponse.json([])),
+    );
+    renderApp("/registry/onboard/sess-e3i", "owner-1");
+
+    // the capability's `order` input field auto-sources from the HUMAN output — `order (TakeOrder)` is selected.
+    expect(await screen.findByRole("option", { name: "order (TakeOrder)", selected: true })).toBeInTheDocument();
+  });
+
+  it("policies step auto-derives the gateway source-artifact from the variable's output (ADR-052 E3)", async () => {
+    const be = (id: string) => ({ element_id: id, element_kind: "serviceTask", category: "capability", name: id, is_multi_instance: false, is_for_compensation: false, compensation_primary: null, in_event_subprocess: false });
+    const session = {
+      session_id: "sess-e3g", created_by: "owner-1", created_at: "", updated_at: "", state: "policies_set",
+      basics: { pack_key: "dinein", version: "1.0.0", title: "D", default_domain: "dining" },
+      bpmn: {
+        process_id: "P", bpmn_file: "p.bpmn", sha256: "x", service_tasks: ["ValidateOrder"], user_tasks: [],
+        gateways: ["Gateway_OrderOK"], task_names: {}, bindable_elements: [be("ValidateOrder")],
+      },
+      staged_artifacts: [{ artifact_key: "art.dining.order_validation", version: "1.0.0", title: "v", json_schema: { type: "object", properties: { order_verdict: {} } } }],
+      staged_capabilities: [], reused_capability_refs: [],
+      bindings: [{ element_id: "ValidateOrder", element_kind: "serviceTask", executor_type: "capability", capability_ref: "cap.dining.validate_order@^1.0.0", hitl_mode: "none", outputs: [{ name: "validation", schema_ref: "art.dining.order_validation@^1.0.0", required: true }] }],
+      triage_rules: [], gateway_variables: [], sod_policies: [], roles: [],
+      inferred: {
+        roles: [], bindings: [], capability_candidates: [], artifact_seeds: [], annotations: [], sod_candidates: [],
+        gateway_variables: [{ gateway_id: "Gateway_OrderOK", variable: "validation.order_verdict" }],
+      },
+      dry_run_report: null, commit_progress: [], result_pack: null, last_cleared: [],
+    };
+    server.use(
+      http.get(`${REG}/onboarding/sess-e3g`, () => HttpResponse.json(session)),
+      http.get(`${REG}/capabilities`, () => HttpResponse.json([])),
+    );
+    renderApp("/registry/onboard/sess-e3g", "owner-1");
+
+    // the decision variable pre-fills from the condition, and its source artifact auto-derives from `validation`.
+    expect(await screen.findByDisplayValue("validation.order_verdict")).toBeInTheDocument();
+    expect(await screen.findByDisplayValue("art.dining.order_validation")).toBeInTheDocument();
+  });
+
   it("bindings step derives the input_map off the BOUND capability even when the element name diverges (ADR-048 D4)", async () => {
     const be = (over: Record<string, unknown>) => ({
       name: null, is_multi_instance: false, is_for_compensation: false,

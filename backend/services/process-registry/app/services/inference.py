@@ -200,14 +200,29 @@ def infer_draft(sem: BpmnSemanticModel, domain: str) -> InferenceDraft:
 
     # gateway variables: one per exclusive gateway that has a condition (dedup by gateway).
     seen_gw: set[str] = set()
+    gw_state: Dict[str, str] = {}                       # exclusive gateway id -> condition first segment
     for f in sem.sequence_flows:
         node = sem.node(f.source or "")
         if not (f.condition and node and node.kind == "exclusiveGateway"):
             continue
         var = _condition_variable(f.condition)
+        if var:
+            gw_state.setdefault(f.source, var.split(".")[0])
         if var and f.source not in seen_gw:
             seen_gw.add(f.source)
             draft.gateway_variables.append(InferredGatewayVariable(gateway_id=f.source, variable=var))
+
+    # ADR-051: default a capability's OUTPUT NAME to the gateway it feeds. The runtime resolves a gateway
+    # condition against binding OUTPUT NAMES, so a condition ``validation.order_verdict`` only branches if the
+    # producing capability's output is named ``validation``. A capability task IMMEDIATELY upstream of an
+    # exclusiveGateway therefore takes that gateway condition's first segment as its suggested output name.
+    # Deterministic (graph position + condition text), no LLM; the Bindings step applies it as the default.
+    bind_by_el = {b.element_id: b for b in draft.bindings}
+    for gw, state in gw_state.items():
+        for p in preds.get(gw, ()):
+            b = bind_by_el.get(p)
+            if b is not None and b.executor_type == "capability" and b.suggested_output_name is None:
+                b.suggested_output_name = state
 
     # capability candidates: each connected capability-category task (serviceTask/sendTask/
     # scriptTask/businessRuleTask) + each external message flow (ADR-033).

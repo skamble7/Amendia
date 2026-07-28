@@ -149,6 +149,11 @@ class InferredBinding(BaseModel):
     # output) reachable on the flows into this node, nearest-first, terminating at the first producer on each
     # branch. Superset of ``upstream_caps`` — lets a capability input source from a human-authored artifact.
     upstream_producers: List[str] = Field(default_factory=list)
+    # ADR-051: when this capability task's output feeds an exclusiveGateway, the gateway condition's first
+    # segment (e.g. ``validation`` from ``validation.order_verdict``) — the name the runtime needs the output to
+    # carry for the gateway to branch. The Bindings step defaults the capability's output name to this. None ⇒
+    # the task feeds no gateway ⇒ the output keeps its ``<tool>_output`` default.
+    suggested_output_name: Optional[str] = None
     suggested_hitl_mode: str = "none"
     source_lane: Optional[str] = None
 
@@ -520,6 +525,11 @@ class BindingInput(BaseModel):
     # capability binding (its IO is mirrored from the capability) and a call binding (uses input/output_map).
     inputs: List[StagedBindingIO] = Field(default_factory=list)
     outputs: List[StagedBindingIO] = Field(default_factory=list)
+    # ADR-051: a settable OUTPUT NAME for a CAPABILITY binding — the runtime resolves gateway conditions against
+    # binding output names (``validation.order_verdict`` needs an output literally named ``validation``), so the
+    # name must be authorable, not forced to ``<tool>_output``. Renames the mirrored output; schema_ref is
+    # unchanged. None ⇒ default from the fed gateway's condition, else ``<tool>_output``.
+    output_name: Optional[str] = None
 
 
 class SetBindingsRequest(BaseModel):
@@ -603,6 +613,9 @@ class IntrospectedTool(BaseModel):
     suggested_input_artifact_key: Optional[str] = None
     suggested_output_artifact_key: Optional[str] = None
     suggested_capability_id: Optional[str] = None
+    # ADR-052 E3: side-effect default — `side_effectful` when the tool OUTPUT carries the acknowledgement shape
+    # (acknowledged + action_id + status), else `read_only`. Operator-overridable in the Capabilities step.
+    suggested_side_effect: str = "read_only"
     # Batch-4: set when the derived id collides with an active catalog capability (advisory).
     id_collision: Optional[IdCollision] = None
 

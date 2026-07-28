@@ -7,6 +7,7 @@ prerequisite (a parseable BPMN) is missing. Deterministic output.
 """
 from __future__ import annotations
 
+import re
 from typing import Dict, List, Optional, Tuple
 
 from packaging.version import Version
@@ -25,12 +26,17 @@ from app.validation.predicates import (
     PredicateSyntaxError,
     check_predicate,
     evaluate,
+    flatten_schema_fields,
     infer_field_types,
     validate_predicate,
 )
 from app.validation.report import Severity, ValidationReport
 
 APPROVE_ACTIONS = HitlMode.APPROVE_ACTIONS
+
+# ADR-051: the leading dot-path of a gateway condition (its first segment is the artifact/output name the
+# runtime resolves against). Mirrors inference._CONDITION_LHS.
+_COND_LHS = re.compile(r'^\s*([A-Za-z_][A-Za-z0-9_.]*)')
 
 
 def _forward_reach(model: BpmnModel) -> Dict[str, set]:
@@ -67,8 +73,15 @@ class PackValidator:
         bpmn_xml: Optional[str],
         *,
         sample_envelopes: Optional[List[dict]] = None,
+        trigger_schema: Optional[dict] = None,
     ) -> ValidationReport:
         report = ValidationReport(pack_key=manifest.pack_key, pack_version=manifest.version)
+        # ADR-049: the DECLARED trigger schema drives schema-aware triage validation (Stage 7). A caller with
+        # the schema in hand (onboarding — its staged trigger isn't registered yet at assemble) passes it; when
+        # omitted we resolve the pack's declared `manifest.trigger` from the schema repo (packs.py — validating
+        # a stored, already-registered pack). None ⇒ no declared trigger ⇒ Stage 7 falls back to the samples.
+        if trigger_schema is None:
+            trigger_schema = await self._resolve_trigger_schema(manifest)
         # Stage 1
         model = await self._stage1_bpmn(manifest, bpmn_xml, report)
         # Stage 3 (resolve caps) is needed by 4 & 5, so run it before them regardless of BPMN.
@@ -113,8 +126,22 @@ class PackValidator:
         if model is not None:
             await self._validate_reduce_configs(manifest, model, resolved_caps, report)
         # Stage 7
-        await self._stage7_policies_triage(manifest, model, report, sample_envelopes or [])
+        await self._stage7_policies_triage(manifest, model, report, sample_envelopes or [], trigger_schema)
         return report.finalize()
+
+    async def _resolve_trigger_schema(self, manifest: ProcessPackManifest) -> Optional[dict]:
+        """ADR-049/050: the JSON-Schema of the pack's DECLARED trigger artifact (``manifest.trigger``), fetched
+        from the schema repo (highest version in range). None when the pack declares no trigger or the schema
+        isn't registered — Stage 7 then falls back to the deployment sample envelopes, exactly as before."""
+        ref = manifest.trigger
+        if ref is None:
+            return None
+        regs = await self.schemas.list_by_key(ref.ref_id)
+        regs = [r for r in regs if ref.matches(r.version)] or regs
+        if not regs:
+            return None
+        from packaging.version import Version
+        return max(regs, key=lambda r: Version(r.version)).json_schema
 
     # ------------------------------------------------------------------ #
     # Stage 1 — BPMN
@@ -437,12 +464,44 @@ class PackValidator:
                 b_map = {io.name: io for io in b_ios}
                 c_map = {io.name: io for io in c_ios}
                 if human_assist:
+                    # An assist merely PRE-DRAFTS a SUBSET of the human task's IO (matched by name); unchanged.
                     missing = set(c_map) - set(b_map)
                     if missing:
                         report.error("binding_io_mismatch", stage=5, element_id=b.element_id,
                                      message=f"{side}: assist {desc.capability_id} {side} {sorted(missing)} "
                                              f"not declared on the human task binding {sorted(b_map)}")
-                elif set(b_map) != set(c_map):
+                    for name in set(b_map) & set(c_map):
+                        if not await self._ranges_overlap(b_map[name].schema_, c_map[name].schema_):
+                            report.error("binding_io_schema_incompatible", stage=5, element_id=b.element_id,
+                                         path=f"/{side}/{name}",
+                                         message=f"{side} '{name}': binding schema '{b_map[name].schema_}' and "
+                                                 f"capability schema '{c_map[name].schema_}' share no registered version")
+                    continue
+
+                if side == "outputs":
+                    # ADR-051: a capability binding's output NAME is operator-settable (the runtime resolves a
+                    # gateway condition against it), so reconcile OUTPUTS by CARDINALITY + SCHEMA, not name.
+                    # Same output count; each binding output's schema range-overlaps its capability counterpart
+                    # (paired by position; falling back to any-overlap so a reorder is not a false mismatch).
+                    if len(b_ios) != len(c_ios):
+                        report.error("binding_io_mismatch", stage=5, element_id=b.element_id,
+                                     message=f"outputs: binding declares {len(b_ios)} output(s) {sorted(b_map)} "
+                                             f"but capability {desc.capability_id} declares {len(c_ios)} "
+                                             f"{sorted(c_map)}")
+                        continue
+                    for bio, cio in zip(b_ios, c_ios):
+                        if await self._ranges_overlap(bio.schema_, cio.schema_):
+                            continue
+                        if not any([await self._ranges_overlap(bio.schema_, x.schema_) for x in c_ios]):
+                            report.error("binding_io_schema_incompatible", stage=5, element_id=b.element_id,
+                                         path=f"/outputs/{bio.name}",
+                                         message=f"output '{bio.name}': binding schema '{bio.schema_}' overlaps "
+                                                 f"no capability {desc.capability_id} output schema "
+                                                 f"{[str(x.schema_) for x in c_ios]}")
+                    continue
+
+                # INPUTS stay strict: they mirror the tool's field names and are never renamed.
+                if set(b_map) != set(c_map):
                     report.error("binding_io_mismatch", stage=5, element_id=b.element_id,
                                  message=f"{side} name set {sorted(b_map)} != capability "
                                          f"{desc.capability_id} {side} {sorted(c_map)}")
@@ -534,9 +593,47 @@ class PackValidator:
 
         reach = _forward_reach(model)
         producers: Dict[str, List[str]] = {}
+        out_schema_ref: Dict[str, str] = {}                 # ADR-051: output name -> its artifact schema ref_id
         for b in manifest.bindings:
             for io in b.outputs:
                 producers.setdefault(io.name, []).append(b.element_id)
+                out_schema_ref.setdefault(io.name, io.schema_.ref_id)
+
+        # ADR-051: the RUNTIME resolves a gateway condition against binding OUTPUT NAMES, so a condition whose
+        # first segment names no produced upstream output can NEVER branch — a silent non-branch, now an
+        # authoring-time error. We check the raw conditions (runtime truth) for every conditional exclusiveGateway
+        # the operator did NOT cover with an authored gateway_variables entry (those are validated below instead).
+        for gw in model.exclusive_gateways:
+            if gw in by_gateway:
+                continue                                    # authored gateway_variable → validated below
+            seen_state: set = set()
+            for fl in model.flows:
+                if fl.source != gw or not getattr(fl, "condition_expr", None):
+                    continue
+                m = _COND_LHS.match(fl.condition_expr)
+                if not m:
+                    continue
+                segs = m.group(1).split(".")
+                state_name, field_path = segs[0], segs[1:]
+                if state_name in seen_state:
+                    continue
+                seen_state.add(state_name)
+                if not any(gw in reach.get(p, set()) for p in producers.get(state_name, [])):
+                    report.error("gateway_condition_unproduced", stage=6, element_id=gw,
+                                 message=f"gateway '{gw}' branches on '{m.group(1)}' but no upstream binding "
+                                         f"produces an output named '{state_name}' — it can never branch (name "
+                                         f"the producing capability's output '{state_name}')")
+                    continue
+                # the decision field must be REQUIRED in the producing output's schema (so it is always present).
+                if field_path and (ref := out_schema_ref.get(state_name)):
+                    schema = await self._latest_active_schema(ref)
+                    if schema is not None:
+                        ok, pointer = self._required_path_ok(schema.json_schema, field_path)
+                        if not ok:
+                            report.error("gateway_condition_field_not_required", stage=6, element_id=gw,
+                                         path=pointer,
+                                         message=f"gateway '{gw}' branches on '{m.group(1)}' but the field is not "
+                                                 f"required at every level of the '{state_name}' output schema")
 
         for gv in gvars:
             if gv.gateway_id not in model.node_ids or gv.gateway_id not in model.exclusive_gateways:
@@ -609,9 +706,23 @@ class PackValidator:
     # ------------------------------------------------------------------ #
     # Stage 7 — policies & triage
     # ------------------------------------------------------------------ #
+    @staticmethod
+    def _sample_conforms_to_trigger(env: dict, trigger_schema: Optional[dict]) -> bool:
+        """True if a sample envelope plausibly belongs to the DECLARED trigger's domain — all the trigger
+        schema's top-level ``required`` keys are present (or, absent a ``required`` list, at least one declared
+        property name overlaps). Cheap shape check that keeps a same-domain sample in the triage smoke while
+        dropping a foreign deployment sample that would only ever report a spurious "no match"."""
+        if not isinstance(env, dict) or not isinstance(trigger_schema, dict):
+            return False
+        required = trigger_schema.get("required") or []
+        if required:
+            return all(k in env for k in required)
+        props = trigger_schema.get("properties") or {}
+        return bool(props) and any(k in env for k in props)
+
     async def _stage7_policies_triage(
         self, manifest: ProcessPackManifest, model: Optional[BpmnModel],
-        report: ValidationReport, sample_envelopes: List[dict],
+        report: ValidationReport, sample_envelopes: List[dict], trigger_schema: Optional[dict] = None,
     ) -> None:
         policies = manifest.policies
         if policies and policies.separation_of_duties:
@@ -626,9 +737,13 @@ class PackValidator:
                             report.error("sod_unknown_element", stage=7, element_id=el,
                                          message=f"SoD element '{el}' is not a BPMN task")
 
-        # Batch-4: the trigger shape for schema-aware triage validation (from the sample envelopes; a declared
-        # trigger artifact would slot in here). Empty ⇒ schema checks degrade to the structural check only.
-        field_types = infer_field_types(sample_envelopes)
+        # ADR-049: the trigger shape for schema-aware triage validation. When the pack DECLARES a trigger, derive
+        # the field/type map from its schema (the same helper authoring uses) — NOT the deployment sample
+        # envelopes, which belong to whatever domain the deployment seeds (e.g. wire) and would spuriously fail a
+        # foreign pack's fields. Only a pack with no declared trigger falls back to the samples (empty ⇒ the
+        # schema checks degrade to the structural check only).
+        declared_trigger = trigger_schema is not None
+        field_types = flatten_schema_fields(trigger_schema) if declared_trigger else infer_field_types(sample_envelopes)
         for rule in manifest.triage_rules:
             try:
                 check_predicate(rule.when)
@@ -640,7 +755,14 @@ class PackValidator:
             # triages at runtime) — not a clean pass.
             for f in validate_predicate(rule.when, field_types):
                 report.error(f["code"], stage=7, message=f"triage rule '{rule.rule_id}': {f['message']}")
-            for env in sample_envelopes:
+            # Smoke the rule against the sample envelopes. When the pack declares a trigger, run ONLY against
+            # samples that CONFORM to it — the deployment seeds one domain's samples (e.g. wire), so a foreign
+            # declared-trigger pack (e.g. dining) would otherwise get a guaranteed spurious "no match". A
+            # same-domain pack's sample still conforms and yields a real MATCH; the schema check above is the
+            # authoritative field/type gate either way.
+            smoke_samples = ([env for env in sample_envelopes if self._sample_conforms_to_trigger(env, trigger_schema)]
+                             if declared_trigger else sample_envelopes)
+            for env in smoke_samples:
                 try:
                     matched = evaluate(rule.when, env)
                     report.info("triage_rule_smoke", stage=7,

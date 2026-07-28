@@ -87,6 +87,33 @@ async def test_golden_path_passes(registered, validator):
     assert any(f.code == "triage_rule_smoke" and "MATCH" in f.message for f in report.findings)
 
 
+async def test_declared_trigger_drives_triage_field_validation(registered, validator):
+    # ADR-049 follow-up: a pack that DECLARES its own trigger validates triage against THAT schema, not the
+    # deployment's (wire) sample envelopes — so a dining pack's `order_type` rule is clean, not a spurious
+    # `triage_field_unknown` + a smoke "no match" against a foreign-domain sample.
+    d = manifest_dict()
+    d["trigger"] = "art.rest_stan.order_ticket@^1.0.0"
+    d["triage_rules"] = [{"rule_id": "dine-in", "priority": 200,
+                          "when": {"all": [{"field": "order_type", "op": "eq", "value": "dine_in"}]}}]
+    trigger_schema = {"type": "object", "required": ["order_type"],
+                      "properties": {"order_type": {"type": "string"}}}
+    report = await validator.validate(build(d), load_bpmn(), sample_envelopes=[load_sample()],
+                                      trigger_schema=trigger_schema)
+    assert "triage_field_unknown" not in _errs(report), _errs(report)
+    # the wire sample doesn't conform to the dining trigger → the smoke is SKIPPED (no spurious no-match).
+    assert not any(f.code == "triage_rule_smoke" for f in report.findings)
+
+
+async def test_no_declared_trigger_falls_back_to_sample_envelopes(registered, validator):
+    # A pack with NO declared trigger keeps the old behaviour: triage fields come from the deployment sample
+    # envelopes and the rule is smoked against them (the wire seed's rule MATCHes its own sample).
+    d = manifest_dict()
+    d["trigger"] = None
+    report = await validator.validate(build(d), load_bpmn(), sample_envelopes=[load_sample()])
+    assert "triage_field_unknown" not in _errs(report), _errs(report)
+    assert any(f.code == "triage_rule_smoke" and "MATCH" in f.message for f in report.findings)
+
+
 async def test_unbound_task(registered, validator):
     d = manifest_dict()
     d["bindings"] = [b for b in d["bindings"] if b["element_id"] != "Task_NotifyParties"]
@@ -118,11 +145,47 @@ async def test_side_effectful_at_review_after(registered, validator):
     assert "side_effect_requires_approve_actions" in _errs(report)
 
 
-async def test_binding_io_name_mismatch(registered, validator):
+async def test_binding_input_name_mismatch(registered, validator):
+    # Inputs mirror the tool's field names and are NOT renameable — a name mismatch is still an error.
     d = manifest_dict()
     for b in d["bindings"]:
         if b["element_id"] == "Task_AssessRepairability":
-            b["outputs"] = [{"name": "wrong_name", "schema": "art.payment.assess_beneficiary_output@^1.0.0"}]
+            b["inputs"] = [{"name": "wrong_input", "schema": "art.payment.enrich_investigation_output@^1.0.0"}]
+    report = await _validate(validator, build(d))
+    assert "binding_io_mismatch" in _errs(report)
+
+
+async def test_binding_output_rename_reconciles_by_schema(registered, validator):
+    # ADR-051: a capability binding's OUTPUT name is operator-settable, so renaming it (same schema) must NOT
+    # trip Stage-5 IO reconciliation — it reconciles by cardinality + schema, not name.
+    d = manifest_dict()
+    for b in d["bindings"]:
+        if b["element_id"] == "Task_AssessRepairability":
+            b["outputs"] = [{"name": "validation", "schema": "art.payment.assess_beneficiary_output@^1.0.0"}]
+    report = await _validate(validator, build(d))
+    assert "binding_io_mismatch" not in _errs(report)
+    assert "binding_io_schema_incompatible" not in _errs(report)
+
+
+async def test_binding_output_schema_mismatch_still_errors(registered, validator):
+    # A renamed output whose SCHEMA actually differs (a range with no registered version) still errors.
+    d = manifest_dict()
+    for b in d["bindings"]:
+        if b["element_id"] == "Task_AssessRepairability":
+            b["outputs"] = [{"name": "validation", "schema": "art.payment.assess_beneficiary_output@^2.0.0"}]
+    report = await _validate(validator, build(d))
+    assert "binding_io_schema_incompatible" in _errs(report)
+
+
+async def test_binding_output_cardinality_mismatch_errors(registered, validator):
+    # Same-count is required: an extra (unexpected) output is a mismatch.
+    d = manifest_dict()
+    for b in d["bindings"]:
+        if b["element_id"] == "Task_AssessRepairability":
+            b["outputs"] = [
+                {"name": "validation", "schema": "art.payment.assess_beneficiary_output@^1.0.0"},
+                {"name": "extra", "schema": "art.payment.assess_beneficiary_output@^1.0.0"},
+            ]
     report = await _validate(validator, build(d))
     assert "binding_io_mismatch" in _errs(report)
 
@@ -132,6 +195,28 @@ async def test_gateway_variable_on_non_required_field(registered, validator):
     d["gateway_variables"][0]["variable"] = "beneficiary.proposed_correction"
     report = await _validate(validator, build(d))
     assert "gateway_variable_not_required" in _errs(report)
+
+
+async def test_gateway_condition_unproduced_when_output_name_mismatches(registered, validator):
+    # ADR-051: the runtime resolves a gateway condition against binding OUTPUT NAMES, so a condition whose first
+    # segment names no produced output can never branch. With no authored gateway_variables entry to cover it,
+    # that mismatch is an authoring-time error (was silent non-branching), not just a soft warning.
+    d = manifest_dict()
+    d["gateway_variables"] = []                       # un-authored → the raw-condition check runs
+    for b in d["bindings"]:
+        if b["element_id"] == "Task_AssessRepairability":   # condition reads beneficiary.repair_verdict
+            b["outputs"] = [{"name": "validate_order_output", "schema": "art.payment.assess_beneficiary_output@^1.0.0"}]
+    report = await _validate(validator, build(d))
+    assert "gateway_condition_unproduced" in _errs(report)
+
+
+async def test_gateway_condition_ok_when_output_name_matches(registered, validator):
+    # The same pack with no authored gateway_variables but the ALIGNED output name (`beneficiary`) resolves —
+    # the raw-condition check passes (only the soft gateway_without_variable note remains).
+    d = manifest_dict()
+    d["gateway_variables"] = []
+    report = await _validate(validator, build(d))
+    assert "gateway_condition_unproduced" not in _errs(report)
 
 
 async def test_sod_ghost_element(registered, validator):

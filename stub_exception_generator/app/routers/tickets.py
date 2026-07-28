@@ -87,8 +87,13 @@ async def generate(
     return GenerateTicketResponse(created=created)
 
 
-@router.get("/{ticket_id}", response_model=StoredTicket)
+@router.get("/{ticket_id}", response_model=OrderTicketEnvelope)
 async def get_ticket(ticket_id: str, repo: TicketRepository = Depends(get_ticket_repo)):
+    """Fetch-back: return the clean DOMAIN trigger artifact (``art.dining.order_ticket``), NOT the persisted
+    row. Per ADR-047 D1 the fetched trigger must be exactly the domain payload — the pack's declared trigger
+    schema is ``additionalProperties: false``, so serializing via ``OrderTicketEnvelope`` drops the store
+    metadata (``schema_version`` / ``created_at`` / ``updated_at``) that would otherwise fail validation at
+    dispatch. Lookup + 404 behaviour are unchanged; only the response SHAPE differs."""
     stored = await repo.get(ticket_id)
     if stored is None:
         raise HTTPException(status_code=404, detail=f"Unknown ticket_id: {ticket_id}")
