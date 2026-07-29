@@ -1288,29 +1288,47 @@ function BindingsStep({ session, onDone, onSession }: { session: OnboardingSessi
     toast.success(`Artifact ${req.artifact_key} authored`);
   };
 
+  // ADR-052: the DECLARED trigger's top-level field names (ADR-049 flattened map) — used to name-match an input
+  // field to a trigger path. Gate on the DECLARED trigger artifact, NOT on `trigger_fields`: before a trigger is
+  // declared, `trigger_fields` holds the deployment's SAMPLE-derived fields (a foreign domain, e.g. wire), which
+  // match none of this pack's input fields → empty maps. `null` ⇒ no declared trigger ⇒ opaque (every field
+  // still gets a same-named trigger path).
+  const triggerFields = useMemo(
+    () => session.trigger_artifact
+      ? new Set(Object.keys(session.trigger_fields ?? {}).map((k) => k.split(".")[0]))
+      : null,
+    [session.trigger_fields, session.trigger_artifact],
+  );
   // ADR-048/050/052: one input field's source — an upstream output that carries the field (→ artifact+path),
-  // an upstream output NAMED like the field (→ that whole artifact), else the trigger. NO match → trigger,
-  // never a wrong producer. `ups` are the upstream producers (capability AND human/message outputs).
+  // an upstream output NAMED like the field (→ that whole artifact), else a same-named TRIGGER field. NO match
+  // → null (leave the declared field unmapped; the dumb tool tolerates it). `ups` are the upstream producers
+  // (capability AND human/message outputs).
   type Up = { name: string; fields: string[]; artifactKey?: string; isCapability?: boolean };
-  const sourceForField = (f: string, ups: Up[]): Record<string, unknown> => {
+  const sourceForField = (f: string, ups: Up[]): Record<string, unknown> | null => {
     for (const u of ups) {
       if (u.fields.includes(f)) return { from: "artifact", name: u.name, path: f };
       if (f === u.name) return { from: "artifact", name: u.name };
     }
-    return { from: "trigger", path: f };
+    // ADR-052: source from the trigger ONLY when the DECLARED trigger actually has this field. A field with no
+    // upstream output and no matching trigger field is left UNMAPPED — never a trigger path that resolves to
+    // null and gets rejected by a closed tool schema.
+    if (triggerFields !== null && triggerFields.has(f)) return { from: "trigger", path: f };
+    return null;
   };
   const buildInputMap = (inName: string, inKey: string | undefined, inFields: string[], ups: Up[]): Record<string, unknown> => {
-    if (ups.length === 0) return { [inName]: { from: "trigger" } };
     if (inFields.length === 0) {
-      // opaque input (no fields to match) — match by SCHEMA (same artifact) then NAME (output named like the
-      // input), else the nearest CAPABILITY producer (ADR-048 graph-position chaining). Never auto-pick a
-      // HUMAN producer without a name/schema match; NO match at all → trigger.
+      // No declared input fields (a schema-less / reused capability) — chain the whole nearest matching output
+      // (by schema, then name, then the nearest capability producer, ADR-048 graph-position chaining), else
+      // leave unmapped. A CLOSED MCP capability always declares its fields, so it never reaches here — never a
+      // whole-trigger/whole-artifact spread for it.
       const m = (inKey && ups.find((u) => u.artifactKey === inKey)) || ups.find((u) => u.name === inName)
         || ups.find((u) => u.isCapability);
-      return { [inName]: m ? { from: "artifact", name: m.name } : { from: "trigger" } };
+      return m ? { [inName]: { from: "artifact", name: m.name } } : {};
     }
+    // ADR-052: ALWAYS a per-field composite over the declared input fields — never a whole-trigger spread that
+    // would overflow a closed MCP tool schema at runtime. Unmatched-and-known-trigger fields are left unmapped.
     const fields: Record<string, unknown> = {};
-    for (const f of inFields) fields[f] = sourceForField(f, ups);
+    for (const f of inFields) { const s = sourceForField(f, ups); if (s) fields[f] = s; }
     return { [inName]: { fields } };
   };
   // The output(s) a producer element emits — a capability's single output (chosen name), or a human/message

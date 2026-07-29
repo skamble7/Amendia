@@ -308,13 +308,18 @@ def _run_capability(ctx: NodeContext, descriptor, executor, simulation, envelope
 
 
 def _mcp_arguments(inputs: Dict[str, Any]) -> Dict[str, Any]:
-    """ADR-048: the MCP tool argument object from the resolved inputs — a composite (dict) input spreads
-    into the args, a scalar input keys by its binding name. Field names come from the authored map."""
+    """ADR-048/052: the MCP tool argument object from the resolved inputs — a composite (dict) input spreads
+    into the args, a scalar input keys by its binding name. Field names come from the authored map.
+
+    A field whose resolved value is ``None`` is OMITTED (both when spreading a composite and for a scalar):
+    a declared tool field with no source resolves to ``None``, and a tool's CLOSED inputSchema rejects a null
+    for a typed field ("None is not of type 'string'") → isError → MCP_TOOL_ERROR. Only fields with an actual
+    value are sent, so an absent optional field simply isn't passed."""
     args: Dict[str, Any] = {}
     for name, val in inputs.items():
         if isinstance(val, dict):
-            args.update(val)
-        else:
+            args.update({k: v for k, v in val.items() if v is not None})
+        elif val is not None:
             args[name] = val
     return args
 

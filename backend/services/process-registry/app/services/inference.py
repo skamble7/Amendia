@@ -334,31 +334,39 @@ def _schema_fields(schema: Optional[Dict[str, Any]]) -> List[str]:
 def _source_for_field(field: str, ups: List[tuple], trigger_fields: Optional[set]) -> Optional[Dict[str, Any]]:
     """Pick the best source for one input field. Preference: an upstream output that carries the field
     (nearest-first) → that artifact + path; an upstream output NAMED like the field → that whole artifact;
-    else the trigger (by path) when the field is known on the trigger schema OR the trigger is opaque
-    (undeclared — the only remaining data origin, accepted as satisfiable). Returns None → leave blank."""
+    else a same-named field of the DECLARED trigger → a trigger path.
+
+    ADR-052: a field with NO such source is left UNMAPPED (returns None) — it is NOT defaulted to a trigger path
+    just because it's declared. A tool field with no real source resolves to ``null`` at runtime, and a closed
+    tool inputSchema rejects a null for a typed field (isError → MCP_TOOL_ERROR). Only fields that name-match a
+    trigger field or an upstream output are emitted."""
     for out_name, out_fields in ups:
         if field in out_fields:
             return {"from": "artifact", "name": out_name, "path": field}
         if field == out_name:
             return {"from": "artifact", "name": out_name}
-    opaque = not trigger_fields
-    if opaque or field in (trigger_fields or set()):
+    if trigger_fields and field in trigger_fields:
         return {"from": "trigger", "path": field}
     return None
 
 
 def _build_input_map(input_name: str, in_fields: List[str], ups: List[tuple],
                      trigger_fields: Optional[set]) -> Dict[str, Any]:
-    """The field-level ``input_map`` for one capability binding (keyed by its single input name)."""
-    if not ups:                                            # entry task — the tool consumes the trigger
-        return {input_name: {"from": "trigger"}}
-    if not in_fields:                                      # opaque input — whole nearest upstream output
-        return {input_name: {"from": "artifact", "name": ups[0][0]}}
+    """ADR-052: the field-level ``input_map`` for one capability binding, keyed by its single input name.
+    ALWAYS a per-field composite over the tool's DECLARED input fields — never a whole-trigger/whole-artifact
+    spread, which at runtime (``_mcp_arguments``) would send every trigger/artifact field and overflow a closed
+    MCP tool schema (isError → MCP_TOOL_ERROR). Each declared field is sourced from a same-named upstream output,
+    else a same-named trigger field, else left unmapped (the dumb tool tolerates a missing declared field)."""
+    if not in_fields:
+        # No declared input fields (a schema-less / reused capability) — can't build a per-field map. Chain the
+        # whole nearest upstream output by name if there is one, else leave unmapped. A CLOSED MCP capability
+        # always declares its input fields, so it never reaches this branch (no whole-artifact spread for it).
+        return {input_name: {"from": "artifact", "name": ups[0][0]}} if ups else {}
     fields: Dict[str, Any] = {}
     for f in in_fields:
         src = _source_for_field(f, ups, trigger_fields)
         if src is not None:
-            fields[f] = src                               # unmatched-and-trigger-known fields left blank
+            fields[f] = src                               # unmatched-and-trigger-known fields left unmapped
     return {input_name: {"fields": fields}}
 
 

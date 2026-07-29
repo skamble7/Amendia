@@ -107,7 +107,7 @@ class PackValidator:
             self._validate_compensation(manifest, model, resolved_caps, report)
         # Stage 5
         if model is not None:
-            await self._stage5_artifacts_io(manifest, model, resolved_caps, report)
+            await self._stage5_artifacts_io(manifest, model, resolved_caps, report, trigger_schema)
         else:
             report.error("stage_skipped", stage=5, message="artifact/IO checks skipped: no valid BPMN")
         # Stage 6
@@ -431,6 +431,7 @@ class PackValidator:
     async def _stage5_artifacts_io(
         self, manifest: ProcessPackManifest, model: BpmnModel,
         resolved: Dict[str, CapabilityDescriptor], report: ValidationReport,
+        trigger_schema: Optional[dict] = None,
     ) -> None:
         for ref in manifest.artifacts:
             await self._artifact_error(ref, None, "artifacts[]", report)
@@ -554,6 +555,71 @@ class PackValidator:
                         report.error("binding_input_unproduced", stage=5, element_id=b.element_id,
                                      message=f"input '{io.name}' maps from artifact '{name}', which is not "
                                              f"produced by any upstream binding (ADR-048)")
+
+        # ADR-052: an MCP tool declares a CLOSED input schema (additionalProperties:false). At runtime
+        # (task_runner._mcp_arguments) a resolved input SPREADS into the tool call args — a WHOLE object source
+        # ({"from":"trigger"} / {"from":"artifact","name":N} with no path/fields) spreads ALL that object's
+        # properties as arg keys; a scalar path keys by the binding input name. If those keys overflow the tool's
+        # declared inputs the SDK rejects the call (isError → MCP_TOOL_ERROR) — a silent runtime break the pack
+        # activated with 0 errors. Reject it here.
+        #
+        # A composite ({"fields":{…}}) is NOT checked: by ADR-048 its field names are the TOOL's argument names,
+        # which for a REMAPPING pack (the seeded wire pack) legitimately differ from the input ARTIFACT's fields
+        # — the manifest carries no separate tool inputSchema to check them against. The auto-fill (Part B) emits
+        # composites over the declared input fields, so an introspected cap's composite is a subset by
+        # construction; only the runtime-broken WHOLE-source overflow (what the buggy auto-fill emitted) is
+        # blocked. Enforced only for a CLOSED input schema (an open one tolerates extras).
+        trigger_props = set(((trigger_schema or {}).get("properties")) or {})
+        out_schema_ref: Dict[str, str] = {}                 # output name -> its artifact schema ref_id
+        for b in manifest.bindings:
+            for io in b.outputs:
+                out_schema_ref.setdefault(io.name, io.schema_.ref_id)
+        _schema_cache: Dict[str, Tuple[set, bool]] = {}
+
+        async def _props_closed(ref_id: Optional[str]) -> Tuple[set, bool]:
+            """(declared property names, is the schema closed) for a registered artifact ref_id."""
+            if not ref_id:
+                return set(), False
+            if ref_id not in _schema_cache:
+                reg = await self._latest_active_schema(ref_id)
+                js = reg.json_schema if reg is not None else {}
+                _schema_cache[ref_id] = (set((js.get("properties") or {}).keys()),
+                                         js.get("additionalProperties") is False)
+            return _schema_cache[ref_id]
+
+        def _kind(desc: CapabilityDescriptor) -> str:
+            return desc.kind.value if hasattr(desc.kind, "value") else str(desc.kind)
+
+        for b in manifest.bindings:
+            ex = b.executor
+            if ex.type != "capability":
+                continue
+            desc = resolved.get(ex.capability.ref_id)
+            if desc is None or _kind(desc) != "mcp":
+                continue
+            imap = {k: (v.model_dump(by_alias=True) if hasattr(v, "model_dump") else v)
+                    for k, v in (getattr(b, "input_map", None) or {}).items()}
+            for io in b.inputs:
+                src = imap.get(io.name)
+                if not isinstance(src, dict) or "fields" in src:
+                    continue                                # unmapped (→ unproduced_input) or composite (not checkable)
+                if src.get("path"):
+                    arg_keys = {io.name}                    # scalar path → keyed by the binding input name
+                elif src.get("from") == "trigger":
+                    arg_keys = trigger_props                # whole trigger spreads all its fields
+                elif src.get("from") == "artifact" and src.get("name"):
+                    arg_keys = (await _props_closed(out_schema_ref.get(src["name"])))[0]
+                else:
+                    arg_keys = {io.name}
+                accepted, closed = await _props_closed(io.schema_.ref_id)
+                if not closed:
+                    continue                                # open schema tolerates extra args
+                extra = arg_keys - accepted
+                if extra:
+                    report.error("input_map_overflows_tool_schema", stage=5, element_id=b.element_id,
+                                 message=f"input_map for '{b.element_id}' sends fields {sorted(extra)} not "
+                                         f"declared in MCP tool '{ex.capability.ref_id}' input schema (closed); "
+                                         f"the tool call will be rejected at runtime (isError → MCP_TOOL_ERROR)")
 
     # ------------------------------------------------------------------ #
     # Stage 6 — gateway variables

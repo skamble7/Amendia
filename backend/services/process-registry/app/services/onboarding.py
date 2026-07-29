@@ -387,7 +387,11 @@ class OnboardingService:
         # today (no declared trigger artifact — ADR-047 deferred), so unmatched fields default to a trigger
         # path (the only remaining origin; validated as satisfiable).
         if s.inferred is not None:
-            refine_input_sources(s.inferred, staged_caps, staged_arts)
+            # ADR-052: name-match against the DECLARED trigger's fields when one is declared (mirrors the
+            # authoritative set_bindings refine); opaque otherwise. NOT the deployment sample-derived fields.
+            refine_input_sources(
+                s.inferred, staged_caps, staged_arts,
+                trigger_fields=({k.split(".", 1)[0] for k in s.trigger_fields} if s.trigger_artifact else None))
         # Editing capabilities invalidates bindings + gateway variables (source artifacts may
         # have changed) + the dry-run. Triage/SoD/roles are independent and kept.
         cleared = self._clear(s, {"bindings", "gateway_variables", "dry_run"})
@@ -1116,6 +1120,13 @@ class OnboardingService:
             cache[key] = out
             return out
 
+        # ADR-052: the DECLARED trigger's top-level field names (ADR-049) — used to name-match each input field
+        # to a trigger field. Gate on the DECLARED trigger artifact, NOT on `s.trigger_fields`: before a trigger
+        # is declared, `s.trigger_fields` holds the deployment's SAMPLE-derived fields (a foreign domain, e.g.
+        # wire), which would match none of this pack's input fields and yield empty maps. When no trigger is
+        # declared, treat the trigger as OPAQUE (None) so each input field still maps to a same-named trigger
+        # path — never an empty composite.
+        trigger_fields = ({k.split(".", 1)[0] for k in s.trigger_fields} if s.trigger_artifact else None)
         for b in staged:
             if b.executor_type != "capability" or not b.inputs:
                 continue
@@ -1131,7 +1142,7 @@ class OnboardingService:
                 if ub is None or not ub.outputs:
                     continue
                 ups.append((ub.outputs[0].name, set(await fields_of(ub.outputs[0].schema_ref))))
-            suggestion = suggest_binding_input_map(input_name, in_fields, ups)  # trigger opaque today
+            suggestion = suggest_binding_input_map(input_name, in_fields, ups, trigger_fields=trigger_fields)
             merged = dict(b.input_sources or {})
             for k, v in suggestion.items():
                 merged.setdefault(k, v)

@@ -275,9 +275,13 @@ def _execute_mcp_real(descriptor, inputs, ctx: ExecutionContext, mcp_client) -> 
     # (side-effect-free, read_only) tool call; its result would be discarded anyway.
     if ctx.cancel is not None and ctx.cancel.cancelled:
         raise CapabilityError(f"{descriptor.capability_id}: cancelled (SLA deadline) before MCP call")
-    # ADR-048: if the binding authored an input_map, the resolved inputs ARE the tool argument object;
-    # otherwise fall back to the legacy {envelope, inputs} wrapper (seed packs, shared-name chaining).
-    arguments = (ctx.extras or {}).get("mcp_arguments") or {"envelope": ctx.envelope, "inputs": inputs}
+    # ADR-048/052: if the binding authored an input_map, the resolved inputs ARE the tool argument object —
+    # use it AS-IS, even when it resolves to {} (an empty object is still an authored map, NOT "no map"). Only
+    # a MISSING map (mcp_arguments is None — set by task_runner only when the binding has no input_map) falls
+    # back to the legacy {envelope, inputs} wrapper (seed packs, shared-name chaining). Distinguishing None from
+    # {} matters: `{} or {...}` wrongly selected the wrapper, which a closed tool inputSchema then rejects.
+    mcp_args = (ctx.extras or {}).get("mcp_arguments")
+    arguments = mcp_args if mcp_args is not None else {"envelope": ctx.envelope, "inputs": inputs}
     try:
         artifact = _run_blocking(mcp_client.call_tool(
             endpoint=endpoint, tool=tool, arguments=arguments, transport=transport, headers=headers,

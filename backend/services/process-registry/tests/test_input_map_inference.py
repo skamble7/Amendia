@@ -11,6 +11,7 @@ from app.models.onboarding import (
     BindingInput,
     CapabilityToolSelection,
     CreateSessionRequest,
+    DeclareTriggerRequest,
     InferenceDraft,
     InferredBinding,
     SetBindingsRequest,
@@ -21,7 +22,7 @@ from app.models.onboarding import (
     StagedCapability,
     StagedTriageRule,
 )
-from app.services.inference import refine_input_sources
+from app.services.inference import refine_input_sources, suggest_binding_input_map
 from app.services.onboarding import OnboardingService
 from tests.conftest import load_sample
 
@@ -61,9 +62,29 @@ _ARTS = [_art("art.d.enrich_input", "party"),
          _art("art.d.assess_output", "ok")]
 
 
-def test_entry_task_sources_the_whole_trigger():
+def test_auto_fill_is_a_per_field_composite_over_declared_fields_never_whole():
+    # ADR-052: an MCP capability's input_map is ALWAYS a per-field composite over its declared input fields —
+    # ticket_id name-matches the declared trigger; `order` a same-named upstream output (ADR-050 — e.g. an order
+    # declared on Task_TakeOrder); `hint` is neither → left unmapped. Never a whole {from:trigger}, and the key
+    # set is always ⊆ the tool's declared input properties (so it can't overflow a closed tool schema).
+    in_fields = ["order", "ticket_id", "hint"]
+    trigger_fields = {"ticket_id", "order_type", "table"}
+    ups = [("order", {"lines"})]                      # an upstream output NAMED `order` (Task_TakeOrder's output)
+    m = suggest_binding_input_map("a_in", in_fields, ups, trigger_fields=trigger_fields)
+    assert m != {"a_in": {"from": "trigger"}}         # never a whole-trigger spread
+    fields = m["a_in"]["fields"]
+    assert fields["ticket_id"] == {"from": "trigger", "path": "ticket_id"}
+    assert fields["order"] == {"from": "artifact", "name": "order"}
+    assert "hint" not in fields                       # neither upstream nor trigger → unmapped
+    assert set(fields) <= set(in_fields)              # arg keys ⊆ declared tool inputs → can never overflow
+
+
+def test_entry_task_builds_a_per_field_composite_never_whole_trigger():
+    # ADR-052: an entry task builds a PER-FIELD composite over the tool's declared inputs (never a whole-trigger
+    # spread). With NO declared trigger, `party` name-matches neither an upstream output nor a trigger field →
+    # it is left UNMAPPED (not defaulted to a trigger path that would resolve to null at runtime).
     d = refine_input_sources(_draft(_ENRICH_B.model_copy(deep=True)), _CAPS, _ARTS)
-    assert d.bindings[0].suggested_input_source == {"enrich_input": {"from": "trigger"}}
+    assert d.bindings[0].suggested_input_source == {"enrich_input": {"fields": {}}}
 
 
 def test_downstream_fields_match_upstream_output_and_trigger():
@@ -78,15 +99,15 @@ def test_downstream_fields_match_upstream_output_and_trigger():
     }}}
 
 
-def test_opaque_trigger_defaults_unmatched_field_to_a_trigger_path():
-    # with NO declared trigger schema, a field with no upstream producer defaults to a trigger path (the
-    # only remaining origin; the validator accepts trigger as satisfiable) — never left unmapped.
+def test_undeclared_trigger_leaves_non_upstream_fields_unmapped():
+    # ADR-052: with NO declared trigger schema, only fields matched to an UPSTREAM output are sourced; a field
+    # that matches neither an upstream output nor a declared trigger field is LEFT UNMAPPED (never defaulted to
+    # a trigger path — that would resolve to null and a closed tool schema rejects the null).
     d = refine_input_sources(_draft(_ENRICH_B.model_copy(deep=True), _ASSESS_B.model_copy(deep=True)),
                              _CAPS, _ARTS)  # trigger_fields=None → opaque
     fields = next(b for b in d.bindings if b.element_id == "Assess").suggested_input_source["assess_input"]["fields"]
-    assert fields["dossier"] == {"from": "artifact", "name": "enrich_output", "path": "dossier"}
-    assert fields["exception_id"] == {"from": "trigger", "path": "exception_id"}
-    assert fields["reason_codes"] == {"from": "trigger", "path": "reason_codes"}
+    assert fields == {"dossier": {"from": "artifact", "name": "enrich_output", "path": "dossier"}}
+    assert "exception_id" not in fields and "reason_codes" not in fields   # no declared trigger → unmapped
 
 
 def test_known_trigger_leaves_a_truly_unmatched_field_blank():
@@ -119,7 +140,9 @@ def test_element_to_capability_matches_by_name_tokens_when_id_differs():
     caps = [_cap("cap.d.assess_party_v2", "in", "art.d.in", "out", "art.d.out")]
     arts = [_art("art.d.in", "p"), _art("art.d.out", "o")]
     d = refine_input_sources(_draft(b), caps, arts)
-    assert d.bindings[0].suggested_input_source == {"in": {"from": "trigger"}}   # matched → entry whole trigger
+    # ADR-052: the capability resolves off the token match → a per-field composite; `p` matches neither an
+    # upstream output nor a declared trigger (none here) → unmapped. The point is the capability RESOLVED.
+    assert d.bindings[0].suggested_input_source == {"in": {"fields": {}}}
 
 
 # --------------------------------------------------------------------------- #
@@ -168,16 +191,24 @@ async def test_set_capabilities_prefills_field_level_input_map_and_it_persists(s
     # at attach the hint is coarse (graph position only)
     assert next(b for b in s.inferred.bindings if b.element_id == "Assess").suggested_input_source \
         == {"from": "artifact", "element": "Enrich"}
+    # ADR-052: declare the trigger so its fields drive the per-field name-match (else nothing trigger-sourced).
+    s = await svc.declare_trigger(s.session_id, DeclareTriggerRequest(
+        artifact_key="art.payment.exc", title="exc", json_schema={
+            "type": "object", "required": ["exception_id"], "additionalProperties": False,
+            "properties": {"exception_id": {"type": "string"}, "reason_codes": {"type": "array", "items": {"type": "string"}}}}),
+        owner=OWNER)
 
     s = await svc.set_capabilities(s.session_id, SetCapabilitiesRequest(
         tools=[_ENRICH_TOOL, _ASSESS_TOOL]), owner=OWNER)
     # …and is upgraded to a field-level input_map once the tool schemas exist.
     enrich = next(b for b in s.inferred.bindings if b.element_id == "Enrich")
     assess = next(b for b in s.inferred.bindings if b.element_id == "Assess")
-    assert enrich.suggested_input_source == {"enrich_input": {"from": "trigger"}}
+    # ADR-052: the entry task is a PER-FIELD composite. `party` matches neither an upstream output nor a declared
+    # trigger field → left UNMAPPED (never defaulted to a null-resolving trigger path).
+    assert enrich.suggested_input_source == {"enrich_input": {"fields": {}}}
     fields = assess.suggested_input_source["assess_input"]["fields"]
     assert fields["dossier"] == {"from": "artifact", "name": "enrich_output", "path": "dossier"}
-    assert fields["exception_id"] == {"from": "trigger", "path": "exception_id"}   # opaque trigger default
+    assert fields["exception_id"] == {"from": "trigger", "path": "exception_id"}   # declared trigger field
     assert fields["reason_codes"] == {"from": "trigger", "path": "reason_codes"}
 
     # bind using the pre-filled suggestion (as the wizard would) → assemble is clean, manifest carries it.
@@ -200,7 +231,7 @@ async def test_set_capabilities_prefills_field_level_input_map_and_it_persists(s
     manifest, _descs, _regs = svc._compose(s)
     by_el = {b.element_id: b for b in manifest.bindings}
     assert by_el["Enrich"].input_map["enrich_input"].model_dump(by_alias=True, exclude_none=True) \
-        == {"from": "trigger"}
+        == {"fields": {}}
     assess_map = by_el["Assess"].input_map["assess_input"].model_dump(by_alias=True, exclude_none=True)
     assert assess_map["fields"]["dossier"] == {"from": "artifact", "name": "enrich_output", "path": "dossier"}
 
@@ -240,6 +271,11 @@ async def test_set_bindings_fills_input_map_when_element_name_diverges_from_tool
     s = await svc.create(CreateSessionRequest(pack_key="imap-div", version="1.0.0", title="t",
                                               default_domain="payment"), owner=OWNER)
     s = await svc.attach_bpmn(s.session_id, AttachBpmnRequest(bpmn_xml=_DIVERGENT_BPMN), owner=OWNER)
+    s = await svc.declare_trigger(s.session_id, DeclareTriggerRequest(
+        artifact_key="art.payment.exc", title="exc", json_schema={
+            "type": "object", "required": ["exception_id"], "additionalProperties": False,
+            "properties": {"exception_id": {"type": "string"}, "reason_codes": {"type": "array", "items": {"type": "string"}}}}),
+        owner=OWNER)
     s = await svc.set_capabilities(s.session_id, SetCapabilitiesRequest(
         tools=[_ENRICH_INV_TOOL, _ASSESS_BEN_TOOL]), owner=OWNER)
     # bind WITHOUT authoring any input_sources (operator sets none) — the fill must do the work.
@@ -250,7 +286,9 @@ async def test_set_bindings_fills_input_map_when_element_name_diverges_from_tool
     s = await svc.set_bindings(s.session_id, SetBindingsRequest(bindings=binds), owner=OWNER)
     inv = next(b for b in s.bindings if b.element_id == "Investigate")
     ev = next(b for b in s.bindings if b.element_id == "Evaluate")
-    assert inv.input_sources == {"enrich_investigation_input": {"from": "trigger"}}          # entry
+    # ADR-052: entry → per-field composite. `party` is neither an upstream output nor a declared trigger field →
+    # left unmapped (never a null-resolving trigger path). The point is the map derives off the BOUND capability.
+    assert inv.input_sources == {"enrich_investigation_input": {"fields": {}}}
     fields = ev.input_sources["assess_beneficiary_input"]["fields"]
     assert fields["dossier"] == {"from": "artifact", "name": "enrich_investigation_output", "path": "dossier"}
     assert fields["exception_id"] == {"from": "trigger", "path": "exception_id"}
@@ -263,6 +301,49 @@ async def test_set_bindings_fills_input_map_when_element_name_diverges_from_tool
     s = await svc.assemble(s.session_id, owner=OWNER)
     unproduced = [f for f in s.dry_run_report["findings"] if f["code"] == "unproduced_input"]
     assert unproduced == [], unproduced                                    # zero, with no manual authoring
+
+
+# start → GetMenu(entry, serviceTask) → End — an MCP capability whose declared input fields overlap the trigger.
+_MENU_BPMN = f"""<bpmn:definitions {_NS}>
+  <bpmn:process id="P" isExecutable="true">
+    <bpmn:startEvent id="S"><bpmn:outgoing>f1</bpmn:outgoing></bpmn:startEvent>
+    <bpmn:serviceTask id="GetMenu" name="Present menu"><bpmn:incoming>f1</bpmn:incoming><bpmn:outgoing>f2</bpmn:outgoing></bpmn:serviceTask>
+    <bpmn:endEvent id="E"><bpmn:incoming>f2</bpmn:incoming></bpmn:endEvent>
+    <bpmn:sequenceFlow id="f1" sourceRef="S" targetRef="GetMenu"/>
+    <bpmn:sequenceFlow id="f2" sourceRef="GetMenu" targetRef="E"/>
+  </bpmn:process>
+</bpmn:definitions>"""
+
+_MENU_TOOL = CapabilityToolSelection(
+    tool="get_menu", endpoint="http://mcp.local/mcp",
+    input_schema={"type": "object", "additionalProperties": False,
+                  "properties": {"request": {"type": "string"}, "ticket_id": {"type": "string"}, "tender": {"type": "string"}}},
+    output_schema={"type": "object", "properties": {"menu": {"type": "object"}}, "required": ["menu"]},
+    side_effect="read_only", idempotent=True)
+
+_ORDER_TRIGGER = {"type": "object", "required": ["ticket_id", "order_type"], "additionalProperties": False,
+                  "properties": {"ticket_id": {"type": "string"}, "order_type": {"type": "string"},
+                                 "tender": {"type": "string"}}}
+
+
+async def test_mcp_input_name_matches_declared_trigger_fields_not_deployment_samples(svc):
+    # ADR-052 Part 2: with a DECLARED trigger (art.dining.order_ticket) an MCP capability whose input declares
+    # `ticket_id` + `tender` MUST match them to trigger paths — NOT yield {} because the deployment's foreign
+    # (wire) sample fields don't overlap the dining inputs. `request` (not a trigger field) is left unmapped.
+    s = await svc.create(CreateSessionRequest(pack_key="dinein", version="1.0.0", title="t",
+                                              default_domain="dining"), owner=OWNER)
+    s = await svc.attach_bpmn(s.session_id, AttachBpmnRequest(bpmn_xml=_MENU_BPMN), owner=OWNER)
+    s = await svc.declare_trigger(s.session_id, DeclareTriggerRequest(
+        artifact_key="art.dining.order_ticket", title="ticket", json_schema=_ORDER_TRIGGER), owner=OWNER)
+    s = await svc.set_capabilities(s.session_id, SetCapabilitiesRequest(tools=[_MENU_TOOL]), owner=OWNER)
+    s = await svc.set_bindings(s.session_id, SetBindingsRequest(bindings=[
+        BindingInput(element_id="GetMenu", element_kind="serviceTask", executor_type="capability",
+                     capability_ref="cap.dining.get_menu@^1.0.0", hitl_mode="none")]), owner=OWNER)
+    gm = next(b for b in s.bindings if b.element_id == "GetMenu")
+    assert gm.input_sources == {"get_menu_input": {"fields": {
+        "ticket_id": {"from": "trigger", "path": "ticket_id"},
+        "tender": {"from": "trigger", "path": "tender"},
+    }}}                                                            # non-empty; `request` unmapped (not a trigger field)
 
 
 async def test_set_bindings_preserves_an_operator_authored_source(svc):

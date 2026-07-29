@@ -261,7 +261,8 @@ describe("Onboarding wizard", () => {
           be({ element_id: "ApproveRepair", element_kind: "userTask", category: "human", name: "Approve repair" }),
         ],
       },
-      staged_artifacts: [], reused_capability_refs: [], bindings: [],
+      staged_artifacts: [{ artifact_key: "art.payment.in", version: "1.0.0", title: "in", json_schema: { type: "object", additionalProperties: false, properties: { envelope: {} } } }],
+      reused_capability_refs: [], bindings: [],
       staged_capabilities: [{ capability_id: "cap.payment.apply_repair", version: "1.0.0", title: "Apply repair", side_effect: "side_effectful", input_name: "in", input_artifact_key: "art.payment.in", output_name: "out", output_artifact_key: "art.payment.out", endpoint: "http://x", tool: "apply_repair", transport: "streamable_http", headers: {} }],
       triage_rules: [], gateway_variables: [], sod_policies: [], roles: [],
       inferred: {
@@ -299,12 +300,16 @@ describe("Onboarding wizard", () => {
     const session = {
       session_id: "sess-9", created_by: "owner-1", created_at: "", updated_at: "", state: "bindings_set",
       basics: { pack_key: "p", version: "1.0.0", title: "P", default_domain: "payment" },
+      // declared trigger (ADR-052) — its `exception_id` field name-matches the tool input so the per-field map is non-empty.
+      trigger_artifact: { artifact_key: "art.payment.exc", version: "1.0.0", title: "t", json_schema: { type: "object", properties: { exception_id: {} } } },
+      trigger_fields: { exception_id: "string" },
       bpmn: {
         process_id: "P", bpmn_file: "p.bpmn", sha256: "x", service_tasks: ["Enrich"], user_tasks: [],
         gateways: [], task_names: {},
         bindable_elements: [be({ element_id: "Enrich", element_kind: "serviceTask", category: "capability", name: "Enrich" })],
       },
-      staged_artifacts: [], reused_capability_refs: [], bindings: [],
+      staged_artifacts: [{ artifact_key: "art.payment.enrich_input", version: "1.0.0", title: "in", json_schema: { type: "object", additionalProperties: false, properties: { exception_id: {} } } }],
+      reused_capability_refs: [], bindings: [],
       staged_capabilities: [{ capability_id: "cap.payment.enrich", version: "1.0.0", title: "Enrich", side_effect: "read_only", input_name: "enrich_input", input_artifact_key: "art.payment.enrich_input", output_name: "enrich_output", output_artifact_key: "art.payment.enrich_output", endpoint: "http://x", tool: "enrich", transport: "streamable_http", headers: {} }],
       triage_rules: [], gateway_variables: [], sod_policies: [], roles: [],
       inferred: {
@@ -436,6 +441,52 @@ describe("Onboarding wizard", () => {
     expect(screen.queryByRole("option", { name: "validate_order_output (ValidateOrder)" })).not.toBeInTheDocument();
   });
 
+  it("bindings step auto-fills an entry MCP task with a per-field composite, never whole-trigger (ADR-052)", async () => {
+    const be = (over: Record<string, unknown>) => ({
+      name: null, is_multi_instance: false, is_for_compensation: false,
+      compensation_primary: null, in_event_subprocess: false, ...over,
+    });
+    const session = {
+      session_id: "sess-of", created_by: "owner-1", created_at: "", updated_at: "", state: "bindings_set",
+      basics: { pack_key: "dinein", version: "1.0.0", title: "D", default_domain: "dining" },
+      // the DECLARED trigger (ADR-049/052) — its artifact gates the name-match; its fields drive it. Without the
+      // artifact the fields would be the deployment's foreign samples (ignored).
+      trigger_artifact: { artifact_key: "art.dining.order_ticket", version: "1.0.0", title: "t", json_schema: { type: "object", properties: { ticket_id: {}, order_type: {}, tender: {} } } },
+      trigger_fields: { ticket_id: "string", order_type: "string", tender: "string" },
+      bpmn: {
+        process_id: "P", bpmn_file: "p.bpmn", sha256: "x", service_tasks: ["GetMenu"], user_tasks: [],
+        gateways: [], task_names: {},
+        bindable_elements: [be({ element_id: "GetMenu", element_kind: "serviceTask", category: "capability", name: "Present menu" })],
+      },
+      // the get_menu tool's CLOSED input schema — {request, ticket_id, tender}; only ticket_id + tender match the trigger.
+      staged_artifacts: [{ artifact_key: "art.dining.get_menu_input", version: "1.0.0", title: "in", json_schema: { type: "object", additionalProperties: false, properties: { request: {}, ticket_id: {}, tender: {} } } }],
+      reused_capability_refs: [], bindings: [],
+      staged_capabilities: [{ capability_id: "cap.dining.get_menu", version: "1.0.0", title: "Menu", side_effect: "read_only", input_name: "get_menu_input", input_artifact_key: "art.dining.get_menu_input", output_name: "get_menu_output", output_artifact_key: "art.dining.get_menu_output", endpoint: "http://x", tool: "get_menu", transport: "streamable_http", headers: {} }],
+      triage_rules: [], gateway_variables: [], sod_policies: [], roles: [],
+      inferred: {
+        roles: [], gateway_variables: [], artifact_seeds: [], sod_candidates: [], annotations: [],
+        capability_candidates: [{ source: "GetMenu", suggested_capability_id: "cap.dining.get_menu", kind_hint: "mcp", needs_endpoint: true }],
+        bindings: [{ element_id: "GetMenu", element_kind: "serviceTask", executor_type: "capability", suggested_capability_id: "cap.dining.get_menu", suggested_input_source: {}, upstream_caps: [], upstream_producers: [], suggested_hitl_mode: "none", source_lane: null }],
+      },
+      dry_run_report: null, commit_progress: [], result_pack: null, last_cleared: [],
+    };
+    server.use(
+      http.get(`${REG}/onboarding/sess-of`, () => HttpResponse.json(session)),
+      http.get(`${REG}/capabilities`, () => HttpResponse.json([])),
+      http.get(`${REG}/packs`, () => HttpResponse.json([])),
+    );
+    renderApp("/registry/onboard/sess-of", "owner-1");
+
+    // the entry task's input source is a COMPOSITE (never a whole {from:trigger} spread that would overflow
+    // the closed tool schema); `ticket_id` + `tender` (declared trigger fields) are name-matched, and `request`
+    // (not a trigger field) is left unmapped — NOT an empty {} map from the deployment's foreign samples.
+    expect(await screen.findByText(/Input source — where/)).toBeInTheDocument();
+    expect(await screen.findByDisplayValue("composite")).toBeInTheDocument();
+    expect((await screen.findAllByDisplayValue("ticket_id")).length).toBeGreaterThanOrEqual(1);
+    expect((await screen.findAllByDisplayValue("tender")).length).toBeGreaterThanOrEqual(1);
+    expect(screen.queryByDisplayValue("request")).not.toBeInTheDocument();   // non-trigger field → unmapped
+  });
+
   it("bindings step auto-sources a capability input FIELD from a human output (ADR-052 E3)", async () => {
     const be = (over: Record<string, unknown>) => ({
       name: null, is_multi_instance: false, is_for_compensation: false,
@@ -528,12 +579,16 @@ describe("Onboarding wizard", () => {
     const session = {
       session_id: "sess-div", created_by: "owner-1", created_at: "", updated_at: "", state: "bindings_set",
       basics: { pack_key: "p", version: "1.0.0", title: "P", default_domain: "payment" },
+      // declared trigger (ADR-052) so the tool's `exception_id` input field name-matches → non-empty per-field map.
+      trigger_artifact: { artifact_key: "art.payment.exc", version: "1.0.0", title: "t", json_schema: { type: "object", properties: { exception_id: {} } } },
+      trigger_fields: { exception_id: "string" },
       bpmn: {
         process_id: "P", bpmn_file: "p.bpmn", sha256: "x", service_tasks: ["Investigate"], user_tasks: [],
         gateways: [], task_names: {},
         bindable_elements: [be({ element_id: "Investigate", element_kind: "serviceTask", category: "capability", name: "Investigate" })],
       },
-      staged_artifacts: [], reused_capability_refs: [],
+      staged_artifacts: [{ artifact_key: "art.payment.enrich_investigation_input", version: "1.0.0", title: "in", json_schema: { type: "object", additionalProperties: false, properties: { exception_id: {} } } }],
+      reused_capability_refs: [],
       bindings: [{ element_id: "Investigate", element_kind: "serviceTask", executor_type: "capability", capability_ref: "cap.payment.enrich_investigation@^1.0.0", hitl_mode: "none", input_sources: {} }],
       staged_capabilities: [{ capability_id: "cap.payment.enrich_investigation", version: "1.0.0", title: "Enrich", side_effect: "read_only", input_name: "enrich_investigation_input", input_artifact_key: "art.payment.enrich_investigation_input", output_name: "enrich_investigation_output", output_artifact_key: "art.payment.enrich_investigation_output", endpoint: "http://x", tool: "enrich_investigation", transport: "streamable_http", headers: {} }],
       triage_rules: [], gateway_variables: [], sod_policies: [], roles: [],
