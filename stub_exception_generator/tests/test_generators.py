@@ -22,7 +22,7 @@ async def test_generators_lists_both_sources_with_endpoints_and_scenarios(client
     # dine-in advertises the happy path + one scenario per demo flag (body {flag: True}).
     dine = {s["id"]: s for s in gens["dine_in"]["scenarios"]}
     assert dine["happy"]["body"] == {}
-    assert dine["tender_declined"]["body"] == {"tender_declined": True}
+    assert dine["with_nut_allergy"]["body"] == {"with_nut_allergy": True}
 
 
 async def test_generator_endpoints_are_actually_callable(client):

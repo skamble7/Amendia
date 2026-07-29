@@ -69,10 +69,12 @@ def _ts(args: Dict[str, Any]) -> str:
     return str(_dig(args, "occurred_at", None) or _dig(args, "as_of", None) or _FIXED_TS)
 
 
-def _order_lines(args: Dict[str, Any]) -> List[Dict[str, Any]]:
+def _ordered_names(args: Dict[str, Any]) -> List[str]:
+    """The ordered item NAMES — ``order.items`` is a list of menu-item name strings (ADR-050 order artifact).
+    All order attributes (price, availability, allergen tags) are resolved from the menu, not the order."""
     order = _payload(args, "order")
-    lines = order.get("lines") if isinstance(order.get("lines"), list) else []
-    return [ln for ln in lines if isinstance(ln, dict)]
+    items = order.get("items") if isinstance(order.get("items"), list) else []
+    return [str(x) for x in items if isinstance(x, str)]
 
 
 def _dietary_flags(args: Dict[str, Any]) -> List[str]:
@@ -87,27 +89,59 @@ def _dietary_flags(args: Dict[str, Any]) -> List[str]:
 # Read-only handlers
 # --------------------------------------------------------------------------- #
 
-def get_menu(args: Dict[str, Any]) -> Dict[str, Any]:
-    """A small deterministic house menu. ``available: false`` items and ``tags`` (allergens) let a
-    demo compose an order that trips validate_order / screen_allergens."""
-    menu = {
-        "currency": "USD",
-        "sections": [
-            {"name": "Starters", "items": [
-                {"name": "Garden Salad", "price": 9.0, "available": True, "tags": []},
-                {"name": "Pesto Bruschetta", "price": 11.0, "available": True, "tags": ["nuts", "gluten"]},
-            ]},
-            {"name": "Mains", "items": [
-                {"name": "Margherita Pizza", "price": 16.0, "available": True, "tags": ["gluten", "dairy"]},
-                {"name": "Grilled Salmon", "price": 26.0, "available": True, "tags": ["fish"]},
-                {"name": "Lobster Thermidor (86)", "price": 48.0, "available": False, "tags": ["shellfish", "dairy"]},
-            ]},
-            {"name": "Desserts", "items": [
-                {"name": "Sorbet", "price": 8.0, "available": True, "tags": []},
-                {"name": "Peanut Parfait", "price": 10.0, "available": True, "tags": ["nuts", "dairy"]},
-            ]},
-        ],
+# The deterministic house menu — an Italian trattoria. ``available: false`` items and ``tags``
+# (allergens) let a demo compose an order that trips validate_order / screen_allergens. The item
+# NAMES are the contract: the order artifact's ``items`` reference them and the loop/gateway hooks
+# depend on them, so they must not drift.
+_MENU: Dict[str, Any] = {
+    "currency": "USD",
+    "sections": [
+        {"name": "Antipasti", "items": [
+            {"name": "Bruschetta al Pomodoro", "price": 9.0, "available": True, "tags": []},
+            {"name": "Burrata con Noci", "price": 14.0, "available": True, "tags": ["nuts", "dairy"]},
+        ]},
+        {"name": "Primi", "items": [
+            {"name": "Spaghetti alla Carbonara", "price": 18.0, "available": True, "tags": ["gluten", "dairy", "egg"]},
+            {"name": "Risotto ai Funghi", "price": 19.0, "available": True, "tags": ["dairy"]},
+        ]},
+        {"name": "Secondi", "items": [
+            {"name": "Pollo alla Marsala", "price": 24.0, "available": True, "tags": ["dairy"]},
+            {"name": "Branzino al Forno", "price": 28.0, "available": True, "tags": ["fish"]},
+            {"name": "Osso Buco (86)", "price": 34.0, "available": False, "tags": ["dairy"]},
+        ]},
+        {"name": "Dolci", "items": [
+            {"name": "Tiramisù", "price": 10.0, "available": True, "tags": ["dairy", "egg", "gluten"]},
+            {"name": "Torta di Nocciole", "price": 11.0, "available": True, "tags": ["nuts", "dairy"]},
+            {"name": "Sorbetto al Limone", "price": 8.0, "available": True, "tags": []},
+        ]},
+    ],
+}
+
+
+def _menu_index() -> Dict[str, Dict[str, Any]]:
+    """Flatten the menu to ``name -> {price, available, tags}`` — the lookup the order-consuming
+    tools use to resolve an ordered item name to its price/availability/allergen tags."""
+    return {
+        it["name"]: {"price": it["price"], "available": it["available"], "tags": list(it["tags"])}
+        for sec in _MENU["sections"] for it in sec["items"]
     }
+
+
+def _resolve(name: str, index: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
+    """Resolve an ordered item name against the menu index — exact first, then case-insensitive."""
+    if name in index:
+        return index[name]
+    lower = name.lower()
+    for k, v in index.items():
+        if k.lower() == lower:
+            return v
+    return {}
+
+
+def get_menu(args: Dict[str, Any]) -> Dict[str, Any]:
+    """The deterministic Italian house menu (Antipasti / Primi / Secondi / Dolci)."""
+    menu = {"currency": _MENU["currency"],
+            "sections": [{"name": s["name"], "items": [dict(i) for i in s["items"]]} for s in _MENU["sections"]]}
     section_filter = _lower(_dig(args, "section_filter"))
     if section_filter:
         menu["sections"] = [s for s in menu["sections"] if _lower(s["name"]) == section_filter] or menu["sections"]
@@ -118,11 +152,11 @@ def validate_order(args: Dict[str, Any]) -> Dict[str, Any]:
     """Verdict ``ok`` | ``needs_info``. ``needs_info`` (the revise loop) when a requested item is 86'd
     (name contains "86" or ``available: false``), or when the hint forces it."""
     hint = _lower(_dig(args, "hint"))
-    lines = _order_lines(args)
+    index = _menu_index()
     unavailable: List[str] = []
-    for ln in lines:
-        name = str(ln.get("name") or ln.get("item_id") or "")
-        if "86" in name or ln.get("available") is False:
+    for name in _ordered_names(args):
+        item = _resolve(name, index)
+        if "86" in name or item.get("available") is False:
             unavailable.append(name)
     if hint == "ok":
         verdict, unavailable = "ok", []
@@ -136,18 +170,18 @@ def validate_order(args: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def screen_allergens(args: Dict[str, Any]) -> Dict[str, Any]:
-    """Status ``clear`` | ``conflict``. ``conflict`` when an ordered item's ``tags`` intersect the
-    party's ``dietary_flags`` (e.g. a "nuts"-flagged guest orders the Peanut Parfait), or the hint forces it."""
+    """Status ``clear`` | ``conflict``. ``conflict`` when an ordered item's menu ``tags`` intersect the
+    party's ``dietary_flags`` (e.g. a "nuts"-flagged guest orders the Torta di Nocciole), or the hint forces it."""
     hint = _lower(_dig(args, "hint"))
     flags = set(_dietary_flags(args))
-    lines = _order_lines(args)
+    index = _menu_index()
     conflicts: List[Dict[str, str]] = []
     matched: List[str] = []
-    for ln in lines:
-        tags = ln.get("tags") if isinstance(ln.get("tags"), list) else []
+    for name in _ordered_names(args):
+        tags = _resolve(name, index).get("tags", [])
         for t in tags:
             if _lower(t) in flags:
-                conflicts.append({"item": str(ln.get("name") or "item"), "allergen": _lower(t)})
+                conflicts.append({"item": name, "allergen": _lower(t)})
                 matched.append(_lower(t))
     if hint == "clear":
         status, conflicts, matched = "clear", [], []
@@ -159,14 +193,14 @@ def screen_allergens(args: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def generate_bill(args: Dict[str, Any]) -> Dict[str, Any]:
-    lines = _order_lines(args)
+    """Price each ordered item from the menu (one line per item, qty 1) → subtotal / tax / total."""
+    index = _menu_index()
     line_items: List[Dict[str, Any]] = []
     subtotal = 0.0
-    for ln in lines:
-        qty = _num(ln.get("qty"), 1.0)
-        price = _num(ln.get("price"), 12.0)
-        subtotal += qty * price
-        line_items.append({"name": str(ln.get("name") or "item"), "qty": qty, "price": price})
+    for name in _ordered_names(args):
+        price = _num(_resolve(name, index).get("price"), 0.0)
+        subtotal += price
+        line_items.append({"name": name, "qty": 1.0, "price": price})
     if not line_items:  # a bill always has at least one line for the demo
         line_items = [{"name": "House selection", "qty": 1.0, "price": 24.0}]
         subtotal = 24.0

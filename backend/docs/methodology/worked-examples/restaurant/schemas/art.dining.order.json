@@ -2,38 +2,34 @@
   "artifact_key": "art.dining.order",
   "version": "1.0.0",
   "title": "Dine-in order",
-  "description": "The party's order as a set of line items — drafted by the draft_order agent (assist) and confirmed/edited by the server on the manual Take-order task, then re-edited on Revise. Each line carries the price + allergen tags copied from the menu so generate_bill and screen_allergens can read them. Author this schema in the wizard — it is a human/agent-authored artifact, not a tool output. The array of line objects exercises Amendia's repeatable schema-form.",
+  "description": "The party's order as a list of menu-item names — declared by the diner on the manual Select-items task and re-picked on Revise. Every attribute (price, availability, allergen tags) is resolved from the menu by the tools, so the order carries only the chosen dish names. The enum of the ten dish names makes the HITL form render a menu dropdown. Author this schema in the wizard — it is a human-authored artifact (Task_SelectItems's output), not a tool output.",
   "json_schema": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "$id": "https://amendia.dev/schemas/artifacts/dining/order/1.0.0.json",
     "type": "object",
-    "required": ["lines"],
+    "required": ["items"],
     "additionalProperties": false,
     "properties": {
-      "ticket_id": { "type": "string" },
-      "lines": {
+      "items": {
         "type": "array",
         "minItems": 1,
+        "description": "The dishes the party selected; each must be one of the menu items (the enum renders a dropdown in the HITL form).",
         "items": {
-          "type": "object",
-          "required": ["name", "qty"],
-          "additionalProperties": false,
-          "properties": {
-            "item_id": { "type": "string" },
-            "name": { "type": "string" },
-            "qty": { "type": "number", "minimum": 1 },
-            "price": { "type": "number", "minimum": 0 },
-            "modifiers": { "type": "array", "items": { "type": "string" } },
-            "tags": {
-              "type": "array",
-              "items": { "type": "string" },
-              "description": "Allergen tags copied from the menu item (e.g. [\"nuts\",\"dairy\"])."
-            },
-            "notes": { "type": "string" }
-          }
+          "type": "string",
+          "enum": [
+            "Bruschetta al Pomodoro",
+            "Burrata con Noci",
+            "Spaghetti alla Carbonara",
+            "Risotto ai Funghi",
+            "Pollo alla Marsala",
+            "Branzino al Forno",
+            "Osso Buco (86)",
+            "Tiramisù",
+            "Torta di Nocciole",
+            "Sorbetto al Limone"
+          ]
         }
-      },
-      "dietary_flags": { "type": "array", "items": { "type": "string" } }
+      }
     }
   },
   "compatibility": "backward",

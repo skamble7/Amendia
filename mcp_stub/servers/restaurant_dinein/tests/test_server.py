@@ -40,10 +40,11 @@ def test_output_schema_is_closed_object(tool):
 @pytest.mark.parametrize("tool", H.TOOLS, ids=lambda t: t["name"])
 def test_handler_output_validates_against_output_schema(tool):
     # A representative call for each tool, then validate the structured output against the contract.
-    sample_order = {"lines": [{"name": "Margherita Pizza", "qty": 2, "price": 16.0, "tags": ["gluten"]}]}
+    sample_order = {"items": ["Spaghetti alla Carbonara", "Sorbetto al Limone"]}
     args = {
         "ticket_id": "TKT-1",
         "order": sample_order,
+        "dietary_flags": ["nuts"],
         "party": {"dietary_flags": ["nuts"]},
         "bill": {"total": 42.0},
         "amount": 42.0,
@@ -58,36 +59,40 @@ def test_handler_output_validates_against_output_schema(tool):
 
 def test_validate_order_verdict_field():
     assert "order_verdict" in S.VALIDATE_ORDER_OUTPUT["required"]
-    ok = H.validate_order({"ticket_id": "T", "order": {"lines": [{"name": "Garden Salad"}]}})
+    ok = H.validate_order({"ticket_id": "T", "order": {"items": ["Bruschetta al Pomodoro", "Risotto ai Funghi"]}})
     assert ok["order_verdict"] == "ok"
 
 
 def test_validate_order_needs_info_on_86_item():
-    r = H.validate_order({"ticket_id": "T", "order": {"lines": [{"name": "Lobster Thermidor (86)"}]}})
+    # "Osso Buco (86)" resolves to available:false in the menu (its name also carries the 86 marker).
+    r = H.validate_order({"ticket_id": "T", "order": {"items": ["Osso Buco (86)"]}})
     assert r["order_verdict"] == "needs_info"
-    assert r["unavailable_items"]
+    assert "Osso Buco (86)" in r["unavailable_items"]
 
 
-def test_validate_order_needs_info_on_unavailable_flag():
-    r = H.validate_order({"ticket_id": "T", "order": {"lines": [{"name": "Special", "available": False}]}})
+def test_validate_order_hint_forces_needs_info():
+    # The steering hint overrides an otherwise-available order (drives the revise loop in the demo).
+    r = H.validate_order({"ticket_id": "T", "order": {"items": ["Bruschetta al Pomodoro"]}, "hint": "needs_info"})
     assert r["order_verdict"] == "needs_info"
 
 
 def test_screen_allergens_conflict_on_flag_intersection():
+    # dietary_flags passes top-level from the trigger; the nuts-tagged Torta di Nocciole conflicts.
     r = H.screen_allergens({
         "ticket_id": "T",
-        "party": {"dietary_flags": ["nuts"]},
-        "order": {"lines": [{"name": "Peanut Parfait", "tags": ["nuts", "dairy"]}]},
+        "dietary_flags": ["nuts"],
+        "order": {"items": ["Torta di Nocciole"]},
     })
     assert r["allergen_status"] == "conflict"
     assert "nuts" in r["matched_allergens"]
+    assert r["conflicts"][0]["item"] == "Torta di Nocciole"
 
 
 def test_screen_allergens_clear_when_no_intersection():
     r = H.screen_allergens({
         "ticket_id": "T",
-        "party": {"dietary_flags": ["nuts"]},
-        "order": {"lines": [{"name": "Grilled Salmon", "tags": ["fish"]}]},
+        "dietary_flags": ["nuts"],
+        "order": {"items": ["Branzino al Forno"]},
     })
     assert r["allergen_status"] == "clear"
 
@@ -97,8 +102,8 @@ def test_screen_allergens_clear_when_no_intersection():
 # --------------------------------------------------------------------------- #
 
 def test_fire_ticket_acknowledgement_and_determinism():
-    a = H.fire_ticket({"ticket_id": "TKT-9", "order": {"lines": []}})
-    b = H.fire_ticket({"ticket_id": "TKT-9", "order": {"lines": []}})
+    a = H.fire_ticket({"ticket_id": "TKT-9", "order": {"items": []}})
+    b = H.fire_ticket({"ticket_id": "TKT-9", "order": {"items": []}})
     assert a["acknowledged"] is True and a["status"] == "performed"
     assert a["action_id"] == b["action_id"]  # same ticket -> same action_id (idempotent anchor)
     assert a["ticket_ref"].startswith("KDS-")
@@ -133,13 +138,16 @@ def test_charge_payment_retry_tender_overrides_hint_and_terminates_loop():
 def test_get_menu_shape():
     m = H.get_menu({"ticket_id": "T"})
     assert m["currency"] == "USD"
-    assert any(i["available"] is False for s in m["sections"] for i in s["items"])  # an 86'd item exists
+    assert [s["name"] for s in m["sections"]] == ["Antipasti", "Primi", "Secondi", "Dolci"]
+    assert any(i["available"] is False for s in m["sections"] for i in s["items"])  # Osso Buco (86)
 
 
-def test_generate_bill_totals():
-    b = H.generate_bill({"ticket_id": "T", "order": {"lines": [
-        {"name": "Margherita Pizza", "qty": 2, "price": 16.0},
-        {"name": "Sorbet", "qty": 1, "price": 8.0},
+def test_generate_bill_prices_items_from_menu():
+    # Prices are resolved from the menu, not the order: Spaghetti (18.0) + Sorbetto (8.0) = 26.0.
+    b = H.generate_bill({"ticket_id": "T", "order": {"items": [
+        "Spaghetti alla Carbonara",
+        "Sorbetto al Limone",
     ]}})
-    assert b["subtotal"] == 40.0
-    assert b["total"] == pytest.approx(40.0 + round(40.0 * 0.0875, 2))
+    assert b["subtotal"] == 26.0
+    assert [li["price"] for li in b["line_items"]] == [18.0, 8.0]
+    assert b["total"] == pytest.approx(26.0 + round(26.0 * 0.0875, 2))

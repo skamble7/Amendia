@@ -1,0 +1,22 @@
+{
+  "artifact_key": "art.dining.payment",
+  "version": "1.0.0",
+  "title": "Payment method",
+  "description": "The customer's payment method, captured at payment time on the Present-payment HITL task and fed to charge_payment as its tender. Human-authored (no agent draft); the enum drives the Present-payment dropdown. On a decline, the Resolve-payment task re-captures this artifact (supersede — the retry tender), so a non-declined value ends the payment-resolution loop. Author this schema in the wizard.",
+  "json_schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://amendia.dev/schemas/artifacts/dining/payment/1.0.0.json",
+    "type": "object",
+    "required": ["tender"],
+    "additionalProperties": false,
+    "properties": {
+      "tender": {
+        "type": "string",
+        "enum": ["card", "cash", "declined"],
+        "description": "The tender charge_payment captures. \"declined\" simulates a declined card to drive the payment-resolution loop; \"card\"/\"cash\" capture cleanly and end it."
+      }
+    }
+  },
+  "compatibility": "backward",
+  "status": "active"
+}

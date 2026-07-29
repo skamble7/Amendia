@@ -22,7 +22,7 @@ from app.dining_generator import generate_ticket
 from app.events.rabbit import RabbitPublisher
 from app.models.dining_api import GeneratedTicket, GenerateTicketRequest, GenerateTicketResponse
 from app.models.events import ExceptionRaisedEvent
-from app.models.ticket import SCHEMA_VERSION, OrderTicketEnvelope, StoredTicket
+from app.models.ticket import SCHEMA_VERSION, PartySeatedEnvelope, StoredTicket
 
 logger = logging.getLogger(__name__)
 
@@ -32,12 +32,12 @@ router = APIRouter(prefix="/tickets", tags=["tickets"])
 RAISED_ROUTING_KEY = rk(Service.STUBEXCEPTION, EXCEPTION_RAISED)
 
 
-def _to_stored(t: OrderTicketEnvelope) -> StoredTicket:
+def _to_stored(t: PartySeatedEnvelope) -> StoredTicket:
     now = datetime.now(timezone.utc)
     return StoredTicket(created_at=now, updated_at=now, **t.model_dump())
 
 
-def _raised_event(t: OrderTicketEnvelope, base_url: str) -> ExceptionRaisedEvent:
+def _raised_event(t: PartySeatedEnvelope, base_url: str) -> ExceptionRaisedEvent:
     """The generic thin raised-event for a ticket. ``exception_type`` carries the trigger discriminator
     (``order_type``); the full ticket is fetched from ``fetch_url`` and triaged there."""
     return ExceptionRaisedEvent(
@@ -49,7 +49,7 @@ def _raised_event(t: OrderTicketEnvelope, base_url: str) -> ExceptionRaisedEvent
 
 
 async def _persist_and_publish(
-    t: OrderTicketEnvelope,
+    t: PartySeatedEnvelope,
     repo: TicketRepository,
     publisher: RabbitPublisher,
 ) -> GeneratedTicket:
@@ -87,11 +87,11 @@ async def generate(
     return GenerateTicketResponse(created=created)
 
 
-@router.get("/{ticket_id}", response_model=OrderTicketEnvelope)
+@router.get("/{ticket_id}", response_model=PartySeatedEnvelope)
 async def get_ticket(ticket_id: str, repo: TicketRepository = Depends(get_ticket_repo)):
-    """Fetch-back: return the clean DOMAIN trigger artifact (``art.dining.order_ticket``), NOT the persisted
+    """Fetch-back: return the clean DOMAIN trigger artifact (``art.dining.party_seated``), NOT the persisted
     row. Per ADR-047 D1 the fetched trigger must be exactly the domain payload — the pack's declared trigger
-    schema is ``additionalProperties: false``, so serializing via ``OrderTicketEnvelope`` drops the store
+    schema is ``additionalProperties: false``, so serializing via ``PartySeatedEnvelope`` drops the store
     metadata (``schema_version`` / ``created_at`` / ``updated_at``) that would otherwise fail validation at
     dispatch. Lookup + 404 behaviour are unchanged; only the response SHAPE differs."""
     stored = await repo.get(ticket_id)

@@ -25,6 +25,12 @@ SEED_ROLES: Dict[str, List[str]] = {
     "marcus@amendia.dev": ["role.payments.ops_approver"],
     "priya@amendia.dev": ["role.process.owner", "role.platform.admin"],
     "alex@amendia.dev": ["role.platform.admin"],
+    "sam@amendia.dev": [],
+    # Dedicated restaurant dine-in personas (kept off the shared payments users).
+    "gio@amendia.dev": ["role.rest_stan.diner"],
+    "lucia@amendia.dev": ["role.rest_stan.server"],
+    "matteo@amendia.dev": ["role.rest_stan.kitchen"],
+    "elena@amendia.dev": ["role.rest_stan.manager"],
 }
 
 

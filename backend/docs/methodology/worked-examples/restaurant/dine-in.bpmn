@@ -26,10 +26,14 @@
         <bpmn:flowNodeRef>Gateway_PaymentOK</bpmn:flowNodeRef>
         <bpmn:flowNodeRef>End_ServedPaid</bpmn:flowNodeRef>
       </bpmn:lane>
+      <bpmn:lane id="Lane_Diner" name="Diner">
+        <bpmn:flowNodeRef>Task_SelectItems</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_ReviseOrder</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_PresentPayment</bpmn:flowNodeRef>
+      </bpmn:lane>
       <bpmn:lane id="Lane_Server" name="Server">
         <bpmn:flowNodeRef>Task_TakeOrder</bpmn:flowNodeRef>
         <bpmn:flowNodeRef>Task_ValidateOrder</bpmn:flowNodeRef>
-        <bpmn:flowNodeRef>Task_ReviseOrder</bpmn:flowNodeRef>
         <bpmn:flowNodeRef>Task_ServeOrder</bpmn:flowNodeRef>
         <bpmn:flowNodeRef>Task_ResolvePayment</bpmn:flowNodeRef>
       </bpmn:lane>
@@ -54,8 +58,13 @@
       <bpmn:outgoing>Flow_Menu_Take</bpmn:outgoing>
     </bpmn:serviceTask>
 
-    <bpmn:userTask id="Task_TakeOrder" name="Take order">
+    <bpmn:userTask id="Task_SelectItems" name="Select items">
       <bpmn:incoming>Flow_Menu_Take</bpmn:incoming>
+      <bpmn:outgoing>Flow_Select_Take</bpmn:outgoing>
+    </bpmn:userTask>
+
+    <bpmn:userTask id="Task_TakeOrder" name="Take order">
+      <bpmn:incoming>Flow_Select_Take</bpmn:incoming>
       <bpmn:outgoing>Flow_Take_Validate</bpmn:outgoing>
     </bpmn:userTask>
 
@@ -118,11 +127,16 @@
 
     <bpmn:serviceTask id="Task_GenerateBill" name="Generate bill">
       <bpmn:incoming>Flow_Serve_Bill</bpmn:incoming>
-      <bpmn:outgoing>Flow_Bill_Pay</bpmn:outgoing>
+      <bpmn:outgoing>Flow_Bill_Present</bpmn:outgoing>
     </bpmn:serviceTask>
 
+    <bpmn:userTask id="Task_PresentPayment" name="Present payment">
+      <bpmn:incoming>Flow_Bill_Present</bpmn:incoming>
+      <bpmn:outgoing>Flow_Present_Pay</bpmn:outgoing>
+    </bpmn:userTask>
+
     <bpmn:serviceTask id="Task_ProcessPayment" name="Process payment">
-      <bpmn:incoming>Flow_Bill_Pay</bpmn:incoming>
+      <bpmn:incoming>Flow_Present_Pay</bpmn:incoming>
       <bpmn:incoming>Flow_Resolve_Pay</bpmn:incoming>
       <bpmn:outgoing>Flow_Pay_Gateway</bpmn:outgoing>
     </bpmn:serviceTask>
@@ -143,7 +157,8 @@
     </bpmn:endEvent>
 
     <bpmn:sequenceFlow id="Flow_Start_Menu" sourceRef="Start_PartySeated" targetRef="Task_PresentMenu"/>
-    <bpmn:sequenceFlow id="Flow_Menu_Take" sourceRef="Task_PresentMenu" targetRef="Task_TakeOrder"/>
+    <bpmn:sequenceFlow id="Flow_Menu_Take" sourceRef="Task_PresentMenu" targetRef="Task_SelectItems"/>
+    <bpmn:sequenceFlow id="Flow_Select_Take" sourceRef="Task_SelectItems" targetRef="Task_TakeOrder"/>
     <bpmn:sequenceFlow id="Flow_Take_Validate" sourceRef="Task_TakeOrder" targetRef="Task_ValidateOrder"/>
     <bpmn:sequenceFlow id="Flow_Validate_Gateway" sourceRef="Task_ValidateOrder" targetRef="Gateway_OrderOK"/>
     <bpmn:sequenceFlow id="Flow_OrderOK" name="ok" sourceRef="Gateway_OrderOK" targetRef="Task_ScreenAllergens">
@@ -163,7 +178,8 @@
     <bpmn:sequenceFlow id="Flow_Prepare_Serve" sourceRef="Task_PrepareReady" targetRef="Task_ServeOrder"/>
     <bpmn:sequenceFlow id="Flow_Recovery_Serve" sourceRef="Task_ServiceRecovery" targetRef="Task_ServeOrder"/>
     <bpmn:sequenceFlow id="Flow_Serve_Bill" sourceRef="Task_ServeOrder" targetRef="Task_GenerateBill"/>
-    <bpmn:sequenceFlow id="Flow_Bill_Pay" sourceRef="Task_GenerateBill" targetRef="Task_ProcessPayment"/>
+    <bpmn:sequenceFlow id="Flow_Bill_Present" sourceRef="Task_GenerateBill" targetRef="Task_PresentPayment"/>
+    <bpmn:sequenceFlow id="Flow_Present_Pay" sourceRef="Task_PresentPayment" targetRef="Task_ProcessPayment"/>
     <bpmn:sequenceFlow id="Flow_Pay_Gateway" sourceRef="Task_ProcessPayment" targetRef="Gateway_PaymentOK"/>
     <bpmn:sequenceFlow id="Flow_PaymentCaptured" name="captured" sourceRef="Gateway_PaymentOK" targetRef="End_ServedPaid">
       <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression"
@@ -179,8 +195,10 @@
       <bpmndi:BPMNShape id="S_Lane_Server" bpmnElement="Lane_Server" isHorizontal="true"><dc:Bounds x="160" y="280" width="2100" height="200"/></bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="S_Lane_Kitchen" bpmnElement="Lane_Kitchen" isHorizontal="true"><dc:Bounds x="160" y="480" width="2100" height="200"/></bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="S_Lane_Manager" bpmnElement="Lane_Manager" isHorizontal="true"><dc:Bounds x="160" y="680" width="2100" height="200"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S_Lane_Diner" bpmnElement="Lane_Diner" isHorizontal="true"><dc:Bounds x="160" y="880" width="2100" height="200"/></bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="S_Start" bpmnElement="Start_PartySeated"><dc:Bounds x="220" y="162" width="36" height="36"/></bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="S_Menu" bpmnElement="Task_PresentMenu"><dc:Bounds x="300" y="140" width="120" height="80"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S_SelectItems" bpmnElement="Task_SelectItems"><dc:Bounds x="300" y="940" width="120" height="80"/></bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="S_Take" bpmnElement="Task_TakeOrder"><dc:Bounds x="470" y="340" width="120" height="80"/></bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="S_Validate" bpmnElement="Task_ValidateOrder"><dc:Bounds x="640" y="340" width="120" height="80"/></bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="S_GwOrder" bpmnElement="Gateway_OrderOK" isMarkerVisible="true"><dc:Bounds x="830" y="155" width="50" height="50"/></bpmndi:BPMNShape>
@@ -193,13 +211,15 @@
       <bpmndi:BPMNShape id="S_Recovery" bpmnElement="Task_ServiceRecovery"><dc:Bounds x="1370" y="740" width="120" height="80"/></bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="S_Serve" bpmnElement="Task_ServeOrder"><dc:Bounds x="1540" y="340" width="120" height="80"/></bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="S_Bill" bpmnElement="Task_GenerateBill"><dc:Bounds x="1710" y="140" width="120" height="80"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S_PresentPayment" bpmnElement="Task_PresentPayment"><dc:Bounds x="1770" y="940" width="120" height="80"/></bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="S_Pay" bpmnElement="Task_ProcessPayment"><dc:Bounds x="1880" y="740" width="120" height="80"/></bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="S_GwPay" bpmnElement="Gateway_PaymentOK" isMarkerVisible="true"><dc:Bounds x="2050" y="155" width="50" height="50"/></bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="S_Resolve" bpmnElement="Task_ResolvePayment"><dc:Bounds x="1880" y="340" width="120" height="80"/></bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="S_End" bpmnElement="End_ServedPaid"><dc:Bounds x="2170" y="162" width="36" height="36"/></bpmndi:BPMNShape>
 
       <bpmndi:BPMNEdge id="E_Start_Menu" bpmnElement="Flow_Start_Menu"><di:waypoint x="256" y="180"/><di:waypoint x="300" y="180"/></bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="E_Menu_Take" bpmnElement="Flow_Menu_Take"><di:waypoint x="420" y="180"/><di:waypoint x="445" y="180"/><di:waypoint x="445" y="380"/><di:waypoint x="470" y="380"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="E_Menu_Take" bpmnElement="Flow_Menu_Take"><di:waypoint x="360" y="220"/><di:waypoint x="360" y="940"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="E_Select_Take" bpmnElement="Flow_Select_Take"><di:waypoint x="420" y="980"/><di:waypoint x="445" y="980"/><di:waypoint x="445" y="380"/><di:waypoint x="470" y="380"/></bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="E_Take_Validate" bpmnElement="Flow_Take_Validate"><di:waypoint x="590" y="380"/><di:waypoint x="640" y="380"/></bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="E_Validate_Gw" bpmnElement="Flow_Validate_Gateway"><di:waypoint x="760" y="380"/><di:waypoint x="795" y="380"/><di:waypoint x="795" y="180"/><di:waypoint x="830" y="180"/></bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="E_OrderOK" bpmnElement="Flow_OrderOK"><di:waypoint x="855" y="205"/><di:waypoint x="855" y="580"/><di:waypoint x="920" y="580"/></bpmndi:BPMNEdge>
@@ -213,7 +233,8 @@
       <bpmndi:BPMNEdge id="E_Prepare_Serve" bpmnElement="Flow_Prepare_Serve"><di:waypoint x="1490" y="580"/><di:waypoint x="1515" y="580"/><di:waypoint x="1515" y="380"/><di:waypoint x="1540" y="380"/></bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="E_Recovery_Serve" bpmnElement="Flow_Recovery_Serve"><di:waypoint x="1490" y="780"/><di:waypoint x="1600" y="780"/><di:waypoint x="1600" y="420"/></bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="E_Serve_Bill" bpmnElement="Flow_Serve_Bill"><di:waypoint x="1660" y="380"/><di:waypoint x="1685" y="380"/><di:waypoint x="1685" y="180"/><di:waypoint x="1710" y="180"/></bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="E_Bill_Pay" bpmnElement="Flow_Bill_Pay"><di:waypoint x="1770" y="220"/><di:waypoint x="1770" y="700"/><di:waypoint x="1940" y="700"/><di:waypoint x="1940" y="740"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="E_Bill_Present" bpmnElement="Flow_Bill_Present"><di:waypoint x="1770" y="220"/><di:waypoint x="1770" y="980"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="E_Present_Pay" bpmnElement="Flow_Present_Pay"><di:waypoint x="1890" y="980"/><di:waypoint x="1940" y="980"/><di:waypoint x="1940" y="820"/></bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="E_Pay_Gw" bpmnElement="Flow_Pay_Gateway"><di:waypoint x="2000" y="780"/><di:waypoint x="2075" y="780"/><di:waypoint x="2075" y="205"/></bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="E_PaymentCaptured" bpmnElement="Flow_PaymentCaptured"><di:waypoint x="2100" y="180"/><di:waypoint x="2170" y="180"/></bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="E_PaymentDeclined" bpmnElement="Flow_PaymentDeclined"><di:waypoint x="2050" y="180"/><di:waypoint x="2025" y="180"/><di:waypoint x="2025" y="380"/><di:waypoint x="2000" y="380"/></bpmndi:BPMNEdge>

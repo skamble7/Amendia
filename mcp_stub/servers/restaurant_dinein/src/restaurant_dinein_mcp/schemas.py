@@ -43,6 +43,13 @@ def _open() -> Dict[str, Any]:
     return {"type": "object"}
 
 
+def _order() -> Dict[str, Any]:
+    """The dine-in order as consumed by the tools: an object carrying ``items`` — a list of menu-item
+    NAME strings. It stays open (no ``additionalProperties``) so a caller may pass a whole order artifact
+    (extra fields tolerated); the handlers read only ``order.items`` and resolve everything else from the menu."""
+    return {"type": "object", "properties": {"items": _STR_ARR}}
+
+
 def _arr(items: Dict[str, Any]) -> Dict[str, Any]:
     return {"type": "array", "items": items}
 
@@ -119,7 +126,7 @@ GET_MENU_OUTPUT = _output(
 # --------------------------------------------------------------------------- #
 
 VALIDATE_ORDER_INPUT = _input({
-    "order": _open(),
+    "order": _order(),
     "ticket_id": _STR,
     # A demo steering hint: "ok" forces a clean order; "needs_info"/"unavailable" forces a revise loop.
     "hint": _STR,
@@ -140,8 +147,11 @@ VALIDATE_ORDER_OUTPUT = _output(
 # --------------------------------------------------------------------------- #
 
 SCREEN_ALLERGENS_INPUT = _input({
-    "order": _open(),
+    "order": _order(),
     "party": _open(),
+    # The party's allergies pass straight from the trigger as a top-level string array; the handler
+    # reads ``dietary_flags`` top-level (falling back to ``party.dietary_flags``).
+    "dietary_flags": _STR_ARR,
     "ticket_id": _STR,
     "hint": _STR,
 })
@@ -160,7 +170,7 @@ SCREEN_ALLERGENS_OUTPUT = _output(
 # 4) generate_bill (read_only)
 # --------------------------------------------------------------------------- #
 
-GENERATE_BILL_INPUT = _input({"order": _open(), "ticket_id": _STR})
+GENERATE_BILL_INPUT = _input({"order": _order(), "ticket_id": _STR})
 
 GENERATE_BILL_OUTPUT = _output(
     {
@@ -178,7 +188,7 @@ GENERATE_BILL_OUTPUT = _output(
 # 5) fire_ticket (side-effectful)
 # --------------------------------------------------------------------------- #
 
-FIRE_TICKET_INPUT = _input({"order": _open(), "ticket_id": _STR})
+FIRE_TICKET_INPUT = _input({"order": _order(), "ticket_id": _STR})
 
 FIRE_TICKET_OUTPUT = _ack_output({"ticket_ref": _STR, "fired_at": _STR})
 

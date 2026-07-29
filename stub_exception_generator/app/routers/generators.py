@@ -30,9 +30,7 @@ def _wire_scenarios() -> List[Dict[str, Any]]:
 # UI copy for each dine-in demo flag. Keys are validated against the model's boolean flags below, so a rename
 # or removal surfaces at import rather than as a dead UI option.
 _DINEIN_FLAG_LABELS = {
-    "include_86_item": "86'd item · order-revise loop",
-    "allergen_conflict": "Allergen conflict · allergen-revise loop",
-    "tender_declined": "Declined tender · payment-resolve loop",
+    "with_nut_allergy": "Nut allergy · allergen-screen conflict",
 }
 
 
