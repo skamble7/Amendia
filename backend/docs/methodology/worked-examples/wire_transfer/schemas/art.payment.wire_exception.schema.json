@@ -1,0 +1,260 @@
+{
+  "description": "The business payload the generator emits.",
+  "properties": {
+    "exception_id": {
+      "type": "string"
+    },
+    "source": {
+      "properties": {
+        "system": {
+          "type": "string"
+        },
+        "channel": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "system",
+        "channel"
+      ],
+      "type": "object",
+      "additionalProperties": false
+    },
+    "received_at": {
+      "type": "string"
+    },
+    "exception_type": {
+      "type": "string"
+    },
+    "reason_codes": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "reason_narrative": {
+      "type": "string"
+    },
+    "status": {
+      "type": "string"
+    },
+    "payment": {
+      "description": "pacs.008-shaped payment block.",
+      "properties": {
+        "msg_type": {
+          "type": "string"
+        },
+        "uetr": {
+          "type": "string"
+        },
+        "instruction_id": {
+          "type": "string"
+        },
+        "end_to_end_id": {
+          "type": "string"
+        },
+        "settlement_amount": {
+          "properties": {
+            "currency": {
+              "type": "string"
+            },
+            "value": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "currency",
+            "value"
+          ],
+          "type": "object",
+          "additionalProperties": false
+        },
+        "value_date": {
+          "type": "string"
+        },
+        "debtor": {
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "account": {
+              "anyOf": [
+                {
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "scheme": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "scheme"
+                  ],
+                  "type": "object",
+                  "additionalProperties": false
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            }
+          },
+          "required": [
+            "name"
+          ],
+          "type": "object",
+          "additionalProperties": false
+        },
+        "debtor_agent": {
+          "properties": {
+            "bic": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "bic"
+          ],
+          "type": "object",
+          "additionalProperties": false
+        },
+        "creditor": {
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "account": {
+              "anyOf": [
+                {
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "scheme": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "scheme"
+                  ],
+                  "type": "object",
+                  "additionalProperties": false
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            }
+          },
+          "required": [
+            "name"
+          ],
+          "type": "object",
+          "additionalProperties": false
+        },
+        "creditor_agent": {
+          "properties": {
+            "bic": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "bic"
+          ],
+          "type": "object",
+          "additionalProperties": false
+        },
+        "charges": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "msg_type",
+        "uetr",
+        "instruction_id",
+        "end_to_end_id",
+        "settlement_amount",
+        "value_date",
+        "debtor",
+        "debtor_agent",
+        "creditor",
+        "creditor_agent",
+        "charges"
+      ],
+      "type": "object",
+      "additionalProperties": false
+    },
+    "related_messages": {
+      "items": {
+        "properties": {
+          "type": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "assigner_bic": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "id",
+          "assigner_bic"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "type": "array"
+    },
+    "attachments": {
+      "items": {
+        "properties": {
+          "attachment_id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "media_type": {
+            "type": "string"
+          },
+          "sha256": {
+            "type": "string"
+          },
+          "fetch_url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "attachment_id",
+          "name",
+          "media_type",
+          "sha256",
+          "fetch_url"
+        ],
+        "type": "object",
+        "additionalProperties": false
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "exception_id",
+    "source",
+    "received_at",
+    "exception_type",
+    "reason_codes",
+    "reason_narrative",
+    "status",
+    "payment"
+  ],
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://amendia.dev/schemas/artifacts/payment/wire_exception/1.0.0.json",
+  "additionalProperties": false
+}
