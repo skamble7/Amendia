@@ -23,6 +23,9 @@ dependencies = [
   # streamablehttp_client + the low-level Server.list_tools decorator — breaking introspection reads and the
   # MCP stub servers. Pin to the 1.28.x line the MCP servers already run and uv.lock is tested against.
   "mcp>=1.9,<1.29",
+  # ADR-052 Phase 2 copilot LLM stack (same as agent-runtime; ADR-016/017/018). langchain backends +
+  # the remote ConfigForge loader. Lazy-imported behind the copilot's client seam; a fake is injected in tests.
+  "polyllm[langchain,remote]",
   "amendia-common",
   "amendia-contracts",
   "amendia-bpmn",
@@ -43,6 +46,7 @@ amendia-common = { path = "../../../libs", editable = true }
 amendia-contracts = { path = "../../../libs/amendia_contracts", editable = true }
 amendia-bpmn = { path = "../../../libs/amendia_bpmn", editable = true }
 amendia-auth = { path = "../../../libs/amendia_auth", editable = true }
+polyllm = { path = "../../../libs/polyllm", editable = true }
 
 [tool.hatch.build.targets.wheel]
 packages = ["app"]

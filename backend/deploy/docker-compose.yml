@@ -335,6 +335,9 @@ services:
       REGISTRY_SEED_ON_STARTUP: "true"
       REGISTRY_LOG_LEVEL: INFO
       REGISTRY_ENABLE_DEV_CORS: "true"
+      # --- ADR-052 Phase 2 copilot LLM (polyllm + ConfigForge; same stack as agent-runtime) ---
+      REGISTRY_CONFIG_FORGE_URL: http://config-forge:8040
+      REGISTRY_COPILOT_LLM_CONFIG_REF: dev.llm.bedrock.explicit-creds
       # --- auth (amendia_auth) ---
       REGISTRY_AUTH_ISSUER: http://localhost:8087/realms/amendia-dev
       REGISTRY_AUTH_AUDIENCE: amendia-api
@@ -352,6 +355,8 @@ services:
         condition: service_healthy
       identity:
         condition: service_started
+      config-forge:
+        condition: service_healthy
 
   webui:
     build:

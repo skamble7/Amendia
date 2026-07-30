@@ -17,6 +17,7 @@ import { BpmnViewer, type BpmnMarker } from "./BpmnViewer";
 import { rankCapMatches, tokenize, type MatchTier } from "./capMatch";
 import { ApiError } from "@/api/client";
 import { groupByStage, countBySeverity, SEVERITY_VARIANT } from "@/lib/validation";
+import { PREDICATE_OPS as LEAF_PREDICATE_OPS, opsForType, defaultOpForType } from "@/lib/predicate";
 import { cn } from "@/lib/utils";
 import {
   assembleOnboarding, attachOnboardingBpmn, commitOnboarding, createOnboardingSession,
@@ -1742,19 +1743,8 @@ function BindingsStep({ session, onDone, onSession }: { session: OnboardingSessi
 }
 
 // -- Step 5: triage (predicate tree) ------------------------------------------
-const OPS = ["eq", "ne", "in", "starts_with", "intersects", "exists", "gt", "gte", "lt", "lte"];
-// Batch-4: ops valid per JSON type (mirrors the backend `validate_predicate`), so the Triage step only
-// offers a field's type-compatible operators — no authoring `eq` on an array or `reason_code`-that-doesn't-exist.
-const OPS_BY_TYPE: Record<string, string[]> = {
-  array: ["intersects", "in", "exists"],
-  string: ["eq", "ne", "in", "starts_with", "exists"],
-  number: ["eq", "ne", "in", "gt", "gte", "lt", "lte", "exists"],
-  integer: ["eq", "ne", "in", "gt", "gte", "lt", "lte", "exists"],
-  boolean: ["eq", "ne", "exists"],
-  object: ["exists"],
-};
-const opsForType = (t?: string): string[] => (t && OPS_BY_TYPE[t]) || OPS;      // unknown type → all ops
-const defaultOpForType = (t?: string): string => (t === "array" ? "intersects" : "eq");
+// Op vocabulary + per-type compatibility are shared with the copilot Start builder (see lib/predicate).
+const OPS = [...LEAF_PREDICATE_OPS];
 
 function toPredicate(n: any): Record<string, unknown> {
   if (n.leaf) {
