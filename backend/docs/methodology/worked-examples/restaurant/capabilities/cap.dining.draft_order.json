@@ -1,0 +1,29 @@
+{
+  "descriptor_version": "1.0",
+  "capability_id": "cap.dining.draft_order",
+  "version": "1.0.0",
+  "title": "Draft order (agent assist)",
+  "description": "Pre-drafts a dine-in order from the menu and the party's requested_items + dietary_flags, to assist the server on the manual Take-order task. Copies each chosen item's price and allergen tags from the menu so the downstream bill and allergen screen are accurate. The server reviews/edits the draft before confirming — the human owns the final order. llm kind (mirrors the wire pack's draft_rfi assist); author this capability in the wizard.",
+  "kind": "llm",
+  "side_effect": "read_only",
+  "idempotent": true,
+  "inputs": [
+    { "name": "menu", "schema": "art.dining.menu@^1.0.0" }
+  ],
+  "outputs": [
+    { "name": "order", "schema": "art.dining.order@^1.0.0" }
+  ],
+  "runtime": {
+    "kind": "llm",
+    "prompt_key": "prompt.dining.draft_order",
+    "model_config_key": null,
+    "structured_output": true
+  },
+  "constraints": {
+    "timeout_seconds": 120,
+    "max_retries": 2,
+    "min_hitl_mode": "manual"
+  },
+  "owner": "platform",
+  "status": "active"
+}

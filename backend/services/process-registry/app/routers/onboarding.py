@@ -18,6 +18,8 @@ from app.deps import get_onboarding_service
 from app.models.onboarding import (
     AttachBpmnRequest,
     CreateSessionRequest,
+    DeclareArtifactRequest,
+    DeclareTriggerRequest,
     IntrospectMcpRequest,
     IntrospectMcpResponse,
     OnboardingSession,
@@ -151,6 +153,33 @@ async def set_bindings(
 ):
     try:
         return await svc.set_bindings(session_id, req, owner=owner)
+    except TransitionError as exc:
+        _raise(exc)
+
+
+@router.put("/{session_id}/trigger", response_model=OnboardingSession)
+async def declare_trigger(
+    session_id: str, req: DeclareTriggerRequest,
+    owner: str = Depends(_owner_id),
+    svc: OnboardingService = Depends(get_onboarding_service),
+):
+    """ADR-049: declare the pack's trigger artifact schema (drives the Triage field picker)."""
+    try:
+        return await svc.declare_trigger(session_id, req, owner=owner)
+    except TransitionError as exc:
+        _raise(exc)
+
+
+@router.put("/{session_id}/artifacts", response_model=OnboardingSession)
+async def declare_artifact(
+    session_id: str, req: DeclareArtifactRequest,
+    owner: str = Depends(_owner_id),
+    svc: OnboardingService = Depends(get_onboarding_service),
+):
+    """ADR-050: declare (upsert) an operator-authored artifact schema — one a human/message binding can
+    output (e.g. art.dining.order). Registered + listed among the pack artifacts at assemble."""
+    try:
+        return await svc.declare_artifact(session_id, req, owner=owner)
     except TransitionError as exc:
         _raise(exc)
 

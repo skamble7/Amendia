@@ -20,7 +20,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useIdentity } from "@/session/IdentityContext";
-import { ROLE, OPERATOR_ROLES, rolesSummary } from "@/lib/roles";
+import { ROLE, isOperator, rolesSummary } from "@/lib/roles";
 import { cn } from "@/lib/utils";
 import { ThemeMenu } from "@/app/ThemeMenu";
 
@@ -30,18 +30,18 @@ interface NavItem {
   icon: typeof LayoutDashboard;
   /** shown only if the user holds this role */
   requiresRole?: string;
-  /** shown only if the user holds at least one of these roles */
-  requiresAnyRole?: string[];
+  /** shown to any *operator* — anyone holding a non-platform-admin role (see `isOperator`) */
+  operatorSurface?: boolean;
 }
 
 const NAV: NavItem[] = [
-  // Operator surfaces — visible to anyone with an operator role. This keeps every
-  // existing persona's nav identical (analyst/approver/process-owner are operators)
-  // while a platform-admin-only user (alex) sees just Administration.
-  { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard, requiresAnyRole: OPERATOR_ROLES },
-  { to: "/inbox", label: "Task inbox", icon: Inbox, requiresAnyRole: OPERATOR_ROLES },
-  { to: "/instances", label: "Instances", icon: Workflow, requiresAnyRole: OPERATOR_ROLES },
-  { to: "/exceptions", label: "Exceptions", icon: AlertTriangle, requiresAnyRole: OPERATOR_ROLES },
+  // Operator surfaces — visible to any operator (any role other than platform-admin; see
+  // `isOperator`). Domain-neutral: every pack's roles qualify, so a platform-admin-only user
+  // (alex) sees just Administration while every pack persona keeps these entries.
+  { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard, operatorSurface: true },
+  { to: "/inbox", label: "Task inbox", icon: Inbox, operatorSurface: true },
+  { to: "/instances", label: "Instances", icon: Workflow, operatorSurface: true },
+  { to: "/exceptions", label: "Exceptions", icon: AlertTriangle, operatorSurface: true },
   // Registry (process authoring) is process-owner only — progressive disclosure.
   { to: "/registry", label: "Registry", icon: Boxes, requiresRole: ROLE.processOwner },
   // Administration (users & roles) is platform-admin only — same mechanism.
@@ -57,9 +57,10 @@ function initialsOf(name: string): string {
 export function AppShell() {
   const auth = useAuth();
   const { identity, hasRole } = useIdentity();
+  const operator = isOperator(identity?.roles ?? []);
   const nav = NAV.filter((n) => {
     if (n.requiresRole && !hasRole(n.requiresRole)) return false;
-    if (n.requiresAnyRole && !n.requiresAnyRole.some((r) => hasRole(r))) return false;
+    if (n.operatorSurface && !operator) return false;
     return true;
   });
   const initials = identity ? initialsOf(identity.displayName) : "?";

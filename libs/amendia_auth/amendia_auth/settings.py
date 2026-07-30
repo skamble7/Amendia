@@ -44,10 +44,10 @@ class AuthSettings(BaseSettings):
     dev_user_id: str = "usr-dev"
     dev_user_email: str = "dev@amendia.local"
     dev_user_name: str = "Dev User"
-    dev_user_roles: str = (
-        "role.payments.ops_analyst,role.payments.ops_approver,"
-        "role.process.owner,role.platform.admin"
-    )
+    # Domain-neutral default: only the code-fixed PLATFORM roles — no business/operator roles.
+    # A local dev who needs operator or domain roles sets AUTH_DEV_USER_ROLES in their env; compose
+    # uses real (Keycloak) auth, so this synthetic default is never used there.
+    dev_user_roles: str = "role.process.owner,role.platform.admin"
 
     model_config = SettingsConfigDict(env_prefix="AUTH_", extra="ignore")
 

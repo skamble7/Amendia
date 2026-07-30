@@ -750,6 +750,13 @@
             "title": "Input Sources",
             "type": "object"
           },
+          "inputs": {
+            "items": {
+              "$ref": "#/components/schemas/StagedBindingIO"
+            },
+            "title": "Inputs",
+            "type": "array"
+          },
           "message_name": {
             "anyOf": [
               {
@@ -767,6 +774,24 @@
             },
             "title": "Output Map",
             "type": "object"
+          },
+          "output_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Output Name"
+          },
+          "outputs": {
+            "items": {
+              "$ref": "#/components/schemas/StagedBindingIO"
+            },
+            "title": "Outputs",
+            "type": "array"
           },
           "role": {
             "anyOf": [
@@ -1592,6 +1617,88 @@
         "title": "DecisionSpec",
         "type": "object"
       },
+      "DeclareArtifactRequest": {
+        "description": "ADR-050: declare (upsert) an operator-authored artifact schema \u2014 one that is neither a tool's I/O nor\nthe trigger (e.g. ``art.dining.order``, the shape a human task produces). Same fields as a trigger\ndeclaration; stored on ``authored_artifacts`` and registered like any staged schema at assemble. A\nbinding output may then reference it by ``schema_ref``.",
+        "properties": {
+          "artifact_key": {
+            "title": "Artifact Key",
+            "type": "string"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "json_schema": {
+            "additionalProperties": true,
+            "title": "Json Schema",
+            "type": "object"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "version": {
+            "default": "1.0.0",
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "artifact_key",
+          "title",
+          "json_schema"
+        ],
+        "title": "DeclareArtifactRequest",
+        "type": "object"
+      },
+      "DeclareTriggerRequest": {
+        "description": "ADR-049: declare the pack's trigger artifact schema. The operator provides the trigger JSON-Schema\n(registered as ``art.<domain>.<name>``); it drives the Triage field picker and is emitted as\n``ProcessPack.trigger``. Same shape as a :class:`StagedArtifact`, but operator-authored, not introspected.",
+        "properties": {
+          "artifact_key": {
+            "title": "Artifact Key",
+            "type": "string"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "json_schema": {
+            "additionalProperties": true,
+            "title": "Json Schema",
+            "type": "object"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "version": {
+            "default": "1.0.0",
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "artifact_key",
+          "title",
+          "json_schema"
+        ],
+        "title": "DeclareTriggerRequest",
+        "type": "object"
+      },
       "DeepAgentBudget": {
         "additionalProperties": false,
         "description": "Hard budget caging a deep_agent loop (ADR-021).",
@@ -2117,6 +2224,17 @@
             ],
             "title": "Suggested Input Source"
           },
+          "suggested_output_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Suggested Output Name"
+          },
           "suggested_role": {
             "anyOf": [
               {
@@ -2133,6 +2251,13 @@
               "type": "string"
             },
             "title": "Upstream Caps",
+            "type": "array"
+          },
+          "upstream_producers": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Upstream Producers",
             "type": "array"
           }
         },
@@ -2349,6 +2474,11 @@
               }
             ],
             "title": "Suggested Output Artifact Key"
+          },
+          "suggested_side_effect": {
+            "default": "read_only",
+            "title": "Suggested Side Effect",
+            "type": "string"
           }
         },
         "required": [
@@ -2635,6 +2765,13 @@
       },
       "OnboardingSession": {
         "properties": {
+          "authored_artifacts": {
+            "items": {
+              "$ref": "#/components/schemas/StagedArtifact"
+            },
+            "title": "Authored Artifacts",
+            "type": "array"
+          },
           "basics": {
             "$ref": "#/components/schemas/Basics"
           },
@@ -2774,6 +2911,16 @@
             },
             "title": "Triage Rules",
             "type": "array"
+          },
+          "trigger_artifact": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StagedArtifact"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "trigger_fields": {
             "additionalProperties": {
@@ -5187,6 +5334,64 @@
         ]
       }
     },
+    "/onboarding/{session_id}/artifacts": {
+      "put": {
+        "description": "ADR-050: declare (upsert) an operator-authored artifact schema \u2014 one a human/message binding can\noutput (e.g. art.dining.order). Registered + listed among the pack artifacts at assemble.",
+        "operationId": "declare_artifact_onboarding__session_id__artifacts_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeclareArtifactRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OnboardingSession"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Declare Artifact",
+        "tags": [
+          "onboarding"
+        ]
+      }
+    },
     "/onboarding/{session_id}/assemble": {
       "post": {
         "operationId": "assemble_onboarding__session_id__assemble_post",
@@ -5561,6 +5766,64 @@
           }
         ],
         "summary": "Set Triage",
+        "tags": [
+          "onboarding"
+        ]
+      }
+    },
+    "/onboarding/{session_id}/trigger": {
+      "put": {
+        "description": "ADR-049: declare the pack's trigger artifact schema (drives the Triage field picker).",
+        "operationId": "declare_trigger_onboarding__session_id__trigger_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeclareTriggerRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OnboardingSession"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Declare Trigger",
         "tags": [
           "onboarding"
         ]

@@ -67,7 +67,7 @@ class IngestionService:
             detail = None
             fetch_error = None
             try:
-                detail = await self._stub.fetch_exception(event.exception_id)
+                detail = await self._stub.fetch_exception(event.exception_id, event.fetch_url)
             except Exception as exc:  # noqa: BLE001 - record the failure, still log the event
                 fetch_error = f"failed to fetch exception details: {exc}"
                 logger.error("Fetch failed for exception_id=%s: %s", event.exception_id, exc)

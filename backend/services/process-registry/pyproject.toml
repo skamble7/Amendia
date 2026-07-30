@@ -18,7 +18,11 @@ dependencies = [
   "orjson>=3.10",
   "dnspython>=2.6",
   # MCP client for onboarding introspection (lazy-imported; fake injected in tests).
-  "mcp>=1.2",
+  # Cap below mcp 1.29 / 2.0: those releases renamed the client model fields camelCase→snake_case
+  # (Tool.outputSchema→output_schema, CallToolResult.structuredContent→structured_content) and removed
+  # streamablehttp_client + the low-level Server.list_tools decorator — breaking introspection reads and the
+  # MCP stub servers. Pin to the 1.28.x line the MCP servers already run and uv.lock is tested against.
+  "mcp>=1.9,<1.29",
   "amendia-common",
   "amendia-contracts",
   "amendia-bpmn",

@@ -157,14 +157,19 @@ def infer_draft(sem: BpmnSemanticModel, domain: str) -> InferenceDraft:
     # upstream element into its actual output name + the real input keys. A hint, fully overridable.
     cap_ids = {n.id for n in sem.flow_nodes
                if TASK_EXECUTOR_CATEGORY.get(n.kind) == "capability" and n.id in connected}
+    # ADR-050: a producer is any element whose binding may DECLARE an output — a capability, or a
+    # human/message/call task (whose output the operator authors at the Bindings step).
+    producer_ids = {n.id for n in sem.flow_nodes
+                    if TASK_EXECUTOR_CATEGORY.get(n.kind) in ("capability", "human", "message", "call")
+                    and n.id in connected}
     preds: Dict[str, set] = {}
     for f in sem.sequence_flows:
         if f.source and f.target:
             preds.setdefault(f.target, set()).add(f.source)
 
-    def _upstream_caps(elem: str) -> List[str]:
-        """Every capability element reachable upstream of ``elem``, NEAREST-FIRST (BFS over predecessors).
-        A capability ancestor terminates that branch (its own inputs are its concern, not this node's)."""
+    def _upstream(elem: str, stop_ids: set) -> List[str]:
+        """Every element of ``stop_ids`` reachable upstream of ``elem``, NEAREST-FIRST (BFS over
+        predecessors). A member of ``stop_ids`` terminates that branch (its own inputs are its concern)."""
         seen: set = set()
         ordered: List[str] = []
         frontier = list(preds.get(elem, ()))
@@ -173,18 +178,21 @@ def infer_draft(sem: BpmnSemanticModel, domain: str) -> InferenceDraft:
             if p in seen:
                 continue
             seen.add(p)
-            if p in cap_ids:
+            if p in stop_ids:
                 if p not in ordered:
                     ordered.append(p)
-                continue                       # stop at a capability ancestor on this branch
+                continue                       # stop at a producer ancestor on this branch
             frontier.extend(preds.get(p, ()))
         return ordered
 
     for b in draft.bindings:
         if b.executor_type != "capability":
             continue
-        ups = _upstream_caps(b.element_id)
+        ups = _upstream(b.element_id, cap_ids)
         b.upstream_caps = ups
+        # ADR-050: the broader producer set (incl. human/message/call) the field-level refinement may source
+        # from once those bindings declare their outputs. Superset of upstream_caps (capabilities still lead).
+        b.upstream_producers = _upstream(b.element_id, producer_ids)
         # Coarse graph-position hint at attach (no schemas yet); refine_input_sources upgrades it to a
         # field-level input_map once capabilities are staged.
         b.suggested_input_source = ({"from": "trigger"} if not ups
@@ -192,14 +200,29 @@ def infer_draft(sem: BpmnSemanticModel, domain: str) -> InferenceDraft:
 
     # gateway variables: one per exclusive gateway that has a condition (dedup by gateway).
     seen_gw: set[str] = set()
+    gw_state: Dict[str, str] = {}                       # exclusive gateway id -> condition first segment
     for f in sem.sequence_flows:
         node = sem.node(f.source or "")
         if not (f.condition and node and node.kind == "exclusiveGateway"):
             continue
         var = _condition_variable(f.condition)
+        if var:
+            gw_state.setdefault(f.source, var.split(".")[0])
         if var and f.source not in seen_gw:
             seen_gw.add(f.source)
             draft.gateway_variables.append(InferredGatewayVariable(gateway_id=f.source, variable=var))
+
+    # ADR-051: default a capability's OUTPUT NAME to the gateway it feeds. The runtime resolves a gateway
+    # condition against binding OUTPUT NAMES, so a condition ``validation.order_verdict`` only branches if the
+    # producing capability's output is named ``validation``. A capability task IMMEDIATELY upstream of an
+    # exclusiveGateway therefore takes that gateway condition's first segment as its suggested output name.
+    # Deterministic (graph position + condition text), no LLM; the Bindings step applies it as the default.
+    bind_by_el = {b.element_id: b for b in draft.bindings}
+    for gw, state in gw_state.items():
+        for p in preds.get(gw, ()):
+            b = bind_by_el.get(p)
+            if b is not None and b.executor_type == "capability" and b.suggested_output_name is None:
+                b.suggested_output_name = state
 
     # capability candidates: each connected capability-category task (serviceTask/sendTask/
     # scriptTask/businessRuleTask) + each external message flow (ADR-033).
@@ -311,31 +334,39 @@ def _schema_fields(schema: Optional[Dict[str, Any]]) -> List[str]:
 def _source_for_field(field: str, ups: List[tuple], trigger_fields: Optional[set]) -> Optional[Dict[str, Any]]:
     """Pick the best source for one input field. Preference: an upstream output that carries the field
     (nearest-first) → that artifact + path; an upstream output NAMED like the field → that whole artifact;
-    else the trigger (by path) when the field is known on the trigger schema OR the trigger is opaque
-    (undeclared — the only remaining data origin, accepted as satisfiable). Returns None → leave blank."""
+    else a same-named field of the DECLARED trigger → a trigger path.
+
+    ADR-052: a field with NO such source is left UNMAPPED (returns None) — it is NOT defaulted to a trigger path
+    just because it's declared. A tool field with no real source resolves to ``null`` at runtime, and a closed
+    tool inputSchema rejects a null for a typed field (isError → MCP_TOOL_ERROR). Only fields that name-match a
+    trigger field or an upstream output are emitted."""
     for out_name, out_fields in ups:
         if field in out_fields:
             return {"from": "artifact", "name": out_name, "path": field}
         if field == out_name:
             return {"from": "artifact", "name": out_name}
-    opaque = not trigger_fields
-    if opaque or field in (trigger_fields or set()):
+    if trigger_fields and field in trigger_fields:
         return {"from": "trigger", "path": field}
     return None
 
 
 def _build_input_map(input_name: str, in_fields: List[str], ups: List[tuple],
                      trigger_fields: Optional[set]) -> Dict[str, Any]:
-    """The field-level ``input_map`` for one capability binding (keyed by its single input name)."""
-    if not ups:                                            # entry task — the tool consumes the trigger
-        return {input_name: {"from": "trigger"}}
-    if not in_fields:                                      # opaque input — whole nearest upstream output
-        return {input_name: {"from": "artifact", "name": ups[0][0]}}
+    """ADR-052: the field-level ``input_map`` for one capability binding, keyed by its single input name.
+    ALWAYS a per-field composite over the tool's DECLARED input fields — never a whole-trigger/whole-artifact
+    spread, which at runtime (``_mcp_arguments``) would send every trigger/artifact field and overflow a closed
+    MCP tool schema (isError → MCP_TOOL_ERROR). Each declared field is sourced from a same-named upstream output,
+    else a same-named trigger field, else left unmapped (the dumb tool tolerates a missing declared field)."""
+    if not in_fields:
+        # No declared input fields (a schema-less / reused capability) — can't build a per-field map. Chain the
+        # whole nearest upstream output by name if there is one, else leave unmapped. A CLOSED MCP capability
+        # always declares its input fields, so it never reaches this branch (no whole-artifact spread for it).
+        return {input_name: {"from": "artifact", "name": ups[0][0]}} if ups else {}
     fields: Dict[str, Any] = {}
     for f in in_fields:
         src = _source_for_field(f, ups, trigger_fields)
         if src is not None:
-            fields[f] = src                               # unmatched-and-trigger-known fields left blank
+            fields[f] = src                               # unmatched-and-trigger-known fields left unmapped
     return {input_name: {"fields": fields}}
 
 

@@ -53,6 +53,14 @@ def test_mcp_arguments_spread_composite_and_scalars():
     assert _mcp_arguments({"a": 1, "b": 2}) == {"a": 1, "b": 2}           # scalars key by name
 
 
+def test_mcp_arguments_omit_none_valued_fields():
+    # ADR-052: a declared tool field with no resolved source is None → OMIT it (a closed inputSchema rejects a
+    # null for a typed field → isError → MCP_TOOL_ERROR). Only fields with an actual value are sent.
+    assert _mcp_arguments({"in": {"ticket_id": "T1", "request": None, "section_filter": None}}) == {"ticket_id": "T1"}
+    assert _mcp_arguments({"a": None, "b": 2}) == {"b": 2}                # scalar None dropped
+    assert _mcp_arguments({"in": {"x": 0, "y": False, "z": ""}}) == {"x": 0, "y": False, "z": ""}  # falsy≠None kept
+
+
 def test_field_level_map_resolves_then_spreads_into_tool_arguments():
     # ADR-048 D4: a field-level composite input (dossier←upstream output, exception_id/reason_codes←trigger)
     # resolves to the object the tool expects, then spreads into the MCP tool-call arguments as-is.

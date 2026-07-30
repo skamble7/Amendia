@@ -156,6 +156,70 @@
           "temporary": false
         }
       ]
+    },
+    {
+      "id": "480039e7-620e-5cd7-8b51-78b914d84682",
+      "username": "gio",
+      "enabled": true,
+      "emailVerified": true,
+      "email": "gio@amendia.dev",
+      "firstName": "Gio",
+      "lastName": "Ricci",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "dev-password",
+          "temporary": false
+        }
+      ]
+    },
+    {
+      "id": "430e4328-1134-5d8e-b49a-2b82c5c6bce2",
+      "username": "lucia",
+      "enabled": true,
+      "emailVerified": true,
+      "email": "lucia@amendia.dev",
+      "firstName": "Lucia",
+      "lastName": "Romano",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "dev-password",
+          "temporary": false
+        }
+      ]
+    },
+    {
+      "id": "b57ef011-26df-5672-8d61-7c0992ce4c38",
+      "username": "matteo",
+      "enabled": true,
+      "emailVerified": true,
+      "email": "matteo@amendia.dev",
+      "firstName": "Matteo",
+      "lastName": "Greco",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "dev-password",
+          "temporary": false
+        }
+      ]
+    },
+    {
+      "id": "e6cb5a81-16b1-55bf-8b70-e8906c279c28",
+      "username": "elena",
+      "enabled": true,
+      "emailVerified": true,
+      "email": "elena@amendia.dev",
+      "firstName": "Elena",
+      "lastName": "Conti",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "dev-password",
+          "temporary": false
+        }
+      ]
     }
   ]
 }

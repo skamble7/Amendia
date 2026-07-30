@@ -88,6 +88,21 @@ class HitlDecisionService:
             err = await self._validate_edits(task, edits)
             if err:
                 raise HitlError(400, f"edits invalid: {err}")
+        elif decision_enum is Decision.COMPLETE:
+            # A manual task that PRODUCES output(s) must submit valid, complete output(s) before we resume the
+            # graph. Validate the pinned artifact schema HERE and reject a missing/invalid submit with a 4xx —
+            # leaving the task claimed/open so the human can correct it. Without this, an incomplete submit
+            # resumes the graph and _run_manual raises inside the node, failing the whole instance (its
+            # NodeExecutionError stays only as a defensive backstop). A no-output manual approval gate produces
+            # no specs → nothing to validate (an empty `complete` is legitimate). Only outputs the human must
+            # AUTHOR (no assist draft to fall back on — the gate marked them authored_by_human) are required;
+            # an assist-drafted output may be omitted (the runtime commits its draft), but is validated if sent.
+            specs = await self._engine.output_specs(task.pack_key, task.pack_version, task.element_id)
+            if specs:
+                authored = {a.name for a in (task.payload.artifacts or []) if getattr(a, "authored_by_human", None)}
+                err = self._validate_output(specs, edits, required_names=authored)
+                if err:
+                    raise HitlError(422, f"output invalid: {err}")
 
         record = {
             "decision": decision_enum.value,
@@ -124,15 +139,26 @@ class HitlDecisionService:
             raise HitlError(403, f"user '{user_id}' is excluded by separation-of-duties")
 
     async def _validate_edits(self, task, edits: Optional[Dict[str, Any]]) -> Optional[str]:
-        if not isinstance(edits, dict):
-            return "edits must be an object"
         specs = await self._engine.output_specs(task.pack_key, task.pack_version, task.element_id)
         if not specs:
             return "this task produces no editable output"
+        return self._validate_output(specs, edits)
+
+    @staticmethod
+    def _validate_output(specs, edits: Optional[Dict[str, Any]], *,
+                         required_names: Optional[set] = None) -> Optional[str]:
+        """Validate submitted output(s) against the pinned artifact schema(s). Returns a field-level reason
+        string on the first missing/invalid output, else None. Shared by edit_and_approve and manual complete.
+        ``required_names=None`` requires every spec (edit_and_approve); a set requires only those names and
+        skips absent ones (manual complete — an omitted assist-drafted output falls back to its draft)."""
+        if not isinstance(edits, dict):
+            return "output must be an object"
         for spec in specs:
             data = edits.get(spec.name, edits.get(spec.artifact_key))
             if data is None:
-                return f"missing edited artifact '{spec.name}'"
+                if required_names is None or spec.name in required_names:
+                    return f"missing required output '{spec.name}'"
+                continue
             errors = sorted(Draft202012Validator(spec.json_schema).iter_errors(data), key=lambda e: e.path)
             if errors:
                 e = errors[0]

@@ -1,7 +1,36 @@
 # tests/test_api.py
 import json
 
+import pytest
+
+from amendia_contracts.artifact_schema import ArtifactSchemaRegistration
+from app.services.registration import register_schema
 from tests.conftest import SEED, load_capabilities, load_schemas
+
+
+def _authored_reg(json_schema):
+    # an operator-authored artifact (art.dining.order) — neither tool I/O nor trigger (ADR-050).
+    return ArtifactSchemaRegistration.model_validate({
+        "artifact_key": "art.dining.order", "version": "1.0.0", "title": "Order",
+        "json_schema": json_schema, "compatibility": "backward", "status": "active"})
+
+
+_CANON_ORDER_ID = "https://amendia.dev/schemas/artifacts/dining/order/1.0.0.json"
+
+
+@pytest.mark.parametrize("supplied_id", ["https://evil.example/x.json", None])
+async def test_authored_artifact_id_is_derived_not_validated(schema_repo, supplied_id):
+    # ADR-052 E2: declaring an artifact with a foreign-domain $id (or none) registers clean; the stored $id is
+    # the canonical URL derived from the artifact key + version.
+    js = {"$schema": "https://json-schema.org/draft/2020-12/schema", "type": "object",
+          "additionalProperties": False, "required": ["order_type"],
+          "properties": {"order_type": {"type": "string"}}}
+    if supplied_id is not None:
+        js["$id"] = supplied_id
+    stored = await register_schema(_authored_reg(js), schema_repo)
+    assert stored.json_schema["$id"] == _CANON_ORDER_ID
+    fetched = await schema_repo.get("art.dining.order", "1.0.0")
+    assert fetched is not None and fetched.json_schema["$id"] == _CANON_ORDER_ID
 
 
 def _cap_json(cap):
@@ -35,11 +64,22 @@ async def test_register_schema_ok_and_convention_errors(client):
     reg = _schema_json(load_schemas()[0])
     assert (await client.post("/artifact-schemas", json=reg)).status_code == 201
 
-    bad = _schema_json(load_schemas()[1])
-    bad["json_schema"]["$id"] = "https://evil.example/x.json"
-    resp = await client.post("/artifact-schemas", json=bad)
-    assert resp.status_code == 422
-    assert any("$id" in e for e in resp.json()["detail"]["errors"])
+    # ADR-052 E2: a foreign (or absent) $id is NORMALIZED to the canonical URL, not rejected.
+    reg2 = _schema_json(load_schemas()[1])
+    reg2["json_schema"]["$id"] = "https://evil.example/x.json"
+    resp = await client.post("/artifact-schemas", json=reg2)
+    assert resp.status_code == 201, resp.text
+    key, ver = reg2["artifact_key"], reg2["version"]
+    _, domain, name = key.split(".", 2)
+    stored = (await client.get(f"/artifact-schemas/{key}/{ver}")).json()
+    assert stored["json_schema"]["$id"] == f"https://amendia.dev/schemas/artifacts/{domain}/{name}/{ver}.json"
+
+    # other schema validation still applies — a non-object root is rejected.
+    reg3 = _schema_json(load_schemas()[2])
+    reg3["json_schema"]["type"] = "string"
+    resp3 = await client.post("/artifact-schemas", json=reg3)
+    assert resp3.status_code == 422
+    assert any("object" in e for e in resp3.json()["detail"]["errors"])
 
 
 async def test_capabilities_and_schemas_listed(client, registered):

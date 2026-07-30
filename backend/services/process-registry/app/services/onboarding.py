@@ -60,6 +60,8 @@ from app.models.onboarding import (
     SetBindingsRequest,
     SetCapabilitiesRequest,
     SetPoliciesRequest,
+    DeclareArtifactRequest,
+    DeclareTriggerRequest,
     SetTriageRequest,
     StagedArtifact,
     StagedBinding,
@@ -83,11 +85,14 @@ from app.validation.pack_validator import PackValidator
 from app.validation.predicates import (
     PredicateSyntaxError,
     check_predicate,
+    flatten_schema_fields,
     infer_field_types,
     validate_predicate,
 )
 
 _DOMAIN_RE = re.compile(r"^[a-z0-9_]+$")
+# ADR-049: a declared trigger artifact id — art.<domain>.<name> (dots inside <name> allowed).
+_ART_ID_RE = re.compile(r"^art\.[a-z0-9_]+\.[a-z0-9_.]+$")
 _APPROVE_ACTIONS = HitlMode.APPROVE_ACTIONS
 
 # ADR-046 (Track 2): field types for the inferred verdict/summary artifact.
@@ -382,7 +387,11 @@ class OnboardingService:
         # today (no declared trigger artifact — ADR-047 deferred), so unmatched fields default to a trigger
         # path (the only remaining origin; validated as satisfiable).
         if s.inferred is not None:
-            refine_input_sources(s.inferred, staged_caps, staged_arts)
+            # ADR-052: name-match against the DECLARED trigger's fields when one is declared (mirrors the
+            # authoritative set_bindings refine); opaque otherwise. NOT the deployment sample-derived fields.
+            refine_input_sources(
+                s.inferred, staged_caps, staged_arts,
+                trigger_fields=({k.split(".", 1)[0] for k in s.trigger_fields} if s.trigger_artifact else None))
         # Editing capabilities invalidates bindings + gateway variables (source artifacts may
         # have changed) + the dry-run. Triage/SoD/roles are independent and kept.
         cleared = self._clear(s, {"bindings", "gateway_variables", "dry_run"})
@@ -410,6 +419,12 @@ class OnboardingService:
         errors: List[dict] = []
         bound_ids: List[str] = []
         staged: List[StagedBinding] = []
+        # ADR-050: the set of artifact keys a human/message binding output may reference — every staged
+        # (tool-inferred), authored, and the declared trigger artifact.
+        staged_keys = self._staged_artifact_keys(s)
+        # ADR-051: the inferred output-name default per capability element (the gateway-condition first segment
+        # it feeds, if any) — applied when the operator didn't set an explicit output_name.
+        sugg_out = {ib.element_id: ib.suggested_output_name for ib in (s.inferred.bindings if s.inferred else [])}
 
         for b in req.bindings:
             bound_ids.append(b.element_id)
@@ -456,16 +471,31 @@ class OnboardingService:
                     else:
                         side_effect, floor, io_inputs, io_outputs = cap_io
                         self._check_hitl_guard(b, side_effect, floor, errors)
+                        # ADR-051: rename the mirrored output so a fed gateway can branch on it. Precedence:
+                        # operator-set output_name → inferred gateway default → the capability's <tool>_output.
+                        # The artifact schema_ref is unchanged (only the addressable output NAME changes).
+                        chosen = (b.output_name or "").strip() or sugg_out.get(b.element_id)
+                        if chosen and io_outputs:
+                            io_outputs = [StagedBindingIO(name=chosen, schema_ref=io_outputs[0].schema_ref,
+                                                          required=io_outputs[0].required)]
             elif b.executor_type == "human":
                 if not b.role:
                     errors.append({"element_id": b.element_id, "field": "role",
                                    "message": "human executor requires a role"})
+                # ADR-050: a human task may declare the artifact(s) it produces (and reads). Each schema_ref
+                # must resolve to a staged/authored/trigger artifact; output names are checked for run-wide
+                # uniqueness after the loop (so a from-artifact source can address them unambiguously).
+                io_inputs = self._validate_binding_io(b, b.inputs, staged_keys, "inputs", errors)
+                io_outputs = self._validate_binding_io(b, b.outputs, staged_keys, "outputs", errors)
             elif b.executor_type == "message":
                 # ADR-031: the message this element awaits (advisory BPMN name pre-fills; operator confirms).
                 message_name = b.message_name or inv.message_name
                 if not message_name:
                     errors.append({"element_id": b.element_id, "field": "message_name",
                                    "message": "message executor requires a message_name"})
+                # ADR-050: a message/receive task may likewise declare the artifact(s) it produces.
+                io_inputs = self._validate_binding_io(b, b.inputs, staged_keys, "inputs", errors)
+                io_outputs = self._validate_binding_io(b, b.outputs, staged_keys, "outputs", errors)
             elif b.executor_type == "call":
                 # ADR-039: the callee pack + range + IO maps. Callee existence / IO reconciliation is a
                 # cross-pack check run by the assemble dry-run (the call-validation stage), not here.
@@ -495,6 +525,26 @@ class OnboardingService:
             errors.append({"element_id": task_id, "field": "element_id",
                            "message": "BPMN element has no binding"})
 
+        # ADR-050 + ADR-052 E1: a human/message output name must map to a SINGLE artifact across the run — a
+        # from-artifact input source addresses a produced artifact by name (manifest input_map + PackValidator
+        # resolution), so the same name pointing at DIFFERENT artifacts is ambiguous and rejected. But the same
+        # name referencing the SAME artifact is legitimate: a revise loop has Task_TakeOrder and
+        # Task_ReviseOrder both produce `order` (= art.dining.order); the runtime reads the latest write.
+        # Capability outputs are mirrored from the capability and legitimately repeat (only flagged when the
+        # collision involves a human/message binding on a DIFFERENT artifact).
+        out_owner: Dict[str, Tuple[str, str, str]] = {}      # output name -> (element_id, executor_type, artifact_key)
+        for sb in staged:
+            for io in sb.outputs:
+                art_key = (io.schema_ref or "").split("@", 1)[0]
+                prior = out_owner.get(io.name)
+                if prior and prior[0] != sb.element_id and prior[2] != art_key and \
+                        ("human" in (prior[1], sb.executor_type) or "message" in (prior[1], sb.executor_type)):
+                    errors.append({"element_id": sb.element_id, "field": "outputs",
+                                   "message": f"output name '{io.name}' is already produced by '{prior[0]}' with a "
+                                              f"different artifact ('{prior[2]}' vs '{art_key}') — a human/message "
+                                              f"output name must reference a single artifact across the run"})
+                out_owner.setdefault(io.name, (sb.element_id, sb.executor_type, art_key))
+
         if errors:
             raise TransitionError(422, {"error": "bindings_invalid", "errors": errors})
 
@@ -523,6 +573,105 @@ class OnboardingService:
                 "message": f"HITL mode below capability floor '{floor}'",
             })
 
+    @staticmethod
+    def _staged_artifact_keys(s: OnboardingSession) -> set:
+        """ADR-050: every artifact key a human/message binding IO may reference — staged (tool-inferred) +
+        authored + the declared trigger."""
+        keys = {sa.artifact_key for sa in s.staged_artifacts}
+        keys |= {sa.artifact_key for sa in s.authored_artifacts}
+        if s.trigger_artifact:
+            keys.add(s.trigger_artifact.artifact_key)
+        return keys
+
+    def _validate_binding_io(self, b: BindingInput, ios: List[StagedBindingIO], staged_keys: set,
+                             field: str, errors: List[dict]) -> List[StagedBindingIO]:
+        """ADR-050: validate an operator-declared human/message binding's inputs/outputs — each ``schema_ref``
+        must resolve to a staged/authored/trigger artifact, and names must be unique within this binding.
+        Returns the validated list (mirrored onto the StagedBinding for emission into the manifest)."""
+        out: List[StagedBindingIO] = []
+        seen: set = set()
+        for io in ios:
+            if io.name in seen:
+                errors.append({"element_id": b.element_id, "field": field,
+                               "message": f"duplicate {field} name '{io.name}' on this binding"})
+            seen.add(io.name)
+            key = (io.schema_ref or "").split("@", 1)[0]
+            if key not in staged_keys:
+                errors.append({"element_id": b.element_id, "field": field,
+                               "message": f"{field} '{io.name}' schema_ref '{io.schema_ref}' is not a staged, "
+                                          f"authored, or trigger artifact"})
+            out.append(io)
+        return out
+
+    # ------------------------------------------------------------------ #
+    # 4b) declare_trigger — DECLARED trigger artifact schema (ADR-049)
+    # ------------------------------------------------------------------ #
+    async def declare_trigger(self, session_id: str, req: DeclareTriggerRequest, *, owner: str) -> OnboardingSession:
+        """Declare the pack's trigger artifact schema. Not a state step: an enrichment callable once the process
+        is known (≥ BPMN_ATTACHED). It flattens the DECLARED schema into ``trigger_fields`` (the Triage picker's
+        source), stores it for registration + emission as ``ProcessPack.trigger``, and — because the trigger
+        shape changed — clears any already-authored triage + downstream and regresses to BINDINGS_SET."""
+        s = await self._editable(session_id, owner)
+        if not s.at_least(OnboardingState.BPMN_ATTACHED):
+            raise TransitionError(409, "attach BPMN before declaring the trigger")
+        errors: List[dict] = []
+        if not _ART_ID_RE.match(req.artifact_key or ""):
+            errors.append({"field": "artifact_key",
+                           "message": "trigger artifact id must be art.<domain>.<name> (lowercase)"})
+        if not isinstance(req.json_schema, dict) or req.json_schema.get("type", "object") != "object" \
+                or not isinstance(req.json_schema.get("properties"), dict):
+            errors.append({"field": "json_schema",
+                           "message": "trigger schema must be a JSON object schema with a 'properties' map"})
+        if errors:
+            raise TransitionError(422, {"error": "trigger_invalid", "errors": errors})
+
+        s.trigger_artifact = StagedArtifact(
+            artifact_key=req.artifact_key, version=req.version, title=req.title,
+            description=req.description, json_schema=req.json_schema,
+        )
+        s.trigger_fields = flatten_schema_fields(req.json_schema)
+
+        # The trigger fields changed → any authored triage may reference stale fields. Clear it + downstream.
+        cleared: List[str] = []
+        if s.triage_rules:
+            s.triage_rules = []
+            cleared.append("triage_rules")
+        cleared += self._clear(s, {"gateway_variables", "sod_policies", "dry_run"})
+        if state_rank(s.state) > state_rank(OnboardingState.BINDINGS_SET):
+            s.state = OnboardingState.BINDINGS_SET
+        s.last_cleared = cleared
+        return await self.sessions.save(s)
+
+    async def declare_artifact(self, session_id: str, req: DeclareArtifactRequest, *, owner: str) -> OnboardingSession:
+        """ADR-050: declare (upsert) an operator-authored artifact schema — one that is neither a tool's I/O
+        nor the trigger (e.g. ``art.dining.order``, a human task's output shape). Not a state step: an
+        enrichment callable once the process is known (≥ BPMN_ATTACHED). Stored on ``authored_artifacts``
+        (upsert by key, surviving any capability re-staging), registered + listed among the pack artifacts at
+        assemble, and referenceable by a human/message binding output. Clears the dry-run (a fresh schema may
+        change data-flow validation); it never invalidates bindings by itself."""
+        s = await self._editable(session_id, owner)
+        if not s.at_least(OnboardingState.BPMN_ATTACHED):
+            raise TransitionError(409, "attach BPMN before declaring an artifact")
+        errors: List[dict] = []
+        if not _ART_ID_RE.match(req.artifact_key or ""):
+            errors.append({"field": "artifact_key",
+                           "message": "artifact id must be art.<domain>.<name> (lowercase)"})
+        if not isinstance(req.json_schema, dict) or req.json_schema.get("type", "object") != "object" \
+                or not isinstance(req.json_schema.get("properties"), dict):
+            errors.append({"field": "json_schema",
+                           "message": "artifact schema must be a JSON object schema with a 'properties' map"})
+        if errors:
+            raise TransitionError(422, {"error": "artifact_invalid", "errors": errors})
+
+        sa = StagedArtifact(
+            artifact_key=req.artifact_key, version=req.version, title=req.title,
+            description=req.description, json_schema=req.json_schema,
+        )
+        s.authored_artifacts = [a for a in s.authored_artifacts if a.artifact_key != sa.artifact_key]
+        s.authored_artifacts.append(sa)
+        s.last_cleared = self._clear(s, {"dry_run"})
+        return await self.sessions.save(s)
+
     # ------------------------------------------------------------------ #
     # 5) set_triage — TRIAGE_SET
     # ------------------------------------------------------------------ #
@@ -533,11 +682,11 @@ class OnboardingService:
         if not req.triage_rules:
             raise TransitionError(422, {"error": "triage_invalid",
                                         "errors": [{"message": "at least one triage rule is required"}]})
-        # Batch-4: schema-aware check against the pack's trigger shape (the deployment sample envelopes; a
-        # declared trigger artifact would slot in the same way). A field that isn't on the trigger, or an op
-        # incompatible with the field's type, is a blocking error here — not a silent "never triages" at
-        # runtime. Degrades to structural-only when no trigger schema is available.
-        field_types = infer_field_types(self._samples)
+        # ADR-049: schema-aware check against the pack's trigger shape — the DECLARED trigger schema when the
+        # operator declared one (s.trigger_fields is flattened from it), else the deployment sample envelopes.
+        # A field not on the trigger, or an op incompatible with its type, is a blocking error here — not a
+        # silent "never triages" at runtime. Degrades to structural-only when no trigger shape is available.
+        field_types = s.trigger_fields or infer_field_types(self._samples)
         errors: List[dict] = []
         for rule in req.triage_rules:
             try:
@@ -598,7 +747,10 @@ class OnboardingService:
         schema_overlay = _SchemaOverlay(self.schemas, staged_regs)
         validator = PackValidator(cap_overlay, schema_overlay, profile=self.profile)  # type: ignore[arg-type]
         bpmn_xml = await self.bpmn.get_xml(self._staging_pk(s), s.basics.version)
-        report = await validator.validate(manifest, bpmn_xml, sample_envelopes=self._samples)
+        # ADR-049: hand Stage 7 the DECLARED trigger schema (staged, not yet registered) so triage validates
+        # against the pack's own fields, not the deployment sample envelopes.
+        report = await validator.validate(manifest, bpmn_xml, sample_envelopes=self._samples,
+                                          trigger_schema=s.trigger_artifact.json_schema if s.trigger_artifact else None)
 
         s.dry_run_report = report.model_dump(mode="json")
         s.state = self._advance(s.state, OnboardingState.ASSEMBLED)
@@ -693,7 +845,8 @@ class OnboardingService:
         _mark("validate", "running")
         manifest = await self.packs.get(pk, ver)  # reload with current sha/status
         validator = PackValidator(self.caps, self.schemas, profile=self.profile)
-        report = await validator.validate(manifest, bpmn_xml, sample_envelopes=self._samples)
+        report = await validator.validate(manifest, bpmn_xml, sample_envelopes=self._samples,
+                                          trigger_schema=s.trigger_artifact.json_schema if s.trigger_artifact else None)
         await self.packs.save_validation_report(pk, ver, report.model_dump(mode="json"))
         s.dry_run_report = report.model_dump(mode="json")
         if not report.ok:
@@ -933,8 +1086,21 @@ class OnboardingService:
         by_el = {b.element_id: b for b in staged}
         upstream_by_el: Dict[str, List[str]] = {}
         if s.inferred is not None:
-            upstream_by_el = {ib.element_id: list(ib.upstream_caps or []) for ib in s.inferred.bindings}
+            # ADR-050: source from the broader producer set (capabilities + human/message/call outputs),
+            # capabilities first (upstream_caps) then any extra producers, deduped, so a capability input can
+            # resolve to a human-authored artifact. Falls back to upstream_caps for pre-ADR-050 sessions.
+            upstream_by_el = {}
+            for ib in s.inferred.bindings:
+                merged_ups: List[str] = list(ib.upstream_caps or [])
+                for el in (ib.upstream_producers or []):
+                    if el not in merged_ups:
+                        merged_ups.append(el)
+                upstream_by_el[ib.element_id] = merged_ups
+        # ADR-050: authored + trigger schemas are producible fields too, so include them for field matching.
         staged_schema = {sa.artifact_key: sa.json_schema for sa in s.staged_artifacts}
+        staged_schema.update({sa.artifact_key: sa.json_schema for sa in s.authored_artifacts})
+        if s.trigger_artifact:
+            staged_schema[s.trigger_artifact.artifact_key] = s.trigger_artifact.json_schema
         cache: Dict[str, List[str]] = {}
 
         async def fields_of(schema_ref: Optional[str]) -> List[str]:
@@ -954,6 +1120,13 @@ class OnboardingService:
             cache[key] = out
             return out
 
+        # ADR-052: the DECLARED trigger's top-level field names (ADR-049) — used to name-match each input field
+        # to a trigger field. Gate on the DECLARED trigger artifact, NOT on `s.trigger_fields`: before a trigger
+        # is declared, `s.trigger_fields` holds the deployment's SAMPLE-derived fields (a foreign domain, e.g.
+        # wire), which would match none of this pack's input fields and yield empty maps. When no trigger is
+        # declared, treat the trigger as OPAQUE (None) so each input field still maps to a same-named trigger
+        # path — never an empty composite.
+        trigger_fields = ({k.split(".", 1)[0] for k in s.trigger_fields} if s.trigger_artifact else None)
         for b in staged:
             if b.executor_type != "capability" or not b.inputs:
                 continue
@@ -964,10 +1137,12 @@ class OnboardingService:
             ups: List[tuple] = []
             for up_el in upstream_by_el.get(b.element_id, []):
                 ub = by_el.get(up_el)
-                if ub is None or ub.executor_type != "capability" or not ub.outputs:
+                # ADR-050: any upstream producer with a declared output (capability OR human/message/call)
+                # is a candidate source — not just capabilities.
+                if ub is None or not ub.outputs:
                     continue
                 ups.append((ub.outputs[0].name, set(await fields_of(ub.outputs[0].schema_ref))))
-            suggestion = suggest_binding_input_map(input_name, in_fields, ups)  # trigger opaque today
+            suggestion = suggest_binding_input_map(input_name, in_fields, ups, trigger_fields=trigger_fields)
             merged = dict(b.input_sources or {})
             for k, v in suggestion.items():
                 merged.setdefault(k, v)
@@ -1118,6 +1293,21 @@ class OnboardingService:
         staged_arts = {sa.artifact_key: sa for sa in s.staged_artifacts}
         descs = [self._capability_descriptor(sc, staged_arts) for sc in s.staged_capabilities]
         regs = [self._staged_artifact_registration(sa) for sa in s.staged_artifacts]
+        reg_keys = {sa.artifact_key for sa in s.staged_artifacts}
+        # ADR-050: operator-authored artifacts (human/message output shapes, etc.) are registered like any
+        # staged schema and listed among the pack artifacts (their refs land via each binding's IO below).
+        for sa in s.authored_artifacts:
+            if sa.artifact_key not in reg_keys:
+                regs.append(self._staged_artifact_registration(sa))
+                reg_keys.add(sa.artifact_key)
+        # ADR-049: a declared trigger artifact is registered like any staged schema, listed among the pack
+        # artifacts, and emitted as the pack's ProcessPack.trigger (a pinned ArtifactRef).
+        trigger_ref: Optional[str] = None
+        if s.trigger_artifact:
+            if s.trigger_artifact.artifact_key not in reg_keys:
+                regs.append(self._staged_artifact_registration(s.trigger_artifact))
+                reg_keys.add(s.trigger_artifact.artifact_key)
+            trigger_ref = f"{s.trigger_artifact.artifact_key}@^{s.trigger_artifact.version}"
 
         # requires_capabilities: staged + reused (dedup by ref string).
         req_refs: List[str] = []
@@ -1154,7 +1344,9 @@ class OnboardingService:
                 "element_id": b.element_id, "element_kind": b.element_kind,
                 "executor": executor, "inputs": ins, "outputs": outs,
             }
-            # ADR-048: per-input data sources → the manifest Binding.input_map (capability bindings).
+            # ADR-048: per-input data sources → the manifest Binding.input_map. General across executor types:
+            # a capability binding's auto-derived sources AND a human binding's operator-declared read-only
+            # context inputs (mirroring ADR-050 outputs) both flow through here.
             if b.input_sources:
                 binding_doc["input_map"] = dict(b.input_sources)
             # HITL is a capability/human concept; a message/call executor has no gate (contract omits it).
@@ -1165,6 +1357,8 @@ class OnboardingService:
                 binding_doc["hitl"] = hitl
             bindings.append(binding_doc)
 
+        if trigger_ref:
+            artifact_refs.append(trigger_ref)
         artifacts = sorted(set(artifact_refs))
         triage = [{"rule_id": r.rule_id, "priority": r.priority, "description": r.description, "when": r.when}
                   for r in s.triage_rules]
@@ -1181,6 +1375,7 @@ class OnboardingService:
             "title": s.basics.title, "description": s.basics.description,
             "process": {"bpmn_file": s.bpmn.bpmn_file, "process_id": s.bpmn.process_id,
                         "bpmn_sha256": s.bpmn.sha256},
+            "trigger": trigger_ref,  # ADR-049: declared trigger artifact (None ⇒ opaque envelope)
             "triage_rules": triage, "requires_capabilities": requires, "artifacts": artifacts,
             "bindings": bindings, "gateway_variables": gvars or None, "policies": policies,
             "status": "draft", "created_by": s.created_by,

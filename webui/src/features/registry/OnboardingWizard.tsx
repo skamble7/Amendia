@@ -20,11 +20,13 @@ import { groupByStage, countBySeverity, SEVERITY_VARIANT } from "@/lib/validatio
 import { cn } from "@/lib/utils";
 import {
   assembleOnboarding, attachOnboardingBpmn, commitOnboarding, createOnboardingSession,
-  getOnboardingSession, introspectMcp, setOnboardingBindings, setOnboardingCapabilities,
+  getOnboardingSession, introspectMcp, declareOnboardingTrigger, declareOnboardingArtifact,
+  setOnboardingBindings, setOnboardingCapabilities,
   setOnboardingPolicies, setOnboardingTriage,
   type BindingInput, type CapabilityToolSelection, type IntrospectedTool, type OnbTriageRule,
   type OnbBpmnInventory, type OnbBindableElement, type OnboardingSession, type OnboardingState,
   type ValidationReport, type InferenceDraft, type OnbDecisionSpec, type OnbReduceSpec,
+  type OnbBindingIO, type OnbArtifactRequest, type OnbStagedArtifact,
 } from "@/api/services/registry";
 import { useCapabilities, useCapabilitySearch, useOnboardingSessions, usePacks } from "./queries";
 
@@ -210,8 +212,8 @@ function SessionWizard({ sessionId }: { sessionId: string }) {
       {step === 0 && <BasicsStep session={session} onNext={() => setStep(1)} />}
       {step === 1 && <BpmnStep session={session} onDone={(s) => apply(s, 2)} />}
       {step === 2 && <CapabilitiesStep session={session} onDone={(s) => apply(s, 3)} />}
-      {step === 3 && <BindingsStep session={session} onDone={(s) => apply(s, 4)} />}
-      {step === 4 && <TriageStep session={session} onDone={(s) => apply(s, 5)} />}
+      {step === 3 && <BindingsStep session={session} onDone={(s) => apply(s, 4)} onSession={setSession} />}
+      {step === 4 && <TriageStep session={session} onDone={(s) => apply(s, 5)} onSession={setSession} />}
       {step === 5 && <PoliciesStep session={session} onDone={(s) => apply(s, 6)} />}
       {step === 6 && <ReviewStep session={session} onChange={(s) => setSession(s)} goStep={setStep} />}
     </>
@@ -786,7 +788,8 @@ function CapabilitiesStep({ session, onDone }: { session: OnboardingSession; onD
         input_artifact_key: t.suggested_input_artifact_key ?? "",
         output_artifact_key: t.suggested_output_artifact_key ?? "",
         capability_id: t.suggested_capability_id ?? "",
-        side_effect: "read_only", idempotent: true,
+        // ADR-052 E3: default side_effectful when the tool output carries the ack shape (backend-derived).
+        side_effect: t.suggested_side_effect ?? "read_only", idempotent: true,
       })));
     } catch (e) {
       toast.error(extractErrors(e).general || "Introspection failed.");
@@ -863,8 +866,8 @@ function CapabilitiesStep({ session, onDone }: { session: OnboardingSession; onD
           <div className="flex items-end gap-2">
             <div className="flex-1">
               <Label>MCP server URL</Label>
-              <Input ref={endpointRef} value={endpoint} onChange={(e) => setEndpoint(e.target.value)} placeholder="http://wirefix-mcp:8060/mcp" />
-              <p className="mt-1 text-xs text-muted-foreground">Use the <span className="font-medium">deployment-facing</span> URL (e.g. the Docker service alias like <span className="font-mono">http://wirefix-mcp:8060/mcp</span>) — <span className="font-medium">not</span> <span className="font-mono">localhost</span>. The registry connects from inside its container, so localhost reaches the container itself, not your host (that URL only works for MCP Inspector).</p>
+              <Input ref={endpointRef} value={endpoint} onChange={(e) => setEndpoint(e.target.value)} placeholder="http://<your-mcp-service>:<port>/mcp" />
+              <p className="mt-1 text-xs text-muted-foreground">Use the <span className="font-medium">deployment-facing</span> URL (e.g. the Docker service alias like <span className="font-mono">http://&lt;your-mcp-service&gt;:&lt;port&gt;/mcp</span>) — <span className="font-medium">not</span> <span className="font-mono">localhost</span>. The registry connects from inside its container, so localhost reaches the container itself, not your host (that URL only works for MCP Inspector).</p>
             </div>
             <select className={cn(selectCls, "w-40")} value={transport} onChange={(e) => setTransport(e.target.value)}>
               <option value="streamable_http">streamable_http</option>
@@ -1093,7 +1096,131 @@ function SourcePicker({ value, onChange, outputs }: {
   );
 }
 
-function BindingsStep({ session, onDone }: { session: OnboardingSession; onDone: (s: OnboardingSession) => void }) {
+// ADR-050: the OUTPUTS section for a human/message binding — declare the artifact(s) the task PRODUCES (an
+// output name + a staged/authored/trigger artifact schema). The operator picks an existing artifact or
+// authors a new one inline (the reusable ArtifactSchemaEditor → declareOnboardingArtifact). A declared output
+// becomes a selectable upstream source for a downstream capability's input (see allOutputs).
+function HumanOutputsEditor({ row, artifactChoices, domain, onChange, onAuthor }: {
+  row: BindingInput;
+  artifactChoices: { key: string; ref: string }[];
+  domain: string;
+  onChange: (outputs: OnbBindingIO[]) => void;
+  onAuthor: (req: OnbArtifactRequest) => Promise<void>;
+}) {
+  const outputs = row.outputs ?? [];
+  const [authoring, setAuthoring] = useState<number | null>(null);   // which output row is authoring a new schema
+  const setOut = (i: number, p: Partial<OnbBindingIO>) => onChange(outputs.map((o, j) => (j === i ? { ...o, ...p } : o)));
+  const addOut = () => onChange([...outputs, { name: "", schema_ref: "", required: true }]);
+  const rmOut = (i: number) => { onChange(outputs.filter((_, j) => j !== i)); setAuthoring(null); };
+
+  return (
+    <div className="mt-3 border-t border-border pt-3">
+      <div className="mb-1.5 flex items-center justify-between">
+        <p className="text-xs font-medium text-muted-foreground">Outputs — artifact(s) this task produces</p>
+        <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={addOut}><Plus className="mr-1 size-3" />Add output</Button>
+      </div>
+      {outputs.length === 0 && (
+        <p className="text-xs text-muted-foreground">None — a downstream capability can't source from this task until it declares an output.</p>
+      )}
+      <div className="space-y-2">
+        {outputs.map((o, i) => (
+          <div key={i} className="space-y-1.5">
+            <div className="flex items-center gap-1.5">
+              <Input value={o.name} onChange={(e) => setOut(i, { name: e.target.value })} placeholder="order" className="h-7 flex-1 font-mono text-[11px]" />
+              <select className={cn(selectCls, "h-7 flex-1 text-[11px]")} value={o.schema_ref ?? ""}
+                onChange={(e) => { if (e.target.value === "__new__") setAuthoring(i); else setOut(i, { schema_ref: e.target.value }); }}>
+                <option value="">Select artifact schema…</option>
+                {artifactChoices.map((a) => <option key={a.ref} value={a.ref}>{a.key}</option>)}
+                <option value="__new__">+ Author new artifact schema…</option>
+              </select>
+              <Button variant="ghost" size="icon" className="size-7" onClick={() => rmOut(i)}><Trash2 className="size-3" /></Button>
+            </div>
+            {authoring === i && (
+              <div className="rounded-md border border-border bg-surface/40 p-2.5">
+                <ArtifactSchemaEditor
+                  domain={domain} idLabel="Artifact id" idPlaceholder={`art.${domain}.order`}
+                  titlePlaceholder="Order" schemaLabel="JSON-Schema" submitLabel="Create artifact"
+                  onDeclare={async (req) => {
+                    await onAuthor(req);
+                    setOut(i, { schema_ref: `${req.artifact_key}@^${req.version}` });
+                    setAuthoring(null);
+                  }}
+                />
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ADR-048 (for human tasks): the INPUTS section for a human binding — declare the read-only CONTEXT artifact(s)
+// the task reads on its HITL form (e.g. a diner's Select-items task sees the menu). Each input picks an artifact
+// schema (what shape to render) and a SOURCE (which upstream output feeds it) — the SAME mechanism a capability
+// input uses, sourced from the SAME allOutputs list. The runtime surfaces these read-only alongside the editable
+// output(s); they never widen the decision. Domain-neutral: names come from the diagram + staged artifacts.
+function HumanInputsEditor({ row, artifactChoices, outputs, onChange }: {
+  row: BindingInput;
+  artifactChoices: { key: string; ref: string }[];
+  outputs: { element: string; name: string }[];
+  onChange: (inputs: OnbBindingIO[], inputSources: Record<string, unknown>) => void;
+}) {
+  const inputs = row.inputs ?? [];
+  const sources = (row.input_sources ?? {}) as Record<string, unknown>;
+  const setInput = (i: number, p: Partial<OnbBindingIO>) => {
+    const prev = inputs[i]!;
+    const next = inputs.map((io, j) => (j === i ? { ...io, ...p } : io));
+    let nextSources = sources;
+    if (p.name !== undefined && p.name !== prev.name) {
+      // keep each source keyed by its input NAME: migrate the entry when the name is edited.
+      const { [prev.name]: moved, ...rest } = sources;
+      nextSources = moved !== undefined ? { ...rest, [p.name]: moved } : rest;
+    }
+    onChange(next, nextSources);
+  };
+  const addInput = () => onChange([...inputs, { name: "", schema_ref: "", required: true }], sources);
+  const rmInput = (i: number) => {
+    const { [inputs[i]!.name]: _drop, ...rest } = sources;
+    onChange(inputs.filter((_, j) => j !== i), rest);
+  };
+
+  return (
+    <div className="mt-3 border-t border-border pt-3">
+      <div className="mb-1.5 flex items-center justify-between">
+        <p className="text-xs font-medium text-muted-foreground">Inputs — read-only context artifact(s) this task reads</p>
+        <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={addInput}><Plus className="mr-1 size-3" />Add input</Button>
+      </div>
+      {inputs.length === 0 && (
+        <p className="text-xs text-muted-foreground">None — the form shows only the output(s) this task authors.</p>
+      )}
+      <div className="space-y-2">
+        {inputs.map((io, i) => (
+          <div key={i} className="space-y-1.5">
+            <div className="flex items-center gap-1.5">
+              <Input value={io.name} onChange={(e) => setInput(i, { name: e.target.value })} placeholder="menu" className="h-7 flex-1 font-mono text-[11px]" />
+              <select className={cn(selectCls, "h-7 flex-1 text-[11px]")} value={io.schema_ref ?? ""}
+                onChange={(e) => setInput(i, { schema_ref: e.target.value })}>
+                <option value="">Select artifact schema…</option>
+                {artifactChoices.map((a) => <option key={a.ref} value={a.ref}>{a.key}</option>)}
+              </select>
+              <Button variant="ghost" size="icon" className="size-7" onClick={() => rmInput(i)}><Trash2 className="size-3" /></Button>
+            </div>
+            {io.name.trim() && (
+              <div className="ml-2 border-l border-border pl-2">
+                <p className="mb-1 text-[11px] font-medium text-muted-foreground">source — where <span className="font-mono">{io.name}</span> comes from</p>
+                <SourcePicker value={sources[io.name] ?? { from: "trigger" }}
+                  onChange={(v) => onChange(inputs, { ...sources, [io.name]: v })} outputs={outputs} />
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function BindingsStep({ session, onDone, onSession }: { session: OnboardingSession; onDone: (s: OnboardingSession) => void; onSession: (s: OnboardingSession) => void }) {
   const tasks: OnbBindableElement[] = session.bpmn!.bindable_elements;
   const capOptions = useMemo(
     () => [...session.staged_capabilities.map((c) => `${c.capability_id}@^${c.version}`), ...session.reused_capability_refs],
@@ -1177,50 +1304,126 @@ function BindingsStep({ session, onDone }: { session: OnboardingSession; onDone:
       const p = (a.json_schema as { properties?: Record<string, unknown> } | undefined)?.properties;
       props[a.artifact_key] = p && typeof p === "object" ? Object.keys(p) : [];
     }
-    const m: Record<string, { input: string; inFields: string[]; output: string; outFields: string[] }> = {};
+    const m: Record<string, { input: string; inKey: string; inFields: string[]; output: string; outKey: string; outFields: string[] }> = {};
     for (const sc of session.staged_capabilities) {
       m[sc.capability_id] = {
-        input: sc.input_name, inFields: props[sc.input_artifact_key] ?? [],
-        output: sc.output_name, outFields: props[sc.output_artifact_key] ?? [],
+        input: sc.input_name, inKey: sc.input_artifact_key, inFields: props[sc.input_artifact_key] ?? [],
+        output: sc.output_name, outKey: sc.output_artifact_key, outFields: props[sc.output_artifact_key] ?? [],
       };
     }
     return m;
   }, [session.staged_capabilities, session.staged_artifacts]);
   const cfOf = (ref?: string | null) => (ref ? capFields[ref.split("@")[0] ?? ""] : undefined);
 
-  // One input field's source: an upstream output that carries the field (→ artifact+path), an upstream
-  // output named like the field (→ that whole artifact), else the trigger (opaque client-side, mirroring the
-  // backend). Whole-map builder: entry (no upstream) → whole trigger; opaque input → whole nearest output.
-  type Up = { name: string; fields: string[] };
-  const sourceForField = (f: string, ups: Up[]): Record<string, unknown> => {
+  // ADR-052 E3: top-level field names of every available artifact schema (staged tool I/O + authored + trigger)
+  // — used to source a capability input FIELD from a HUMAN-authored output's schema, not just capability outputs.
+  const artifactFields = useMemo(() => {
+    const m: Record<string, string[]> = {};
+    const add = (key?: string | null, schema?: unknown) => {
+      if (!key) return;
+      const p = (schema as { properties?: Record<string, unknown> } | undefined)?.properties;
+      m[key] = p && typeof p === "object" ? Object.keys(p) : [];
+    };
+    for (const a of session.staged_artifacts) add(a.artifact_key, a.json_schema);
+    for (const a of session.authored_artifacts ?? []) add(a.artifact_key, a.json_schema);
+    if (session.trigger_artifact) add(session.trigger_artifact.artifact_key, session.trigger_artifact.json_schema);
+    return m;
+  }, [session.staged_artifacts, session.authored_artifacts, session.trigger_artifact]);
+
+  // ADR-050: the artifact schemas a human/message output may reference — every staged (tool-inferred) +
+  // authored artifact + the declared trigger, deduped by key, each pinned to a caret range.
+  const artifactChoices = useMemo(() => {
+    const seen = new Set<string>();
+    const out: { key: string; ref: string }[] = [];
+    const add = (a?: OnbStagedArtifact | null) => {
+      if (!a || seen.has(a.artifact_key)) return;
+      seen.add(a.artifact_key);
+      out.push({ key: a.artifact_key, ref: `${a.artifact_key}@^${a.version}` });
+    };
+    for (const a of session.staged_artifacts) add(a);
+    for (const a of session.authored_artifacts ?? []) add(a);
+    add(session.trigger_artifact);
+    return out;
+  }, [session.staged_artifacts, session.authored_artifacts, session.trigger_artifact]);
+
+  // ADR-050: author (upsert) an operator artifact schema, then lift the returned session to the parent so the
+  // new key appears in every output picker. Rows are local state (init-once), so this re-render never loses them.
+  const authorArtifact = async (req: OnbArtifactRequest) => {
+    onSession(await declareOnboardingArtifact(session.session_id, req));
+    toast.success(`Artifact ${req.artifact_key} authored`);
+  };
+
+  // ADR-052: the DECLARED trigger's top-level field names (ADR-049 flattened map) — used to name-match an input
+  // field to a trigger path. Gate on the DECLARED trigger artifact, NOT on `trigger_fields`: before a trigger is
+  // declared, `trigger_fields` holds the deployment's SAMPLE-derived fields (a foreign domain, e.g. wire), which
+  // match none of this pack's input fields → empty maps. `null` ⇒ no declared trigger ⇒ opaque (every field
+  // still gets a same-named trigger path).
+  const triggerFields = useMemo(
+    () => session.trigger_artifact
+      ? new Set(Object.keys(session.trigger_fields ?? {}).map((k) => k.split(".")[0]))
+      : null,
+    [session.trigger_fields, session.trigger_artifact],
+  );
+  // ADR-048/050/052: one input field's source — an upstream output that carries the field (→ artifact+path),
+  // an upstream output NAMED like the field (→ that whole artifact), else a same-named TRIGGER field. NO match
+  // → null (leave the declared field unmapped; the dumb tool tolerates it). `ups` are the upstream producers
+  // (capability AND human/message outputs).
+  type Up = { name: string; fields: string[]; artifactKey?: string; isCapability?: boolean };
+  const sourceForField = (f: string, ups: Up[]): Record<string, unknown> | null => {
     for (const u of ups) {
       if (u.fields.includes(f)) return { from: "artifact", name: u.name, path: f };
       if (f === u.name) return { from: "artifact", name: u.name };
     }
-    return { from: "trigger", path: f };
+    // ADR-052: source from the trigger ONLY when the DECLARED trigger actually has this field. A field with no
+    // upstream output and no matching trigger field is left UNMAPPED — never a trigger path that resolves to
+    // null and gets rejected by a closed tool schema.
+    if (triggerFields !== null && triggerFields.has(f)) return { from: "trigger", path: f };
+    return null;
   };
-  const buildInputMap = (inName: string, inFields: string[], ups: Up[]): Record<string, unknown> => {
-    if (ups.length === 0) return { [inName]: { from: "trigger" } };
-    if (inFields.length === 0) return { [inName]: { from: "artifact", name: ups[0]!.name } };
+  const buildInputMap = (inName: string, inKey: string | undefined, inFields: string[], ups: Up[]): Record<string, unknown> => {
+    if (inFields.length === 0) {
+      // No declared input fields (a schema-less / reused capability) — chain the whole nearest matching output
+      // (by schema, then name, then the nearest capability producer, ADR-048 graph-position chaining), else
+      // leave unmapped. A CLOSED MCP capability always declares its fields, so it never reaches here — never a
+      // whole-trigger/whole-artifact spread for it.
+      const m = (inKey && ups.find((u) => u.artifactKey === inKey)) || ups.find((u) => u.name === inName)
+        || ups.find((u) => u.isCapability);
+      return m ? { [inName]: { from: "artifact", name: m.name } } : {};
+    }
+    // ADR-052: ALWAYS a per-field composite over the declared input fields — never a whole-trigger spread that
+    // would overflow a closed MCP tool schema at runtime. Unmatched-and-known-trigger fields are left unmapped.
     const fields: Record<string, unknown> = {};
-    for (const f of inFields) fields[f] = sourceForField(f, ups);
+    for (const f of inFields) { const s = sourceForField(f, ups); if (s) fields[f] = s; }
     return { [inName]: { fields } };
   };
-  // Field-level suggestion for a capability element, keyed off its BOUND capability_ref (`refFor` resolves
-  // any element's ref — bound row, then pre-selected fallback). Upstream producers come from the BPMN graph
-  // (`inferred.upstream_caps`), each resolved to whatever capability that element is bound to.
-  const resolveInputSources = (elementId: string, refFor: (id: string) => string | undefined): Record<string, unknown> => {
+  // The output(s) a producer element emits — a capability's single output (chosen name), or a human/message
+  // binding's DECLARED outputs (ADR-050). `humanOutFor` supplies the latter (session.bindings at init, live rows
+  // after mount) so a capability input can auto-source from a human-authored artifact.
+  const producerUps = (elementId: string, refFor: (id: string) => string | undefined,
+                       humanOutFor: (id: string) => { name: string; artifactKey: string }[]): Up[] => {
+    const prods = inferredBind[elementId]?.upstream_producers ?? inferredBind[elementId]?.upstream_caps ?? [];
+    const ups: Up[] = [];
+    for (const up of prods) {
+      const cap = cfOf(refFor(up));
+      if (cap) { ups.push({ name: inferredBind[up]?.suggested_output_name ?? cap.output, fields: cap.outFields, artifactKey: cap.outKey, isCapability: true }); continue; }
+      for (const o of humanOutFor(up)) ups.push({ name: o.name, fields: artifactFields[o.artifactKey] ?? [], artifactKey: o.artifactKey, isCapability: false });
+    }
+    return ups;
+  };
+  const resolveInputSources = (elementId: string, refFor: (id: string) => string | undefined,
+                               humanOutFor: (id: string) => { name: string; artifactKey: string }[]): Record<string, unknown> => {
     const io = cfOf(refFor(elementId));
     if (!io) return {};                                         // reused cap (no client schema) / unbound
-    const ups: Up[] = (inferredBind[elementId]?.upstream_caps ?? [])
-      .map((up) => { const uio = cfOf(refFor(up)); return uio ? { name: uio.output, fields: uio.outFields } : null; })
-      .filter((x): x is Up => x !== null);
-    return buildInputMap(io.input, io.inFields, ups);
+    return buildInputMap(io.input, io.inKey, io.inFields, producerUps(elementId, refFor, humanOutFor));
   };
 
   // Resolve any element's capability at INIT (rows don't exist yet): its saved binding, else the pre-select.
   const refForInit = (id: string): string | undefined =>
     session.bindings.find((b) => b.element_id === id)?.capability_ref ?? suggestedCapRef[id];
+  const _humanOuts = (outs: { name: string; schema_ref: string }[] | undefined) =>
+    (outs ?? []).map((o) => ({ name: o.name, artifactKey: (o.schema_ref ?? "").split("@")[0] ?? "" }));
+  // A producer's declared human/message outputs — from the saved binding (init) or the live row (after mount).
+  const humanOutInit = (id: string) => _humanOuts(session.bindings.find((b) => b.element_id === id)?.outputs);
 
   const [rows, setRows] = useState<Record<string, BindingInput>>(() => {
     const init: Record<string, BindingInput> = {};
@@ -1241,7 +1444,14 @@ function BindingsStep({ session, onDone }: { session: OnboardingSession; onDone:
           message_name: existing.message_name, call_pack: existing.call_pack, call_version: existing.call_version,
           input_map: existing.input_map ?? {}, output_map: existing.output_map ?? {},
           input_sources: (t.category === "capability" && Object.keys(savedSrc).length === 0)
-            ? resolveInputSources(t.element_id, refForInit) : savedSrc,
+            ? resolveInputSources(t.element_id, refForInit, humanOutInit) : savedSrc,
+          inputs: existing.inputs ?? [],     // ADR-048 (human): declared read-only context inputs
+          outputs: existing.outputs ?? [],   // ADR-050: human/message declared outputs
+          // ADR-051: the capability's settable output name — the persisted chosen name (in Binding.outputs),
+          // else the backend's gateway-derived default, else <tool>_output.
+          output_name: t.category === "capability"
+            ? (existing.outputs?.[0]?.name ?? inf?.suggested_output_name ?? ioOf(existing.capability_ref)?.output ?? undefined)
+            : undefined,
         });
       } else {
         if (t.category === "human") {
@@ -1260,7 +1470,9 @@ function BindingsStep({ session, onDone }: { session: OnboardingSession; onDone:
             if ((HITL_RANK[base.hitl_mode] ?? 0) < fl) base.hitl_mode = fl >= 2 ? "approve_actions" : "review_after";
           }
           if (base.hitl_mode !== "none") base.hitl_role = inf?.suggested_role ?? undefined;
-          base.input_sources = resolveInputSources(t.element_id, refForInit);   // ADR-048 D4: pre-fill off the bound cap
+          base.input_sources = resolveInputSources(t.element_id, refForInit, humanOutInit);   // ADR-048 D4: pre-fill off the bound cap
+          // ADR-051: default the output name to the gateway-derived suggestion, else the tool's <tool>_output.
+          base.output_name = inf?.suggested_output_name ?? ioOf(ref)?.output ?? undefined;
         }
         if (t.category === "message") base.message_name = t.message_name ?? undefined;
         if (t.category === "call") { base.call_pack = t.called_pack ?? undefined; base.call_version = t.called_version ?? "^1.0.0"; base.input_map = {}; base.output_map = {}; }
@@ -1275,6 +1487,40 @@ function BindingsStep({ session, onDone }: { session: OnboardingSession; onDone:
   const patch = (id: string, p: Partial<BindingInput>) => setRows((r) => ({ ...r, [id]: { ...r[id]!, ...p } as BindingInput }));
   // Resolve any element's capability from the LIVE rows (bound row, else the pre-select).
   const refForRows = (id: string): string | undefined => rows[id]?.capability_ref ?? suggestedCapRef[id];
+  // A producer's declared human/message outputs from the LIVE rows (reflects a just-declared human output).
+  const humanOutRows = (id: string) => _humanOuts(rows[id]?.outputs);
+  // ADR-052 E3: keep an operator-picked artifact source, only auto-fill the `trigger` placeholders — used when
+  // a newly-declared human output should upgrade a downstream capability input that had no producer yet.
+  const mergeSources = (cur: any, fresh: any): any => {
+    if (fresh?.fields && cur?.fields) {
+      const fields = { ...cur.fields };
+      for (const [f, fv] of Object.entries<any>(fresh.fields)) {
+        const cv = cur.fields[f];
+        if ((!cv || cv.from === "trigger") && fv?.from === "artifact") fields[f] = fv;
+      }
+      return { fields };
+    }
+    if ((!cur || cur.from === "trigger") && fresh?.from === "artifact") return fresh;
+    return cur ?? fresh;
+  };
+  // ADR-052 E3: RE-RUN input-source matching for every downstream capability when a producer (`producerId`)
+  // declares/renames a human/message output — auto-fill only the still-unmatched (`trigger`) inputs.
+  const rederiveFromProducer = (producerId: string) => setRows((prev) => {
+    const next = { ...prev };
+    for (const t of tasks) {
+      if (t.category !== "capability") continue;
+      const prods = inferredBind[t.element_id]?.upstream_producers ?? inferredBind[t.element_id]?.upstream_caps ?? [];
+      if (!prods.includes(producerId)) continue;
+      const io = cfOf(prev[t.element_id]?.capability_ref ?? suggestedCapRef[t.element_id]);
+      if (!io) continue;
+      const fresh = resolveInputSources(t.element_id, (x) => prev[x]?.capability_ref ?? suggestedCapRef[x], (x) => _humanOuts(prev[x]?.outputs));
+      const cur = prev[t.element_id]?.input_sources ?? {};
+      const merged: Record<string, unknown> = { ...cur };
+      for (const [k, v] of Object.entries(fresh)) merged[k] = mergeSources(cur[k], v);
+      next[t.element_id] = { ...prev[t.element_id]!, input_sources: merged };
+    }
+    return next;
+  });
   // Picking a capability bumps HITL to its floor if the current mode is too weak, and RE-DERIVES the input
   // sources for the newly-chosen capability (its input name/fields change with the capability, so the prior
   // sources are stale) — resolving upstream refs with the new choice applied.
@@ -1283,13 +1529,29 @@ function BindingsStep({ session, onDone }: { session: OnboardingSession; onDone:
     const cur = rows[id]!.hitl_mode;
     const bumped = (HITL_RANK[cur] ?? 0) < fl ? (fl >= 2 ? "approve_actions" : "review_after") : cur;
     const nextRef = (x: string) => (x === id ? ref : refForRows(x));
-    patch(id, { capability_ref: ref, hitl_mode: bumped, input_sources: resolveInputSources(id, nextRef) });
+    // ADR-051: re-derive the output-name default for the newly-chosen capability (its <tool>_output changes),
+    // keeping the gateway-derived suggestion when this task feeds one.
+    const outName = inferredBind[id]?.suggested_output_name ?? ioOf(ref)?.output ?? undefined;
+    patch(id, { capability_ref: ref, hitl_mode: bumped, input_sources: resolveInputSources(id, nextRef, humanOutRows), output_name: outName });
   };
 
   async function submit() {
     setBusy(true); setFieldErrs({});
     try {
-      onDone(await setOnboardingBindings(session.session_id, { bindings: tasks.map((t) => rows[t.element_id]!) }));
+      // ADR-050: only send fully-authored outputs (both a name and a chosen schema) — a half-filled row would
+      // fail backend validation ("not a staged artifact"). Capability outputs are mirrored server-side anyway.
+      const clean = (r: BindingInput): BindingInput => {
+        const outputs = (r.outputs ?? []).filter((o) => (o.name ?? "").trim() && (o.schema_ref ?? "").trim());
+        if (r.executor_type !== "human") return { ...r, outputs };
+        // ADR-048 (human): send only fully-authored inputs (name + artifact) and prune input_sources to those
+        // names, so a half-filled input row can't leak a dangling source into the manifest input_map.
+        const inputs = (r.inputs ?? []).filter((io) => (io.name ?? "").trim() && (io.schema_ref ?? "").trim());
+        const names = new Set(inputs.map((io) => io.name));
+        const input_sources = Object.fromEntries(
+          Object.entries(r.input_sources ?? {}).filter(([k]) => names.has(k)));
+        return { ...r, outputs, inputs, input_sources };
+      };
+      onDone(await setOnboardingBindings(session.session_id, { bindings: tasks.map((t) => clean(rows[t.element_id]!)) }));
     } catch (e) {
       const x = extractErrors(e);
       const map: Record<string, string> = {};
@@ -1304,11 +1566,17 @@ function BindingsStep({ session, onDone }: { session: OnboardingSession; onDone:
     } finally { setBusy(false); }
   }
 
-  // ADR-048: the selectable upstream outputs for an artifact source — every capability task's output.
-  const allOutputs = tasks
-    .filter((x) => x.category === "capability")
-    .map((x) => ({ element: x.element_id, name: ioOf(rows[x.element_id]?.capability_ref)?.output }))
-    .filter((o): o is { element: string; name: string } => !!o.name);
+  // ADR-048 + ADR-050: the selectable upstream outputs for an artifact source — every capability task's
+  // output, PLUS every human/message/call task's operator-declared output(s) (so a capability input can
+  // source from a human-authored artifact, e.g. `order (Task_TakeOrder)`).
+  const allOutputs = tasks.flatMap((x) => {
+    if (x.category === "capability") {
+      // ADR-051: reflect the operator's CHOSEN output name (defaulted from the gateway), not the raw <tool>_output.
+      const name = (rows[x.element_id]?.output_name || "").trim() || ioOf(rows[x.element_id]?.capability_ref)?.output;
+      return name ? [{ element: x.element_id, name }] : [];
+    }
+    return (rows[x.element_id]?.outputs ?? []).flatMap((o) => (o.name ? [{ element: x.element_id, name: o.name }] : []));
+  });
   const errorCount = Object.keys(fieldErrs).length;
   return (
     <div className="space-y-3">
@@ -1359,7 +1627,7 @@ function BindingsStep({ session, onDone }: { session: OnboardingSession; onDone:
                         )}
                       </div>
                     ) : (
-                      <Input value={row.role ?? ""} onChange={(e) => patch(id, { role: e.target.value })} placeholder="role.payments.ops_analyst" className="font-mono text-xs" />
+                      <Input value={row.role ?? ""} onChange={(e) => patch(id, { role: e.target.value })} placeholder="role.<domain>.<lane>" className="font-mono text-xs" />
                     )}
                   </Field>
                   <Field label="HITL mode">
@@ -1369,17 +1637,37 @@ function BindingsStep({ session, onDone }: { session: OnboardingSession; onDone:
                   </Field>
                   <Field label="Role">
                     {row.hitl_mode !== "none"
-                      ? <Input value={row.hitl_role ?? ""} onChange={(e) => patch(id, { hitl_role: e.target.value })} placeholder="role.payments.ops_approver" className="font-mono text-xs" />
+                      ? <Input value={row.hitl_role ?? ""} onChange={(e) => patch(id, { hitl_role: e.target.value })} placeholder="role.<domain>.<lane>" className="font-mono text-xs" />
                       : <p className="py-2 text-xs text-muted-foreground">not required for mode none</p>}
                   </Field>
                 </div>
               )}
 
+              {/* ADR-051: the capability's OUTPUT NAME — the runtime resolves a gateway condition against
+                  binding output names, so this must be editable (defaulted from the gateway it feeds, else
+                  <tool>_output). The artifact schema is unchanged; only the addressable name changes. */}
+              {t.category === "capability" && row.capability_ref && (() => {
+                const dflt = inferredBind[id]?.suggested_output_name ?? ioOf(row.capability_ref)?.output;
+                const fromGateway = !!inferredBind[id]?.suggested_output_name;
+                return (
+                  <div className="mt-3 border-t border-border pt-3">
+                    <p className="mb-1 text-xs font-medium text-muted-foreground">Output name — the name a downstream input or gateway condition reads{ioOf(row.capability_ref)?.output ? <> (schema <span className="font-mono">{ioOf(row.capability_ref)!.output}</span>)</> : null}</p>
+                    <div className="flex items-center gap-2">
+                      <Input value={row.output_name ?? ""} onChange={(e) => patch(id, { output_name: e.target.value })}
+                        placeholder={dflt ?? "<output>"} className="max-w-xs font-mono text-xs" />
+                      {fromGateway && (row.output_name ?? "") === dflt && (
+                        <Badge variant="agent" className="shrink-0 text-[10px]" title="Defaulted from the gateway this task feeds — editable">from gateway</Badge>
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
+
               {/* ADR-048: input sourcing — where each capability input's data comes from (pre-filled
                   from the diagram; a "suggested" chip marks the inference). */}
               {t.category === "capability" && ioOf(row.capability_ref)?.input && (() => {
                 const inName = ioOf(row.capability_ref)!.input;
-                const sug = resolveInputSources(id, refForRows)[inName];
+                const sug = resolveInputSources(id, refForRows, humanOutRows)[inName];
                 const cur = (row.input_sources ?? {})[inName];
                 return (
                   <div className="mt-3 border-t border-border pt-3">
@@ -1403,6 +1691,21 @@ function BindingsStep({ session, onDone }: { session: OnboardingSession; onDone:
                 <Field label="Message name">
                   <Input value={row.message_name ?? ""} onChange={(e) => patch(id, { message_name: e.target.value })} placeholder="payment.status.reply" className="font-mono text-xs" />
                 </Field>
+              )}
+
+              {/* ADR-048 (human tasks): a human task declares the read-only CONTEXT artifact(s) it READS — the
+                  same input_map mechanism a capability uses, sourced from the same upstream outputs. */}
+              {t.category === "human" && (
+                <HumanInputsEditor row={row} artifactChoices={artifactChoices}
+                  outputs={allOutputs.filter((o) => o.element !== id)}
+                  onChange={(inputs, input_sources) => patch(id, { inputs, input_sources })} />
+              )}
+
+              {/* ADR-050: a human/message task declares the artifact(s) it PRODUCES — first-class outputs a
+                  downstream capability input can source from. */}
+              {(t.category === "human" || t.category === "message") && (
+                <HumanOutputsEditor row={row} artifactChoices={artifactChoices} domain={session.basics.default_domain}
+                  onChange={(outputs) => { patch(id, { outputs }); rederiveFromProducer(id); }} onAuthor={authorArtifact} />
               )}
 
               {/* ADR-039 call executor: the callee pack + range + IO maps (no HITL of its own). */}
@@ -1461,13 +1764,108 @@ function toPredicate(n: any): Record<string, unknown> {
     else if (["gt", "gte", "lt", "lte"].includes(n.op) && n.value !== "" && !isNaN(Number(n.value))) value = Number(n.value);
     return { field: n.field, op: n.op, value };
   }
-  if (n.kind === "not") return { not: toPredicate(n.children[0] ?? { leaf: true, field: "reason_code", op: "eq", value: "" }) };
+  if (n.kind === "not") return { not: toPredicate(n.children[0] ?? { leaf: true, field: "", op: "eq", value: "" }) };
   return { [n.kind]: n.children.map(toPredicate) };
 }
 
-function TriageStep({ session, onDone }: { session: OnboardingSession; onDone: (s: OnboardingSession) => void }) {
-  // Batch-4: the pack's trigger field/type map. When present, leaves author against the real schema (field
-  // picker + type-valid ops) so a non-existent field or an incompatible op can't be authored by hand.
+// ADR-049/050: reusable "author an artifact schema" affordance — an artifact id + title + JSON-Schema with a
+// submit button. Powers both the pack trigger declaration (ADR-049) and an operator-authored output artifact
+// for a human/message task (ADR-050). `onDeclare` performs the actual PUT; errors are caught + toasted here.
+function ArtifactSchemaEditor({
+  domain, idLabel, idPlaceholder, titlePlaceholder, schemaLabel, submitLabel, initial, onDeclare,
+}: {
+  domain: string;
+  idLabel: string; idPlaceholder: string; titlePlaceholder: string; schemaLabel: string; submitLabel: string;
+  initial?: { artifact_key: string; title?: string | null; json_schema: unknown } | null;
+  onDeclare: (req: OnbArtifactRequest) => Promise<void>;
+}) {
+  const [artifactKey, setArtifactKey] = useState(initial?.artifact_key ?? `art.${domain}.`);
+  const [title, setTitle] = useState(initial?.title ?? "");
+  const [schemaText, setSchemaText] = useState(initial ? JSON.stringify(initial.json_schema, null, 2) : "");
+  const [busy, setBusy] = useState(false);
+
+  async function declare() {
+    let parsed: any;
+    try { parsed = JSON.parse(schemaText); }
+    catch { toast.error(`${schemaLabel} is not valid JSON`); return; }
+    // ADR-052 E3: accept the inner JSON-Schema OR a whole artifact file — auto-unwrap `json_schema`. When the
+    // file also carries an artifact_key/title and the fields are still blank, adopt those too.
+    const isWhole = parsed && typeof parsed === "object" && parsed.json_schema && typeof parsed.json_schema === "object";
+    const json_schema = isWhole ? parsed.json_schema : parsed;
+    setBusy(true);
+    try {
+      const key = (artifactKey.trim() && artifactKey.trim() !== `art.${domain}.`) ? artifactKey.trim()
+        : (isWhole && typeof parsed.artifact_key === "string" ? parsed.artifact_key : artifactKey.trim());
+      const ttl = title.trim() || (isWhole && typeof parsed.title === "string" ? parsed.title : "") || key;
+      await onDeclare({ artifact_key: key, version: "1.0.0", title: ttl, json_schema });
+    } catch (e) {
+      toast.error(extractErrors(e).fields.map((f) => f.message).join("; ") || extractErrors(e).general);
+    } finally { setBusy(false); }
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="flex gap-3">
+        <Field label={idLabel}><Input value={artifactKey} onChange={(e) => setArtifactKey(e.target.value)} placeholder={idPlaceholder} className="font-mono text-xs" /></Field>
+        <Field label="Title"><Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder={titlePlaceholder} /></Field>
+      </div>
+      <Field label={schemaLabel}>
+        <Textarea value={schemaText} onChange={(e) => setSchemaText(e.target.value)} rows={12} className="font-mono text-xs"
+          placeholder={"{\n  \"type\": \"object\",\n  \"required\": [\"order_type\"],\n  \"properties\": { \"order_type\": { \"type\": \"string\" } }\n}"} />
+        <p className="mt-1 text-[11px] text-muted-foreground">Paste the JSON-Schema, or a whole <span className="font-mono">art.*.json</span> file — its <span className="font-mono">json_schema</span> is unwrapped automatically.</p>
+      </Field>
+      <div className="flex justify-end">
+        <Button size="sm" disabled={busy || !artifactKey.trim() || !schemaText.trim()} onClick={declare}>{busy ? "Saving…" : submitLabel}</Button>
+      </div>
+    </div>
+  );
+}
+
+// ADR-049: declare the pack's trigger artifact schema — registers art.<domain>.<name> as ProcessPack.trigger and
+// (backend-flattened) drives the Triage field picker below. No SEED_DIR sample-exception dependency.
+function TriggerDeclareCard({ session, onSession }: { session: OnboardingSession; onSession: (s: OnboardingSession) => void }) {
+  const declared = session.trigger_artifact ?? null;
+  const domain = session.basics.default_domain;
+  const fieldCount = Object.keys(session.trigger_fields ?? {}).length;
+  const [open, setOpen] = useState(!declared && fieldCount === 0);
+
+  return (
+    <Card>
+      <CardHeader className="flex-row items-center justify-between gap-2 space-y-0">
+        <div>
+          <CardTitle>Trigger schema</CardTitle>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {declared
+              ? <>Declared <span className="font-mono">{declared.artifact_key}</span> — its {fieldCount} field{fieldCount === 1 ? "" : "s"} drive the picker below.</>
+              : fieldCount > 0
+                ? <>Using the deployment sample envelopes ({fieldCount} field{fieldCount === 1 ? "" : "s"}). Declare a schema to author against the pack's real trigger.</>
+                : <>No trigger schema — triage falls back to free-text. Declare the trigger JSON-Schema to get a typed field picker.</>}
+          </p>
+        </div>
+        <Button variant="outline" size="sm" onClick={() => setOpen((o) => !o)}>{open ? "Close" : declared ? "Replace" : "Declare"}</Button>
+      </CardHeader>
+      {open && (
+        <CardContent>
+          <ArtifactSchemaEditor
+            domain={domain} idLabel="Trigger artifact id" idPlaceholder={`art.${domain}.order_ticket`}
+            titlePlaceholder="Order ticket (trigger)" schemaLabel="Trigger JSON-Schema" submitLabel="Declare trigger"
+            initial={declared as { artifact_key: string; title?: string | null; json_schema: unknown } | null}
+            onDeclare={async (req) => {
+              onSession(await declareOnboardingTrigger(session.session_id, req));
+              setOpen(false);
+              toast.success("Trigger declared — the field picker below now offers its properties");
+            }}
+          />
+        </CardContent>
+      )}
+    </Card>
+  );
+}
+
+function TriageStep({ session, onDone, onSession }: { session: OnboardingSession; onDone: (s: OnboardingSession) => void; onSession: (s: OnboardingSession) => void }) {
+  // ADR-049: the pack's trigger field/type map — flattened from the DECLARED trigger schema when the operator
+  // declared one (below), else the deployment sample envelopes. When present, leaves author against the real
+  // schema (field picker + type-valid ops) so a non-existent field or an incompatible op can't be hand-authored.
   const fields = (session.trigger_fields ?? {}) as Record<string, string>;
   const hasSchema = Object.keys(fields).length > 0;
   const newLeaf = () => {
@@ -1479,6 +1877,14 @@ function TriageStep({ session, onDone }: { session: OnboardingSession; onDone: (
   const [priority, setPriority] = useState(session.triage_rules[0]?.priority ?? 100);
   const [tree, setTree] = useState<any>({ kind: "all", children: [newLeaf()] });
   const [busy, setBusy] = useState(false);
+
+  // Declaring/replacing the trigger changes the field set (backend also clears any authored rules) → reset the
+  // predicate to a fresh, type-appropriate leaf so the editor never shows a stale field.
+  const fieldsKey = JSON.stringify(fields);
+  useEffect(() => {
+    setTree({ kind: "all", children: [newLeaf()] });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fieldsKey]);
 
   async function submit() {
     setBusy(true);
@@ -1494,8 +1900,9 @@ function TriageStep({ session, onDone }: { session: OnboardingSession; onDone: (
     <div className="space-y-4">
       <p className="flex items-start gap-1.5 rounded-md border border-border bg-surface/40 p-3 text-xs text-muted-foreground">
         <Info className="mt-0.5 size-3.5 shrink-0" />
-        Triage rules describe which exceptions this pack handles — they match the incoming exception <span className="font-medium">envelope</span>, not the diagram, so they are not derivable from the BPMN. Author at least one below.
+        Triage rules describe which exceptions this pack handles — they match the incoming trigger <span className="font-medium">payload</span>, not the diagram, so they are not derivable from the BPMN. Author at least one below.
       </p>
+      <TriggerDeclareCard session={session} onSession={onSession} />
       <Card>
         <CardHeader><CardTitle>Triage rule</CardTitle></CardHeader>
         <CardContent className="space-y-4">
@@ -1573,13 +1980,26 @@ function PredicateEditor({ node, onChange, depth, onRemove, fields, newLeaf }: {
 function PoliciesStep({ session, onDone }: { session: OnboardingSession; onDone: (s: OnboardingSession) => void }) {
   const gateways = session.bpmn!.gateways;
   const tasks = session.bpmn!.bindable_elements.map((e) => e.element_id);   // SoD over the full bindable set
-  const artifacts = Array.from(new Set(session.staged_artifacts.map((a) => a.artifact_key)));
-  // ADR-027 Phase 1: pre-fill gateway variables from inferred conditions (operator adds source_artifact).
+  // ADR-051/052 E3: a gateway branches on a produced binding OUTPUT (its name is the variable's first segment).
+  // Map every output name → the artifact key it carries, so the source_artifact auto-derives from the variable.
+  const outputArtifact = Object.fromEntries(
+    session.bindings.flatMap((b) => (b.outputs ?? []).map((o) => [o.name, (o.schema_ref ?? "").split("@")[0]] as const))
+      .filter(([, a]) => a),
+  );
+  const artifacts = Array.from(new Set([
+    ...session.staged_artifacts.map((a) => a.artifact_key),
+    ...(session.authored_artifacts ?? []).map((a) => a.artifact_key),
+    ...Object.values(outputArtifact),
+  ].filter(Boolean)));
+  // ADR-027 Phase 1: pre-fill gateway variables from inferred conditions; ADR-052 E3: auto-derive the
+  // source_artifact from the variable's first segment → that named output's artifact (operator can change).
   const inferredGv = Object.fromEntries((session.inferred?.gateway_variables ?? []).map((g) => [g.gateway_id, g.variable]));
   const [gvars, setGvars] = useState<Record<string, { variable: string; source_artifact: string }>>(
     () => Object.fromEntries(gateways.map((g) => {
       const ex = session.gateway_variables.find((v) => v.gateway_id === g);
-      return [g, { variable: ex?.variable ?? inferredGv[g] ?? "", source_artifact: ex?.source_artifact ?? "" }];
+      const variable = ex?.variable ?? inferredGv[g] ?? "";
+      const source_artifact = ex?.source_artifact ?? outputArtifact[variable.split(".")[0] ?? ""] ?? "";
+      return [g, { variable, source_artifact }];
     })),
   );
   const [sod, setSod] = useState<string[][]>(
@@ -1649,7 +2069,7 @@ function PoliciesStep({ session, onDone }: { session: OnboardingSession; onDone:
           {gateways.map((g) => (
             <div key={g} className="grid grid-cols-2 gap-3 rounded-md border border-border p-3">
               <p className="col-span-2 font-mono text-xs font-medium">{g}</p>
-              <Field label="Decision variable (dot-path)"><Input value={gvars[g]!.variable} onChange={(e) => setGvars({ ...gvars, [g]: { ...gvars[g]!, variable: e.target.value } })} placeholder="beneficiary.repair_verdict" className="font-mono text-xs" /></Field>
+              <Field label="Decision variable (dot-path)"><Input value={gvars[g]!.variable} onChange={(e) => setGvars({ ...gvars, [g]: { ...gvars[g]!, variable: e.target.value } })} placeholder="<output>.<field>" className="font-mono text-xs" /></Field>
               <Field label="Source artifact">
                 <select className={selectCls} value={gvars[g]!.source_artifact} onChange={(e) => setGvars({ ...gvars, [g]: { ...gvars[g]!, source_artifact: e.target.value } })}>
                   <option value="">Select…</option>
@@ -1730,7 +2150,7 @@ function PoliciesStep({ session, onDone }: { session: OnboardingSession; onDone:
           ))}
           <Input value={roleInput} onChange={(e) => setRoleInput(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter" && roleInput.trim()) { setRoles(Array.from(new Set([...roles, roleInput.trim()]))); setRoleInput(""); } }}
-            placeholder="role.payments.ops_approver + Enter" className="w-72 font-mono text-xs" />
+            placeholder="role.<domain>.<lane> + Enter" className="w-72 font-mono text-xs" />
         </CardContent>
       </Card>
 

@@ -25,8 +25,15 @@ export function zodFromSchema(schema: JsonSchema | undefined): z.ZodTypeAny {
       // passthrough off so unexpected keys surface, matching the backend.
       return z.object(shape);
     }
-    case "array":
-      return z.array(zodFromSchema(schema.items));
+    case "array": {
+      // Mirror the backend's array bounds so an EMPTY required array (e.g. an `items` list the human left
+      // blank) is blocked client-side, not just at the backend. minItems ?? (required ? 1 : 0) would over-
+      // constrain optional arrays, so only enforce what the schema declares.
+      let arr = z.array(zodFromSchema(schema.items));
+      if (typeof schema.minItems === "number") arr = arr.min(schema.minItems);
+      if (typeof schema.maxItems === "number") arr = arr.max(schema.maxItems);
+      return arr;
+    }
     case "string": {
       if (schema.enum) return z.enum(schema.enum.map(String) as [string, ...string[]]);
       // required-ness is enforced by the parent object's `required` set; a bare

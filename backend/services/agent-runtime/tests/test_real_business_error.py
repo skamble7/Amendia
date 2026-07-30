@@ -307,13 +307,16 @@ def _install_flaky_sdk(monkeypatch, *, fail_times, result):
     import mcp.client.streamable_http as sh
     state = {"opens": 0}
 
-    def _open(endpoint, headers=None):
+    def _open(url, *args, **kwargs):        # tolerate either SDK signature (headers= vs http_client=)
         state["opens"] += 1
         if state["opens"] <= fail_times:
             raise ConnectionError("MCP server not ready (warm-up)")
         return _FakeStreams()
 
-    monkeypatch.setattr(sh, "streamablehttp_client", _open)
+    # The runtime binds whichever streamable-http client the installed mcp exposes — patch both spellings.
+    for _name in ("streamable_http_client", "streamablehttp_client"):
+        if hasattr(sh, _name):
+            monkeypatch.setattr(sh, _name, _open)
     monkeypatch.setattr(mcp, "ClientSession", lambda r, w: _FakeSession(r, w, result))
     return state
 

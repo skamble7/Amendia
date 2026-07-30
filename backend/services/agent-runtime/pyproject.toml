@@ -19,7 +19,10 @@ dependencies = [
   "jsonschema>=4.21",
   "packaging>=24.0",
   "httpx>=0.27",
-  "mcp>=1.9",
+  # Cap below mcp 1.29 / 2.0: those releases renamed the client model fields camelCase→snake_case
+  # (CallToolResult.structuredContent→structured_content) and removed streamablehttp_client — silently
+  # breaking the executor's tool-output reads. Pin to the 1.28.x line the MCP servers already run.
+  "mcp>=1.9,<1.29",
   "langgraph>=0.2.0",
   "langgraph-checkpoint-mongodb>=0.1.0",
   "langchain-core>=0.3.0",

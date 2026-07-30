@@ -43,6 +43,27 @@ class McpConnectionError(Exception):
     """Structured connection/handshake failure (→ HTTP 502 with a clean message)."""
 
 
+def _open_streamable_http(url: str, headers: Optional[Dict[str, str]]):
+    """Open a streamable-http MCP session as an async context manager, tolerant of the SDK's rename +
+    signature change: `streamablehttp_client(url, headers=...)` → `streamable_http_client(url, *,
+    http_client=...)` (headers now ride on an httpx client). Prefers the current API; falls back to the legacy
+    one so introspection works across mcp versions."""
+    from mcp.client import streamable_http as _shttp
+    new = getattr(_shttp, "streamable_http_client", None)
+    if new is not None:
+        factory = getattr(_shttp, "create_mcp_http_client", None)
+        if headers and factory is not None:
+            return new(url, http_client=factory(headers=headers))
+        return new(url)
+    old = getattr(_shttp, "streamablehttp_client", None)
+    if old is not None:
+        return old(url, headers=headers)
+    raise McpConnectionError(  # pragma: no cover - dependency guard
+        "the installed mcp package exposes no streamable-http client "
+        "(neither streamable_http_client nor streamablehttp_client)"
+    )
+
+
 @dataclass
 class RawMcpTool:
     name: str
@@ -91,12 +112,13 @@ class RealMcpIntrospector:
             ) from exc
 
         if transport == "sse":
-            from mcp.client.sse import sse_client as _open
+            from mcp.client.sse import sse_client
+            opener = sse_client(endpoint, headers=headers)
         else:
-            from mcp.client.streamable_http import streamablehttp_client as _open
+            opener = _open_streamable_http(endpoint, headers)
 
         try:
-            async with _open(endpoint, headers=headers) as streams:
+            async with opener as streams:
                 read, write = streams[0], streams[1]
                 async with ClientSession(read, write) as session:
                     await session.initialize()
@@ -242,6 +264,20 @@ def classify_id_collision(active: List[Any], *, domain: str, tool: str) -> Optio
     )
 
 
+# ADR-052 E3: MCP Implementor Guideline §4 — an ACTION (side-effectful) tool's output carries the
+# acknowledgement shape. Amendia can't otherwise infer side-effectfulness from MCP, so this deterministic
+# signal is the default (operator-overridable in the Capabilities step).
+_ACK_FIELDS = frozenset({"acknowledged", "action_id", "status"})
+
+
+def carries_ack_shape(output_schema: Optional[Dict[str, Any]]) -> bool:
+    """True when the tool output declares the acknowledgement shape (acknowledged + action_id + status)."""
+    if not isinstance(output_schema, dict):
+        return False
+    props = output_schema.get("properties")
+    return isinstance(props, dict) and _ACK_FIELDS.issubset(props.keys())
+
+
 def introspect_response_tool(tool: RawMcpTool, *, domain: str) -> IntrospectedTool:
     """Shape one tool for the introspection response, with suggested ids when compliant."""
     compliance = evaluate_compliance(tool)
@@ -255,6 +291,7 @@ def introspect_response_tool(tool: RawMcpTool, *, domain: str) -> IntrospectedTo
         suggested_input_artifact_key=ids.get("input_artifact_key"),
         suggested_output_artifact_key=ids.get("output_artifact_key"),
         suggested_capability_id=ids.get("capability_id"),
+        suggested_side_effect="side_effectful" if carries_ack_shape(tool.output_schema) else "read_only",
     )
 
 

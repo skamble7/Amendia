@@ -17,12 +17,15 @@ from amendia_auth import AuthContext, principal_or_internal
 
 from app.config import auth_settings, settings
 from app.dal.exceptions_repo import ExceptionRepository
+from app.dal.tickets_repo import TicketRepository
 from app.db.mongo import MongoClient
 from app.events.rabbit import RabbitPublisher
 from app.logging_conf import configure_logging
 from app.middleware.request_id import RequestIDMiddleware
 from app.routers import exceptions as exceptions_router
+from app.routers import generators as generators_router
 from app.routers import health as health_router
+from app.routers import tickets as tickets_router
 
 logger = logging.getLogger(__name__)
 
@@ -36,8 +39,13 @@ async def lifespan(app: FastAPI):
     publisher = RabbitPublisher(settings.RABBITMQ_URL)
     await publisher.connect()
 
+    # Dine-in tickets live in a sibling collection with the same unique-id idempotency.
+    ticket_coll = mongo.collection_for(settings.MONGO_TICKETS_COLLECTION)
+    await ticket_coll.create_index("ticket_id", unique=True)
+
     app.state.mongo = mongo
     app.state.repo = ExceptionRepository(mongo.collection)
+    app.state.ticket_repo = TicketRepository(ticket_coll)
     app.state.publisher = publisher
     app.state.auth = AuthContext(auth_settings)
     logger.info("stub_exception_generator ready")
@@ -70,6 +78,9 @@ def create_app() -> FastAPI:
     # are also called service-to-service (runtime/ingestor), so accept the internal
     # token too. Under compat-stub, endpoints are exempt when no bearer is present.
     app.include_router(exceptions_router.router, dependencies=[Depends(principal_or_internal)])
+    app.include_router(tickets_router.router, dependencies=[Depends(principal_or_internal)])
+    # Domain-neutral discovery: the UI reads this catalog to offer trigger sources without hardcoding any domain.
+    app.include_router(generators_router.router, dependencies=[Depends(principal_or_internal)])
     return app
 
 

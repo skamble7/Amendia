@@ -1,0 +1,37 @@
+{
+  "artifact_key": "art.dining.order",
+  "version": "1.0.0",
+  "title": "Dine-in order",
+  "description": "The party's order as a list of menu-item names — declared by the diner on the manual Select-items task and re-picked on Revise. Every attribute (price, availability, allergen tags) is resolved from the menu by the tools, so the order carries only the chosen dish names. The enum of the ten dish names makes the HITL form render a menu dropdown. Author this schema in the wizard — it is a human-authored artifact (Task_SelectItems's output), not a tool output.",
+  "json_schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://amendia.dev/schemas/artifacts/dining/order/1.0.0.json",
+    "type": "object",
+    "required": ["items"],
+    "additionalProperties": false,
+    "properties": {
+      "items": {
+        "type": "array",
+        "minItems": 1,
+        "description": "The dishes the party selected; each must be one of the menu items (the enum renders a dropdown in the HITL form).",
+        "items": {
+          "type": "string",
+          "enum": [
+            "Bruschetta al Pomodoro",
+            "Burrata con Noci",
+            "Spaghetti alla Carbonara",
+            "Risotto ai Funghi",
+            "Pollo alla Marsala",
+            "Branzino al Forno",
+            "Osso Buco (86)",
+            "Tiramisù",
+            "Torta di Nocciole",
+            "Sorbetto al Limone"
+          ]
+        }
+      }
+    }
+  },
+  "compatibility": "backward",
+  "status": "active"
+}

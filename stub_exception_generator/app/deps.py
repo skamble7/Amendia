@@ -10,12 +10,17 @@ from __future__ import annotations
 from fastapi import Request
 
 from app.dal.exceptions_repo import ExceptionRepository
+from app.dal.tickets_repo import TicketRepository
 from app.db.mongo import MongoClient
 from app.events.rabbit import RabbitPublisher
 
 
 def get_repo(request: Request) -> ExceptionRepository:
     return request.app.state.repo
+
+
+def get_ticket_repo(request: Request) -> TicketRepository:
+    return request.app.state.ticket_repo
 
 
 def get_publisher(request: Request) -> RabbitPublisher:

@@ -145,9 +145,11 @@ class FakeStubClient:
     def __init__(self, fail: bool = False) -> None:
         self.fail = fail
         self.calls: list[str] = []
+        self.fetch_urls: list[str | None] = []
 
-    async def fetch_exception(self, exception_id: str) -> Dict[str, Any]:
+    async def fetch_exception(self, exception_id: str, fetch_url: str | None = None) -> Dict[str, Any]:
         self.calls.append(exception_id)
+        self.fetch_urls.append(fetch_url)
         if self.fail:
             raise RuntimeError("stub unreachable")
         return {

@@ -145,6 +145,15 @@ class InferredBinding(BaseModel):
     # ADR-048 D4: every upstream CAPABILITY element reachable on the flows into this node (nearest-first).
     # The field-level refinement matches this node's input fields against these elements' output schemas.
     upstream_caps: List[str] = Field(default_factory=list)
+    # ADR-050: every upstream PRODUCER element (capability + human/message/call whose binding may declare an
+    # output) reachable on the flows into this node, nearest-first, terminating at the first producer on each
+    # branch. Superset of ``upstream_caps`` — lets a capability input source from a human-authored artifact.
+    upstream_producers: List[str] = Field(default_factory=list)
+    # ADR-051: when this capability task's output feeds an exclusiveGateway, the gateway condition's first
+    # segment (e.g. ``validation`` from ``validation.order_verdict``) — the name the runtime needs the output to
+    # carry for the gateway to branch. The Bindings step defaults the capability's output name to this. None ⇒
+    # the task feeds no gateway ⇒ the output keeps its ``<tool>_output`` default.
+    suggested_output_name: Optional[str] = None
     suggested_hitl_mode: str = "none"
     source_lane: Optional[str] = None
 
@@ -369,6 +378,15 @@ class OnboardingSession(BaseModel):
     # envelopes at create. Drives schema-aware triage authoring (field picker + type-valid ops). Empty when no
     # trigger schema is available (the Triage step then falls back to free-text + structural checks only).
     trigger_fields: Dict[str, str] = Field(default_factory=dict)
+    # ADR-049: the operator-DECLARED trigger artifact schema (art.<domain>.<name>). When set, trigger_fields is
+    # flattened from THIS schema (not the sample envelopes), and it is registered + emitted as the manifest's
+    # ProcessPack.trigger. None ⇒ fall back to the deployment sample envelopes (opaque if there are none).
+    trigger_artifact: Optional[StagedArtifact] = None
+    # ADR-050: operator-authored artifact schemas that are neither a tool's I/O nor the trigger (e.g.
+    # art.dining.order, a human task's output shape). Kept apart from ``staged_artifacts`` — which
+    # ``set_capabilities`` rebuilds wholesale from introspection — so re-staging capabilities never drops
+    # them. Registered + listed among the pack artifacts at assemble, and referenceable by a binding output.
+    authored_artifacts: List[StagedArtifact] = Field(default_factory=list)
     bpmn: Optional[BpmnInventory] = None
     staged_artifacts: List[StagedArtifact] = Field(default_factory=list)
     staged_capabilities: List[StagedCapability] = Field(default_factory=list)
@@ -500,12 +518,49 @@ class BindingInput(BaseModel):
     call_version: Optional[str] = None
     input_map: Dict[str, str] = Field(default_factory=dict)
     output_map: Dict[str, str] = Field(default_factory=dict)
-    # ADR-048: capability input sourcing (input name -> InputSource) — where each input's data comes from.
+    # ADR-048: per-input data sourcing (input name -> InputSource) — where each input's data comes from. Used by
+    # a CAPABILITY binding (auto-derived from the bound tool + upstream producers) AND, symmetrically, by a HUMAN
+    # binding to source the read-only context artifacts it declares in ``inputs`` from an upstream output.
     input_sources: Dict[str, Any] = Field(default_factory=dict)
+    # ADR-050 + ADR-048: a human/message binding may DECLARE the artifact(s) it produces AND the ones it reads as
+    # read-only context — each ``schema_ref`` referencing a staged/authored/trigger artifact (its source is in
+    # ``input_sources``). Ignored for a capability binding (IO mirrored from the tool) and call (uses input/output_map).
+    inputs: List[StagedBindingIO] = Field(default_factory=list)
+    outputs: List[StagedBindingIO] = Field(default_factory=list)
+    # ADR-051: a settable OUTPUT NAME for a CAPABILITY binding — the runtime resolves gateway conditions against
+    # binding output names (``validation.order_verdict`` needs an output literally named ``validation``), so the
+    # name must be authorable, not forced to ``<tool>_output``. Renames the mirrored output; schema_ref is
+    # unchanged. None ⇒ default from the fed gateway's condition, else ``<tool>_output``.
+    output_name: Optional[str] = None
 
 
 class SetBindingsRequest(BaseModel):
     bindings: List[BindingInput] = Field(default_factory=list)
+
+
+class DeclareTriggerRequest(BaseModel):
+    """ADR-049: declare the pack's trigger artifact schema. The operator provides the trigger JSON-Schema
+    (registered as ``art.<domain>.<name>``); it drives the Triage field picker and is emitted as
+    ``ProcessPack.trigger``. Same shape as a :class:`StagedArtifact`, but operator-authored, not introspected."""
+
+    artifact_key: str
+    version: str = "1.0.0"
+    title: str
+    description: Optional[str] = None
+    json_schema: Dict[str, Any]
+
+
+class DeclareArtifactRequest(BaseModel):
+    """ADR-050: declare (upsert) an operator-authored artifact schema — one that is neither a tool's I/O nor
+    the trigger (e.g. ``art.dining.order``, the shape a human task produces). Same fields as a trigger
+    declaration; stored on ``authored_artifacts`` and registered like any staged schema at assemble. A
+    binding output may then reference it by ``schema_ref``."""
+
+    artifact_key: str
+    version: str = "1.0.0"
+    title: str
+    description: Optional[str] = None
+    json_schema: Dict[str, Any]
 
 
 class SetTriageRequest(BaseModel):
@@ -560,6 +615,9 @@ class IntrospectedTool(BaseModel):
     suggested_input_artifact_key: Optional[str] = None
     suggested_output_artifact_key: Optional[str] = None
     suggested_capability_id: Optional[str] = None
+    # ADR-052 E3: side-effect default — `side_effectful` when the tool OUTPUT carries the acknowledgement shape
+    # (acknowledged + action_id + status), else `read_only`. Operator-overridable in the Capabilities step.
+    suggested_side_effect: str = "read_only"
     # Batch-4: set when the derived id collides with an active catalog capability (advisory).
     id_collision: Optional[IdCollision] = None
 

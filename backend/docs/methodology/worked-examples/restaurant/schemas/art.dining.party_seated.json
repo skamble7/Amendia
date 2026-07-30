@@ -1,0 +1,27 @@
+{
+  "artifact_key": "art.dining.party_seated",
+  "version": "1.0.0",
+  "title": "Party seated (trigger)",
+  "description": "The event that starts the dine-in process: a seated party, ready to order. It carries only what is known at seating — no food order (that comes from the diner's Select-items HITL task) and no tender (captured later at the payment step). Published by the stub generator (or any upstream) and matched by the pack's triage rule on order_type. Author this schema in the wizard — it is the process trigger, not a tool output, so it cannot be introspected from the MCP server.",
+  "json_schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://amendia.dev/schemas/artifacts/dining/party_seated/1.0.0.json",
+    "type": "object",
+    "required": ["ticket_id", "order_type"],
+    "additionalProperties": false,
+    "properties": {
+      "ticket_id": { "type": "string", "description": "Unique id for this seated party's check." },
+      "order_type": { "type": "string", "enum": ["dine_in"], "description": "Triage matches on this." },
+      "table": { "type": "string" },
+      "party_size": { "type": "integer", "minimum": 1 },
+      "dietary_flags": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "Party-level allergens/diets flagged at seating, e.g. [\"nuts\"] — screen_allergens reads these."
+      },
+      "seated_at": { "type": "string", "format": "date-time" }
+    }
+  },
+  "compatibility": "backward",
+  "status": "active"
+}

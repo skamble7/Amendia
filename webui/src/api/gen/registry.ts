@@ -211,6 +211,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/onboarding/{session_id}/artifacts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Declare Artifact
+         * @description ADR-050: declare (upsert) an operator-authored artifact schema — one a human/message binding can
+         *     output (e.g. art.dining.order). Registered + listed among the pack artifacts at assemble.
+         */
+        put: operations["declare_artifact_onboarding__session_id__artifacts_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/onboarding/{session_id}/assemble": {
         parameters: {
             query?: never;
@@ -323,6 +344,26 @@ export interface paths {
         get?: never;
         /** Set Triage */
         put: operations["set_triage_onboarding__session_id__triage_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/onboarding/{session_id}/trigger": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Declare Trigger
+         * @description ADR-049: declare the pack's trigger artifact schema (drives the Triage field picker).
+         */
+        put: operations["declare_trigger_onboarding__session_id__trigger_put"];
         post?: never;
         delete?: never;
         options?: never;
@@ -746,12 +787,18 @@ export interface components {
             input_sources?: {
                 [key: string]: unknown;
             };
+            /** Inputs */
+            inputs?: components["schemas"]["StagedBindingIO"][];
             /** Message Name */
             message_name?: string | null;
             /** Output Map */
             output_map?: {
                 [key: string]: string;
             };
+            /** Output Name */
+            output_name?: string | null;
+            /** Outputs */
+            outputs?: components["schemas"]["StagedBindingIO"][];
             /** Role */
             role?: string | null;
         };
@@ -1091,6 +1138,53 @@ export interface components {
             title?: string | null;
         };
         /**
+         * DeclareArtifactRequest
+         * @description ADR-050: declare (upsert) an operator-authored artifact schema — one that is neither a tool's I/O nor
+         *     the trigger (e.g. ``art.dining.order``, the shape a human task produces). Same fields as a trigger
+         *     declaration; stored on ``authored_artifacts`` and registered like any staged schema at assemble. A
+         *     binding output may then reference it by ``schema_ref``.
+         */
+        DeclareArtifactRequest: {
+            /** Artifact Key */
+            artifact_key: string;
+            /** Description */
+            description?: string | null;
+            /** Json Schema */
+            json_schema: {
+                [key: string]: unknown;
+            };
+            /** Title */
+            title: string;
+            /**
+             * Version
+             * @default 1.0.0
+             */
+            version: string;
+        };
+        /**
+         * DeclareTriggerRequest
+         * @description ADR-049: declare the pack's trigger artifact schema. The operator provides the trigger JSON-Schema
+         *     (registered as ``art.<domain>.<name>``); it drives the Triage field picker and is emitted as
+         *     ``ProcessPack.trigger``. Same shape as a :class:`StagedArtifact`, but operator-authored, not introspected.
+         */
+        DeclareTriggerRequest: {
+            /** Artifact Key */
+            artifact_key: string;
+            /** Description */
+            description?: string | null;
+            /** Json Schema */
+            json_schema: {
+                [key: string]: unknown;
+            };
+            /** Title */
+            title: string;
+            /**
+             * Version
+             * @default 1.0.0
+             */
+            version: string;
+        };
+        /**
          * DeepAgentBudget
          * @description Hard budget caging a deep_agent loop (ADR-021).
          */
@@ -1293,10 +1387,14 @@ export interface components {
             suggested_input_source?: {
                 [key: string]: unknown;
             } | null;
+            /** Suggested Output Name */
+            suggested_output_name?: string | null;
             /** Suggested Role */
             suggested_role?: string | null;
             /** Upstream Caps */
             upstream_caps?: string[];
+            /** Upstream Producers */
+            upstream_producers?: string[];
         };
         /** InferredGatewayVariable */
         InferredGatewayVariable: {
@@ -1363,6 +1461,11 @@ export interface components {
             suggested_input_artifact_key?: string | null;
             /** Suggested Output Artifact Key */
             suggested_output_artifact_key?: string | null;
+            /**
+             * Suggested Side Effect
+             * @default read_only
+             */
+            suggested_side_effect: string;
         };
         /** LaneSummary */
         LaneSummary: {
@@ -1468,6 +1571,8 @@ export interface components {
         };
         /** OnboardingSession */
         OnboardingSession: {
+            /** Authored Artifacts */
+            authored_artifacts?: components["schemas"]["StagedArtifact"][];
             basics: components["schemas"]["Basics"];
             /** Bindings */
             bindings?: components["schemas"]["StagedBinding"][];
@@ -1512,6 +1617,7 @@ export interface components {
             state: components["schemas"]["OnboardingState"];
             /** Triage Rules */
             triage_rules?: components["schemas"]["StagedTriageRule"][];
+            trigger_artifact?: components["schemas"]["StagedArtifact"] | null;
             /** Trigger Fields */
             trigger_fields?: {
                 [key: string]: string;
@@ -2597,6 +2703,41 @@ export interface operations {
             };
         };
     };
+    declare_artifact_onboarding__session_id__artifacts_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeclareArtifactRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OnboardingSession"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     assemble_onboarding__session_id__assemble_post: {
         parameters: {
             query?: never;
@@ -2811,6 +2952,41 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["SetTriageRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OnboardingSession"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    declare_trigger_onboarding__session_id__trigger_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeclareTriggerRequest"];
             };
         };
         responses: {

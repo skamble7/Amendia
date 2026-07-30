@@ -62,9 +62,8 @@ async def validate_schema(reg: ArtifactSchemaRegistration, repo: ArtifactSchemaR
 
     if js.get("type") != "object":
         errors.append("json_schema root 'type' must be 'object'")
-    expected = _expected_id(reg.artifact_key, reg.version)
-    if js.get("$id") != expected:
-        errors.append(f"json_schema '$id' must be '{expected}', got '{js.get('$id')}'")
+    # ADR-052 E2: the canonical $id is DERIVED and OVERRIDDEN at registration (see register_schema) — no author
+    # hand-matches it to the domain — so it is NOT validated here.
     if js.get("additionalProperties") is not False:
         warnings.append("json_schema should set additionalProperties=false")
 
@@ -91,6 +90,11 @@ async def validate_schema(reg: ArtifactSchemaRegistration, repo: ArtifactSchemaR
 
 async def register_schema(reg: ArtifactSchemaRegistration, repo: ArtifactSchemaRepository) -> ArtifactSchemaRegistration:
     """Full pipeline; raises RegistrationError on hard failures, DuplicateError on 409."""
+    # ADR-052 E2: DERIVE the canonical $id from the artifact key + version and OVERRIDE whatever was supplied
+    # (a foreign-domain $id, or none) — the author never hand-matches it. Applies to introspected, authored, and
+    # trigger artifacts alike (all register through here). A supplied $id is normalized, not validated/rejected.
+    if isinstance(reg.json_schema, dict):
+        reg.json_schema["$id"] = _expected_id(reg.artifact_key, reg.version)
     errors, warnings = await validate_schema(reg, repo)
     if errors:
         raise RegistrationError(errors, warnings)

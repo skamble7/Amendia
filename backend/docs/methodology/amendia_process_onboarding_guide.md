@@ -270,9 +270,24 @@ Per binding: `element_id`, `element_kind`, `executor` (`{type: capability, capab
 `{type: call, pack, version, input_map, output_map}`), `hitl {mode, role}` (capability/human only),
 `inputs`/`outputs` (artifactIO), and — for a capability — an **`input_map`** (ADR-048).
 
-**Input sourcing (ADR-048):** a capability binding's `input_map` declares **where each input's data comes
-from** — `{from: trigger, path?}` (the process trigger, whole or a dotpath), `{from: artifact, name, path?}` (a
-named upstream output), or `{fields: {…}}` (a composite object built from a mix). This is what makes an
+**Output naming (ADR-051):** a capability binding's `outputs[].name` is **settable** (its artifact `schema_ref`
+is unchanged — only the addressable name changes). This matters because the runtime resolves a gateway
+condition against binding **output names** (`state.artifacts["validation"]["order_verdict"]` for
+`validation.order_verdict`), not against `<tool>_output`. Introspection defaults the name to `<tool>_output`, so
+the wizard **auto-defaults** it to the gateway a task feeds: for a capability immediately upstream of an
+`exclusiveGateway`, the default is the gateway condition's **first segment** (`validation` / `allergen` /
+`receipt`), else `<tool>_output`. Deterministic (graph position + condition text), editable, precedence
+**operator-set → gateway default → `<tool>_output`**. The Bindings step shows an editable **Output name** field
+(with a "from gateway" chip on the inferred default); the upstream-output picker and the input-map suggestion use
+the chosen name, and the gateway's inferred decision-variable first segment lines up with it (both come from the
+same condition). Human/message outputs (ADR-050) keep their own declared names; a `call` binding uses its
+`output_map`. A mismatch — a gateway condition whose first segment names no produced output — is a Stage-6
+**error** (`gateway_condition_unproduced`), not a silently non-branching gateway.
+
+**Input sourcing (ADR-048 + ADR-050):** a capability binding's `input_map` declares **where each input's data
+comes from** — `{from: trigger, path?}` (the process trigger, whole or a dotpath), `{from: artifact, name, path?}`
+(a named upstream output — a capability output **or** a human/message-authored artifact, ADR-050), or
+`{fields: {…}}` (a composite object built from a mix). This is what makes an
 **MCP-per-process pack chain**: introspected tools emit `<tool>_output` and need `<tool>_input`, so per-tool
 inputs never share names — the map wires the entry task from the **trigger** and later tasks from **upstream
 outputs**, and (for `mcp`) becomes the tool-call `arguments`. The step **pre-fills** each source **field by
@@ -281,11 +296,13 @@ field** (ADR-048 D4): reading the tool schemas, it matches every input field to 
 `{fields: {…}}`; an **entry** task sources the whole trigger. The suggestion is keyed off the **bound
 `capability_ref`**, never a name guess: `set_capabilities` seeds an initial hint from the pre-selected
 capability, then `set_bindings` **authoritatively** refills each capability binding's `input_sources` from *its
-own* bound capability's schemas + the upstream producers' outputs (filling only inputs the operator left unset)
-— so a task whose **BPMN element name diverges from its tool id** still gets a full field-level map once bound.
-The trigger is **opaque** today (no declared trigger
-artifact — ADR-047 deferred), so a field with no upstream producer defaults to a trigger path (the only
-remaining origin, validated as satisfiable); each pre-filled field carries a **"suggested"** chip and the
+own* bound capability's schemas + the **upstream producers' outputs** (filling only inputs the operator left
+unset) — so a task whose **BPMN element name diverges from its tool id** still gets a full field-level map once
+bound. **The upstream-producer set is not capability-only (ADR-050):** it also includes any **human/message**
+task that declares an output, so a capability input can auto-source from a **human-authored artifact** (e.g.
+`Task_TakeOrder`'s `order`).
+The trigger is **opaque unless the pack declares a trigger artifact** (ADR-049 — see Step 4b); a field with no
+upstream producer defaults to a trigger path (the only remaining origin, validated as satisfiable); each pre-filled field carries a **"suggested"** chip and the
 operator overrides via the composite picker. A binding **without** `input_map` chains by shared artifact name (unchanged). It is
 **validated** (below): an input that is neither mapped nor produced upstream is a hard error, not a runtime
 death. The binding UI renders an executor sub-form per category and shows
@@ -339,6 +356,54 @@ capability-slot nudge (the provider name + suggested id + "introspect for this")
 (approve/reject as-is), `approve_actions` (approve side-effects before they execute — the money-moving gate),
 `manual` (a human performs it; an `assist_capability` may pre-draft).
 
+### Step 4b — Declare the trigger schema · `PUT /onboarding/{id}/trigger` (ADR-049)
+
+The **trigger** is the payload that starts the process. Because it is a process *input* (not a tool output) it
+can't be MCP-introspected — the operator **declares** it: an artifact id `art.<domain>.<name>` plus its
+JSON-Schema, authored in the wizard's **Trigger schema** panel (in the Triage step). The backend registers the
+schema like any staged artifact, emits it as the pack's `ProcessPack.trigger`, and — the point of declaring —
+**flattens it into `session.trigger_fields`** (`{dotpath: json_type}`), which drives the Triage field picker
+and its schema-aware validation. It replaces the previous behaviour of learning the trigger shape from the
+deployment's `SEED_DIR/sample-exception` samples, so **any** domain's pack gets a typed picker with no seed
+dependency.
+
+Declaring is an **enrichment, not a state transition** (callable once BPMN is attached); it changes the field
+set, so it clears any already-authored triage + downstream. A pack that declares **no** trigger falls back to
+the sample envelopes (opaque if there are none) — the wire seed packs onboard exactly as before.
+
+### Step 4c — Human & message task outputs + operator-authored artifacts (ADR-050)
+
+The trigger and upstream capability outputs are not a process's only data origins: a **human** task also
+**produces** an artifact (a filled form, a decision, a resolution), and a downstream capability reads it. ADR-050
+makes that a first-class part of onboarding — the wizard, not just a hand-authored seed manifest, can now
+author it.
+
+- **Operator-authored artifacts.** An artifact that is **neither** a tool's I/O **nor** the trigger —
+  e.g. `art.dining.order`, the shape a waiter's order form produces — is declared with
+  `PUT /onboarding/{id}/artifacts` (`DeclareArtifactRequest{artifact_key, version, title, description?,
+  json_schema}`), the same "author an artifact schema" affordance generalized from the trigger panel. It is
+  stored on `session.authored_artifacts` (kept **apart** from the introspected `staged_artifacts`, which
+  `set_capabilities` rebuilds, so re-staging never drops it), **upserted** by key, registered at assemble, and
+  listed among the pack `artifacts`. Callable once BPMN is attached; it clears only the dry-run (adding a schema
+  never invalidates bindings).
+- **Human / message bindings declare outputs.** A `human` or `message` binding may carry `outputs` (and
+  symmetrically `inputs`): each an **output name + a `schema_ref`** that must resolve to a **staged, authored, or
+  trigger** artifact. `set_bindings` validates them — names unique within the binding, and each **human/message
+  output name unique across the whole run** (a `{from: artifact, name}` source addresses a produced artifact by
+  name, so a collision would be ambiguous). They emit into the manifest `Binding.outputs`. A capability's outputs
+  stay mirrored from the capability; a `call` declares IO via its `input_map`/`output_map`.
+- **They become selectable data-flow sources.** The "upstream outputs available to a capability input" set now
+  includes human/message/call declared outputs (`inferred.upstream_producers`), so the input-map inference
+  **auto-sources** from a human output and the wizard's source picker **offers** it (e.g.
+  `order (Task_TakeOrder)`). The validator needed no change — its data-flow stage already resolves a from-artifact
+  input against **every** binding's outputs.
+
+In the wizard, a human/message binding shows an **Outputs** section (mirroring the capability input-source
+section): add an output, name it, and pick an existing staged/authored/trigger artifact — or author a new
+artifact schema inline. The seeded wire pack is unaffected (its human `Task_ObtainInfo` → `info_resolution`
+shape already validated); the restaurant dine-in worked example onboards its human `order` / `payment_retry`
+data-flow entirely through this path.
+
 ### Step 5 — Triage · `PUT /onboarding/{id}/triage` → `triage_set`
 
 At least one rule. Each: `rule_id`, `priority` (integer; **lower wins** across matching active packs),
@@ -346,9 +411,10 @@ At least one rule. Each: `rule_id`, `priority` (integer; **lower wins** across m
 `{field, op, value}`, `op ∈ eq, ne, in, starts_with, intersects, exists, gt, gte, lt, lte`. `field` is a
 dot-path into the normalized exception envelope.
 
-**Schema-aware validation (batch-4):** when a **trigger schema** is available (the deployment sample envelopes;
-a declared trigger artifact would slot in the same way — `session.trigger_fields` carries the `{dotpath: type}`
-map), the rule is validated against it at `set_triage` **and** the dry-run — not just structurally:
+**Schema-aware validation (ADR-049):** when a **trigger schema** is available — the **declared trigger
+artifact** when the operator declared one (Step 4b; `session.trigger_fields` is flattened from its JSON-Schema),
+otherwise the deployment sample envelopes — the rule is validated against it at `set_triage` **and** the dry-run
+— not just structurally:
 - a leaf `field` that isn't on the trigger → **`triage_field_unknown`** (blocking), naming the field with a
   **nearest-match suggestion** (`reason_code` → "did you mean `reason_codes`?"). This is the silent-"No process"
   bug caught at authoring time.
@@ -417,7 +483,7 @@ never block. Activation re-validates (defense in depth).
 | 3 · Capability resolution | `unknown_capability`, `capability_no_version_in_range`, `capability_only_deprecated`; `capability_not_declared` (warn). |
 | 4 · HITL & side-effect policy | `hitl_role_missing`, `side_effect_requires_approve_actions`, `hitl_below_capability_floor` (+ deep_agent rules). |
 | 5 · Artifacts & IO | `unknown_artifact_schema`, `artifact_no_version_in_range`, `artifact_only_deprecated`, `binding_io_mismatch`, `binding_io_schema_incompatible`; `unproduced_input` / `binding_input_unproduced` (ADR-048 — real data-flow: an input must be mapped or produced upstream, **error**). |
-| 6 · Gateway variables | `gateway_variable_unknown_gateway`, `gateway_variable_unproduced`, `gateway_variable_schema_missing`, `gateway_variable_not_required`; `gateway_without_variable` (warn). |
+| 6 · Gateway variables | `gateway_variable_unknown_gateway`, `gateway_variable_unproduced`, `gateway_variable_schema_missing`, `gateway_variable_not_required`; `gateway_condition_unproduced`, `gateway_condition_field_not_required` (ADR-051 — the raw condition's first segment must name a produced output carrying the required field); `gateway_without_variable` (warn). |
 | 7 · Policies & triage | `sod_too_few_elements`, `sod_unknown_element`, `triage_rule_invalid`, `triage_field_unknown`, `triage_op_type_mismatch`; `triage_rule_smoke` (info). |
 
 ---
@@ -606,7 +672,8 @@ is refused — the event sub-process body/handler is excluded), `bpmn_compensati
 `binding_io_schema_incompatible`, `unproduced_input` (ADR-048 — an input neither mapped nor produced upstream;
 now an **error**), `binding_input_unproduced` (ADR-048 — an `input_map` referencing an unproduced artifact);
 **stage 6** `gateway_variable_unknown_gateway`, `gateway_variable_unproduced`,
-`gateway_variable_schema_missing`, `gateway_variable_not_required`; **native DMN** (ADR-037, decision-kind
+`gateway_variable_schema_missing`, `gateway_variable_not_required`, `gateway_condition_unproduced` (ADR-051),
+`gateway_condition_field_not_required` (ADR-051); **native DMN** (ADR-037, decision-kind
 bindings) `dmn_table_malformed`, `dmn_unknown_hit_policy`, `dmn_bad_unary_test`, `dmn_input_unresolved`,
 `dmn_output_unmapped`, `dmn_rules_overlap`; **collection reduction** (ADR-038, reduce-kind bindings)
 `reduce_unknown_op`, `reduce_bad_predicate`, `reduce_predicate_required`, `reduce_source_missing`,

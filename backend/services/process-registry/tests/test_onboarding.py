@@ -25,6 +25,7 @@ from app.services.mcp_introspect import (
     RawMcpTool,
     evaluate_compliance,
     infer_capability,
+    introspect_response_tool,
     normalize_artifact_schema,
 )
 from app.services.onboarding import TransitionError
@@ -114,6 +115,17 @@ def test_compliance_missing_output_schema_is_non_compliant():
 def test_compliance_non_object_root_is_non_compliant():
     verdict = evaluate_compliance(RawMcpTool("t", None, {"type": "array"}, _SCREEN_OUT))
     assert verdict.compliant is False
+
+
+def test_side_effect_defaults_from_ack_shape():
+    # ADR-052 E3: a tool whose OUTPUT carries the acknowledgement shape defaults side_effectful; else read_only.
+    ack_out = {"type": "object", "required": ["acknowledged"],
+               "properties": {"acknowledged": {"type": "boolean"}, "action_id": {"type": "string"},
+                              "status": {"type": "string"}}}
+    action = introspect_response_tool(RawMcpTool("apply_repair", None, _SCREEN_IN, ack_out), domain="wirefix")
+    assert action.suggested_side_effect == "side_effectful"
+    read_only = introspect_response_tool(RawMcpTool("screen_party", None, _SCREEN_IN, _SCREEN_OUT), domain="wirefix")
+    assert read_only.suggested_side_effect == "read_only"
 
 
 def test_infer_capability_non_compliant_raises():

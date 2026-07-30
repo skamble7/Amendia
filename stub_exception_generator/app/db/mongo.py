@@ -47,6 +47,12 @@ class MongoClient:
             raise RuntimeError("MongoClient not connected")
         return self._db[self._collection]
 
+    def collection_for(self, name: str) -> AsyncIOMotorCollection:
+        """A sibling collection in the same db (e.g. the dine-in ``tickets`` store)."""
+        if self._db is None:
+            raise RuntimeError("MongoClient not connected")
+        return self._db[name]
+
     async def close(self) -> None:
         if self._client is not None:
             self._client.close()

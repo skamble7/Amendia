@@ -13,6 +13,7 @@ import { isConnectivityError } from "@/api/client";
 import { GenerateExceptionButton } from "@/features/exceptions/GenerateExceptionButton";
 import { useCurrentIdentity } from "@/session/IdentityContext";
 import { useInboxTasks } from "./queries";
+import { useRolesInUse } from "@/features/registry/queries";
 import { taskEligibility, roleLabel } from "@/lib/tasks";
 import { formatCountdown } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -27,11 +28,6 @@ const MODE_OPTIONS: { value: string; label: string }[] = [
   { value: "manual", label: "Manual" },
 ];
 const STATUS_OPTIONS = ["open", "claimed", "decided", ""].map((v) => ({ value: v, label: v ? v[0]!.toUpperCase() + v.slice(1) : "All statuses" }));
-const ROLE_OPTIONS = [
-  { value: "", label: "All roles" },
-  { value: "role.payments.ops_analyst", label: "Analyst" },
-  { value: "role.payments.ops_approver", label: "Approver" },
-];
 const PRIORITY_OPTIONS = [
   { value: "", label: "All priorities" },
   { value: "critical", label: "Critical" },
@@ -63,6 +59,17 @@ export function InboxPage() {
   const [mode, setMode] = useState("");
   const [role, setRole] = useState("");
   const [priority, setPriority] = useState("");
+
+  // Role filter options come from the deployment's roles-in-use (the same GET /roles the wizard/admin use),
+  // not a hardcoded domain list. Falls back to just "All roles" while loading / when no packs are active.
+  const rolesInUse = useRolesInUse();
+  const roleOptions = useMemo(
+    () => [
+      { value: "", label: "All roles" },
+      ...(rolesInUse.data ?? []).map((r) => ({ value: r.role_id, label: r.label || roleLabel(r.role_id) })),
+    ],
+    [rolesInUse.data],
+  );
 
   const { data: tasks, isLoading, isFetching, error } = useInboxTasks({ status: status || undefined, role: role || undefined });
 
@@ -103,7 +110,7 @@ export function InboxPage() {
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <Select value={status} onChange={setStatus} options={STATUS_OPTIONS} />
         <Select value={mode} onChange={setMode} options={MODE_OPTIONS} />
-        <Select value={role} onChange={setRole} options={ROLE_OPTIONS} />
+        <Select value={role} onChange={setRole} options={roleOptions} />
         <Select value={priority} onChange={setPriority} options={PRIORITY_OPTIONS} />
         <span className="ml-auto text-xs text-muted-foreground">{filtered.length} task{filtered.length === 1 ? "" : "s"}</span>
       </div>

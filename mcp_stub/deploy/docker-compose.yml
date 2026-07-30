@@ -7,8 +7,9 @@
 #   docker compose -f backend/deploy/docker-compose.yml up -d --build          # backend first
 #   docker compose -f mcp_stub/deploy/docker-compose.yml up --build            # then the MCP stub(s)
 #
-# The onboarding wizard then introspects  http://wirefix-mcp:8060/mcp  and drives
-# `wire-repair-agentic` to `active`; the agent-runtime invokes the tools during a run.
+# The onboarding wizard then introspects each stub — http://wirefix-mcp:8060/mcp
+# (wire-transfer-exception) and http://dinein-mcp:8070/mcp (restaurant-dinein) — and drives
+# its pack (e.g. `wire-repair-agentic`) to `active`; the agent-runtime invokes the tools during a run.
 #
 # Shared network: the backend compose defines no explicit network, so its default is
 # `deploy_default` (Compose derives the project name from the compose file's directory,
@@ -34,6 +35,22 @@ services:
         # The exact host the registry/runtime introspect: http://wirefix-mcp:8060/mcp
         aliases:
           - wirefix-mcp
+    restart: unless-stopped
+
+  restaurant-dinein:
+    build:
+      context: ../servers/restaurant_dinein
+    image: amendia/restaurant-dinein-mcp:dev
+    ports:
+      - "8070:8070"
+    environment:
+      PORT: "8070"
+      MCP_HOST: "0.0.0.0"
+    networks:
+      amendia:
+        # The exact host the registry/runtime introspect: http://dinein-mcp:8070/mcp
+        aliases:
+          - dinein-mcp
     restart: unless-stopped
 
 networks:
