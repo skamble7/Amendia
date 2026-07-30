@@ -1155,6 +1155,71 @@ function HumanOutputsEditor({ row, artifactChoices, domain, onChange, onAuthor }
   );
 }
 
+// ADR-048 (for human tasks): the INPUTS section for a human binding — declare the read-only CONTEXT artifact(s)
+// the task reads on its HITL form (e.g. a diner's Select-items task sees the menu). Each input picks an artifact
+// schema (what shape to render) and a SOURCE (which upstream output feeds it) — the SAME mechanism a capability
+// input uses, sourced from the SAME allOutputs list. The runtime surfaces these read-only alongside the editable
+// output(s); they never widen the decision. Domain-neutral: names come from the diagram + staged artifacts.
+function HumanInputsEditor({ row, artifactChoices, outputs, onChange }: {
+  row: BindingInput;
+  artifactChoices: { key: string; ref: string }[];
+  outputs: { element: string; name: string }[];
+  onChange: (inputs: OnbBindingIO[], inputSources: Record<string, unknown>) => void;
+}) {
+  const inputs = row.inputs ?? [];
+  const sources = (row.input_sources ?? {}) as Record<string, unknown>;
+  const setInput = (i: number, p: Partial<OnbBindingIO>) => {
+    const prev = inputs[i]!;
+    const next = inputs.map((io, j) => (j === i ? { ...io, ...p } : io));
+    let nextSources = sources;
+    if (p.name !== undefined && p.name !== prev.name) {
+      // keep each source keyed by its input NAME: migrate the entry when the name is edited.
+      const { [prev.name]: moved, ...rest } = sources;
+      nextSources = moved !== undefined ? { ...rest, [p.name]: moved } : rest;
+    }
+    onChange(next, nextSources);
+  };
+  const addInput = () => onChange([...inputs, { name: "", schema_ref: "", required: true }], sources);
+  const rmInput = (i: number) => {
+    const { [inputs[i]!.name]: _drop, ...rest } = sources;
+    onChange(inputs.filter((_, j) => j !== i), rest);
+  };
+
+  return (
+    <div className="mt-3 border-t border-border pt-3">
+      <div className="mb-1.5 flex items-center justify-between">
+        <p className="text-xs font-medium text-muted-foreground">Inputs — read-only context artifact(s) this task reads</p>
+        <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={addInput}><Plus className="mr-1 size-3" />Add input</Button>
+      </div>
+      {inputs.length === 0 && (
+        <p className="text-xs text-muted-foreground">None — the form shows only the output(s) this task authors.</p>
+      )}
+      <div className="space-y-2">
+        {inputs.map((io, i) => (
+          <div key={i} className="space-y-1.5">
+            <div className="flex items-center gap-1.5">
+              <Input value={io.name} onChange={(e) => setInput(i, { name: e.target.value })} placeholder="menu" className="h-7 flex-1 font-mono text-[11px]" />
+              <select className={cn(selectCls, "h-7 flex-1 text-[11px]")} value={io.schema_ref ?? ""}
+                onChange={(e) => setInput(i, { schema_ref: e.target.value })}>
+                <option value="">Select artifact schema…</option>
+                {artifactChoices.map((a) => <option key={a.ref} value={a.ref}>{a.key}</option>)}
+              </select>
+              <Button variant="ghost" size="icon" className="size-7" onClick={() => rmInput(i)}><Trash2 className="size-3" /></Button>
+            </div>
+            {io.name.trim() && (
+              <div className="ml-2 border-l border-border pl-2">
+                <p className="mb-1 text-[11px] font-medium text-muted-foreground">source — where <span className="font-mono">{io.name}</span> comes from</p>
+                <SourcePicker value={sources[io.name] ?? { from: "trigger" }}
+                  onChange={(v) => onChange(inputs, { ...sources, [io.name]: v })} outputs={outputs} />
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function BindingsStep({ session, onDone, onSession }: { session: OnboardingSession; onDone: (s: OnboardingSession) => void; onSession: (s: OnboardingSession) => void }) {
   const tasks: OnbBindableElement[] = session.bpmn!.bindable_elements;
   const capOptions = useMemo(
@@ -1380,6 +1445,7 @@ function BindingsStep({ session, onDone, onSession }: { session: OnboardingSessi
           input_map: existing.input_map ?? {}, output_map: existing.output_map ?? {},
           input_sources: (t.category === "capability" && Object.keys(savedSrc).length === 0)
             ? resolveInputSources(t.element_id, refForInit, humanOutInit) : savedSrc,
+          inputs: existing.inputs ?? [],     // ADR-048 (human): declared read-only context inputs
           outputs: existing.outputs ?? [],   // ADR-050: human/message declared outputs
           // ADR-051: the capability's settable output name — the persisted chosen name (in Binding.outputs),
           // else the backend's gateway-derived default, else <tool>_output.
@@ -1474,9 +1540,17 @@ function BindingsStep({ session, onDone, onSession }: { session: OnboardingSessi
     try {
       // ADR-050: only send fully-authored outputs (both a name and a chosen schema) — a half-filled row would
       // fail backend validation ("not a staged artifact"). Capability outputs are mirrored server-side anyway.
-      const clean = (r: BindingInput): BindingInput => ({
-        ...r, outputs: (r.outputs ?? []).filter((o) => (o.name ?? "").trim() && (o.schema_ref ?? "").trim()),
-      });
+      const clean = (r: BindingInput): BindingInput => {
+        const outputs = (r.outputs ?? []).filter((o) => (o.name ?? "").trim() && (o.schema_ref ?? "").trim());
+        if (r.executor_type !== "human") return { ...r, outputs };
+        // ADR-048 (human): send only fully-authored inputs (name + artifact) and prune input_sources to those
+        // names, so a half-filled input row can't leak a dangling source into the manifest input_map.
+        const inputs = (r.inputs ?? []).filter((io) => (io.name ?? "").trim() && (io.schema_ref ?? "").trim());
+        const names = new Set(inputs.map((io) => io.name));
+        const input_sources = Object.fromEntries(
+          Object.entries(r.input_sources ?? {}).filter(([k]) => names.has(k)));
+        return { ...r, outputs, inputs, input_sources };
+      };
       onDone(await setOnboardingBindings(session.session_id, { bindings: tasks.map((t) => clean(rows[t.element_id]!)) }));
     } catch (e) {
       const x = extractErrors(e);
@@ -1617,6 +1691,14 @@ function BindingsStep({ session, onDone, onSession }: { session: OnboardingSessi
                 <Field label="Message name">
                   <Input value={row.message_name ?? ""} onChange={(e) => patch(id, { message_name: e.target.value })} placeholder="payment.status.reply" className="font-mono text-xs" />
                 </Field>
+              )}
+
+              {/* ADR-048 (human tasks): a human task declares the read-only CONTEXT artifact(s) it READS — the
+                  same input_map mechanism a capability uses, sourced from the same upstream outputs. */}
+              {t.category === "human" && (
+                <HumanInputsEditor row={row} artifactChoices={artifactChoices}
+                  outputs={allOutputs.filter((o) => o.element !== id)}
+                  onChange={(inputs, input_sources) => patch(id, { inputs, input_sources })} />
               )}
 
               {/* ADR-050: a human/message task declares the artifact(s) it PRODUCES — first-class outputs a

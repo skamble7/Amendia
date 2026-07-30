@@ -186,6 +186,59 @@ async def test_reject_twice_fails_instance(env):
     assert inst.status is InstanceStatus.FAILED
 
 
+async def _advance_to_obtaininfo(engine, hitl, instance_repo, hitl_repo, exception_id):
+    """Drive a BE04 (needs-info) instance to the Task_ObtainInfo manual gate: approve the assess review
+    (verdict needs_info) → the gateway routes to Task_ObtainInfo, a manual human task."""
+    inst = await _start(engine, instance_repo, reason="BE04", exception_id=exception_id)
+    pid = inst.process_instance_id
+    await _approve_next(hitl, hitl_repo, pid)  # assess review_after → needs_info
+    task = await _open_task(hitl_repo, pid)
+    assert task is not None and task.element_id == "Task_ObtainInfo", task and task.element_id
+    return pid, task
+
+
+async def test_manual_gate_carries_readonly_inputs_and_editable_outputs(env):
+    # Part 1: the manual gate surfaces the task's declared INPUT (dossier) as read-only context (no draft
+    # marker) alongside the EDITABLE outputs (draft set) — and the markers survive materialization onto the
+    # persisted task, so the frontend can render inputs read-only and outputs editable.
+    engine, hitl, instance_repo, hitl_repo, _ = env
+    _pid, task = await _advance_to_obtaininfo(engine, hitl, instance_repo, hitl_repo, "EXC-OBTAIN-1")
+    assert task.hitl_mode.value == "manual"
+    arts = {a.name: a for a in task.payload.artifacts}
+    # read-only INPUT context — declared input (art.dining.order-style), resolved data present, NOT a draft
+    assert "dossier" in arts, list(arts)
+    assert not arts["dossier"].draft
+    assert arts["dossier"].data, "the resolved read-only input data should be surfaced on the form"
+    # editable OUTPUTS carry the draft marker; the human-authored one (no assist draft) is authored_by_human
+    assert arts["rfi"].draft is True and not arts["rfi"].authored_by_human            # assist-drafted, editable
+    assert arts["info_resolution"].draft is True and arts["info_resolution"].authored_by_human is True
+
+
+async def test_manual_complete_missing_required_output_rejected_and_task_stays_open(env):
+    # Part 2: an incomplete manual submit (missing the required human-authored output) is a RECOVERABLE 422 —
+    # the task stays claimed/open and the instance does NOT fail. A valid resubmit then completes and resumes.
+    engine, hitl, instance_repo, hitl_repo, _ = env
+    pid, task = await _advance_to_obtaininfo(engine, hitl, instance_repo, hitl_repo, "EXC-OBTAIN-2")
+    user = role_user(task.role)
+    await hitl.claim(task.task_id, actor_id=user, actor_roles={task.role})
+    # "approve the form with nothing authored" → the required human-authored info_resolution is missing → 422.
+    # (The assist-drafted rfi is not required — it falls back to its draft — so it is not what trips this.)
+    with pytest.raises(HitlError) as ei:
+        await hitl.decide(task.task_id, actor_id=user, decision="complete", edits={})
+    assert ei.value.status_code == 422
+    assert "info_resolution" in ei.value.detail
+    # the decision was NOT recorded: the task stays claimed (open), the instance did not fail
+    again = await hitl_repo.get(task.task_id)
+    assert again.status.value == "claimed" and again.decision is None
+    inst = await instance_repo.get(pid)
+    assert inst.status is not InstanceStatus.FAILED
+    # a valid submit (the required human-authored output supplied) now completes and resumes
+    await hitl.decide(task.task_id, actor_id=user, decision="complete",
+                      edits={"info_resolution": {"outcome": "resolved", "details": "analyst note"}})
+    done = await hitl_repo.get(task.task_id)
+    assert done.status.value == "decided"
+
+
 async def test_approve_actions_partial_approval_threads_ids(env):
     engine, hitl, instance_repo, hitl_repo, _ = env
     inst = await _start(engine, instance_repo)

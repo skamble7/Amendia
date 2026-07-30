@@ -13,18 +13,22 @@ export const ROLE = {
 export type RoleId = string;
 
 /**
- * Roles that make someone an *operator* (they work the payment-exception flow). The
- * operator nav entries (dashboard / inbox / instances / exceptions) are shown to any
- * of these — so a platform-admin-*only* user (e.g. alex) sees just Administration,
- * while every existing operator persona's nav is unchanged (analyst / approver /
- * process-owner all remain operators). Reads themselves stay role-free server-side;
- * this is purely progressive-disclosure of the nav.
+ * Domain-neutral operator predicate (ADR-026). The operator nav entries
+ * (dashboard / inbox / instances / exceptions) are shown to anyone holding at least one
+ * role OTHER than the platform-admin role — i.e. ANY pack-contributed role, from any
+ * domain, current or future. The platform legitimately special-cases only its own two
+ * platform roles (`role.platform.admin` → Administration, `role.process.owner` → Registry);
+ * every other role is an operator role uniformly, so we never enumerate specific pack role
+ * ids here. Consequences: a platform-admin-*only* user (alex) sees just Administration;
+ * every existing operator persona (analyst / approver / process-owner) is unchanged; and a
+ * user whose sole role comes from another onboarded pack (e.g. `role.rest_stan.diner`) now
+ * qualifies. A roleless user never reaches an operator surface — RequireAuth intercepts them
+ * with the "no access yet" state. Reads stay role-free server-side; this is nav-level
+ * progressive disclosure only.
  */
-export const OPERATOR_ROLES: string[] = [
-  ROLE.analyst,
-  ROLE.approver,
-  ROLE.processOwner,
-];
+export function isOperator(roles: string[]): boolean {
+  return roles.some((r) => r !== ROLE.platformAdmin);
+}
 
 const ROLE_LABEL: Record<string, string> = {
   [ROLE.analyst]: "Analyst",

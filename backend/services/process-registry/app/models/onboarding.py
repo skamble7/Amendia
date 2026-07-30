@@ -518,11 +518,13 @@ class BindingInput(BaseModel):
     call_version: Optional[str] = None
     input_map: Dict[str, str] = Field(default_factory=dict)
     output_map: Dict[str, str] = Field(default_factory=dict)
-    # ADR-048: capability input sourcing (input name -> InputSource) — where each input's data comes from.
+    # ADR-048: per-input data sourcing (input name -> InputSource) — where each input's data comes from. Used by
+    # a CAPABILITY binding (auto-derived from the bound tool + upstream producers) AND, symmetrically, by a HUMAN
+    # binding to source the read-only context artifacts it declares in ``inputs`` from an upstream output.
     input_sources: Dict[str, Any] = Field(default_factory=dict)
-    # ADR-050: a human/message binding may DECLARE the artifact it produces (and, symmetrically, the ones it
-    # reads) — each output ``schema_ref`` referencing a staged/authored/trigger artifact. Ignored for a
-    # capability binding (its IO is mirrored from the capability) and a call binding (uses input/output_map).
+    # ADR-050 + ADR-048: a human/message binding may DECLARE the artifact(s) it produces AND the ones it reads as
+    # read-only context — each ``schema_ref`` referencing a staged/authored/trigger artifact (its source is in
+    # ``input_sources``). Ignored for a capability binding (IO mirrored from the tool) and call (uses input/output_map).
     inputs: List[StagedBindingIO] = Field(default_factory=list)
     outputs: List[StagedBindingIO] = Field(default_factory=list)
     # ADR-051: a settable OUTPUT NAME for a CAPABILITY binding — the runtime resolves gateway conditions against

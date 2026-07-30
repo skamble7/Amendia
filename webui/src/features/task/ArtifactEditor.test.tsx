@@ -165,3 +165,74 @@ describe("ArtifactEditor — multi-artifact tabs (Part B)", () => {
     expect(submitted).toBeUndefined();
   });
 });
+
+// A manual gate with a read-only INPUT context artifact (a diner's menu) + an EDITABLE output (their order).
+// Domain-neutral: the input carries no `draft` flag → read-only; the output is `draft` + `authored_by_human`.
+const MENU_SCHEMA = {
+  type: "object",
+  properties: { sections: { type: "array", items: { type: "object", properties: { name: { type: "string" } } } } },
+};
+const ORDER_SCHEMA = {
+  type: "object",
+  required: ["items"],
+  properties: { items: { type: "array", minItems: 1, items: { type: "string" } } },
+};
+
+function menuOrderSchemaHandler() {
+  return http.get(`${REG}/artifact-schemas/:key/:version`, ({ params }) => {
+    const key = String(params.key);
+    const json_schema = key.includes("order") ? ORDER_SCHEMA : MENU_SCHEMA;
+    return HttpResponse.json({ json_schema });
+  });
+}
+
+const MENU_ORDER = [
+  { name: "menu", schema: "art.dining.menu@1.0.0", data: { sections: [{ name: "Antipasti" }] } },       // read-only input
+  { name: "order", schema: "art.dining.order@1.0.0", data: {}, draft: true, authored_by_human: true },   // editable output
+] as unknown as PayloadArtifact[];
+
+describe("ArtifactEditor — read-only inputs & required-output blocking (Parts 1c/2a)", () => {
+  afterEach(() => server.resetHandlers());
+
+  it("renders a declared input read-only (a tab, not editable) and never submits it as an edit", async () => {
+    server.use(menuOrderSchemaHandler());
+    const user = userEvent.setup();
+    let submitted: Record<string, unknown> | undefined;
+    renderEditor(
+      <>
+        <ArtifactEditor id="mi" artifacts={MENU_ORDER} isEditable={(a) => Boolean((a as Record<string, unknown>).draft)} onSubmit={(e) => (submitted = e)} />
+        <button type="submit" form="mi">go</button>
+      </>,
+    );
+    // both artifacts get a tab; the read-only input (menu) has NO editable field for `sections`, only a view
+    expect(await screen.findByRole("tab", { name: /Menu/i })).toBeTruthy();
+    expect(screen.getByRole("tab", { name: /Order/i })).toBeTruthy();
+
+    // author the required order.items, then submit — only `order` is an edit; the read-only `menu` is excluded
+    await user.click(screen.getByRole("tab", { name: /Order/i }));
+    await user.click(await screen.findByRole("button", { name: /add/i }));   // add one items row
+    const itemInputs = screen.getAllByRole("textbox");
+    await user.type(itemInputs[itemInputs.length - 1]!, "Bruschetta");
+    await user.click(screen.getByText("go"));
+
+    await waitFor(() => expect(submitted).toBeDefined());
+    expect(Object.keys(submitted!)).toEqual(["order"]);   // the input `menu` is read-only context, never edited
+    expect((submitted!.order as Record<string, unknown>).items).toEqual(["Bruschetta"]);
+  });
+
+  it("blocks completion when the required output array is left empty", async () => {
+    server.use(menuOrderSchemaHandler());
+    const user = userEvent.setup();
+    let submitted: Record<string, unknown> | undefined;
+    renderEditor(
+      <>
+        <ArtifactEditor id="mi2" artifacts={MENU_ORDER} isEditable={(a) => Boolean((a as Record<string, unknown>).draft)} onSubmit={(e) => (submitted = e)} />
+        <button type="submit" form="mi2">go</button>
+      </>,
+    );
+    await screen.findByRole("tab", { name: /Order/i });
+    await user.click(screen.getByText("go"));   // order.items is empty → minItems:1 fails → blocked
+    await new Promise((r) => setTimeout(r, 0));
+    expect(submitted).toBeUndefined();
+  });
+});

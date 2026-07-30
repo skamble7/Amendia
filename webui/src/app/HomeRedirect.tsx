@@ -1,6 +1,6 @@
 import { Navigate } from "react-router-dom";
 import { useIdentity } from "@/session/IdentityContext";
-import { OPERATOR_ROLES, ROLE } from "@/lib/roles";
+import { isOperator, ROLE } from "@/lib/roles";
 
 /**
  * Landing route ("/"): send operators to the dashboard and a platform-admin-only
@@ -8,9 +8,8 @@ import { OPERATOR_ROLES, ROLE } from "@/lib/roles";
  * in their nav. Roleless users never reach here (RequireAuth intercepts them).
  */
 export function HomeRedirect() {
-  const { hasRole } = useIdentity();
-  const isOperator = OPERATOR_ROLES.some((r) => hasRole(r));
-  if (!isOperator && hasRole(ROLE.platformAdmin)) {
+  const { identity, hasRole } = useIdentity();
+  if (!isOperator(identity?.roles ?? []) && hasRole(ROLE.platformAdmin)) {
     return <Navigate to="/admin/users" replace />;
   }
   return <Navigate to="/dashboard" replace />;

@@ -106,6 +106,64 @@ describe("role-aware navigation", () => {
     await screen.findByText("Test User");
     expect(screen.getAllByRole("link", { name: /Registry/i }).length).toBeGreaterThan(0);
   });
+
+  // Domain-neutral nav gating (ADR-026): operator surfaces show for ANY non-platform-admin
+  // role; Registry/Administration remain the two platform-role special cases. Asserted
+  // against every seeded persona so none regress, plus a fabricated unknown-pack role.
+  async function renderNavFor(roles: string[]) {
+    server.use(me(roles));
+    withProviders(
+      makeAuth({ isAuthenticated: true, user: { access_token: "t" } as never }),
+      <IdentityProvider>
+        <Routes>
+          <Route path="/" element={<AppShell />} />
+        </Routes>
+      </IdentityProvider>,
+    );
+    await screen.findByText("Test User");
+  }
+  const OPERATOR_SURFACES = [/Dashboard/i, /Task inbox/i, /Instances/i, /Exceptions/i];
+  const hasNav = (name: RegExp) => screen.queryAllByRole("link", { name }).length > 0;
+
+  it("alex (role.platform.admin only) → Administration only, no operator surfaces", async () => {
+    await renderNavFor(["role.platform.admin"]);
+    expect(hasNav(/Administration/i)).toBe(true);
+    expect(hasNav(/Registry/i)).toBe(false);
+    for (const s of OPERATOR_SURFACES) expect(hasNav(s)).toBe(false);
+  });
+
+  it("priya (role.process.owner + role.platform.admin) → operator surfaces + Registry + Administration", async () => {
+    await renderNavFor(["role.process.owner", "role.platform.admin"]);
+    expect(hasNav(/Administration/i)).toBe(true);
+    expect(hasNav(/Registry/i)).toBe(true);
+    for (const s of OPERATOR_SURFACES) expect(hasNav(s)).toBe(true);
+  });
+
+  it("riya (payments analyst) → operator surfaces, no Registry/Administration", async () => {
+    await renderNavFor(["role.payments.ops_analyst"]);
+    for (const s of OPERATOR_SURFACES) expect(hasNav(s)).toBe(true);
+    expect(hasNav(/Registry/i)).toBe(false);
+    expect(hasNav(/Administration/i)).toBe(false);
+  });
+
+  it("marcus (payments approver) → operator surfaces", async () => {
+    await renderNavFor(["role.payments.ops_approver"]);
+    for (const s of OPERATOR_SURFACES) expect(hasNav(s)).toBe(true);
+  });
+
+  it("gio (role.rest_stan.diner — another pack) → operator surfaces (the fix)", async () => {
+    await renderNavFor(["role.rest_stan.diner"]);
+    for (const s of OPERATOR_SURFACES) expect(hasNav(s)).toBe(true);
+    expect(hasNav(/Registry/i)).toBe(false);
+    expect(hasNav(/Administration/i)).toBe(false);
+  });
+
+  it("a single role from an arbitrary/unknown pack (role.foo.bar) grants operator surfaces", async () => {
+    await renderNavFor(["role.foo.bar"]);
+    for (const s of OPERATOR_SURFACES) expect(hasNav(s)).toBe(true);
+    expect(hasNav(/Registry/i)).toBe(false);
+    expect(hasNav(/Administration/i)).toBe(false);
+  });
 });
 
 describe("auth callback", () => {

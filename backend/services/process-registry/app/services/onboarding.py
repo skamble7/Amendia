@@ -1344,7 +1344,9 @@ class OnboardingService:
                 "element_id": b.element_id, "element_kind": b.element_kind,
                 "executor": executor, "inputs": ins, "outputs": outs,
             }
-            # ADR-048: per-input data sources → the manifest Binding.input_map (capability bindings).
+            # ADR-048: per-input data sources → the manifest Binding.input_map. General across executor types:
+            # a capability binding's auto-derived sources AND a human binding's operator-declared read-only
+            # context inputs (mirroring ADR-050 outputs) both flow through here.
             if b.input_sources:
                 binding_doc["input_map"] = dict(b.input_sources)
             # HITL is a capability/human concept; a message/call executor has no gate (contract omits it).

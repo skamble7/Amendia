@@ -53,4 +53,21 @@ describe("zodFromSchema", () => {
     const r = validator.safeParse({ repair_verdict: "needs_info", confidence: 0.2, rationale: "need address" });
     expect(r.success).toBe(true);
   });
+
+  // An "empty required output" is the driving bug: a required array left blank must NOT validate client-side
+  // (the backend enforces minItems; the client must mirror it to block the submit).
+  const order: JsonSchema = {
+    type: "object",
+    additionalProperties: false,
+    required: ["items"],
+    properties: { items: { type: "array", minItems: 1, items: { type: "string" } } },
+  };
+
+  it("rejects an empty required array (minItems)", () => {
+    expect(zodFromSchema(order).safeParse({ items: [] }).success).toBe(false);
+  });
+
+  it("accepts a non-empty required array", () => {
+    expect(zodFromSchema(order).safeParse({ items: ["Bruschetta"] }).success).toBe(true);
+  });
 });

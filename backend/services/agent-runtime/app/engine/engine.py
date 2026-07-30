@@ -602,8 +602,13 @@ class ProcessEngine:
         mode = payload["hitl_mode"]
         task_id = f"hitl-{uuid.uuid4().hex[:12]}"
         pid = instance.process_instance_id
+        # Carry the editable/read-only markers through to the persisted task so the frontend can render a
+        # manual gate's declared INPUT artifacts read-only (draft unset) and the human's OUTPUT(s) editable
+        # (draft set). Only emit a flag when truthy — an absent flag deserializes as None (read-only). Domain-neutral.
         artifacts = [
-            {"name": a["name"], "schema": a["schema"], "data": a.get("data")}
+            {"name": a["name"], "schema": a["schema"], "data": a.get("data"),
+             **({"draft": True} if a.get("draft") else {}),
+             **({"authored_by_human": True} if a.get("authored_by_human") else {})}
             for a in payload.get("artifacts", [])
         ]
         # ADR-027 Phase 2.2: if this HITL gate has an interrupting SLA timer boundary, compute its

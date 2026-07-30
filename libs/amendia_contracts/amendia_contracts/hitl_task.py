@@ -68,6 +68,14 @@ class PayloadArtifact(ContractModel):
     name: str
     schema_: PinnedArtifactRefStr = Field(..., alias="schema")
     data: Dict[str, Any]
+    # Editable-vs-read-only marker for a HITL gate's form (domain-neutral). A manual gate surfaces the task's
+    # declared INPUT artifacts as read-only context (draft unset) alongside the human's EDITABLE output(s)
+    # (draft=True). ``authored_by_human`` distinguishes an output the human writes from scratch (True) from one
+    # an assist capability pre-drafted (unset) so the UI can badge the latter as agent-drafted. Absent on a
+    # capability review snapshot. Persisted so the distinction survives to the frontend (the runtime sets them
+    # on the interrupt payload; ``_materialize_task`` carries them onto the stored task).
+    draft: Optional[bool] = None
+    authored_by_human: Optional[bool] = None
 
 
 class ProposedAction(ContractModel):

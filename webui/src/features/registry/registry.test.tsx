@@ -84,6 +84,47 @@ describe("Onboarding wizard", () => {
     expect(await screen.findByText(/Input map/)).toBeInTheDocument();
   });
 
+  it("bindings step lets a human task declare read-only inputs sourced from an upstream output (ADR-048)", async () => {
+    const be = (over: Record<string, unknown>) => ({
+      name: null, is_multi_instance: false, is_for_compensation: false,
+      compensation_primary: null, in_event_subprocess: false, ...over,
+    });
+    const session = {
+      session_id: "sess-hin", created_by: "owner-1", created_at: "", updated_at: "", state: "bindings_set",
+      basics: { pack_key: "p", version: "1.0.0", title: "P", default_domain: "dining" },
+      bpmn: {
+        process_id: "P", bpmn_file: "p.bpmn", sha256: "x",
+        service_tasks: ["PresentMenu"], user_tasks: ["SelectItems"], gateways: [], task_names: {},
+        bindable_elements: [
+          be({ element_id: "PresentMenu", element_kind: "serviceTask", category: "capability", name: "Present menu" }),
+          be({ element_id: "SelectItems", element_kind: "userTask", category: "human", name: "Select items" }),
+        ],
+      },
+      staged_artifacts: [{ artifact_key: "art.dining.get_menu_output", version: "1.0.0", title: "Menu", json_schema: {} }],
+      reused_capability_refs: [], bindings: [],
+      staged_capabilities: [{ capability_id: "cap.dining.get_menu", version: "1.0.0", title: "Get menu", side_effect: "read_only", input_name: "get_menu_input", input_artifact_key: "art.dining.get_menu_input", output_name: "get_menu_output", output_artifact_key: "art.dining.get_menu_output", endpoint: "http://x", tool: "get_menu", transport: "streamable_http", headers: {} }],
+      triage_rules: [], gateway_variables: [], sod_policies: [], roles: [], dry_run_report: null,
+      commit_progress: [], result_pack: null, last_cleared: [], inferred: null,
+    };
+    server.use(
+      http.get(`${REG}/onboarding/sess-hin`, () => HttpResponse.json(session)),
+      http.get(`${REG}/capabilities`, () => HttpResponse.json([])),
+      http.get(`${REG}/packs`, () => HttpResponse.json([synthPack])),
+    );
+    renderApp("/registry/onboard/sess-hin", "owner-1");
+
+    const user = userEvent.setup();
+    // the human task now carries an INPUTS editor (read-only context) — previously only capability tasks did
+    expect(await screen.findByText(/read-only context artifact/i)).toBeInTheDocument();
+    const addInput = await screen.findByRole("button", { name: /add input/i });
+    await user.click(addInput);
+    // an input row appears and is interactive; naming it reveals its per-input SOURCE picker
+    const nameField = await screen.findByPlaceholderText("menu");
+    await user.type(nameField, "menu");
+    // the upstream-output source option is offered (present for the human input's picker now that it exists)
+    expect(screen.getAllByRole("option", { name: /upstream output/i }).length).toBeGreaterThan(0);
+  });
+
   it("policies step shows SoD candidates with their rationale + seeds persona descriptions (ADR-045)", async () => {
     const be = (id: string) => ({ element_id: id, element_kind: "serviceTask", category: "capability", name: id, is_multi_instance: false, is_for_compensation: false, compensation_primary: null, in_event_subprocess: false });
     const session = {
