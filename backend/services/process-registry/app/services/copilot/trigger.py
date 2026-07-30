@@ -2,8 +2,14 @@
 """Resolve the user-provided trigger (the external event CONTRACT) into a JSON Schema.
 
 Per ADR-052 refinement: the copilot infers the INTERNAL design, but the trigger is USER-PROVIDED — the operator
-pastes either a JSON Schema or a sample event. This derives a draft-2020-12, closed object schema deterministically
-from a sample when a schema wasn't pasted (E2 `$id` normalization happens later at declare_trigger). Domain-neutral.
+pastes either a JSON Schema or a sample event. When a sample is pasted, this derives a draft-2020-12 object schema
+deterministically (E2 `$id` normalization happens later at declare_trigger). Domain-neutral.
+
+The derived schema is deliberately OPEN and minimally-required. A trigger VALIDATES the fields the pack consumes;
+it does not forbid extras. Real events routinely carry more (and sometimes fewer) fields than any one sample — a
+nested pacs.008 wire exception has far more than a hand-picked sample — so closing the schema
+(`additionalProperties:false`) or requiring every sampled field makes the ADR-047 fetch-back validation reject the
+very event that dispatched here (``envelope_invalid``). Prefer optional; forbid nothing.
 """
 from __future__ import annotations
 
@@ -40,15 +46,14 @@ def _type_of(value: Any) -> Dict[str, Any]:
 
 
 def _object_schema(obj: Dict[str, Any]) -> Dict[str, Any]:
-    return {
-        "type": "object", "additionalProperties": False,
-        "properties": {k: _type_of(v) for k, v in obj.items()},
-        "required": sorted(obj.keys()),
-    }
+    # OPEN + no `required`: a single sample can't tell us which fields are optional, and real events carry extras,
+    # so we validate the SHAPE of the fields that ARE present without forbidding others or demanding any.
+    return {"type": "object", "properties": {k: _type_of(v) for k, v in obj.items()}}
 
 
 def schema_from_sample(sample: Dict[str, Any]) -> Dict[str, Any]:
-    """Derive a closed draft-2020-12 object schema from a sample event (types inferred from the values)."""
+    """Derive an OPEN draft-2020-12 object schema from a sample event (types inferred from the values; extras
+    allowed; nothing required)."""
     schema = _object_schema(sample)
     schema["$schema"] = _DRAFT
     return schema
@@ -60,9 +65,10 @@ def resolve_trigger_schema(raw: Dict[str, Any]) -> Dict[str, Any]:
     if not isinstance(raw, dict) or not raw:
         raise ValueError("the trigger must be a JSON object — a JSON Schema or a sample event")
     if looks_like_json_schema(raw):
+        # Respect the schema the operator authored — including its `additionalProperties`. NEVER force-close it:
+        # an authored open schema (the default) must stay open so real events with extra fields still validate.
         schema = dict(raw)
         schema.setdefault("type", "object")
         schema.setdefault("$schema", _DRAFT)
-        schema.setdefault("additionalProperties", False)
         return schema
     return schema_from_sample(raw)

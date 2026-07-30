@@ -385,14 +385,16 @@ class Reconciler:
         if self.user_trigger_schema is not None:
             # Generate: the user provided the trigger CONTRACT — register it verbatim. No augmentation (inventing
             # fields would corrupt the user's contract); trigger-sourced maps were grounded on this in the prompt.
+            # Register it OPEN as authored — never force-close it: a trigger validates the fields the pack consumes,
+            # it must not reject a real event that carries extras (that is the ADR-047 `envelope_invalid` bug).
             schema = copy.deepcopy(self.user_trigger_schema)
             schema.setdefault("type", "object")
             schema.setdefault("$schema", "https://json-schema.org/draft/2020-12/schema")
-            schema.setdefault("additionalProperties", False)
             self.decisions.append(CopilotDecision(kind="trigger", element_id=None, decided_by="user",
                                   summary="registered the user-provided trigger schema"))
             return key, schema
         # Chat / legacy: the proposal's (reconstructed) trigger schema, augmented so trigger-sourced maps resolve.
+        # Kept OPEN for the same reason — extras are allowed; the trigger only validates what the pack reads.
         schema = copy.deepcopy(self.proposal.trigger_schema) if isinstance(self.proposal.trigger_schema, dict) else {"type": "object"}
         schema.setdefault("type", "object")
         props = dict(schema.get("properties", {}))
@@ -401,7 +403,6 @@ class Reconciler:
                 self._collect_trigger_paths(src, props)
         schema["properties"] = props
         schema.setdefault("$schema", "https://json-schema.org/draft/2020-12/schema")
-        schema.setdefault("additionalProperties", False)
         return key, schema
 
     def _collect_trigger_paths(self, src: Any, props: Dict[str, Any]) -> None:
