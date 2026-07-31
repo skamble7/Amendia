@@ -2098,16 +2098,16 @@ export function PoliciesStep({ session, onDone, onBack, nextLabel = "Save & revi
             const rationale = sodRationale[[...elements].sort().join("|")];
             return (
             <div key={i} className="rounded-md border border-border p-3">
-              <div className="mb-2 flex items-center justify-between gap-2">
-                <div className="flex flex-wrap items-center gap-2">
+              <div className="mb-2 flex items-start justify-between gap-2">
+                <div className="flex min-w-0 flex-wrap items-center gap-2">
                   <span className="text-xs uppercase tracking-wide text-muted-foreground">distinct_actor</span>
                   {rationale && (
-                    <Badge variant="agent" className="text-[10px]" title="Inferred from the BPMN lanes — accept or remove">
+                    <Badge variant="agent" className="max-w-full whitespace-normal break-words text-[10px]" title="Inferred from the BPMN lanes — accept or remove">
                       suggested · {rationale}
                     </Badge>
                   )}
                 </div>
-                <Button variant="ghost" size="icon" className="size-7" onClick={() => setSod(sod.filter((_, j) => j !== i))}><Trash2 className="size-3.5" /></Button>
+                <Button variant="ghost" size="icon" className="size-7 shrink-0" onClick={() => setSod(sod.filter((_, j) => j !== i))}><Trash2 className="size-3.5" /></Button>
               </div>
               <div className="flex flex-wrap gap-1.5">
                 {tasks.map((t) => {
