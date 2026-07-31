@@ -8,8 +8,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { PageHeader } from "@/app/AppShell";
 import { getOnboardingSession, type OnboardingSession } from "@/api/services/registry";
 import { CopilotStart } from "./CopilotStart";
-import { CopilotReview } from "./CopilotReview";
-import { CopilotChat } from "./CopilotChat";
+import { CopilotSteppedReview } from "./CopilotSteppedReview";
 
 const bpmnKey = (id: string) => `copilot-bpmn:${id}`;
 
@@ -51,13 +50,9 @@ function CopilotReviewScreen({ sessionId }: { sessionId: string }) {
 
   return (
     <div>
-      <PageHeader title="Review your process" description="Read the design in plain language, refine it by chatting, then approve it to go live." />
-      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_380px]">
-        <CopilotReview session={session} xml={xml} />
-        <div className="lg:sticky lg:top-4 lg:h-[calc(100vh-8rem)]">
-          <CopilotChat session={session} onUpdated={setSession} />
-        </div>
-      </div>
+      <PageHeader title="Review your process" description="The copilot pre-filled every step — review it, refine by chatting or in the detail, then approve to go live." />
+      {/* keyed by session_id so a fresh generate remounts the stepper at step 0 with the new draft */}
+      <CopilotSteppedReview key={session.session_id} session={session} xml={xml} />
     </div>
   );
 }

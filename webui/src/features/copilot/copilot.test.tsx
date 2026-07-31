@@ -152,41 +152,47 @@ describe("Copilot flow — Start", () => {
 describe("Copilot flow — Review", () => {
   afterEach(() => server.resetHandlers());
 
-  it("renders the plain-language summary, humanized gates, open questions, and enables go-live when clean", async () => {
+  it("lands pre-filled: summary in the rail, humanized gates on Understanding; go-live on the Review step", async () => {
+    const user = userEvent.setup();
     server.use(http.get(`${REG}/onboarding/sess-c`, () => HttpResponse.json(session())));
     renderCopilot("/registry/onboard/sess-c");
 
-    expect(await screen.findByText(/when a party is seated/i)).toBeInTheDocument();      // summary
-    // humanized gates — a side-effect gate reads as an AUTHORIZE sentence (generic mode→verb + id humanization)
-    expect(screen.getByText(/kitchen authorizes fire ticket\./i)).toBeInTheDocument();
+    // the plain-language summary is in the persistent rail; humanized gates pre-fill the Understanding step
+    expect(await screen.findByText(/when a party is seated/i)).toBeInTheDocument();      // summary (rail)
+    expect(screen.getByText(/kitchen authorizes fire ticket\./i)).toBeInTheDocument();   // AUTHORIZE gate sentence
     expect(screen.getByText(/diner handles select items\./i)).toBeInTheDocument();
-    expect(screen.getByText(/authorizes a real-world action/i)).toBeInTheDocument();     // side-effect badge
     // no raw ids / modes leak
     expect(screen.queryByText(/Task_FireTicket/)).not.toBeInTheDocument();
     expect(screen.queryByText(/approve_actions/)).not.toBeInTheDocument();
-    // open question surfaced
-    expect(screen.getByText(/should dine-in tickets route/i)).toBeInTheDocument();
-    // readiness + enabled go-live
+
+    // the Review & go live step carries the open question, readiness, side-effect badge, and enabled approve
+    await user.click(screen.getByRole("button", { name: /review & go live/i }));
+    expect(await screen.findByText(/should dine-in tickets route/i)).toBeInTheDocument();
+    expect(screen.getByText(/authorizes a real-world action/i)).toBeInTheDocument();
     expect(screen.getByText(/ready to go live/i)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /approve & go live/i })).toBeEnabled();
   });
 
-  it("disables go-live and shows the problem in business language when validation has errors", async () => {
+  it("gates go-live on clean validation — errors disable Approve on the Review step", async () => {
+    const user = userEvent.setup();
     server.use(http.get(`${REG}/onboarding/sess-c`, () => HttpResponse.json(session({
       dry_run_report: { pack_key: "rest-stan", pack_version: "1.0.0", created_at: "",
         findings: [{ code: "binding_input_unproduced", severity: "error", stage: 5,
                      message: "an input has no upstream source", element_id: "Task_ValidateOrder" }] },
     }))));
     renderCopilot("/registry/onboard/sess-c");
+    await user.click(await screen.findByRole("button", { name: /review & go live/i }));
 
     expect(await screen.findByText(/not ready to go live yet/i)).toBeInTheDocument();
     expect(screen.getByText(/an input has no upstream source/i)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /approve & go live/i })).toBeDisabled();
   });
 
-  it("links to the technical inspection wizard for the same session", async () => {
+  it("links to the technical inspection wizard for the same session (Review step)", async () => {
+    const user = userEvent.setup();
     server.use(http.get(`${REG}/onboarding/sess-c`, () => HttpResponse.json(session())));
     renderCopilot("/registry/onboard/sess-c");
+    await user.click(await screen.findByRole("button", { name: /review & go live/i }));
     const link = await screen.findByRole("link", { name: /view \/ edit technical detail/i });
     expect(link).toHaveAttribute("href", "/registry/onboard/technical/sess-c");
   });
@@ -260,9 +266,96 @@ describe("Copilot flow — Chat", () => {
     await user.click(screen.getByRole("button", { name: /send/i }));
 
     expect(await screen.findByText(/which step would you like to make safer/i)).toBeInTheDocument();
-    // still ready to go live — nothing destructive happened
-    const readiness = screen.getByText(/ready to go live/i);
-    expect(readiness).toBeInTheDocument();
+    // nothing destructive happened — the draft is unchanged (the gate still reads the same)
+    expect(screen.getByText(/kitchen authorizes fire ticket\./i)).toBeInTheDocument();
+  });
+});
+
+describe("Copilot flow — stepped review + schema refiner (ADR-054)", () => {
+  afterEach(() => server.resetHandlers());
+
+  // a domain-neutral wire session with a human-authored artifact whose DERIVED schema is loose (an opaque object).
+  function wireSession(over: Record<string, unknown> = {}) {
+    return session({
+      basics: { pack_key: "wire-repair", version: "1.0.0", title: "Wire repair", default_domain: "payments" },
+      copilot_report: { summary: "A wire exception is triaged and repaired.", decisions: [], open_questions: [],
+                        llm_used: true, model_ref: null, repair_passes: 0 },
+      inferred: { roles: [{ role_id: "role.payments.ops_approver", label: "Ops Approver", source_lane: "L1", description: null }],
+                  bindings: [], gateway_variables: [], capability_candidates: [], artifact_seeds: [], sod_candidates: [], annotations: [] },
+      staged_artifacts: [{ artifact_key: "art.payments.wire_exception", version: "1.0.0", title: "Wire exception", json_schema: { type: "object", properties: {} } }],
+      authored_artifacts: [{ artifact_key: "art.payments.approved_repair", version: "1.0.0", title: "Approved repair",
+        json_schema: { type: "object", properties: { decision: { type: "object" } }, required: ["decision"] } }],
+      bindings: [
+        binding({ element_id: "Task_ApproveRepair", executor_type: "human", role: "role.payments.ops_approver",
+                  hitl_mode: "manual", hitl_role: "role.payments.ops_approver",
+                  outputs: [{ name: "approved_repair", schema_ref: "art.payments.approved_repair@^1.0.0", required: true }] }),
+      ],
+      ...over,
+    });
+  }
+
+  it("lands pre-filled: the Understanding step shows the inferred roles + gates, summary in the rail", async () => {
+    server.use(http.get(`${REG}/onboarding/sess-c`, () => HttpResponse.json(wireSession())));
+    renderCopilot("/registry/onboard/sess-c");
+    expect(await screen.findByText(/roles \(from the diagram lanes\)/i)).toBeInTheDocument(); // inferred roles section
+    expect(screen.getByText(/ops approver handles approve repair\./i)).toBeInTheDocument();   // human gate
+    expect(screen.getByText(/a wire exception is triaged/i)).toBeInTheDocument();             // summary (rail)
+  });
+
+  it("the schema refiner re-types a property + adds a label → the live preview shows a labeled field, and Save persists the concrete schema", async () => {
+    const user = userEvent.setup();
+    let refineBody: Record<string, unknown> | undefined;
+    server.use(
+      http.get(`${REG}/onboarding/sess-c`, () => HttpResponse.json(wireSession())),
+      http.put(`${REG}/onboarding/sess-c/artifacts/refine`, async ({ request }) => {
+        refineBody = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json(wireSession());
+      }),
+    );
+    renderCopilot("/registry/onboard/sess-c");
+
+    await user.click(await screen.findByRole("button", { name: /artifacts & schemas/i }));
+    // the human-authored artifact's refiner is pre-filled with its derived property
+    expect(await screen.findByLabelText(/property 0 name/i)).toHaveValue("decision");
+
+    // re-type the opaque object → string, and label it; the live form preview reflects the edit
+    fireEvent.change(screen.getByLabelText(/property 0 type/i), { target: { value: "string" } });
+    fireEvent.change(screen.getByLabelText(/property 0 label/i), { target: { value: "Decision outcome" } });
+    expect(await screen.findByText("Decision outcome")).toBeInTheDocument();   // rendered as a labeled field, not raw JSON
+
+    // Save → the refine endpoint receives the refined CONCRETE schema (typed + titled)
+    await user.click(screen.getByRole("button", { name: /save schema/i }));
+    await waitFor(() => expect(refineBody).toBeDefined());
+    expect(refineBody!.artifact_key).toBe("art.payments.approved_repair");
+    const schema = refineBody!.json_schema as { properties: { decision: { type: string; title?: string } } };
+    expect(schema.properties.decision.type).toBe("string");
+    expect(schema.properties.decision.title).toBe("Decision outcome");
+  });
+
+  it("the Capabilities step is read-mostly — the connected endpoint + staged caps show, with no second MCP URL entry", async () => {
+    const user = userEvent.setup();
+    const cap = (over: Record<string, unknown>) => ({
+      capability_id: "cap.payments.x", kind: "mcp", endpoint: "http://wirefix-mcp:8060/mcp", transport: "streamable_http",
+      input_artifact_key: "art.payments.in", input_name: "in", output_artifact_key: "art.payments.out", output_name: "out",
+      side_effect: "read_only", ...over,
+    });
+    server.use(http.get(`${REG}/onboarding/sess-c`, () => HttpResponse.json(wireSession({
+      staged_capabilities: [
+        cap({ capability_id: "cap.payments.assess", tool: "assess_beneficiary" }),
+        cap({ capability_id: "cap.payments.apply", tool: "apply_repair", side_effect: "side_effectful" }),
+      ],
+    }))));
+    renderCopilot("/registry/onboard/sess-c");
+
+    await user.click(await screen.findByRole("button", { name: /Capabilities/i }));
+    // the endpoint is shown as read-only text, NOT a pre-filled URL input to re-enter
+    expect(await screen.findByText("http://wirefix-mcp:8060/mcp")).toBeInTheDocument();
+    expect(screen.queryByDisplayValue("http://wirefix-mcp:8060/mcp")).toBeNull();
+    // the discovered capabilities + the side-effect flag are shown; re-introspect is optional
+    expect(screen.getByText("assess_beneficiary")).toBeInTheDocument();
+    expect(screen.getByText("apply_repair")).toBeInTheDocument();
+    expect(screen.getByText(/real-world effect/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /re-introspect/i })).toBeInTheDocument();
   });
 });
 

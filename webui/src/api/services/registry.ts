@@ -267,6 +267,11 @@ export function declareOnboardingTrigger(id: string, body: OnbTriggerRequest): P
 export function declareOnboardingArtifact(id: string, body: OnbArtifactRequest): Promise<OnboardingSession> {
   return request<OnboardingSession>("registry", `/onboarding/${id}/artifacts`, { method: "PUT", body, silent: true });
 }
+// ADR-054: refine a human-authored artifact's schema (typed props, labels, enums). Version resolved server-side.
+export type OnbArtifactRefineRequest = _Schemas["RefineArtifactRequest"];
+export function refineOnboardingArtifact(id: string, body: OnbArtifactRefineRequest): Promise<OnboardingSession> {
+  return request<OnboardingSession>("registry", `/onboarding/${id}/artifacts/refine`, { method: "PUT", body, silent: true });
+}
 export function setOnboardingPolicies(id: string, body: { gateway_variables: OnbGatewayVariable[]; sod_policies: OnbSod[]; roles: string[]; role_meta?: Record<string, OnbRoleMeta> }): Promise<OnboardingSession> {
   return request<OnboardingSession>("registry", `/onboarding/${id}/policies`, { method: "PUT", body, silent: true });
 }

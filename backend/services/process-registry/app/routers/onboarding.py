@@ -22,6 +22,7 @@ from app.models.onboarding import (
     CopilotGenerateRequest,
     CreateSessionRequest,
     DeclareArtifactRequest,
+    RefineArtifactRequest,
     DeclareTriggerRequest,
     IntrospectMcpRequest,
     IntrospectMcpResponse,
@@ -225,6 +226,21 @@ async def declare_artifact(
     output (e.g. art.dining.order). Registered + listed among the pack artifacts at assemble."""
     try:
         return await svc.declare_artifact(session_id, req, owner=owner)
+    except TransitionError as exc:
+        _raise(exc)
+
+
+@router.put("/{session_id}/artifacts/refine", response_model=OnboardingSession)
+async def refine_artifact(
+    session_id: str, req: RefineArtifactRequest,
+    owner: str = Depends(_owner_id),
+    svc: OnboardingService = Depends(get_onboarding_service),
+):
+    """ADR-054: refine a human-authored artifact's JSON schema (typed props, labels, enums). The version is
+    resolved server-side (bump-on-change) and the referencing bindings are re-pinned, so the activated pack's
+    HITL form renders labeled, typed fields — not a raw JSON blob."""
+    try:
+        return await svc.refine_artifact(session_id, req, owner=owner)
     except TransitionError as exc:
         _raise(exc)
 

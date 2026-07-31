@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://amendia.dev/schemas/artifacts/wirefix_mcp/approved_return/1.0.0.json",
+  "title": "Approved Return",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["return_reason_code"],
+  "properties": {
+    "return_reason_code": {
+      "title": "Return Reason Code",
+      "description": "The pacs.004 return reason code (e.g. AC04, RC01).",
+      "type": "string"
+    },
+    "reason": {
+      "title": "Return Reason",
+      "description": "Plain-language reason for returning the payment.",
+      "type": "string"
+    },
+    "notes": {
+      "title": "Notes",
+      "type": "string"
+    }
+  }
+}

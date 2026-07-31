@@ -13,6 +13,8 @@ from __future__ import annotations
 import re
 import uuid
 from typing import Any, Dict, List, Optional, Tuple
+
+from packaging.version import Version
 from urllib.parse import urlsplit
 from xml.etree import ElementTree as ET
 
@@ -61,6 +63,7 @@ from app.models.onboarding import (
     SetCapabilitiesRequest,
     SetPoliciesRequest,
     DeclareArtifactRequest,
+    RefineArtifactRequest,
     DeclareTriggerRequest,
     SetTriageRequest,
     StagedArtifact,
@@ -671,6 +674,60 @@ class OnboardingService:
         s.authored_artifacts.append(sa)
         s.last_cleared = self._clear(s, {"dry_run"})
         return await self.sessions.save(s)
+
+    async def refine_artifact(self, session_id: str, req: RefineArtifactRequest, *, owner: str) -> OnboardingSession:
+        """ADR-054: persist a refined human-authored artifact schema (typed props, ``title`` labels, enums,
+        ``required``). Unlike ``declare_artifact`` (which stores the request version verbatim), the version is
+        resolved server-side the way the copilot does: reuse an already-registered version whose body is identical,
+        else bump the minor above the highest registered — so the commit registers the CHANGED body at a new version
+        instead of silently keeping the stale, immutable one (a same key+version re-register is a swallowed
+        DuplicateError). The bindings that reference this artifact are re-pinned to the resolved version, so the
+        activated pack's HITL form renders the operator's labels/dropdowns/typed inputs — not just at preview time."""
+        s = await self._editable(session_id, owner)
+        if not s.at_least(OnboardingState.BPMN_ATTACHED):
+            raise TransitionError(409, "attach BPMN before refining an artifact")
+        errors: List[dict] = []
+        if not isinstance(req.json_schema, dict) or req.json_schema.get("type", "object") != "object" \
+                or not isinstance(req.json_schema.get("properties"), dict):
+            errors.append({"field": "json_schema",
+                           "message": "artifact schema must be a JSON object schema with a 'properties' map"})
+        existing = next((a for a in s.authored_artifacts if a.artifact_key == req.artifact_key), None)
+        if existing is None and not errors:
+            errors.append({"field": "artifact_key",
+                           "message": "only a human-authored artifact on this session can be refined"})
+        if errors:
+            raise TransitionError(422, {"error": "artifact_invalid", "errors": errors})
+
+        version = await self._resolve_authored_version(req.artifact_key, req.json_schema)
+        s.authored_artifacts = [a for a in s.authored_artifacts if a.artifact_key != req.artifact_key]
+        s.authored_artifacts.append(StagedArtifact(
+            artifact_key=req.artifact_key, version=version, title=(req.title or existing.title),
+            description=existing.description, json_schema=req.json_schema))
+        self._repoint_artifact_refs(s, req.artifact_key, version)
+        s.last_cleared = self._clear(s, {"dry_run"})
+        return await self.sessions.save(s)
+
+    async def _resolve_authored_version(self, key: str, schema: Dict[str, Any]) -> str:
+        """The version to register a refined artifact schema at: reuse an identically-registered version (no churn),
+        else bump the minor above the highest registered (a same-version body change is immutable at commit)."""
+        regs = await self.schemas.list_by_key(key)
+        if not regs:
+            return "1.0.0"
+        for r in regs:
+            if r.json_schema == schema:
+                return r.version
+        latest = Version(max(regs, key=lambda r: Version(r.version)).version)
+        return f"{latest.major}.{latest.minor + 1}.0"
+
+    @staticmethod
+    def _repoint_artifact_refs(s: OnboardingSession, artifact_key: str, version: str) -> None:
+        """Re-point every binding output / read-only-input ``schema_ref`` for this artifact key to the resolved
+        version, so the composed + activated pack pins the refined body."""
+        new_ref = f"{artifact_key}@^{version}"
+        for b in s.bindings:
+            for io in list(b.outputs or []) + list(b.inputs or []):
+                if io.schema_ref and io.schema_ref.split("@", 1)[0] == artifact_key:
+                    io.schema_ref = new_ref
 
     # ------------------------------------------------------------------ #
     # 5) set_triage — TRIAGE_SET

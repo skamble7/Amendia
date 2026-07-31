@@ -571,6 +571,17 @@ class DeclareArtifactRequest(BaseModel):
     json_schema: Dict[str, Any]
 
 
+class RefineArtifactRequest(BaseModel):
+    """ADR-054: refine an existing HUMAN-authored artifact's JSON schema (typed properties, JSON-Schema ``title``
+    labels, enums, ``required``) so the runtime HITL form renders labeled/typed fields, not a raw JSON blob. Unlike
+    DeclareArtifactRequest the version is resolved SERVER-side (bump-on-change vs the registered body), so the
+    caller sends only the key + refined schema (+ optional title); the referencing bindings are re-pinned to it."""
+
+    artifact_key: str
+    json_schema: Dict[str, Any]
+    title: Optional[str] = None
+
+
 class SetTriageRequest(BaseModel):
     triage_rules: List[StagedTriageRule] = Field(default_factory=list)
 

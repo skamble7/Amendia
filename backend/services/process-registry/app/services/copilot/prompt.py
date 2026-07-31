@@ -38,6 +38,11 @@ Decide, for the diagram, all of:
 - approval pattern (agent DRAFTS an artifact → human APPROVES it → a side-effect APPLIES it): the side-effect and
   every downstream step must consume the human-APPROVED output, NEVER the pre-approval draft — otherwise the
   approval doesn't gate execution. Map the apply/downstream input from the human's output, not the draft.
+- APPROVAL GATES: ``deterministic_hints.approval_gates`` lists detected four-eyes gates as
+  {human, gated_side_effect, draft}. For EACH one the ``human`` task MUST author a ``human_authored`` output, the
+  ``gated_side_effect`` MUST consume that approved output (never the ``draft`` and never only the trigger), and the
+  ``human`` should read the ``draft``'s output as a read-only input. These are safety invariants — the engine will
+  enforce them if you don't, but wire them yourself.
 - read-only human inputs: upstream artifacts a human step should see as on-form context.
 
 You do NOT invent the trigger or the triage — the USER provides those. A trigger schema is given to you as ground
@@ -202,15 +207,20 @@ def build_chat_messages(
 def build_messages(
     *, sem: BpmnSemanticModel, tools: IntrospectMcpResponse,
     inferred: Optional[InferenceDraft], domain: str, trigger_schema: Dict[str, Any],
+    approval_gates: Optional[List[Dict[str, Any]]] = None,
 ) -> List[Dict[str, str]]:
     """The two-message prompt: a system framing (role + rules + shape) and a user turn carrying the grounded
     inventory + tool catalog + deterministic hints + the USER-PROVIDED trigger schema (ground truth)."""
+    hints = _hints(inferred)
+    if approval_gates:
+        # Structurally-detected four-eyes gates: the human MUST author an approved output the side-effect consumes.
+        hints["approval_gates"] = approval_gates
     payload = {
         "domain": domain,
         "bpmn": _bpmn_inventory(sem),
         "tools": _tool_catalog(tools),
         "trigger_schema": trigger_schema,      # user-provided ground truth — trigger-sourced input_map fields MUST use these
-        "deterministic_hints": _hints(inferred),
+        "deterministic_hints": hints,
     }
     user = (
         "Here is the diagram, the MCP tool catalog, the USER-PROVIDED trigger schema (ground truth for any "

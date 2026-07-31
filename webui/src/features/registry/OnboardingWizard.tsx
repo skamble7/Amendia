@@ -415,7 +415,7 @@ const COVERAGE_TIERS: { key: string; label: string; dot: string; hint: string }[
   { key: "unknown", label: "Unknown", dot: "bg-muted-foreground", hint: "unrecognized element" },
 ];
 
-function CoverageCard({ inv, inferred, xml, onContinue }: { inv: OnbBpmnInventory; inferred: InferenceDraft | null; xml: string; onContinue: () => void }) {
+export function CoverageCard({ inv, inferred, xml, onContinue }: { inv: OnbBpmnInventory; inferred: InferenceDraft | null; xml: string; onContinue: () => void }) {
   const counts = inv.coverage_counts ?? {};
   const markers = useMemo(() => coverageMarkers(inv), [inv]);
   const docs = inv.documented_elements ?? [];
@@ -731,8 +731,13 @@ function ReuseSearchDialog({ reused, onToggle }: { reused: string[]; onToggle: (
   );
 }
 
-function CapabilitiesStep({ session, onDone }: { session: OnboardingSession; onDone: (s: OnboardingSession) => void }) {
-  const [endpoint, setEndpoint] = useState("");
+export function CapabilitiesStep({ session, onDone, prefilledEndpoint }: {
+  session: OnboardingSession;
+  onDone: (s: OnboardingSession) => void;
+  prefilledEndpoint?: string;   // ADR-054/copilot: seed the endpoint (already introspected at Generate) so the
+                                // operator isn't asked for the MCP URL a second time; empty in the manual wizard.
+}) {
+  const [endpoint, setEndpoint] = useState(prefilledEndpoint ?? "");
   const [transport, setTransport] = useState("streamable_http");
   const [introspecting, setIntrospecting] = useState(false);
   const [drafts, setDrafts] = useState<ToolDraft[]>([]);
@@ -1221,7 +1226,7 @@ function HumanInputsEditor({ row, artifactChoices, outputs, onChange }: {
   );
 }
 
-function BindingsStep({ session, onDone, onSession }: { session: OnboardingSession; onDone: (s: OnboardingSession) => void; onSession: (s: OnboardingSession) => void }) {
+export function BindingsStep({ session, onDone, onSession }: { session: OnboardingSession; onDone: (s: OnboardingSession) => void; onSession: (s: OnboardingSession) => void }) {
   const tasks: OnbBindableElement[] = session.bpmn!.bindable_elements;
   const capOptions = useMemo(
     () => [...session.staged_capabilities.map((c) => `${c.capability_id}@^${c.version}`), ...session.reused_capability_refs],
@@ -1852,7 +1857,7 @@ function TriggerDeclareCard({ session, onSession }: { session: OnboardingSession
   );
 }
 
-function TriageStep({ session, onDone, onSession }: { session: OnboardingSession; onDone: (s: OnboardingSession) => void; onSession: (s: OnboardingSession) => void }) {
+export function TriageStep({ session, onDone, onSession }: { session: OnboardingSession; onDone: (s: OnboardingSession) => void; onSession: (s: OnboardingSession) => void }) {
   // ADR-049: the pack's trigger field/type map — flattened from the DECLARED trigger schema when the operator
   // declared one (below), else the deployment sample envelopes. When present, leaves author against the real
   // schema (field picker + type-valid ops) so a non-existent field or an incompatible op can't be hand-authored.
@@ -1967,7 +1972,7 @@ function PredicateEditor({ node, onChange, depth, onRemove, fields, newLeaf }: {
 }
 
 // -- Step 6: policies ----------------------------------------------------------
-function PoliciesStep({ session, onDone }: { session: OnboardingSession; onDone: (s: OnboardingSession) => void }) {
+export function PoliciesStep({ session, onDone }: { session: OnboardingSession; onDone: (s: OnboardingSession) => void }) {
   const gateways = session.bpmn!.gateways;
   const tasks = session.bpmn!.bindable_elements.map((e) => e.element_id);   // SoD over the full bindable set
   // ADR-051/052 E3: a gateway branches on a produced binding OUTPUT (its name is the variable's first segment).
@@ -2150,7 +2155,7 @@ function PoliciesStep({ session, onDone }: { session: OnboardingSession; onDone:
 }
 
 // -- Step 7: review / validate / activate -------------------------------------
-function ReviewStep({ session, onChange, goStep }: { session: OnboardingSession; onChange: (s: OnboardingSession) => void; goStep: (i: number) => void }) {
+export function ReviewStep({ session, onChange, goStep }: { session: OnboardingSession; onChange: (s: OnboardingSession) => void; goStep: (i: number) => void }) {
   const [busy, setBusy] = useState<"assemble" | "commit" | null>(null);
   const report = session.dry_run_report ?? null;
   const errorCount = report ? countBySeverity(report.findings).error : 0;
@@ -2250,7 +2255,7 @@ function CommitProgress({ steps }: { steps: OnboardingSession["commit_progress"]
   );
 }
 
-function ReportView({ report, goStep }: { report: ValidationReport; goStep?: (i: number) => void }) {
+export function ReportView({ report, goStep }: { report: ValidationReport; goStep?: (i: number) => void }) {
   const counts = countBySeverity(report.findings);
   const groups = groupByStage(report.findings);
   const stageToStep: Record<number, number> = { 1: 1, 2: 3, 3: 2, 4: 3, 5: 3, 6: 5, 7: 4 };
@@ -2310,7 +2315,7 @@ function BackLink() {
     </div>
   );
 }
-function Field({ label, hint, error, className, children }: { label: string; hint?: string; error?: string; className?: string; children: React.ReactNode }) {
+export function Field({ label, hint, error, className, children }: { label: string; hint?: string; error?: string; className?: string; children: React.ReactNode }) {
   return (
     <div className={className}>
       <Label className="mb-1.5 flex items-center gap-2">{label}{hint && <span className="text-xs font-normal text-muted-foreground">· {hint}</span>}</Label>
@@ -2319,7 +2324,7 @@ function Field({ label, hint, error, className, children }: { label: string; hin
     </div>
   );
 }
-function ReadRow({ label, value, mono, className }: { label: string; value: string; mono?: boolean; className?: string }) {
+export function ReadRow({ label, value, mono, className }: { label: string; value: string; mono?: boolean; className?: string }) {
   return (
     <div className={className}>
       <p className="text-xs uppercase tracking-wide text-muted-foreground">{label}</p>
@@ -2327,7 +2332,7 @@ function ReadRow({ label, value, mono, className }: { label: string; value: stri
     </div>
   );
 }
-function StepFooter({ summary, busy, disabled, onNext, nextLabel = "Save & continue" }: { summary: string; busy: boolean; disabled?: boolean; onNext: () => void; nextLabel?: string }) {
+export function StepFooter({ summary, busy, disabled, onNext, nextLabel = "Save & continue" }: { summary: string; busy: boolean; disabled?: boolean; onNext: () => void; nextLabel?: string }) {
   return (
     <div className="flex items-center justify-between border-t border-border pt-4">
       <span className="text-sm text-muted-foreground">{summary}</span>
@@ -2337,7 +2342,7 @@ function StepFooter({ summary, busy, disabled, onNext, nextLabel = "Save & conti
     </div>
   );
 }
-function EmptyBox({ title, body }: { title: string; body: string }) {
+export function EmptyBox({ title, body }: { title: string; body: string }) {
   return <Card><CardContent className="py-10 text-center"><p className="text-sm font-medium">{title}</p>{body && <p className="mt-1 text-sm text-muted-foreground">{body}</p>}</CardContent></Card>;
 }
 function SeverityIcon({ severity }: { severity: string }) {

@@ -3903,6 +3903,37 @@
         "title": "ReduceSpec",
         "type": "object"
       },
+      "RefineArtifactRequest": {
+        "description": "ADR-054: refine an existing HUMAN-authored artifact's JSON schema (typed properties, JSON-Schema ``title``\nlabels, enums, ``required``) so the runtime HITL form renders labeled/typed fields, not a raw JSON blob. Unlike\nDeclareArtifactRequest the version is resolved SERVER-side (bump-on-change vs the registered body), so the\ncaller sends only the key + refined schema (+ optional title); the referencing bindings are re-pinned to it.",
+        "properties": {
+          "artifact_key": {
+            "title": "Artifact Key",
+            "type": "string"
+          },
+          "json_schema": {
+            "additionalProperties": true,
+            "title": "Json Schema",
+            "type": "object"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          }
+        },
+        "required": [
+          "artifact_key",
+          "json_schema"
+        ],
+        "title": "RefineArtifactRequest",
+        "type": "object"
+      },
       "RequiresCapability": {
         "additionalProperties": false,
         "properties": {
@@ -5856,6 +5887,64 @@
           }
         ],
         "summary": "Declare Artifact",
+        "tags": [
+          "onboarding"
+        ]
+      }
+    },
+    "/onboarding/{session_id}/artifacts/refine": {
+      "put": {
+        "description": "ADR-054: refine a human-authored artifact's JSON schema (typed props, labels, enums). The version is\nresolved server-side (bump-on-change) and the referencing bindings are re-pinned, so the activated pack's\nHITL form renders labeled, typed fields \u2014 not a raw JSON blob.",
+        "operationId": "refine_artifact_onboarding__session_id__artifacts_refine_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RefineArtifactRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OnboardingSession"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Refine Artifact",
         "tags": [
           "onboarding"
         ]

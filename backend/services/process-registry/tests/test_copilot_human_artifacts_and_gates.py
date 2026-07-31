@@ -209,14 +209,14 @@ def _bare() -> Reconciler:
 
 
 def test_role_topology_detects_automation_lane_and_human_approver():
-    autom, approver = _bare()._role_topology(_wire_inference())
+    autom, approver = _bare()._role_topology(_wire_inference(), {b.element_id: b for b in _wire_inference().bindings})
     assert autom == {"role.payment.ai_agent"}                    # lane whose members are all capability tasks
     assert approver == "role.payment.ops_approver"               # role on the human approval task
 
 
 def test_side_effectful_agent_gate_gets_human_approver_not_automation_lane():
     rec = _bare()
-    rec._automation_roles, rec._human_approver = rec._role_topology(_wire_inference())
+    rec._automation_roles, rec._human_approver = rec._role_topology(_wire_inference(), {b.element_id: b for b in _wire_inference().bindings})
     inf = _wire_inference().bindings[1]                          # ApplyRepair — capability in the AI-agent lane
     mode, role = rec._clamp_hitl("ApplyRepair", None, "side_effectful", inf)
 
@@ -228,7 +228,7 @@ def test_side_effectful_agent_gate_gets_human_approver_not_automation_lane():
 
 def test_normal_agent_task_with_hitl_none_is_untouched():
     rec = _bare()
-    rec._automation_roles, rec._human_approver = rec._role_topology(_wire_inference())
+    rec._automation_roles, rec._human_approver = rec._role_topology(_wire_inference(), {b.element_id: b for b in _wire_inference().bindings})
     inf = _wire_inference().bindings[0]                          # Assess — plain agent step, no gate
     mode, role = rec._clamp_hitl("Assess", None, "pure", inf)
     assert mode == "none" and role is None                       # no gate → no role to humanize
@@ -242,7 +242,7 @@ def test_ambiguous_approver_leaves_the_gate_and_raises_an_open_question():
         bindings=[InferredBinding(element_id="ApplyRepair", element_kind="serviceTask", executor_type="capability",
                                   suggested_role="role.payment.ai_agent", source_lane="Lane_Agent",
                                   suggested_hitl_mode="none")])
-    rec._automation_roles, rec._human_approver = rec._role_topology(inferred)
+    rec._automation_roles, rec._human_approver = rec._role_topology(inferred, {b.element_id: b for b in inferred.bindings})
     assert rec._human_approver is None
 
     mode, role = rec._clamp_hitl("ApplyRepair", None, "side_effectful", inferred.bindings[0])

@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import copy
 import logging
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, NamedTuple, Optional, Tuple
 
 from packaging.version import Version
 
@@ -47,11 +47,62 @@ from app.models.onboarding import (
     StagedTriageRule,
 )
 from app.services.copilot.flowgraph import FlowGraph
-from app.services.copilot.proposal import CopilotProposal, ElementProposal
+from app.services.copilot.proposal import (
+    CopilotProposal,
+    ElementProposal,
+    InputMapProposal,
+    OutputProposal,
+    ReadOnlyInputProposal,
+)
 from app.services.mcp_introspect import sanitize_name
 from app.services.onboarding import TransitionError
 
 logger = logging.getLogger(__name__)
+
+
+class ApprovalGate(NamedTuple):
+    """A four-eyes approval structure, detected deterministically from the diagram (never the LLM): the human task
+    ``human`` always runs before the side-effectful capability ``side_effect`` (a guaranteed predecessor), and
+    reviews the ``draft`` capability's output (the SoD-paired drafter, else the nearest consumed upstream cap)."""
+    human: str
+    side_effect: str
+    draft: Optional[str]
+
+
+def detect_approval_gates(
+    *, bindable: Dict[str, Any], inferred: InferenceDraft, flow_graph: Optional[FlowGraph],
+    is_side_effect: Callable[[str], bool],
+) -> List[ApprovalGate]:
+    """The process's four-eyes approval gates, structural + domain-neutral. A gate ``(H, S, D)`` requires:
+      * ``H`` is a human task SoD-PAIRED with a drafting capability ``D`` that is guaranteed-upstream of H — this
+        separation-of-duties pairing (``inferred.sod_candidates``, e.g. [DraftRepair, ApproveRepair]) is what makes
+        H an *approver* of D's work, distinguishing a real approval from a mere human step upstream of a side-effect;
+      * ``H`` is a GUARANTEED PREDECESSOR of a side-effectful capability ``S`` (H always runs before S).
+    The SoD pairing is REQUIRED, not just preferred — without it (as for a plain worker upstream of a side-effect)
+    no gate forms, so nothing is materialized spuriously. No flow graph (chat path) → no gates."""
+    if flow_graph is None:
+        return []
+    humans = [eid for eid, inv in bindable.items() if getattr(inv, "category", None) == "human"]
+    caps = {eid for eid, inv in bindable.items() if getattr(inv, "category", None) == "capability"}
+    side_effects = sorted(s for s in caps if is_side_effect(s))
+
+    def sod_drafter(h: str) -> Optional[str]:
+        for sod in inferred.sod_candidates:
+            if h in (sod.elements or []):
+                for other in sod.elements:
+                    if other != h and other in caps and flow_graph.guaranteed_predecessor(other, h):
+                        return other
+        return None
+
+    gates: List[ApprovalGate] = []
+    for h in sorted(humans):
+        d = sod_drafter(h)
+        if d is None:                                          # not a four-eyes approver → not an approval gate
+            continue
+        for s in side_effects:
+            if flow_graph.guaranteed_predecessor(h, s):
+                gates.append(ApprovalGate(human=h, side_effect=s, draft=d))
+    return gates
 
 _ARTIFACT_VERSION = "1.0.0"
 _CAP_VERSION = "1.0.0"
@@ -108,6 +159,9 @@ class Reconciler:
         # role to reassign such a gate to. Computed from the inference draft in apply().
         self._automation_roles: set = set()
         self._human_approver: Optional[str] = None
+        # The four-eyes approval gates detected structurally from the diagram (Part 1), used to derive the human
+        # approver (Part 4) and to guarantee the human authors a consumed approval artifact (Part 3).
+        self._approval_gates: List[ApprovalGate] = []
         # Part 3: artifact_key -> the version each re-derived human artifact was registered at (bumped when its
         # schema changed vs the registered one). Bindings reference the human artifact at this version.
         self._human_artifact_versions: Dict[str, str] = {}
@@ -138,11 +192,27 @@ class Reconciler:
         bindable = {e.element_id: e for e in session.bpmn.bindable_elements}
         inferred = session.inferred or InferenceDraft()
         inf_by_el = {b.element_id: b for b in inferred.bindings}
-        # Part D: which roles are the automation/AI lane (a HITL gate must not carry them) + the human approver.
-        self._automation_roles, self._human_approver = self._role_topology(inferred)
+        # Four-eyes is a safety invariant → deterministic. Detect the approval gates structurally (Part 1) BEFORE
+        # anything LLM-derived, then derive the human approver from the gate tasks (Part 4) and use the automation
+        # lane to keep a gate off the machine lane (Part D).
+        self._approval_gates = detect_approval_gates(
+            bindable=bindable, inferred=inferred, flow_graph=self.flow_graph,
+            is_side_effect=self._is_side_effect)
+        self._automation_roles, self._human_approver = self._role_topology(inferred, inf_by_el)
 
         # 1) stage capabilities — one per compliant tool a capability element binds
         used_tools = self._capability_tools(bindable)
+        # Part 5: a tool bound to MORE THAN ONE element is usually an accidental substitution (the LLM reached for
+        # the nearest capability when the MCP had no matching tool) — surface it, never auto-rebind.
+        tool_elems: Dict[str, List[str]] = {}
+        for eid, tool in used_tools.items():
+            tool_elems.setdefault(tool, []).append(eid)
+        for tool, elems in tool_elems.items():
+            if len(elems) > 1:
+                self.questions.append(CopilotOpenQuestion(
+                    topic="tool_reuse", confidence=0.3,
+                    question=f"Tool '{tool}' is used for both {' and '.join(sorted(elems))} — confirm both should "
+                             f"call it (an MCP without a matching tool can make the model reuse the nearest one)."))
         session = await self._stage_capabilities(sid, used_tools)
 
         # map every KNOWN output name -> its artifact key (for read-only input schema_refs + human-output refs)
@@ -150,10 +220,13 @@ class Reconciler:
         # map every KNOWN output name -> the element_ids that produce it (for loop-back optionality on from=artifact)
         self._producers = self._output_producers(bindable, inf_by_el)
 
-        # ADR-052 Part 1: in an approval pattern (agent drafts → human approves → side-effect applies) the
-        # side-effect must consume the human-APPROVED output, not the pre-approval draft. Rewire an orphaned
-        # required human output onto its downstream draft-consumer (mutates the proposal input_maps, so both the
-        # schema derivation below and the bindings pick it up). Runs before derive + bindings.
+        # Deterministic four-eyes floor (Part 3): for every detected approval gate, guarantee the human authors an
+        # approval output that the side-effect consumes — MATERIALIZING it when the LLM omitted it — so a hollow
+        # approval (empty inputs/outputs, side-effect reading the draft/trigger) can never activate. Runs first, so
+        # the derivation + bindings below pick up the wiring.
+        self._materialize_approval_gates(inf_by_el)
+        # ADR-052: in an approval pattern the side-effect must consume the human-APPROVED output, not the
+        # pre-approval draft. Rewire any remaining orphaned required human output onto its downstream draft-consumer.
         self._rewire_orphaned_human_outputs()
 
         # 2) derive + declare human-authored artifacts (ADR-050) from the consuming tools' input shapes. Part 3: a
@@ -282,6 +355,92 @@ class Reconciler:
         if gw:
             return gw
         return (p.output_name or "").strip() or f"{sanitize_name(tool)}_output"
+
+    # -- deterministic four-eyes (Part 1/3/4) -- #
+    def _is_side_effect(self, eid: str) -> bool:
+        """True iff the proposal binds ``eid`` to a side-effectful tool (ack-shape, deterministic — not the LLM)."""
+        p = self.prop_by_el.get(eid)
+        tool = self.tools_by_name.get(p.executor.capability_tool or "") if p and p.executor.type == "capability" else None
+        return bool(tool and tool.suggested_side_effect == "side_effectful")
+
+    def _element_output_name(self, eid: str, inf_by_el: Dict[str, Any]) -> Optional[str]:
+        """The output NAME an element produces (capability: ADR-051 effective name; human: its first output)."""
+        p = self.prop_by_el.get(eid)
+        if p is None:
+            return None
+        if p.executor.type == "capability" and p.executor.capability_tool in self.tools_by_name:
+            return self._effective_output_name(p, p.executor.capability_tool, inf_by_el.get(eid))
+        return p.outputs[0].name if p.outputs else None
+
+    def _element_role(self, eid: str, inf_by_el: Dict[str, Any]) -> Optional[str]:
+        """The role a human element carries — the LLM's proposed role, else the lane-derived inferred role."""
+        p = self.prop_by_el.get(eid)
+        if p and p.executor.type == "human" and p.executor.role:
+            return p.executor.role
+        b = inf_by_el.get(eid)
+        return b.suggested_role if b else None
+
+    def _materialize_approval_gates(self, inf_by_el: Dict[str, Any]) -> None:
+        """Deterministic backstop for four-eyes. For every detected gate (H, S, D): if H already authors an output S
+        consumes, leave it (the LLM did it right); otherwise MATERIALIZE the approval — ensure H authors a
+        human-authored output A (synthesized from the draft/element ids if the LLM gave none), repoint S onto A (the
+        field(s) that read the draft D, else the single unmapped object input of S's tool), and give H the draft as
+        read-only review context. So ``_derive_human_artifacts`` derives A's schema from S's tool input (never
+        invents fields) and the side-effect is gated by the approval. If S has no unambiguous field for A, wire what
+        is safe and raise a HIGH-VISIBILITY open question — never let an approval gate activate hollow."""
+        for gate in self._approval_gates:
+            hp, sp = self.prop_by_el.get(gate.human), self.prop_by_el.get(gate.side_effect)
+            if hp is None or sp is None:
+                continue
+            h_outputs = {o.name for o in hp.outputs if o.human_authored}
+            if any(m.from_ == "artifact" and m.name in h_outputs for m in sp.input_map):
+                continue                                             # S already consumes an approval output of H
+            d_out = self._element_output_name(gate.draft, inf_by_el) if gate.draft else None
+            a_name = next(iter(sorted(h_outputs)), None)             # reuse H's existing human output if any
+            if a_name is None:
+                a_name = f"approved_{d_out}" if d_out else f"{sanitize_name(gate.human)}_output"
+                hp.outputs.append(OutputProposal(name=a_name, human_authored=True))
+                self._det("dataflow", gate.human,
+                          f"materialized human-authored output '{a_name}' — {gate.human} gates the side-effect "
+                          f"{gate.side_effect} but the design left the approval hollow")
+            # wire S to consume A: prefer repointing the draft-reading field(s), else the single unmapped object field
+            wired = False
+            if d_out:
+                for m in sp.input_map:
+                    if m.from_ == "artifact" and m.name == d_out:
+                        m.name = a_name
+                        wired = True
+                if wired:
+                    self._det("dataflow", gate.side_effect,
+                              f"{gate.side_effect} now consumes the approved '{a_name}' from {gate.human}, not the "
+                              f"pre-approval draft '{d_out}' (four-eyes gate)")
+            if not wired:
+                wired = self._wire_single_object_field(gate.side_effect, sp, a_name)
+            # H reviews the draft as read-only context
+            if d_out and not any(ri.source_output == d_out for ri in hp.read_only_inputs):
+                hp.read_only_inputs.append(ReadOnlyInputProposal(name=f"{d_out}_review", source_output=d_out))
+            if not wired:
+                self.questions.append(CopilotOpenQuestion(
+                    topic="approval_gate", element_id=gate.side_effect, confidence=0.0,
+                    question=f"{gate.human} approves before the side-effect {gate.side_effect}, but {gate.side_effect} "
+                             f"has no clear input for the approved result — materialized '{a_name}'; confirm which "
+                             f"input of {gate.side_effect} should consume it."))
+
+    def _wire_single_object_field(self, s_eid: str, sp: ElementProposal, a_name: str) -> bool:
+        """Wire ``a_name`` onto S's single UNMAPPED object-typed tool input (the corrected/authored value), if
+        exactly one exists — otherwise leave it for the open question (never invent/guess which field)."""
+        tool = self.tools_by_name.get(sp.executor.capability_tool or "")
+        if tool is None or not isinstance(tool.input_schema, dict):
+            return False
+        props = tool.input_schema.get("properties", {}) or {}
+        mapped = {m.field for m in sp.input_map}
+        obj_fields = [f for f, sub in props.items()
+                      if f not in mapped and isinstance(sub, dict) and sub.get("type") == "object"]
+        if len(obj_fields) != 1:
+            return False
+        sp.input_map.append(InputMapProposal(field=obj_fields[0], **{"from": "artifact"}, name=a_name))
+        self._det("dataflow", s_eid, f"{s_eid} now consumes the approved '{a_name}' on its '{obj_fields[0]}' input")
+        return True
 
     # -- human-authored artifact derivation (ADR-050) -- #
     def _rewire_orphaned_human_outputs(self) -> None:
@@ -508,11 +667,13 @@ class Reconciler:
                      f"automation lane and no single human approver role was found — who authorizes this action?"))
         return role                                               # leave the gate; the open question flags it
 
-    def _role_topology(self, inferred: InferenceDraft) -> Tuple[set, Optional[str]]:
-        """From the inference draft, compute (automation_lane_roles, human_approver_role). The automation lane is
-        structural: a lane whose bindable members are ALL capability tasks. The human approver is the role on the
-        process's human approval tasks (a human lane with an approve gate); if exactly one such role exists use it,
-        else fall back to the sole human role, else it's ambiguous (None → open question at the gate)."""
+    def _role_topology(self, inferred: InferenceDraft, inf_by_el: Dict[str, Any]) -> Tuple[set, Optional[str]]:
+        """Compute (automation_lane_roles, human_approver_role). The automation lane is structural: a lane whose
+        bindable members are ALL capability tasks. The human approver is derived STRUCTURALLY from the detected
+        approval-gate tasks (Part 4) — real approval user-tasks are ``manual`` gates, so keying on an approve HITL
+        mode misses them. The role(s) on the gate tasks H: one distinct → use it; several → the one gating the most
+        side-effects (ties → ambiguous); no gates → fall back to an approve-mode human role, then the sole human
+        role, else ambiguous (None → the gate raises the open question)."""
         approve = {HitlMode.APPROVE_RESULT.value, HitlMode.APPROVE_ACTIONS.value}
         lane_execs: Dict[str, set] = {}
         for b in inferred.bindings:
@@ -523,17 +684,31 @@ class Reconciler:
                             if b.source_lane in automation_lanes and b.suggested_role}
         automation_roles |= {r.role_id for r in inferred.roles
                              if r.source_lane in automation_lanes and r.role_id}
-        human_roles = {b.suggested_role for b in inferred.bindings
-                       if b.executor_type == "human" and b.suggested_role} - automation_roles
-        approver_roles = {b.suggested_role for b in inferred.bindings
-                          if b.executor_type == "human" and b.suggested_role
-                          and b.suggested_hitl_mode in approve} - automation_roles
-        if len(approver_roles) == 1:
-            human_approver: Optional[str] = next(iter(approver_roles))
-        elif len(human_roles) == 1:
-            human_approver = next(iter(human_roles))
+
+        # Part 4: the approver is the role on the human tasks that gate a side-effect (weighted by how many).
+        gate_role_counts: Dict[str, int] = {}
+        for g in self._approval_gates:
+            role = self._element_role(g.human, inf_by_el)
+            if role and role not in automation_roles:
+                gate_role_counts[role] = gate_role_counts.get(role, 0) + 1
+        human_approver: Optional[str] = None
+        if len(gate_role_counts) == 1:
+            human_approver = next(iter(gate_role_counts))
+        elif gate_role_counts:
+            top = max(gate_role_counts.values())
+            leaders = [r for r, c in gate_role_counts.items() if c == top]
+            human_approver = leaders[0] if len(leaders) == 1 else None   # tie → ambiguous
         else:
-            human_approver = None
+            # no gates detected → the legacy heuristics (approve-mode human role, then the sole human role)
+            human_roles = {b.suggested_role for b in inferred.bindings
+                           if b.executor_type == "human" and b.suggested_role} - automation_roles
+            approver_roles = {b.suggested_role for b in inferred.bindings
+                              if b.executor_type == "human" and b.suggested_role
+                              and b.suggested_hitl_mode in approve} - automation_roles
+            if len(approver_roles) == 1:
+                human_approver = next(iter(approver_roles))
+            elif len(human_roles) == 1:
+                human_approver = next(iter(human_roles))
         return automation_roles, human_approver
 
     def _capability_input_sources(self, eid: str, tool: str, p: Optional[ElementProposal]) -> Dict[str, Any]:

@@ -255,6 +255,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/onboarding/{session_id}/artifacts/refine": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Refine Artifact
+         * @description ADR-054: refine a human-authored artifact's JSON schema (typed props, labels, enums). The version is
+         *     resolved server-side (bump-on-change) and the referencing bindings are re-pinned, so the activated pack's
+         *     HITL form renders labeled, typed fields — not a raw JSON blob.
+         */
+        put: operations["refine_artifact_onboarding__session_id__artifacts_refine_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/onboarding/{session_id}/assemble": {
         parameters: {
             query?: never;
@@ -2033,6 +2055,23 @@ export interface components {
             /** Title */
             title?: string | null;
         };
+        /**
+         * RefineArtifactRequest
+         * @description ADR-054: refine an existing HUMAN-authored artifact's JSON schema (typed properties, JSON-Schema ``title``
+         *     labels, enums, ``required``) so the runtime HITL form renders labeled/typed fields, not a raw JSON blob. Unlike
+         *     DeclareArtifactRequest the version is resolved SERVER-side (bump-on-change vs the registered body), so the
+         *     caller sends only the key + refined schema (+ optional title); the referencing bindings are re-pinned to it.
+         */
+        RefineArtifactRequest: {
+            /** Artifact Key */
+            artifact_key: string;
+            /** Json Schema */
+            json_schema: {
+                [key: string]: unknown;
+            };
+            /** Title */
+            title?: string | null;
+        };
         /** RequiresCapability */
         RequiresCapability: {
             /**
@@ -2967,6 +3006,41 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["DeclareArtifactRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OnboardingSession"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    refine_artifact_onboarding__session_id__artifacts_refine_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RefineArtifactRequest"];
             };
         };
         responses: {

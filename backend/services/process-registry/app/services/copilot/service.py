@@ -72,12 +72,15 @@ class CopilotService:
 
         # 3) the deterministic semantic model → the grounded prompt (the user trigger schema is passed as ground truth)
         sem = extract_semantics(req.bpmn_xml, process_id)
-        base_messages = build_messages(sem=sem, tools=tools, inferred=session.inferred, domain=domain,
-                                       trigger_schema=user_trigger_schema)
-        trigger_name = _start_event_name(sem)
-        # The BPMN flow graph → deterministic loop-back optionality (reconcile marks from='artifact' inputs whose
-        # producer isn't a guaranteed upstream predecessor as optional, so a first-pass resolution omits them).
+        # The BPMN flow graph → deterministic loop-back optionality + four-eyes gate detection (reconcile marks
+        # from='artifact' inputs whose producer isn't a guaranteed upstream predecessor as optional).
         flow_graph = build_flow_graph(sem)
+        # Ground the prompt with the structurally-detected approval gates (Part 2); reconcile re-detects them
+        # authoritatively from the chosen tools post-proposal and enforces them regardless of what the model returns.
+        approval_gates = _detect_gates_for_prompt(session, tools, flow_graph)
+        base_messages = build_messages(sem=sem, tools=tools, inferred=session.inferred, domain=domain,
+                                       trigger_schema=user_trigger_schema, approval_gates=approval_gates)
+        trigger_name = _start_event_name(sem)
 
         # 4) the single semantic call (bindings/dataflow/HITL only — NOT the trigger or triage, which are user-given)
         proposal, model_ref = await generate_proposal(ref=ref, messages=base_messages)
@@ -237,6 +240,31 @@ class CopilotService:
 def _start_event_name(sem) -> str:
     start = next((n for n in sem.flow_nodes if n.kind == "startEvent"), None)
     return (start.name if start and start.name else "trigger")
+
+
+def _detect_gates_for_prompt(session, tools, flow_graph) -> List[Dict[str, Any]]:
+    """Pre-LLM four-eyes detection for prompt grounding (Part 2). Side-effect is read from each element's INFERRED
+    capability candidate (the tool the LLM hasn't chosen yet); reconcile re-detects authoritatively post-proposal."""
+    from app.models.onboarding import InferenceDraft
+    from app.services.copilot.reconcile import detect_approval_gates
+
+    inferred = session.inferred or InferenceDraft()
+    bindable = {e.element_id: e for e in (session.bpmn.bindable_elements if session.bpmn else [])}
+    tools_by_name = {t.name: t for t in tools.tools}
+    inf_by_el = {b.element_id: b for b in inferred.bindings}
+
+    def is_side_effect(eid: str) -> bool:
+        b = inf_by_el.get(eid)
+        cap_id = b.suggested_capability_id if b else None
+        if not cap_id:
+            return False
+        parts = cap_id.split("@", 1)[0].split(".", 2)          # cap.<domain>.<tool>
+        t = tools_by_name.get(parts[2]) if len(parts) == 3 else None
+        return bool(t and t.suggested_side_effect == "side_effectful")
+
+    gates = detect_approval_gates(bindable=bindable, inferred=inferred, flow_graph=flow_graph,
+                                  is_side_effect=is_side_effect)
+    return [{"human": g.human, "gated_side_effect": g.side_effect, "draft": g.draft} for g in gates]
 
 
 def _findings(session: OnboardingSession) -> List[Dict[str, Any]]:
