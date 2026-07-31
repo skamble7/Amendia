@@ -357,6 +357,99 @@ describe("Copilot flow — stepped review + schema refiner (ADR-054)", () => {
     expect(screen.getByText(/real-world effect/i)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /re-introspect/i })).toBeInTheDocument();
   });
+
+  it("a copilot-seeded human artifact renders its baseline fields with a 'drafted by the copilot' hint", async () => {
+    const user = userEvent.setup();
+    server.use(http.get(`${REG}/onboarding/sess-c`, () => HttpResponse.json(wireSession({
+      authored_artifacts: [{
+        artifact_key: "art.payments.escalation_decision", version: "1.0.0", title: "Escalation decision",
+        json_schema: { type: "object", additionalProperties: false, required: ["decision"], properties: {
+          decision: { type: "string", title: "Decision", enum: ["escalate", "hold", "close"] },
+          notes: { type: "string", title: "Notes" } } },
+      }],
+      copilot_report: {
+        summary: "A wire exception is triaged and repaired.", open_questions: [], llm_used: true, model_ref: null, repair_passes: 0,
+        decisions: [{ kind: "human_artifact", element_id: null, decided_by: "deterministic",
+          summary: "seeded a baseline schema for art.payments.escalation_decision (decision, notes) from process context — copilot draft, review in the refiner" }],
+      },
+    }))));
+    renderCopilot("/registry/onboard/sess-c");
+
+    await user.click(await screen.findByRole("button", { name: /artifacts & schemas/i }));
+    // the baseline fields render as a labeled form (not an empty refiner) + the draft hint
+    expect(await screen.findByText("Decision")).toBeInTheDocument();          // the preview field label
+    expect(screen.getByText(/drafted by the copilot/i)).toBeInTheDocument();
+  });
+
+  it("walking Continue through an unedited generated session reaches go-live with no ordering toast (triage before gateways)", async () => {
+    const user = userEvent.setup();
+    const setterCalls: string[] = [];
+    const walkSession = wireSession({
+      bpmn: { process_id: "P", bpmn_file: "p.bpmn", sha256: "x", required_execution_profile: "common_executable",
+              bindable_elements: [], gateways: [], message_flows: [] },
+    });
+    server.use(
+      http.get(`${REG}/onboarding/sess-c`, () => HttpResponse.json(walkSession)),
+      http.get(`${REG}/capabilities`, () => HttpResponse.json([])),
+      http.get(`${REG}/packs`, () => HttpResponse.json([])),
+      http.put(`${REG}/onboarding/sess-c/bindings`, () => { setterCalls.push("bindings"); return HttpResponse.json(walkSession); }),
+      http.put(`${REG}/onboarding/sess-c/triage`, () => { setterCalls.push("triage"); return HttpResponse.json(walkSession); }),
+      http.put(`${REG}/onboarding/sess-c/policies`, () => { setterCalls.push("policies"); return HttpResponse.json(walkSession); }),
+    );
+    renderCopilot("/registry/onboard/sess-c");
+
+    // the step order matches the engine: Trigger & triage precedes Gateways
+    const triage = await screen.findByText("Trigger & triage");
+    const gateways = screen.getByText("Gateways");
+    // eslint-disable-next-line no-bitwise
+    expect(triage.compareDocumentPosition(gateways) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    // Continue straight through all six transitions without editing anything
+    for (let i = 0; i < 6; i++) {
+      await user.click(await screen.findByRole("button", { name: "Continue" }));
+    }
+
+    // reached Review & go live — ready, and NO setter was re-invoked (no regress, no "set triage rules before policies")
+    expect(await screen.findByRole("button", { name: /approve & go live/i })).toBeInTheDocument();
+    expect(setterCalls).toEqual([]);
+  });
+
+  it("every step has a uniform Back/Continue footer; Continue advances", async () => {
+    const user = userEvent.setup();
+    server.use(http.get(`${REG}/onboarding/sess-c`, () => HttpResponse.json(wireSession())));
+    renderCopilot("/registry/onboard/sess-c");
+
+    // Understanding (first step): Continue present, no Back yet
+    const cont = await screen.findByRole("button", { name: "Continue" });
+    expect(cont).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Back" })).toBeNull();
+
+    await user.click(cont);   // → Capabilities
+    expect(await screen.findByText(/Connected tool server/i)).toBeInTheDocument();
+    // the same footer, now with Back
+    expect(screen.getByRole("button", { name: "Continue" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Back" })).toBeInTheDocument();
+  });
+
+  it("the Trigger & triage step is a read-mostly confirmation with an Edit affordance, not the builder", async () => {
+    const user = userEvent.setup();
+    server.use(http.get(`${REG}/onboarding/sess-c`, () => HttpResponse.json(wireSession({
+      trigger_artifact: { artifact_key: "art.payments.wire_exception", version: "1.0.0", title: "Wire exception",
+        json_schema: { type: "object", properties: { exception_type: { type: "string" }, amount: { type: "number" } } } },
+      triage_rules: [{ rule_id: "r1", priority: 100, when: { field: "exception_type", op: "eq", value: "unable_to_apply" } }],
+    }))));
+    renderCopilot("/registry/onboard/sess-c");
+
+    await user.click(await screen.findByRole("button", { name: /Trigger & triage/i }));   // stepper
+    // read-mostly confirmation: the trigger field count + each rule in plain form; an Edit affordance
+    expect(await screen.findByText(/2 fields/i)).toBeInTheDocument();
+    expect(screen.getByText("exception_type eq unable_to_apply")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Edit" })).toBeInTheDocument();
+
+    // Edit reveals the builder (which brings its own Save footer); the confirmation's Edit button is gone
+    await user.click(screen.getByRole("button", { name: "Edit" }));
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Edit" })).toBeNull());
+  });
 });
 
 describe("Copilot flow — default front door", () => {

@@ -51,12 +51,30 @@ class ReadOnlyInputProposal(BaseModel):
     source_output: str                           # the upstream output name to read as context
 
 
+class OutputFieldProposal(BaseModel):
+    """One field the LLM proposes for a human-authored artifact's BASELINE form schema (ADR-054, extended). A
+    human artifact is the person's form, NOT a tool input — so the model may propose fields freely here; the engine
+    unions any field a downstream tool actually consumes on top (that one wins + stays required)."""
+    model_config = ConfigDict(extra="ignore")
+    name: str
+    type: str = "string"                         # string | number | integer | boolean | object | array
+    title: Optional[str] = None
+    description: Optional[str] = None
+    required: bool = False                        # baseline fields default to OPTIONAL (a draft, not forced)
+    enum: Optional[List[Any]] = None
+    items: Optional[str] = None                  # element type for an array (e.g. "string")
+    properties: Optional[List["OutputFieldProposal"]] = None   # sub-fields for a simple object
+
+
 class OutputProposal(BaseModel):
-    """A binding output. For a human task, ``human_authored`` marks an artifact the human writes; its schema is
-    DERIVED deterministically from the consuming tools' input shape (never invented)."""
+    """A binding output. For a human task, ``human_authored`` marks an artifact the human writes. Its schema is
+    DERIVED deterministically from the consuming tools' input shape (authoritative); on top of that the LLM may
+    propose a BASELINE ``fields`` list (ADR-054, extended) — the human's form fields — so an artifact no tool
+    consumes isn't an empty form. Derived-from-a-consumer fields always win over a baseline guess."""
     model_config = ConfigDict(extra="ignore")
     name: str                                    # the addressable output name (ADR-051)
     human_authored: bool = False
+    fields: Optional[List[OutputFieldProposal]] = None         # optional LLM baseline for the human's form
 
 
 class ElementProposal(BaseModel):
@@ -93,3 +111,7 @@ class CopilotProposal(BaseModel):
 
     def by_element(self) -> Dict[str, ElementProposal]:
         return {e.element_id: e for e in self.elements}
+
+
+# Resolve the self-referential `properties: List["OutputFieldProposal"]` forward ref (nested object sketches).
+OutputFieldProposal.model_rebuild()

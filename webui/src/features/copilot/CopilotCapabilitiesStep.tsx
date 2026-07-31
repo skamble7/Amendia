@@ -10,9 +10,11 @@ import { Badge } from "@/components/ui/badge";
 import { CapabilitiesStep } from "@/features/registry/OnboardingWizard";
 import { type OnboardingSession } from "@/api/services/registry";
 
-export function CopilotCapabilitiesStep({ session, onDone }: {
+export function CopilotCapabilitiesStep({ session, onDone, footer }: {
   session: OnboardingSession;
   onDone: (s: OnboardingSession) => void;
+  footer?: React.ReactNode;   // the shared Back/Continue footer, shown in read-mostly mode (the editable step
+                              // brings its own persist footer)
 }) {
   const [editing, setEditing] = useState(false);
   const caps = session.staged_capabilities ?? [];
@@ -55,6 +57,7 @@ export function CopilotCapabilitiesStep({ session, onDone }: {
           )}
         </CardContent>
       </Card>
+      {footer}
     </div>
   );
 }

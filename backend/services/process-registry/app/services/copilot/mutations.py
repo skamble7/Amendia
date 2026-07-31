@@ -30,6 +30,7 @@ from app.services.copilot.proposal import (
     ExecutorProposal,
     HitlProposal,
     InputMapProposal,
+    OutputFieldProposal,
     OutputProposal,
     ReadOnlyInputProposal,
     TriageRuleProposal,
@@ -107,8 +108,39 @@ def open_question_id(q) -> str:
     return f"{q.topic}:{q.element_id}" if q.element_id else q.topic
 
 
+def _fields_from_schema(schema: Any) -> Optional[List[OutputFieldProposal]]:
+    """Reverse a human artifact's JSON schema back into baseline OutputFieldProposals, so a chat turn's re-derivation
+    preserves the copilot baseline AND any operator refinement instead of clobbering it to an empty form."""
+    if not isinstance(schema, dict):
+        return None
+    props = schema.get("properties") or {}
+    required = set(schema.get("required") or [])
+    out: List[OutputFieldProposal] = []
+    for fname, s in props.items():
+        of = OutputFieldProposal(name=fname, required=fname in required)
+        if isinstance(s, dict):
+            if s.get("enum"):
+                of.type, of.enum = "string", list(s["enum"])
+            elif s.get("type") == "array":
+                items = s.get("items")
+                of.type, of.items = "array", (items.get("type") if isinstance(items, dict) else "string")
+            elif s.get("type") == "object":
+                of.type, of.properties = "object", _fields_from_schema(s)
+            else:
+                of.type = s.get("type") or "string"
+            if s.get("title"):
+                of.title = s["title"]
+            if s.get("description"):
+                of.description = s["description"]
+        out.append(of)
+    return out or None
+
+
 def proposal_from_session(session: OnboardingSession) -> CopilotProposal:
     """Reverse the composed draft back into a CopilotProposal — the editable surface the mutations act on."""
+    authored_schema = {a.artifact_key: a.json_schema for a in (getattr(session, "authored_artifacts", None) or [])}
+    basics = getattr(session, "basics", None)
+    domain = basics.default_domain if basics else ""
     elements: List[ElementProposal] = []
     for b in session.bindings:
         ep = ElementProposal(element_id=b.element_id, executor=ExecutorProposal(type=b.executor_type),
@@ -124,7 +156,9 @@ def proposal_from_session(session: OnboardingSession) -> CopilotProposal:
                             for f, s in fields.items() if isinstance(s, dict)]
         elif b.executor_type == "human":
             ep.executor.role = b.role
-            ep.outputs = [OutputProposal(name=o.name, human_authored=True) for o in b.outputs]
+            ep.outputs = [OutputProposal(name=o.name, human_authored=True,
+                                         fields=_fields_from_schema(authored_schema.get(f"art.{domain}.{o.name}")))
+                          for o in b.outputs]
             for io in b.inputs:
                 src = (b.input_sources or {}).get(io.name, {})
                 if isinstance(src, dict) and src.get("name"):

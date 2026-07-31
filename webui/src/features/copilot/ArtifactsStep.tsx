@@ -17,9 +17,10 @@ import {
 } from "@/api/services/registry";
 import { SchemaRefiner } from "./SchemaRefiner";
 
-export function ArtifactsStep({ session, onSession }: {
+export function ArtifactsStep({ session, onSession, footer }: {
   session: OnboardingSession;
   onSession: (s: OnboardingSession) => void;
+  footer?: React.ReactNode;
 }) {
   const human = session.authored_artifacts ?? [];
   const toolIO = session.staged_artifacts ?? [];
@@ -44,6 +45,7 @@ export function ArtifactsStep({ session, onSession }: {
           </CardContent>
         </Card>
       )}
+      {footer}
     </div>
   );
 }
@@ -56,6 +58,11 @@ function HumanArtifactRefiner({ session, artifact, onSession }: {
   const [schema, setSchema] = useState<JsonSchema>(artifact.json_schema as JsonSchema);
   const [title, setTitle] = useState(artifact.title);
   const [busy, setBusy] = useState(false);
+  // the copilot may seed a baseline schema (ADR-054, extended) where no tool consumes the artifact — flagged in the
+  // report provenance so we can hint the operator that these fields are a draft to confirm.
+  const seededByCopilot = (session.copilot_report?.decisions ?? []).some(
+    (d) => d.summary.includes(artifact.artifact_key) && /baseline/i.test(d.summary),
+  );
 
   const save = async () => {
     setBusy(true);
@@ -75,9 +82,14 @@ function HumanArtifactRefiner({ session, artifact, onSession }: {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-sm">
+        <CardTitle className="flex flex-wrap items-center gap-2 text-sm">
           Human-authored: <span className="font-mono text-xs">{artifact.artifact_key}</span>
           <Badge variant="outline">{artifact.version}</Badge>
+          {seededByCopilot && (
+            <Badge variant="agent" className="gap-1">
+              <span className="size-1.5 rounded-full bg-agent" /> drafted by the copilot — review
+            </Badge>
+          )}
         </CardTitle>
       </CardHeader>
       <CardContent className="grid gap-6 md:grid-cols-2">

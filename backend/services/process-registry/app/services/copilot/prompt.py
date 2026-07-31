@@ -33,8 +33,13 @@ Decide, for the diagram, all of:
   exist on the first pass — mark it `optional: true` so it's omitted rather than failing. (The engine decides this
   from the diagram authoritatively, so a wrong guess is corrected — but flag the obvious loop-back inputs.)
 - human-authored outputs: a human task that produces data a downstream tool consumes (name the output); its schema
-  is derived from the consuming tool's input shape, so you only NAME it (set human_authored: true). A required human
-  output MUST be consumed by a downstream step — never leave it orphaned.
+  is derived from the consuming tool's input shape. Also PROPOSE a baseline ``fields`` list — the form the person
+  in that role would fill (a decision enum, a corrected value, a reason code, notes) with clean ``title``s and
+  ``enum``s where the choice is closed. These are the HUMAN'S FORM FIELDS, NOT a tool input map — you may propose
+  fields freely; they are NOT constrained by any tool's closed input schema. The engine keeps any field a tool
+  actually consumes as authoritative and unions your baseline on top; where nothing consumes the artifact, your
+  baseline is the operator's starting point (so the form is never blank). A required human output MUST be consumed
+  by a downstream step — never leave it orphaned.
 - approval pattern (agent DRAFTS an artifact → human APPROVES it → a side-effect APPLIES it): the side-effect and
   every downstream step must consume the human-APPROVED output, NEVER the pre-approval draft — otherwise the
   approval doesn't gate execution. Map the apply/downstream input from the human's output, not the draft.
@@ -79,7 +84,10 @@ Return JSON of this shape:
                    "message_name": "<if message>", "call": "<callee pack if call>"},
       "hitl": {"mode": "none|review_after|approve_result|approve_actions|manual", "role": "role.<domain>.<lane>"},
       "output_name": "<capability output rename = the gateway condition's first segment — else omit>",
-      "outputs": [{"name": "<human output name>", "human_authored": true}],
+      "outputs": [{"name": "<human output name>", "human_authored": true,
+                   "fields": [{"name": "<form field>", "type": "string|number|boolean|object|array",
+                               "title": "<label>", "required": false, "description": "<optional>",
+                               "enum": ["<optional closed choices>"]}]}],
       "input_map": [{"field": "<tool input field — MUST be a declared property of this tool's input schema>",
                      "from": "artifact|trigger",
                      "name": "<upstream output name if artifact>",

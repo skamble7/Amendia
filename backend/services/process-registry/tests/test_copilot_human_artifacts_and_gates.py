@@ -12,6 +12,8 @@ tasks) and reassigns a gate carrying its role to the pack's human approver (or r
 """
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 from app.models.onboarding import (
     CopilotMcpConfig,
     InferenceDraft,
@@ -19,15 +21,18 @@ from app.models.onboarding import (
     InferredRole,
     IntrospectedTool,
     IntrospectMcpResponse,
+    SodCandidate,
     ToolCompliance,
 )
 from app.services.copilot.flowgraph import FlowGraph
+from app.services.copilot.reconcile import ApprovalGate, detect_approval_gates
 from app.services.copilot.proposal import (
     CopilotProposal,
     ElementProposal,
     ExecutorProposal,
     HitlProposal,
     InputMapProposal,
+    OutputFieldProposal,
     OutputProposal,
     ReadOnlyInputProposal,
 )
@@ -116,6 +121,69 @@ def test_opaque_consumer_is_an_inherent_limit_but_well_typed_input_is_not_stripp
 
 
 # --------------------------------------------------------------------------- #
+# ADR-054 (extended) — LLM baseline schema for human-authored artifacts
+# --------------------------------------------------------------------------- #
+def test_baseline_seeds_a_schema_for_a_human_artifact_no_tool_consumes():
+    # Escalate authors a terminal escalation_decision no tool consumes → today it derives EMPTY. The LLM's baseline
+    # `fields` seed a real form (types / enum / title), so the operator isn't faced with a blank refiner.
+    proposal = CopilotProposal(elements=[
+        ElementProposal(element_id="Escalate",
+                        executor=ExecutorProposal(type="human", role="role.payment.supervisor"),
+                        outputs=[OutputProposal(name="escalation_decision", human_authored=True, fields=[
+                            OutputFieldProposal(name="decision", type="string", title="Decision", required=True,
+                                                enum=["escalate", "hold", "close"]),
+                            OutputFieldProposal(name="notes", type="string", title="Notes")])]),
+    ])
+    rec = _reconciler(proposal, [])                                # no tools → no consumers
+    _title, schema = rec._derive_human_artifacts({})["art.payment.escalation_decision"]
+
+    props = schema["properties"]
+    assert props["decision"]["enum"] == ["escalate", "hold", "close"]
+    assert props["decision"]["title"] == "Decision"
+    assert props["notes"]["type"] == "string"
+    assert schema["required"] == ["decision"]                     # required baseline field; `notes` optional
+    assert schema["additionalProperties"] is False
+    # provenance: seeded from the copilot, flagged for review (non-blocking)
+    assert any(d.kind == "human_artifact" and "baseline" in d.summary and "escalation_decision" in d.summary
+               for d in rec.decisions)
+
+
+def test_tool_derived_field_stays_authoritative_and_required_baseline_extras_are_optional():
+    apply_tool = _tool("apply", {"repair": {"type": "object", "properties": {"uetr": {"type": "string"}}}},
+                       side_effect="side_effectful")
+    proposal = CopilotProposal(elements=[
+        ElementProposal(element_id="Approve",
+                        executor=ExecutorProposal(type="human", role="role.payment.ops_approver"),
+                        outputs=[OutputProposal(name="approved_repair", human_authored=True, fields=[
+                            OutputFieldProposal(name="reviewer_notes", type="string", title="Reviewer Notes")])]),
+        ElementProposal(element_id="Apply",
+                        executor=ExecutorProposal(type="capability", capability_tool="apply"),
+                        input_map=[InputMapProposal(field="repair", **{"from": "artifact"}, name="approved_repair")]),
+    ])
+    _title, schema = _reconciler(proposal, [apply_tool])._derive_human_artifacts({})["art.payment.approved_repair"]
+
+    assert schema["properties"]["uetr"]["type"] == "string"        # tool-derived (from apply.repair.properties)
+    assert schema["properties"]["reviewer_notes"]["title"] == "Reviewer Notes"   # baseline extra unioned in
+    assert "uetr" in schema["required"]                            # consumed → required
+    assert "reviewer_notes" not in schema["required"]              # baseline-only → optional draft
+
+
+def test_baseline_does_not_override_a_tool_derived_field_on_a_name_collision():
+    apply_tool = _tool("apply", {"repair": {"type": "object", "properties": {"amount": {"type": "number"}}}})
+    proposal = CopilotProposal(elements=[
+        ElementProposal(element_id="Approve", executor=ExecutorProposal(type="human", role="role.payment.ops_approver"),
+                        outputs=[OutputProposal(name="approved_repair", human_authored=True, fields=[
+                            OutputFieldProposal(name="amount", type="string", title="Amount (baseline guess)")])]),
+        ElementProposal(element_id="Apply", executor=ExecutorProposal(type="capability", capability_tool="apply"),
+                        input_map=[InputMapProposal(field="repair", **{"from": "artifact"}, name="approved_repair")]),
+    ])
+    _title, schema = _reconciler(proposal, [apply_tool])._derive_human_artifacts({})["art.payment.approved_repair"]
+
+    assert schema["properties"]["amount"]["type"] == "number"      # tool-derived WINS, not the baseline string guess
+    assert "amount" in schema["required"]
+
+
+# --------------------------------------------------------------------------- #
 # Part 1 — an orphaned required human output is a wiring error → rewire onto the flow
 # --------------------------------------------------------------------------- #
 def _reconciler_with_graph(proposal: CopilotProposal, tools: list, flow_graph) -> Reconciler:
@@ -162,9 +230,47 @@ def test_orphaned_human_output_is_rewired_to_the_downstream_draft_consumer():
     assert schema["properties"]["uetr"]["type"] == "string"
 
 
+def test_gate_forms_for_the_nearest_side_effect_only():
+    # Draft(cap) → Approve(human, SoD-paired with Draft) → S1(side-effect) → S2(side-effect). The approval gates the
+    # FIRST side-effect only; the farther one is gated transitively, not by a second consumption of the approval.
+    bindable = {
+        "Draft": SimpleNamespace(category="capability"), "Approve": SimpleNamespace(category="human"),
+        "S1": SimpleNamespace(category="capability"), "S2": SimpleNamespace(category="capability"),
+    }
+    inferred = InferenceDraft(sod_candidates=[SodCandidate(elements=["Draft", "Approve"], rationale="four-eyes")])
+    graph = FlowGraph([("Draft", "Approve"), ("Approve", "S1"), ("S1", "S2")], "Draft")
+    side = {"S1", "S2"}
+
+    gates = detect_approval_gates(bindable=bindable, inferred=inferred, flow_graph=graph,
+                                  is_side_effect=lambda e: e in side)
+
+    assert gates == [ApprovalGate(human="Approve", side_effect="S1", draft="Draft")]   # S1 only, never S2
+
+
+def test_terminal_human_output_is_not_flagged_as_an_orphan_and_still_derives_a_schema():
+    # Escalate (supervisor) authors a terminal escalation_decision — nothing consumes it and there is NO downstream
+    # side-effect it could gate. It is a recorded decision, not an approval: no orphan open question, no block; its
+    # schema is still registered (empty, for the operator to fill via the refiner).
+    proposal = CopilotProposal(elements=[
+        ElementProposal(element_id="Escalate",
+                        executor=ExecutorProposal(type="human", role="role.payment.supervisor"),
+                        outputs=[OutputProposal(name="escalation_decision", human_authored=True)]),
+    ])
+    graph = FlowGraph([("Start", "Escalate"), ("Escalate", "End")], "Start")
+    rec = _reconciler_with_graph(proposal, [], graph)              # no tools → no side-effects at all
+
+    rec._rewire_orphaned_human_outputs()
+
+    assert not any(q.topic == "dataflow" for q in rec.questions)   # NOT flagged as an orphan
+    assert any(d.decided_by == "deterministic" and "terminal recorded decision" in d.summary for d in rec.decisions)
+    assert "art.payment.escalation_decision" in rec._derive_human_artifacts({})   # schema still registered
+
+
 def test_ambiguous_orphan_raises_an_open_question_not_a_silent_orphan():
     # ApproveRepair reviewed TWO drafts → which one it approves is ambiguous → no rewire, a low-confidence question.
-    apply_tool = _tool("apply", {"repair": {"type": "object", "properties": {"uetr": {"type": "string"}}}})
+    # (The downstream consumer is side-effectful, so the unconsumed approval is a real gap — not a terminal record.)
+    apply_tool = _tool("apply", {"repair": {"type": "object", "properties": {"uetr": {"type": "string"}}}},
+                       side_effect="side_effectful")
     proposal = CopilotProposal(elements=[
         ElementProposal(element_id="ApproveRepair",
                         executor=ExecutorProposal(type="human", role="role.payment.ops_approver"),

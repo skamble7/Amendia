@@ -1226,7 +1226,7 @@ function HumanInputsEditor({ row, artifactChoices, outputs, onChange }: {
   );
 }
 
-export function BindingsStep({ session, onDone, onSession }: { session: OnboardingSession; onDone: (s: OnboardingSession) => void; onSession: (s: OnboardingSession) => void }) {
+export function BindingsStep({ session, onDone, onSession, onBack, nextLabel, navigateOnly }: { session: OnboardingSession; onDone: (s: OnboardingSession) => void; onSession: (s: OnboardingSession) => void; onBack?: () => void; nextLabel?: string; navigateOnly?: boolean }) {
   const tasks: OnbBindableElement[] = session.bpmn!.bindable_elements;
   const capOptions = useMemo(
     () => [...session.staged_capabilities.map((c) => `${c.capability_id}@^${c.version}`), ...session.reused_capability_refs],
@@ -1489,6 +1489,11 @@ export function BindingsStep({ session, onDone, onSession }: { session: Onboardi
   });
   const [busy, setBusy] = useState(false);
   const [fieldErrs, setFieldErrs] = useState<Record<string, string>>({});
+  // Copilot stepped review: Continue is navigation-only unless the operator actually edited the bindings this
+  // visit (so an unedited generated session isn't regressed below TRIAGE_SET). Any change to `rows` marks it dirty.
+  const [dirty, setDirty] = useState(false);
+  const firstRows = useRef(true);
+  useEffect(() => { if (firstRows.current) { firstRows.current = false; return; } setDirty(true); }, [rows]);
 
   const patch = (id: string, p: Partial<BindingInput>) => setRows((r) => ({ ...r, [id]: { ...r[id]!, ...p } as BindingInput }));
   // Resolve any element's capability from the LIVE rows (bound row, else the pre-select).
@@ -1542,6 +1547,7 @@ export function BindingsStep({ session, onDone, onSession }: { session: Onboardi
   };
 
   async function submit() {
+    if (navigateOnly && !dirty) { onDone(session); return; }   // copilot: unedited Continue → advance, no persist
     setBusy(true); setFieldErrs({});
     try {
       // ADR-050: only send fully-authored outputs (both a name and a chosen schema) — a half-filled row would
@@ -1742,7 +1748,7 @@ export function BindingsStep({ session, onDone, onSession }: { session: Onboardi
           </Card>
         );
       })}
-      <StepFooter summary={`${tasks.length} element${tasks.length === 1 ? "" : "s"}`} busy={busy} onNext={submit} />
+      <StepFooter summary={`${tasks.length} element${tasks.length === 1 ? "" : "s"}`} busy={busy} onNext={submit} onBack={onBack} nextLabel={nextLabel} />
     </div>
   );
 }
@@ -1972,7 +1978,7 @@ function PredicateEditor({ node, onChange, depth, onRemove, fields, newLeaf }: {
 }
 
 // -- Step 6: policies ----------------------------------------------------------
-export function PoliciesStep({ session, onDone }: { session: OnboardingSession; onDone: (s: OnboardingSession) => void }) {
+export function PoliciesStep({ session, onDone, onBack, nextLabel = "Save & review", navigateOnly }: { session: OnboardingSession; onDone: (s: OnboardingSession) => void; onBack?: () => void; nextLabel?: string; navigateOnly?: boolean }) {
   const gateways = session.bpmn!.gateways;
   const tasks = session.bpmn!.bindable_elements.map((e) => e.element_id);   // SoD over the full bindable set
   // ADR-051/052 E3: a gateway branches on a produced binding OUTPUT (its name is the variable's first segment).
@@ -2027,6 +2033,10 @@ export function PoliciesStep({ session, onDone }: { session: OnboardingSession; 
   );
   const [roleInput, setRoleInput] = useState("");
   const [busy, setBusy] = useState(false);
+  // Copilot stepped review: Continue is navigation-only unless the operator edited gateways/SoD/roles this visit.
+  const [dirty, setDirty] = useState(false);
+  const firstPolicy = useRef(true);
+  useEffect(() => { if (firstPolicy.current) { firstPolicy.current = false; return; } setDirty(true); }, [gvars, sod, roles, roleMeta]);
 
   function metaFor(id: string) {
     return roleMeta[id] ?? { label: "", description: "" };
@@ -2036,6 +2046,7 @@ export function PoliciesStep({ session, onDone }: { session: OnboardingSession; 
   }
 
   async function submit() {
+    if (navigateOnly && !dirty) { onDone(session); return; }   // copilot: unedited Continue → advance, no persist
     setBusy(true);
     try {
       const gateway_variables = gateways
@@ -2149,7 +2160,7 @@ export function PoliciesStep({ session, onDone }: { session: OnboardingSession; 
         </CardContent>
       </Card>
 
-      <StepFooter summary="gateway variables · SoD · roles" busy={busy} onNext={submit} nextLabel="Save & review" />
+      <StepFooter summary="gateway variables · SoD · roles" busy={busy} onNext={submit} onBack={onBack} nextLabel={nextLabel} />
     </div>
   );
 }
@@ -2332,13 +2343,22 @@ export function ReadRow({ label, value, mono, className }: { label: string; valu
     </div>
   );
 }
-export function StepFooter({ summary, busy, disabled, onNext, nextLabel = "Save & continue" }: { summary: string; busy: boolean; disabled?: boolean; onNext: () => void; nextLabel?: string }) {
+export function StepFooter({ summary, busy, disabled, onNext, onBack, nextLabel = "Save & continue" }: { summary: string; busy: boolean; disabled?: boolean; onNext?: () => void; onBack?: () => void; nextLabel?: string }) {
   return (
     <div className="flex items-center justify-between border-t border-border pt-4">
-      <span className="text-sm text-muted-foreground">{summary}</span>
-      <Button disabled={busy || disabled} onClick={onNext}>
-        {busy ? <Loader2 className="mr-1 size-4 animate-spin" /> : null}{nextLabel} <ArrowRight className="ml-1 size-4" />
-      </Button>
+      <div className="flex items-center gap-3">
+        {onBack && (
+          <Button variant="outline" onClick={onBack} disabled={busy}>
+            <ArrowLeft className="mr-1 size-4" /> Back
+          </Button>
+        )}
+        <span className="text-sm text-muted-foreground">{summary}</span>
+      </div>
+      {onNext && (
+        <Button disabled={busy || disabled} onClick={onNext}>
+          {busy ? <Loader2 className="mr-1 size-4 animate-spin" /> : null}{nextLabel} <ArrowRight className="ml-1 size-4" />
+        </Button>
+      )}
     </div>
   );
 }

@@ -77,7 +77,9 @@ def detect_approval_gates(
       * ``H`` is a human task SoD-PAIRED with a drafting capability ``D`` that is guaranteed-upstream of H — this
         separation-of-duties pairing (``inferred.sod_candidates``, e.g. [DraftRepair, ApproveRepair]) is what makes
         H an *approver* of D's work, distinguishing a real approval from a mere human step upstream of a side-effect;
-      * ``H`` is a GUARANTEED PREDECESSOR of a side-effectful capability ``S`` (H always runs before S).
+      * ``H`` is a GUARANTEED PREDECESSOR of the NEAREST side-effectful capability ``S`` on a path (H always runs
+        before S, and no other side-effect lies strictly between them — a farther side-effect is gated transitively
+        by the first, not by a second consumption of the approval).
     The SoD pairing is REQUIRED, not just preferred — without it (as for a plain worker upstream of a side-effect)
     no gate forms, so nothing is materialized spuriously. No flow graph (chat path) → no gates."""
     if flow_graph is None:
@@ -94,13 +96,20 @@ def detect_approval_gates(
                         return other
         return None
 
+    def is_nearest(h: str, s: str) -> bool:
+        # ``s`` is the FIRST side-effect reachable from ``h``: no other side-effect lies strictly between them
+        # (h → other → s). A farther side-effect reachable only THROUGH another one is gated transitively, not by
+        # a second consumption of the approval — so it forms no gate with h.
+        return not any(o != s and o != h and flow_graph.can_reach(h, o) and flow_graph.can_reach(o, s)
+                       for o in side_effects)
+
     gates: List[ApprovalGate] = []
     for h in sorted(humans):
         d = sod_drafter(h)
         if d is None:                                          # not a four-eyes approver → not an approval gate
             continue
         for s in side_effects:
-            if flow_graph.guaranteed_predecessor(h, s):
+            if flow_graph.guaranteed_predecessor(h, s) and is_nearest(h, s):
                 gates.append(ApprovalGate(human=h, side_effect=s, draft=d))
     return gates
 
@@ -450,7 +459,10 @@ class Reconciler:
         schema from (empty form). When the human reviewed exactly one draft D (a read-only input) and a step
         downstream of the approval consumes D, rewire that consumer onto X — so the approval gates execution AND X's
         schema derives concretely. If the correct consumer is ambiguous, leave it and raise a low-confidence open
-        question. Needs the flow graph (generate path) to tell 'downstream'; domain-neutral."""
+        question — UNLESS the output is a TERMINAL recorded decision (its task is not an approval gate and has no
+        downstream side-effect it could gate, e.g. an SLA-breach escalation): a terminal record is legitimately
+        unconsumed, so it neither flags nor blocks go-live (its schema is still registered for the refiner). Needs
+        the flow graph (generate path) to tell 'downstream'; domain-neutral."""
         if self.flow_graph is None:
             return
 
@@ -459,6 +471,9 @@ class Reconciler:
                 any(m.from_ == "artifact" and m.name == name for m in c.input_map)
                 or any(ri.source_output == name for ri in c.read_only_inputs)
                 for c in self.prop_by_el.values())
+
+        gate_humans = {g.human for g in self._approval_gates}
+        side_effect_elems = [e for e in self.prop_by_el if self._is_side_effect(e)]
 
         for eid, p in self.prop_by_el.items():
             if p.executor.type != "human":
@@ -478,6 +493,14 @@ class Reconciler:
                                 m.name = o.name                # draft → approved output
                         self._det("dataflow", cid, f"{cid} now consumes the approved '{o.name}' from {eid}, not the "
                                                    f"pre-approval draft '{d}' (four-eyes gate)")
+                    continue
+                # a terminal recorded decision — not an approval gate, and no downstream side-effect it could gate
+                # (e.g. an SLA-breach escalation) — is legitimately unconsumed: don't flag it or block go-live.
+                is_terminal = (eid not in gate_humans
+                               and not any(self.flow_graph.can_reach(eid, s) for s in side_effect_elems))
+                if is_terminal:
+                    self._det("dataflow", eid, f"'{o.name}' from {eid} is a terminal recorded decision — no "
+                                               f"downstream consumer needed (its schema is registered for review)")
                 else:
                     self.questions.append(CopilotOpenQuestion(
                         topic="dataflow", element_id=eid, confidence=0.2,
@@ -492,11 +515,22 @@ class Reconciler:
         nested items), a by-path read contributes the single sub-field it reads. When several steps consume X (one
         reads the whole object, another reads X.field by path) every referenced field ends up present. A consumer
         that types the field as an opaque object contributes nothing concrete — an inherent limit — but a well-typed
-        input is never stripped down to a bare object."""
-        authored = {o.name for p in self.prop_by_el.values() for o in p.outputs if o.human_authored}
+        input is never stripped down to a bare object.
+
+        ADR-054 (extended): the tool-derived props above are AUTHORITATIVE (a consumed field keeps its tool typing +
+        stays required). On top of them the LLM's proposed BASELINE ``fields`` (the human's form) are UNIONED in —
+        so an artifact no tool consumes isn't an empty form. Derived wins on a name conflict (never let a baseline
+        guess override a concrete consumed field); a baseline-only field is optional by default (a draft to refine).
+        The tool input-map over-map guard is untouched — baseline fields live only on the human's artifact."""
+        # output name -> the human OutputProposal (for its baseline fields), keeping the first author of each name
+        authored: Dict[str, Any] = {}
+        for p in self.prop_by_el.values():
+            for o in p.outputs:
+                if o.human_authored:
+                    authored.setdefault(o.name, o)
         result: Dict[str, Tuple[str, Dict[str, Any]]] = {}
         for name in sorted(authored):
-            props: Dict[str, Any] = {}
+            derived: Dict[str, Any] = {}                          # AUTHORITATIVE — what tools actually consume
             for p in self.prop_by_el.values():
                 if p.executor.type != "capability":
                     continue
@@ -511,12 +545,56 @@ class Reconciler:
                     if field_schema is None:
                         continue
                     if m.path:                                     # X.<path> read → that one sub-field, typed
-                        props[m.path] = self._merge_field(props.get(m.path), field_schema)
+                        derived[m.path] = self._merge_field(derived.get(m.path), field_schema)
                     elif isinstance(field_schema, dict):           # whole-object read → union its declared props
                         for k, v in (field_schema.get("properties") or {}).items():
-                            props[k] = self._merge_field(props.get(k), v)
-            result[f"art.{self.domain}.{name}"] = (name.replace("_", " ").title(), self._closed_object(props))
+                            derived[k] = self._merge_field(derived.get(k), v)
+
+            baseline, baseline_required = self._baseline_props(authored[name])
+            props = {**baseline, **derived}                      # union; derived (tool-grounded) wins on conflict
+            required = set(derived) | {f for f in baseline_required if f not in derived}
+            key = f"art.{self.domain}.{name}"
+            seeded = sorted(f for f in baseline if f not in derived)   # fields that came only from the LLM baseline
+            if seeded:
+                self._det("human_artifact", None, f"seeded a baseline schema for {key} ({', '.join(seeded)}) from "
+                                                  f"process context — copilot draft, review in the refiner")
+            result[key] = (name.replace("_", " ").title(), self._closed_object(props, required))
         return result
+
+    @staticmethod
+    def _baseline_props(o: Any) -> Tuple[Dict[str, Any], set]:
+        """The LLM's proposed baseline form fields for a human-authored output → (props, required-names). Domain-
+        neutral: scalars / enum / simple object+array, mirroring what the schema refiner renders."""
+        props: Dict[str, Any] = {}
+        required: set = set()
+        for f in (getattr(o, "fields", None) or []):
+            if not f.name:
+                continue
+            props[f.name] = Reconciler._field_schema(f)
+            if f.required:
+                required.add(f.name)
+        return props, required
+
+    @staticmethod
+    def _field_schema(f: Any) -> Dict[str, Any]:
+        """One baseline OutputFieldProposal → a concrete draft-2020-12 field schema."""
+        t = (f.type or "string").lower()
+        if f.enum:
+            s: Dict[str, Any] = {"type": "string", "enum": list(f.enum)}
+        elif t == "object":
+            sub = {c.name: Reconciler._field_schema(c) for c in (f.properties or []) if c.name}
+            s = {"type": "object", "properties": sub, "additionalProperties": False}
+        elif t == "array":
+            s = {"type": "array", "items": {"type": (f.items or "string")}}
+        elif t in ("string", "number", "integer", "boolean"):
+            s = {"type": t}
+        else:
+            s = {"type": "string"}
+        if f.title:
+            s["title"] = f.title
+        if f.description:
+            s["description"] = f.description
+        return s
 
     @staticmethod
     def _merge_field(existing: Optional[Dict[str, Any]], incoming: Any) -> Dict[str, Any]:
@@ -534,11 +612,12 @@ class Reconciler:
         return inc if richness(inc) > richness(existing) else existing
 
     @staticmethod
-    def _closed_object(props: Dict[str, Any]) -> Dict[str, Any]:
-        """A closed object schema over the consumed fields — every consumed field is required (the human authors a
-        complete artifact) and no extras are allowed."""
+    def _closed_object(props: Dict[str, Any], required: Optional[set] = None) -> Dict[str, Any]:
+        """A closed object schema. ``required`` is explicit (tool-consumed fields required; baseline-only fields per
+        their proposed flag, defaulting to optional); when omitted, every prop is required (legacy: consumed-only)."""
+        req = sorted(required) if required is not None else sorted(props.keys())
         return {"type": "object", "properties": props, "additionalProperties": False,
-                "required": sorted(props.keys()),
+                "required": req,
                 "$schema": "https://json-schema.org/draft/2020-12/schema"}
 
     async def _resolve_artifact_version(self, key: str, schema: Dict[str, Any]) -> str:
