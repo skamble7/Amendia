@@ -18,6 +18,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from amendia_bpmn.semantics import extract_semantics
 
 from app.config import settings
+from app.services.copilot.flowgraph import build_flow_graph
 from app.models.onboarding import (
     AttachBpmnRequest,
     CopilotGenerateRequest,
@@ -74,6 +75,9 @@ class CopilotService:
         base_messages = build_messages(sem=sem, tools=tools, inferred=session.inferred, domain=domain,
                                        trigger_schema=user_trigger_schema)
         trigger_name = _start_event_name(sem)
+        # The BPMN flow graph → deterministic loop-back optionality (reconcile marks from='artifact' inputs whose
+        # producer isn't a guaranteed upstream predecessor as optional, so a first-pass resolution omits them).
+        flow_graph = build_flow_graph(sem)
 
         # 4) the single semantic call (bindings/dataflow/HITL only — NOT the trigger or triage, which are user-given)
         proposal, model_ref = await generate_proposal(ref=ref, messages=base_messages)
@@ -85,7 +89,7 @@ class CopilotService:
         try:
             rec, session = await self._reconcile(session, req.mcp, tools, proposal, domain, trigger_name, owner,
                                                  user_trigger_schema=user_trigger_schema,
-                                                 user_triage_rules=req.triage_rules)
+                                                 user_triage_rules=req.triage_rules, flow_graph=flow_graph)
         except TransitionError as exc:
             return await self._degrade(session, exc, ref, model_ref, owner)
         passes = 0
@@ -102,7 +106,7 @@ class CopilotService:
             try:
                 rec, session = await self._reconcile(session, req.mcp, tools, proposal, domain, trigger_name, owner,
                                                      user_trigger_schema=user_trigger_schema,
-                                                     user_triage_rules=req.triage_rules)
+                                                     user_triage_rules=req.triage_rules, flow_graph=flow_graph)
             except TransitionError as exc:
                 logger.warning("copilot repair reconcile rejected content (%s) — keeping the prior draft", exc.detail)
                 break
@@ -136,10 +140,11 @@ class CopilotService:
 
     async def _reconcile(self, session, mcp, tools, proposal: CopilotProposal, domain: str,
                          trigger_name: str, owner: str, *, user_trigger_schema=None,
-                         user_triage_rules=None) -> Tuple[Reconciler, OnboardingSession]:
+                         user_triage_rules=None, flow_graph=None) -> Tuple[Reconciler, OnboardingSession]:
         rec = Reconciler(self._svc, domain=domain, mcp=mcp, tools=tools, proposal=proposal,
                          owner=owner, trigger_name=trigger_name,
-                         user_trigger_schema=user_trigger_schema, user_triage_rules=user_triage_rules)
+                         user_trigger_schema=user_trigger_schema, user_triage_rules=user_triage_rules,
+                         flow_graph=flow_graph)
         session = await rec.apply(session)
         return rec, session
 

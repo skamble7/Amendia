@@ -235,4 +235,24 @@ describe("ArtifactEditor — read-only inputs & required-output blocking (Parts 
     await new Promise((r) => setTimeout(r, 0));
     expect(submitted).toBeUndefined();
   });
+
+  it("a blocked Complete is never a silent dead click — it shows WHY, focuses + marks the offending tab", async () => {
+    server.use(menuOrderSchemaHandler());
+    const user = userEvent.setup();
+    let submitted: Record<string, unknown> | undefined;
+    renderEditor(
+      <>
+        <ArtifactEditor id="mi3" artifacts={MENU_ORDER} isEditable={(a) => Boolean((a as Record<string, unknown>).draft)} onSubmit={(e) => (submitted = e)} />
+        <button type="submit" form="mi3">go</button>
+      </>,
+    );
+    await screen.findByRole("tab", { name: /Order/i });
+    await user.click(screen.getByText("go"));   // order.items empty → blocked, but must not be silent
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toMatch(/order/i);              // names the offending output
+    expect(alert.textContent).toMatch(/before completing/i);  // tells the human what to do
+    expect(screen.getByRole("tab", { name: /Order/i }).getAttribute("aria-invalid")).toBe("true");  // tab marked
+    expect(submitted).toBeUndefined();                        // still blocked — but no longer a no-op
+  });
 });

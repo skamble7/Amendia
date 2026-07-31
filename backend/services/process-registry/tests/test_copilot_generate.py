@@ -110,6 +110,66 @@ async def test_restaurant_generates_a_validator_clean_pack(copilot_svc, monkeypa
     assert any(d.decided_by == "deterministic" for d in rep.decisions)
 
 
+async def test_guaranteed_upstream_inputs_stay_required_no_loopback_regression(copilot_svc, monkeypatch):
+    # Loop-back optionality (ADR-052) must NOT touch inputs whose producer is a guaranteed upstream predecessor.
+    # In the restaurant, `order` (SelectItems dominates ValidateOrder) and `payment` (PresentPayment dominates
+    # ProcessPayment) are guaranteed → they stay REQUIRED (no `optional` flag), even though the diagram has revise
+    # and payment-retry loops. Trigger-sourced inputs are never optional.
+    _fake_llm(monkeypatch, restaurant_proposal_json())
+    session = await copilot_svc.generate(_req(), owner=OWNER)
+
+    vmap = _binding(session, "Task_ValidateOrder").input_sources["validate_order_input"]["fields"]
+    assert vmap["order"] == {"from": "artifact", "name": "order"}          # guaranteed → no optional key
+    pmap = _binding(session, "Task_ProcessPayment").input_sources["charge_payment_input"]["fields"]
+    assert pmap["tender"] == {"from": "artifact", "name": "payment", "path": "tender"}
+    smap = _binding(session, "Task_ScreenAllergens").input_sources["screen_allergens_input"]["fields"]
+    assert "optional" not in smap["dietary_flags"]                          # trigger source → never optional
+    # nothing in a linear-producer pack should have been marked optional
+    for b in session.bindings:
+        for comp in (b.input_sources or {}).values():
+            for src in (comp.get("fields", {}) if isinstance(comp, dict) else {}).values():
+                assert not (isinstance(src, dict) and src.get("optional")), (b.element_id, src)
+
+
+async def test_rederived_changed_schema_bumps_the_version_and_references_it(copilot_svc, schema_repo, monkeypatch):
+    # ADR-052 Part 3: a prior onboarding registered art.rest_stan.order@1.0.0 with a DIFFERENT schema. This onboarding
+    # re-derives a different shape → it must register at a bumped minor (1.1.0) and reference it, so a same-domain
+    # re-onboard adopts the improvement instead of silently reusing the stale (immutable) 1.0.0 registration.
+    from amendia_contracts.artifact_schema import ArtifactSchemaRegistration, ArtifactStatus
+    await schema_repo.insert(ArtifactSchemaRegistration(
+        artifact_key="art.rest_stan.order", version="1.0.0", title="Order",
+        json_schema={"type": "object", "additionalProperties": False,
+                     "properties": {"stale_field": {"type": "string"}}, "required": ["stale_field"]},
+        status=ArtifactStatus.ACTIVE))
+    _fake_llm(monkeypatch, restaurant_proposal_json())
+    session = await copilot_svc.generate(_req(), owner=OWNER)
+
+    order = next(a for a in session.authored_artifacts if a.artifact_key == "art.rest_stan.order")
+    assert order.version == "1.1.0"                                          # bumped — schema changed
+    assert _binding(session, "Task_SelectItems").outputs[0].schema_ref == "art.rest_stan.order@^1.1.0"
+    # payment wasn't pre-registered → a fresh key stays 1.0.0 (no gratuitous bump)
+    pay = next(a for a in session.authored_artifacts if a.artifact_key == "art.rest_stan.payment")
+    assert pay.version == "1.0.0"
+    assert [f for f in (session.dry_run_report or {}).get("findings", []) if f["severity"] == "error"] == []
+
+
+async def test_rederived_unchanged_schema_does_not_churn_the_version(copilot_svc, schema_repo, monkeypatch):
+    # Pre-register the EXACT schema the copilot derives for art.rest_stan.order → reuse 1.0.0 (unchanged ⇒ no bump).
+    from amendia_contracts.artifact_schema import ArtifactSchemaRegistration, ArtifactStatus
+    derived = {"type": "object", "additionalProperties": False,
+               "properties": {"items": {"type": "array", "items": {"type": "string"}}}, "required": ["items"],
+               "$schema": "https://json-schema.org/draft/2020-12/schema"}
+    await schema_repo.insert(ArtifactSchemaRegistration(
+        artifact_key="art.rest_stan.order", version="1.0.0", title="Order", json_schema=derived,
+        status=ArtifactStatus.ACTIVE))
+    _fake_llm(monkeypatch, restaurant_proposal_json())
+    session = await copilot_svc.generate(_req(), owner=OWNER)
+
+    order = next(a for a in session.authored_artifacts if a.artifact_key == "art.rest_stan.order")
+    assert order.version == "1.0.0"                                          # identical → reuse, no churn
+    assert _binding(session, "Task_SelectItems").outputs[0].schema_ref == "art.rest_stan.order@^1.0.0"
+
+
 async def test_side_effect_floor_is_enforced_even_when_the_llm_proposes_weaker(copilot_svc, monkeypatch):
     # The fake LLM proposes fire_ticket with HITL `none` and charge_payment with `review_after` — both too weak
     # for a side-effectful tool. Reconciliation MUST clamp both up to approve_actions (deterministic wins).

@@ -22,12 +22,22 @@ Decide, for the diagram, all of:
 - executor per bindable element: a serviceTask usually binds an MCP tool (capability); a userTask is a human;
   a receive/message element is a message; a callActivity is a call.
 - HITL oversight per gate: none | review_after | approve_result | approve_actions | manual, plus the role (lane).
+  A gate is a HUMAN authorization — its role must be a HUMAN lane (an approver/reviewer), NEVER the automation/AI
+  lane that executes the step (no human holds that role, so the gate could never be authorized). For a
+  side-effectful agent step, put approve_actions on the human approver, not the agent.
 - output names: name a capability output so a gateway condition that reads it (a condition `<output>.<field>`)
   resolves — the output name MUST equal the condition's first segment, and its artifact must carry that field.
 - input maps: map each tool input field to an upstream artifact/field — whole artifact (by output name), a scalar
-  by name, or a path into an object; or from the trigger.
+  by name, or a path into an object; or from the trigger. If a mapped artifact is produced by a step that only
+  runs on a LOOP-BACK (after this element, then loops in) or on just one branch, that field isn't guaranteed to
+  exist on the first pass — mark it `optional: true` so it's omitted rather than failing. (The engine decides this
+  from the diagram authoritatively, so a wrong guess is corrected — but flag the obvious loop-back inputs.)
 - human-authored outputs: a human task that produces data a downstream tool consumes (name the output); its schema
-  is derived from the consuming tool's input shape, so you only NAME it (set human_authored: true).
+  is derived from the consuming tool's input shape, so you only NAME it (set human_authored: true). A required human
+  output MUST be consumed by a downstream step — never leave it orphaned.
+- approval pattern (agent DRAFTS an artifact → human APPROVES it → a side-effect APPLIES it): the side-effect and
+  every downstream step must consume the human-APPROVED output, NEVER the pre-approval draft — otherwise the
+  approval doesn't gate execution. Map the apply/downstream input from the human's output, not the draft.
 - read-only human inputs: upstream artifacts a human step should see as on-form context.
 
 You do NOT invent the trigger or the triage — the USER provides those. A trigger schema is given to you as ground
@@ -68,7 +78,8 @@ Return JSON of this shape:
       "input_map": [{"field": "<tool input field — MUST be a declared property of this tool's input schema>",
                      "from": "artifact|trigger",
                      "name": "<upstream output name if artifact>",
-                     "path": "<if from trigger: a real field of the provided trigger schema>"}],
+                     "path": "<if from trigger: a real field of the provided trigger schema>",
+                     "optional": "<true if the source runs on a loop-back/branch and may be absent first pass>"}],
       "read_only_inputs": [{"name": "<binding input name>", "source_output": "<upstream output name>"}],
       "confidence": 0.0-1.0, "rationale": "one line"
     }
@@ -149,8 +160,9 @@ emit NO mutations, and ask a short clarifying question in `reply`.
 The closed mutation vocabulary (emit only these `kind`s; each carries a one-line `rationale`):
 - set_hitl {element_id, mode?, role?}
 - set_executor {element_id, capability_tool | role(human) | message_name | call}
-- set_input_map_field {element_id, field, source:{from:"artifact|trigger", name?, path?}}
+- set_input_map_field {element_id, field, source:{from:"artifact|trigger", name?, path?, optional?}}
 - remove_input_map_field {element_id, field}
+- set_input_optional {element_id, input, field, optional}   (mark a loop-back/not-guaranteed input absent-tolerant)
 - set_output_name {element_id, output?, new_name}
 - add_read_only_input {element_id, name, source_output}
 - remove_read_only_input {element_id, name}

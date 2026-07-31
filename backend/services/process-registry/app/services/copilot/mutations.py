@@ -38,7 +38,7 @@ from app.services.mcp_introspect import sanitize_name
 
 # The closed mutation vocabulary (the LLM may only emit these ``kind`` values).
 MUTATION_KINDS = {
-    "set_hitl", "set_executor", "set_input_map_field", "remove_input_map_field",
+    "set_hitl", "set_executor", "set_input_map_field", "remove_input_map_field", "set_input_optional",
     "set_output_name", "add_read_only_input", "remove_read_only_input", "set_side_effect",
     "edit_trigger", "add_triage_rule", "edit_triage_rule", "remove_triage_rule", "resolve_open_question",
 }
@@ -58,7 +58,9 @@ class Mutation(BaseModel):
     call: Optional[str] = None
     # input_map
     field: Optional[str] = None
-    source: Optional[Dict[str, Any]] = None          # {from, name?, path?}
+    source: Optional[Dict[str, Any]] = None          # {from, name?, path?, optional?}
+    input: Optional[str] = None                       # composite input name (advisory; matched by field)
+    optional: Optional[bool] = None                   # set_input_optional target
     # output naming
     output: Optional[str] = None                      # which output to rename (human); omit for capability
     new_name: Optional[str] = None
@@ -118,7 +120,7 @@ def proposal_from_session(session: OnboardingSession) -> CopilotProposal:
                 ep.output_name = b.outputs[0].name
             fields = (b.input_sources or {}).get(f"{sanitize_name(tool)}_input", {}).get("fields", {}) if tool else {}
             ep.input_map = [InputMapProposal(field=f, **{"from": s.get("from", "trigger")},
-                                             name=s.get("name"), path=s.get("path"))
+                                             name=s.get("name"), path=s.get("path"), optional=s.get("optional"))
                             for f, s in fields.items() if isinstance(s, dict)]
         elif b.executor_type == "human":
             ep.executor.role = b.role
@@ -221,8 +223,19 @@ def apply_mutations(proposal: CopilotProposal, tools: IntrospectMcpResponse,
             src = m.source or {}
             e.input_map = [im for im in e.input_map if im.field != m.field]
             e.input_map.append(InputMapProposal(field=m.field, **{"from": src.get("from", "trigger")},
-                                                name=src.get("name"), path=src.get("path")))
+                                                name=src.get("name"), path=src.get("path"),
+                                                optional=src.get("optional")))
             applied.append(f"{m.element_id}: input '{m.field}' ← {src}. {note}")
+        elif m.kind == "set_input_optional" and el(m.element_id) and m.field:
+            # ADR-048/052: toggle absent-tolerance for a loop-back / not-guaranteed input. reconcile is
+            # authoritative on the generate path (flow graph); this is the conversational override on the
+            # chat path, where the flag round-trips through the reconstructed proposal source.
+            e = el(m.element_id)
+            opt = True if m.optional is None else bool(m.optional)
+            for im in e.input_map:
+                if im.field == m.field:
+                    im.optional = opt
+            applied.append(f"{m.element_id}: input '{m.field}' optional → {opt}. {note}")
         elif m.kind == "remove_input_map_field" and el(m.element_id) and m.field:
             e = el(m.element_id)
             e.input_map = [im for im in e.input_map if im.field != m.field]

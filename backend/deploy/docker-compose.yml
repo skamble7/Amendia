@@ -333,6 +333,9 @@ services:
       REGISTRY_MONGO_URI: mongodb://mongodb:27017
       REGISTRY_MONGO_DB: amendia
       REGISTRY_SEED_ON_STARTUP: "true"
+      # ADR-052: processes are onboarded via the copilot now — start with a clean slate so the reference
+      # wire-repair-standard pack's schemas/capabilities don't compete on triage with copilot-onboarded packs.
+      REGISTRY_SEED_REFERENCE_PACK: "false"
       REGISTRY_LOG_LEVEL: INFO
       REGISTRY_ENABLE_DEV_CORS: "true"
       # --- ADR-052 Phase 2 copilot LLM (polyllm + ConfigForge; same stack as agent-runtime) ---

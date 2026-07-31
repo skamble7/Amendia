@@ -154,6 +154,23 @@ async def test_invalid_edit_is_reported_not_fatal(svc, monkeypatch):
     assert persisted.conversation[-1].message.startswith("get the order")
 
 
+async def test_set_input_optional_marks_a_loopback_input_absent_tolerant(svc, monkeypatch):
+    # ADR-052: the operator can make a not-guaranteed input absent-tolerant conversationally. The flag flows
+    # through reconcile (chat path) into the composite source and the draft stays validator-clean.
+    session = await _seed(svc, monkeypatch)
+    _chat_llm(monkeypatch, _edit(
+        "Made the order input on validation absent-tolerant.",
+        [{"kind": "set_input_optional", "element_id": "Task_ValidateOrder", "input": "validate_order_input",
+          "field": "order", "optional": True, "rationale": "operator says it can be missing on the first pass"}]))
+
+    resp = await CopilotService(svc).chat(session.session_id, CopilotChatRequest(
+        message="the order can be missing when validation first runs"), owner=OWNER)
+
+    fields = _binding(resp.session, "Task_ValidateOrder").input_sources["validate_order_input"]["fields"]
+    assert fields["order"].get("optional") is True
+    assert [f for f in (resp.validation or {}).get("findings", []) if f["severity"] == "error"] == []
+
+
 async def test_chat_honors_per_request_model_config_ref(svc, monkeypatch):
     # Same config seam as 2a: the chat call's model_config_ref routes through ConfigForge to a different profile.
     default_ref = settings.COPILOT_LLM_CONFIG_REF

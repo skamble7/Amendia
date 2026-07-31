@@ -38,6 +38,10 @@ class InputMapProposal(BaseModel):
     from_: str = Field(default="trigger", alias="from")
     name: Optional[str] = None                   # upstream output name (from='artifact')
     path: Optional[str] = None                   # dotpath within the source (scalar/composite)
+    # ADR-048/052: absent-tolerant when the source artifact isn't guaranteed to exist yet (loop-back / branch
+    # producer). reconcile.py is AUTHORITATIVE for from='artifact' fields (it overrides this from the flow graph);
+    # the LLM's value is only a hint, and it round-trips a chat-set flag on the (graph-less) chat path.
+    optional: Optional[bool] = None
 
 
 class ReadOnlyInputProposal(BaseModel):

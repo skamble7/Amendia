@@ -25,6 +25,10 @@ class Settings(BaseSettings):
     # Seeding (drives the seed dataset through the real onboarding APIs). Unset by default → no seed.
     SEED_DIR: str = ""
     SEED_ON_STARTUP: bool = False
+    # ADR-052: seed the reference wire-repair-standard pack (+ its art.payment.*/art.compliance.* schemas and
+    # cap.payment.* capabilities) on startup. Default True keeps existing behavior/tests; set false once processes
+    # are onboarded via the copilot, so the reference pack's domain baggage doesn't compete on triage.
+    SEED_REFERENCE_PACK: bool = False
 
     # /resolve active-pack cache TTL (seconds)
     RESOLVE_CACHE_TTL: float = 30.0

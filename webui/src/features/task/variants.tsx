@@ -223,15 +223,23 @@ export function ManualVariant({ task, onDecide, pending }: VariantProps) {
   // approve/escalate gate and the "correct it" copy is misleading. Key the copy + primary label off the same
   // editable signal ArtifactEditor uses. (Decision semantics are unchanged — a no-output gate still submits
   // `complete` with no edits, handled by ArtifactEditor.)
-  const hasEditable = artifacts.some(isDraft);
+  const editable = artifacts.filter(isDraft);
+  const hasEditable = editable.length > 0;
+  // Copy off whether a draft VALUE is actually present, not a fixed string: an agent pre-draft (content to
+  // complete/correct) reads differently from an empty editable output the human authors from scratch (e.g. a pure
+  // human-authored `approved_repair`, which opens empty), which reads differently from an approve-only gate.
+  const hasPredraft = editable.some(
+    (a) => isAgentDraft(a) && Object.keys((a.data ?? {}) as Record<string, unknown>).length > 0,
+  );
+  const blurb = !hasEditable
+    ? "This step is human work. Review the drafted output and approve, or escalate."
+    : hasPredraft
+      ? "This step is human work. The agent pre-drafted it — complete or correct it, then complete the task."
+      : "This step is human work. Provide the required output below, then complete the task.";
 
   return (
     <div className="space-y-4">
-      <p className="text-sm text-muted-foreground">
-        {hasEditable
-          ? "This step is human work. The agent has pre-drafted it — complete or correct it, then complete the task."
-          : "This step is human work. Review the drafted output and approve, or escalate."}
-      </p>
+      <p className="text-sm text-muted-foreground">{blurb}</p>
       <ArtifactEditor
         id={formId}
         artifacts={artifacts}

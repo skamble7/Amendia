@@ -22,6 +22,8 @@ import copy
 import logging
 from typing import Any, Dict, List, Optional, Tuple
 
+from packaging.version import Version
+
 from amendia_contracts.common import HitlMode, hitl_mode_at_least
 
 from app.models.onboarding import (
@@ -44,6 +46,7 @@ from app.models.onboarding import (
     StagedSod,
     StagedTriageRule,
 )
+from app.services.copilot.flowgraph import FlowGraph
 from app.services.copilot.proposal import CopilotProposal, ElementProposal
 from app.services.mcp_introspect import sanitize_name
 from app.services.onboarding import TransitionError
@@ -84,7 +87,8 @@ class Reconciler:
                  tools: IntrospectMcpResponse, proposal: CopilotProposal,
                  owner: str, trigger_name: str = "trigger",
                  user_trigger_schema: Optional[Dict[str, Any]] = None,
-                 user_triage_rules: Optional[List[StagedTriageRule]] = None) -> None:
+                 user_triage_rules: Optional[List[StagedTriageRule]] = None,
+                 flow_graph: Optional[FlowGraph] = None) -> None:
         self.svc = svc
         self.domain = domain
         self.mcp = mcp
@@ -94,6 +98,19 @@ class Reconciler:
         self.prop_by_el = proposal.by_element()
         self.owner = owner
         self.trigger_name = sanitize_name(trigger_name) or "trigger"
+        # ADR-052: the BPMN sequence-flow graph. Present on the generate path (built from the diagram) → the
+        # loop-back optionality of every from='artifact' input is decided deterministically here (authoritative,
+        # overriding the LLM). None on the chat path (no diagram in hand) → the reconstructed proposal's optional
+        # flags are honored as-is (a chat set_input_optional edit round-trips through them).
+        self.flow_graph = flow_graph
+        self._producers: Dict[str, set] = {}      # output NAME -> element_ids that produce it (built in apply())
+        # ADR-052 Part D: the automation/AI lane roles a HITL gate must never carry, and the pack's human approver
+        # role to reassign such a gate to. Computed from the inference draft in apply().
+        self._automation_roles: set = set()
+        self._human_approver: Optional[str] = None
+        # Part 3: artifact_key -> the version each re-derived human artifact was registered at (bumped when its
+        # schema changed vs the registered one). Bindings reference the human artifact at this version.
+        self._human_artifact_versions: Dict[str, str] = {}
         # USER-PROVIDED (generate path): the trigger schema is ground truth (no augmentation, no inference) and the
         # triage rules are applied verbatim (no permissive fallback). When None (chat path), fall back to the
         # proposal's reconstructed-from-session trigger/triage (which mutations may have edited).
@@ -121,6 +138,8 @@ class Reconciler:
         bindable = {e.element_id: e for e in session.bpmn.bindable_elements}
         inferred = session.inferred or InferenceDraft()
         inf_by_el = {b.element_id: b for b in inferred.bindings}
+        # Part D: which roles are the automation/AI lane (a HITL gate must not carry them) + the human approver.
+        self._automation_roles, self._human_approver = self._role_topology(inferred)
 
         # 1) stage capabilities — one per compliant tool a capability element binds
         used_tools = self._capability_tools(bindable)
@@ -128,13 +147,28 @@ class Reconciler:
 
         # map every KNOWN output name -> its artifact key (for read-only input schema_refs + human-output refs)
         out_artifact = self._output_artifact_map(bindable, inf_by_el)
+        # map every KNOWN output name -> the element_ids that produce it (for loop-back optionality on from=artifact)
+        self._producers = self._output_producers(bindable, inf_by_el)
 
-        # 2) derive + declare human-authored artifacts (ADR-050) from the consuming tools' input shapes
+        # ADR-052 Part 1: in an approval pattern (agent drafts → human approves → side-effect applies) the
+        # side-effect must consume the human-APPROVED output, not the pre-approval draft. Rewire an orphaned
+        # required human output onto its downstream draft-consumer (mutates the proposal input_maps, so both the
+        # schema derivation below and the bindings pick it up). Runs before derive + bindings.
+        self._rewire_orphaned_human_outputs()
+
+        # 2) derive + declare human-authored artifacts (ADR-050) from the consuming tools' input shapes. Part 3: a
+        # re-derived schema that DIFFERS from the one already registered at this key is registered at a bumped minor
+        # version (and referenced at it), so a same-domain re-onboard adopts the improvement instead of the commit
+        # silently keeping the stale (immutable) registration.
         human_arts = self._derive_human_artifacts(bindable)
+        self._human_artifact_versions = {}
         for key, (title, schema) in human_arts.items():
+            version = await self._resolve_artifact_version(key, schema)
+            self._human_artifact_versions[key] = version
             session = await self.svc.declare_artifact(sid, DeclareArtifactRequest(
-                artifact_key=key, version=_ARTIFACT_VERSION, title=title, json_schema=schema), owner=self.owner)
-            self._det("human_artifact", None, f"derived + registered {key} from its consuming tool input shape")
+                artifact_key=key, version=version, title=title, json_schema=schema), owner=self.owner)
+            bump = "" if version == _ARTIFACT_VERSION else f" (bumped to {version} — schema changed vs the registered one)"
+            self._det("human_artifact", None, f"derived + registered {key}@{version} from its consuming tool input shape{bump}")
 
         # 3) bindings (bijection + floors + ADR-051 alignment)
         binds = [self._binding(bindable[eid], inf_by_el.get(eid), out_artifact, used_tools) for eid in bindable]
@@ -225,6 +259,22 @@ class Reconciler:
                 out[o.name] = f"art.{self.domain}.{o.name}"
         return out
 
+    def _output_producers(self, bindable: Dict[str, Any], inf_by_el: Dict[str, Any]) -> Dict[str, set]:
+        """output NAME -> the set of element_ids that produce it (capability outputs, renamed per ADR-051, and
+        human-authored outputs). The value is the set of *producers* so loop-back optionality can ask whether ANY
+        producer is a guaranteed upstream predecessor of a consumer."""
+        out: Dict[str, set] = {}
+        for eid, inv in bindable.items():
+            p = self.prop_by_el.get(eid)
+            if p is None:
+                continue
+            if p.executor.type == "capability" and p.executor.capability_tool in self.tools_by_name:
+                name = self._effective_output_name(p, p.executor.capability_tool, inf_by_el.get(eid))
+                out.setdefault(name, set()).add(eid)
+            for o in p.outputs:
+                out.setdefault(o.name, set()).add(eid)
+        return out
+
     def _effective_output_name(self, p: ElementProposal, tool: str, inf: Any) -> str:
         """ADR-051: prefer the gateway-derived name (deterministic ``suggested_output_name``) → the LLM's
         ``output_name`` → ``<tool>_output``. This MUST match what ``_binding`` sets."""
@@ -234,14 +284,59 @@ class Reconciler:
         return (p.output_name or "").strip() or f"{sanitize_name(tool)}_output"
 
     # -- human-authored artifact derivation (ADR-050) -- #
+    def _rewire_orphaned_human_outputs(self) -> None:
+        """An approval pattern (agent drafts D → human approves → side-effect applies) requires the side-effect to
+        consume the human-APPROVED output X, not the pre-approval draft D. A REQUIRED human output that NOTHING
+        consumes is a wiring error: the approval doesn't gate execution, and Part C has no consumer to derive X's
+        schema from (empty form). When the human reviewed exactly one draft D (a read-only input) and a step
+        downstream of the approval consumes D, rewire that consumer onto X — so the approval gates execution AND X's
+        schema derives concretely. If the correct consumer is ambiguous, leave it and raise a low-confidence open
+        question. Needs the flow graph (generate path) to tell 'downstream'; domain-neutral."""
+        if self.flow_graph is None:
+            return
+
+        def references(name: str) -> bool:
+            return any(
+                any(m.from_ == "artifact" and m.name == name for m in c.input_map)
+                or any(ri.source_output == name for ri in c.read_only_inputs)
+                for c in self.prop_by_el.values())
+
+        for eid, p in self.prop_by_el.items():
+            if p.executor.type != "human":
+                continue
+            for o in p.outputs:
+                if not o.human_authored or references(o.name):
+                    continue                                   # not a human output, or already consumed
+                drafts = [ri.source_output for ri in p.read_only_inputs]
+                d = drafts[0] if len(drafts) == 1 else None    # the single reviewed draft, else ambiguous
+                targets = [cid for cid in self.prop_by_el
+                           if d and cid != eid and self.flow_graph.can_reach(eid, cid)
+                           and any(m.from_ == "artifact" and m.name == d for m in self.prop_by_el[cid].input_map)]
+                if targets:
+                    for cid in targets:
+                        for m in self.prop_by_el[cid].input_map:
+                            if m.from_ == "artifact" and m.name == d:
+                                m.name = o.name                # draft → approved output
+                        self._det("dataflow", cid, f"{cid} now consumes the approved '{o.name}' from {eid}, not the "
+                                                   f"pre-approval draft '{d}' (four-eyes gate)")
+                else:
+                    self.questions.append(CopilotOpenQuestion(
+                        topic="dataflow", element_id=eid, confidence=0.2,
+                        question=f"Nothing consumes {eid}'s output '{o.name}' — which downstream step should consume "
+                                 f"the approved result?"))
+
     def _derive_human_artifacts(self, bindable: Dict[str, Any]) -> Dict[str, Tuple[str, Dict[str, Any]]]:
-        """For each human-authored output name X, derive a CLOSED object schema from the fields the consuming
-        tools read from it (never invent a field the tool doesn't consume)."""
-        # collect human-authored output names
+        """For each human-authored output name X, derive a CLOSED object schema from the fields the consuming tools
+        read from it (never invent a field the tool doesn't consume). So the HITL Form renders real typed fields
+        (not Raw JSON), the derived schema is kept as CONCRETE as the consumers declare and UNIONED across all of
+        them: a whole-object read contributes that tool field's declared sub-properties (with their types / enums /
+        nested items), a by-path read contributes the single sub-field it reads. When several steps consume X (one
+        reads the whole object, another reads X.field by path) every referenced field ends up present. A consumer
+        that types the field as an opaque object contributes nothing concrete — an inherent limit — but a well-typed
+        input is never stripped down to a bare object."""
         authored = {o.name for p in self.prop_by_el.values() for o in p.outputs if o.human_authored}
         result: Dict[str, Tuple[str, Dict[str, Any]]] = {}
         for name in sorted(authored):
-            whole: Optional[Dict[str, Any]] = None
             props: Dict[str, Any] = {}
             for p in self.prop_by_el.values():
                 if p.executor.type != "capability":
@@ -256,25 +351,59 @@ class Reconciler:
                     field_schema = tprops.get(m.field)
                     if field_schema is None:
                         continue
-                    if m.path:
-                        props[m.path] = copy.deepcopy(field_schema)
-                    else:
-                        whole = copy.deepcopy(field_schema)
-            schema = self._close_object(whole, props)
-            result[f"art.{self.domain}.{name}"] = (name.replace("_", " ").title(), schema)
+                    if m.path:                                     # X.<path> read → that one sub-field, typed
+                        props[m.path] = self._merge_field(props.get(m.path), field_schema)
+                    elif isinstance(field_schema, dict):           # whole-object read → union its declared props
+                        for k, v in (field_schema.get("properties") or {}).items():
+                            props[k] = self._merge_field(props.get(k), v)
+            result[f"art.{self.domain}.{name}"] = (name.replace("_", " ").title(), self._closed_object(props))
         return result
 
     @staticmethod
-    def _close_object(whole: Optional[Dict[str, Any]], extra_props: Dict[str, Any]) -> Dict[str, Any]:
-        base: Dict[str, Any] = copy.deepcopy(whole) if isinstance(whole, dict) and whole.get("type") == "object" else {"type": "object"}
-        base.setdefault("type", "object")
-        props = dict(base.get("properties", {}))
-        props.update(extra_props)
-        base["properties"] = props
-        base["additionalProperties"] = False
-        base["required"] = sorted(props.keys())
-        base["$schema"] = "https://json-schema.org/draft/2020-12/schema"
-        return base
+    def _merge_field(existing: Optional[Dict[str, Any]], incoming: Any) -> Dict[str, Any]:
+        """Union two candidate schemas for the SAME property across consumers, preferring the one carrying more
+        concrete typing (properties / enum / items / type / format) so a well-typed declaration is never lost to an
+        opaque one."""
+        inc = copy.deepcopy(incoming) if isinstance(incoming, dict) else {}
+        if not isinstance(existing, dict):
+            return inc
+
+        def richness(s: Any) -> int:
+            return sum(1 for k in ("properties", "enum", "items", "type", "format")
+                       if isinstance(s, dict) and s.get(k) is not None)
+
+        return inc if richness(inc) > richness(existing) else existing
+
+    @staticmethod
+    def _closed_object(props: Dict[str, Any]) -> Dict[str, Any]:
+        """A closed object schema over the consumed fields — every consumed field is required (the human authors a
+        complete artifact) and no extras are allowed."""
+        return {"type": "object", "properties": props, "additionalProperties": False,
+                "required": sorted(props.keys()),
+                "$schema": "https://json-schema.org/draft/2020-12/schema"}
+
+    async def _resolve_artifact_version(self, key: str, schema: Dict[str, Any]) -> str:
+        """The version to register a re-derived artifact schema at. Nothing registered at this key yet → 1.0.0. An
+        already-registered version carries an IDENTICAL schema → reuse it (unchanged schemas don't churn). Otherwise
+        the schema changed → bump the minor above the highest registered version, so a same-domain re-onboard adopts
+        the improvement (the commit keeps same key+version immutable, so a differing body must go to a new version)."""
+        regs = await self.svc.schemas.list_by_key(key)
+        if not regs:
+            return _ARTIFACT_VERSION
+        for r in regs:
+            if r.json_schema == schema:
+                return r.version                          # identical to a registered version → reuse, no bump
+        latest = max(regs, key=lambda r: Version(r.version))
+        return self._bump_minor(latest.version)
+
+    @staticmethod
+    def _bump_minor(version: str) -> str:
+        v = Version(version)
+        return f"{v.major}.{v.minor + 1}.0"
+
+    def _artifact_ref_version(self, artifact_key: str) -> str:
+        """The version to reference a human artifact at (the bumped one if its schema changed, else 1.0.0)."""
+        return self._human_artifact_versions.get(artifact_key, _ARTIFACT_VERSION)
 
     # -- one binding, with all invariants enforced -- #
     def _binding(self, inv: Any, inf: Any, out_artifact: Dict[str, str], used: Dict[str, str]) -> BindingInput:
@@ -310,9 +439,11 @@ class Reconciler:
             b.role = role
             b.hitl_mode = (p.hitl.mode if p and p.hitl.mode != "none" else "manual")
             b.hitl_role = (p.hitl.role if p and p.hitl.role else role)
-            # authored outputs (ADR-050)
-            b.outputs = [StagedBindingIO(name=o.name, schema_ref=f"art.{self.domain}.{o.name}@^{_ARTIFACT_VERSION}",
-                                         required=True) for o in (p.outputs if p else [])]
+            # authored outputs (ADR-050) — referenced at the version they were registered at (Part 3 bump-aware)
+            b.outputs = [StagedBindingIO(
+                name=o.name,
+                schema_ref=f"art.{self.domain}.{o.name}@^{self._artifact_ref_version(f'art.{self.domain}.{o.name}')}",
+                required=True) for o in (p.outputs if p else [])]
             # read-only context inputs (ADR-048 for human tasks)
             ro_inputs: List[StagedBindingIO] = []
             ro_sources: Dict[str, Any] = {}
@@ -323,7 +454,7 @@ class Reconciler:
                         topic="read_only_input", element_id=eid, confidence=0.3,
                         question=f"{eid}: read-only input '{ri.name}' sources unknown output '{ri.source_output}'."))
                     continue
-                ro_inputs.append(StagedBindingIO(name=ri.name, schema_ref=f"{akey}@^{_ARTIFACT_VERSION}", required=False))
+                ro_inputs.append(StagedBindingIO(name=ri.name, schema_ref=f"{akey}@^{self._artifact_ref_version(akey)}", required=False))
                 ro_sources[ri.name] = {"from": "artifact", "name": ri.source_output}
             b.inputs = ro_inputs
             b.input_sources = ro_sources
@@ -352,10 +483,58 @@ class Reconciler:
             proposed = floor
         elif p:
             self._llm("hitl", eid, f"HITL mode '{proposed}'", p)
-        # a gated capability needs a role
-        if proposed != "none" and not role:
-            role = f"role.{self.domain}.reviewer"
+        # a HITL gate is a HUMAN authorization: its role must be a human lane, never the automation/AI lane that
+        # executes the step (no human holds that role, so the gate could never be authorized).
+        if proposed != "none":
+            role = self._humanize_gate_role(eid, role)
+            if not role:                                          # still unassigned → a generic human reviewer
+                role = f"role.{self.domain}.reviewer"
         return proposed, (role if proposed != "none" else None)
+
+    def _humanize_gate_role(self, eid: str, role: Optional[str]) -> Optional[str]:
+        """Guard: if a HITL gate's role is the automation/AI lane's own role (structurally, a lane whose bindable
+        members are all capability tasks), reassign it to the pack's human approver — the role its human approval
+        tasks use. If that's unambiguous, use it + record provenance; if none/ambiguous, leave the gate (so the
+        control isn't lost) but raise a low-confidence open question for the operator to answer."""
+        if not role or role not in self._automation_roles:
+            return role
+        if self._human_approver:
+            self._det("hitl", eid, f"reassigned the approval gate from the automation lane role '{role}' to the "
+                                   f"human approver '{self._human_approver}' — a machine lane can't authorize a gate")
+            return self._human_approver
+        self.questions.append(CopilotOpenQuestion(
+            topic="hitl", element_id=eid, confidence=0.2,
+            question=f"{eid}: this side-effectful step needs human approval, but the diagram assigns it to the "
+                     f"automation lane and no single human approver role was found — who authorizes this action?"))
+        return role                                               # leave the gate; the open question flags it
+
+    def _role_topology(self, inferred: InferenceDraft) -> Tuple[set, Optional[str]]:
+        """From the inference draft, compute (automation_lane_roles, human_approver_role). The automation lane is
+        structural: a lane whose bindable members are ALL capability tasks. The human approver is the role on the
+        process's human approval tasks (a human lane with an approve gate); if exactly one such role exists use it,
+        else fall back to the sole human role, else it's ambiguous (None → open question at the gate)."""
+        approve = {HitlMode.APPROVE_RESULT.value, HitlMode.APPROVE_ACTIONS.value}
+        lane_execs: Dict[str, set] = {}
+        for b in inferred.bindings:
+            if b.source_lane:
+                lane_execs.setdefault(b.source_lane, set()).add(b.executor_type)
+        automation_lanes = {lane for lane, execs in lane_execs.items() if execs == {"capability"}}
+        automation_roles = {b.suggested_role for b in inferred.bindings
+                            if b.source_lane in automation_lanes and b.suggested_role}
+        automation_roles |= {r.role_id for r in inferred.roles
+                             if r.source_lane in automation_lanes and r.role_id}
+        human_roles = {b.suggested_role for b in inferred.bindings
+                       if b.executor_type == "human" and b.suggested_role} - automation_roles
+        approver_roles = {b.suggested_role for b in inferred.bindings
+                          if b.executor_type == "human" and b.suggested_role
+                          and b.suggested_hitl_mode in approve} - automation_roles
+        if len(approver_roles) == 1:
+            human_approver: Optional[str] = next(iter(approver_roles))
+        elif len(human_roles) == 1:
+            human_approver = next(iter(human_roles))
+        else:
+            human_approver = None
+        return automation_roles, human_approver
 
     def _capability_input_sources(self, eid: str, tool: str, p: Optional[ElementProposal]) -> Dict[str, Any]:
         if not p or not p.input_map:
@@ -376,8 +555,32 @@ class Reconciler:
                 src["name"] = m.name
             if m.path:
                 src["path"] = m.path
+            if self._is_optional_source(eid, m):
+                src["optional"] = True            # ADR-048: absent-tolerant (loop-back / branch producer)
             fields[m.field] = src
         return {f"{sanitize_name(tool)}_input": {"fields": fields}} if fields else {}
+
+    def _is_optional_source(self, eid: str, m: Any) -> bool:
+        """AUTHORITATIVE loop-back optionality for one input field (ADR-048/052). A from='artifact' field is
+        REQUIRED iff at least one producer of the named output is a *guaranteed predecessor* of ``eid`` (lies on
+        every path from start to eid and eid can't loop back to it). Otherwise — every producer runs on a loop-back
+        relative to eid, only on a subset of branches, or the output has no known producer — the field is OPTIONAL
+        so a first-pass resolution (before the loop produces it) omits it instead of hard-failing input_unresolved.
+
+        from='trigger'/'seed' sources are always present → never optional. This overrides any LLM-proposed flag.
+        On the chat path (no flow graph in hand) the reconstructed proposal's own ``optional`` is honored verbatim
+        (a conversational set_input_optional edit round-trips through it)."""
+        if m.from_ != "artifact":
+            return False                          # trigger/seed inputs are always present
+        if self.flow_graph is None:
+            return bool(m.optional)               # chat path: honor the flag the proposal/mutation carries
+        producers = self._producers.get(m.name or "", set())
+        if any(self.flow_graph.guaranteed_predecessor(prod, eid) for prod in producers):
+            return False
+        producer_txt = ", ".join(sorted(producers)) or "no upstream step"
+        self._det("input_map", eid, f"marked input '{m.field}' optional — its source '{m.name}' is produced by "
+                                    f"loop-back/branch step {producer_txt}, not guaranteed upstream of {eid}")
+        return True
 
     # -- trigger + triage -- #
     def _trigger(self, session: OnboardingSession) -> Tuple[str, Dict[str, Any]]:
