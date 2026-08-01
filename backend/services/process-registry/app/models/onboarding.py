@@ -619,6 +619,9 @@ class IntrospectMcpRequest(BaseModel):
 class ToolCompliance(BaseModel):
     compliant: bool
     reasons: List[str] = Field(default_factory=list)
+    # ADR-057: non-blocking advisories — e.g. an object-typed input property with no declared `properties` (an
+    # opaque object renders the HITL review form as a raw JSON editor). Distinct from the blocking `reasons`.
+    warnings: List[str] = Field(default_factory=list)
 
 
 class IdCollision(BaseModel):

@@ -906,6 +906,15 @@ export function CapabilitiesStep({ session, onDone, prefilledEndpoint }: {
                       {(d.compliance.reasons ?? []).join("; ")} · see the MCP Implementor Guideline.
                     </p>
                   )}
+                  {/* ADR-057: non-blocking advisories (e.g. an opaque object-typed input → a raw-JSON HITL form).
+                      Shown even for a compliant tool; never gates selection. */}
+                  {(d.compliance.warnings ?? []).length > 0 && (
+                    <ul className="mt-1 space-y-0.5 text-xs text-muted-foreground">
+                      {(d.compliance.warnings ?? []).map((w, i) => (
+                        <li key={i}>⚠ {w}</li>
+                      ))}
+                    </ul>
+                  )}
                   {/* Batch-4: id-collision advisory — a HARD clash (different active contract) or a benign
                       reuse nudge. Two one-click fixes: switch to a distinct domain, or reuse the existing cap. */}
                   {d.id_collision && (() => {

@@ -179,8 +179,29 @@ def _is_external_ref(ref: str) -> bool:
     return "://" not in ref and not ref.startswith("#")
 
 
+def _opaque_object_paths(schema: Any, path: str = "") -> List[str]:
+    """ADR-057: property paths declared ``type: object`` with no (or empty) ``properties`` — an opaque object.
+    Amendia derives a HITL review form from the declared shape; an opaque object has no field-level shape to
+    derive, so it renders as a raw JSON editor and can't be validated field-by-field. Recurses through
+    ``properties`` and array ``items``. The root itself is never flagged (an empty root just means no inputs)."""
+    out: List[str] = []
+    if not isinstance(schema, dict):
+        return out
+    props = schema.get("properties")
+    if path and schema.get("type") == "object" and not (isinstance(props, dict) and props):
+        out.append(path)
+    if isinstance(props, dict):
+        for name, sub in props.items():
+            out.extend(_opaque_object_paths(sub, f"{path}.{name}" if path else str(name)))
+    items = schema.get("items")
+    if isinstance(items, dict):
+        out.extend(_opaque_object_paths(items, f"{path}[]" if path else "[]"))
+    return out
+
+
 def evaluate_compliance(tool: RawMcpTool) -> ToolCompliance:
-    """MCP Implementor Guideline verdict."""
+    """MCP Implementor Guideline verdict. ``reasons`` block (R1–R4); ``warnings`` advise but never block —
+    Amendia can't force third-party servers to declare nested shapes, so an opaque object is a warning."""
     reasons: List[str] = []
     if tool.output_schema is None:
         reasons.append("missing outputSchema — a compliant tool must declare its output shape")
@@ -197,7 +218,13 @@ def evaluate_compliance(tool: RawMcpTool) -> ToolCompliance:
         for ref in refs:
             if _is_external_ref(ref):
                 reasons.append(f"{label} carries an external $ref '{ref}' (not allowed)")
-    return ToolCompliance(compliant=not reasons, reasons=reasons)
+    warnings: List[str] = []
+    for prop_path in _opaque_object_paths(tool.input_schema):
+        warnings.append(
+            f"{tool.name}.{prop_path} is an untyped object — its HITL form will be a raw editor unless the "
+            f"schema declares its properties"
+        )
+    return ToolCompliance(compliant=not reasons, reasons=reasons, warnings=warnings)
 
 
 def normalize_artifact_schema(

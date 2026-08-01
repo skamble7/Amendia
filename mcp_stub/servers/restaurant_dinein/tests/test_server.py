@@ -21,6 +21,22 @@ def test_compliance_self_check_passes():
     H.check_compliance()  # raises AssertionError on any drift
 
 
+# ADR-057: an input field a HUMAN authors/reviews must declare its `properties` (an opaque `{type:object}` degrades
+# the derived HITL form to a raw editor), while staying tolerant (no additionalProperties:false) of a whole artifact.
+HUMAN_ARTIFACT_INPUT_FIELDS = {
+    "screen_allergens": "party",
+    "charge_payment": "bill",
+}
+
+
+def test_human_artifact_input_fields_declare_their_properties():
+    for tool, field in HUMAN_ARTIFACT_INPUT_FIELDS.items():
+        prop = H.TOOLS_BY_NAME[tool]["input_schema"]["properties"][field]
+        assert prop["type"] == "object"
+        assert prop.get("properties"), f"{tool}.{field} is an opaque object — declare its properties (ADR-057)"
+        assert prop.get("additionalProperties") is not False
+
+
 def test_exactly_six_tools():
     assert len(H.TOOLS) == 6
     assert set(H.TOOLS_BY_NAME) == {

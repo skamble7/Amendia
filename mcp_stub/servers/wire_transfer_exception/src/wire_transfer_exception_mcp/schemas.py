@@ -35,8 +35,18 @@ def _closed(properties: Dict[str, Any], *, required: Iterable[str] = ()) -> Dict
 
 
 def _open() -> Dict[str, Any]:
-    """A permissive nested object — a caller may pass any structure inside it."""
+    """A permissive nested object — a caller may pass any structure inside it. Use ONLY for an agent-produced
+    pass-through context object (a ``dossier`` / ``envelope`` / ``verdict``) that no human authors: its shape is
+    upstream's concern, not this tool's. For any field a HUMAN authors, use ``_typed_open`` — an opaque object
+    degrades the derived HITL review form to a raw JSON editor (see the MCP Implementor Guideline §3.7)."""
     return {"type": "object"}
+
+
+def _typed_open(properties: Dict[str, Any]) -> Dict[str, Any]:
+    """ADR-057: a nested input object that DECLARES its ``properties`` — so Amendia derives a real field-by-field
+    HITL review form — while staying TOLERANT (no ``additionalProperties: false``), so a caller may still pass a
+    whole upstream artifact carrying extra keys without a 400. Use for every input field a human authors."""
+    return {"type": "object", "properties": properties}
 
 
 def _arr(items: Dict[str, Any]) -> Dict[str, Any]:
@@ -161,7 +171,14 @@ DRAFT_REPAIR_OUTPUT = _output(
 # 5) screen_party
 # --------------------------------------------------------------------------- #
 
-SCREEN_INPUT = _input({"party": _open(), "envelope": _open(), "exception_id": _STR, "hint": _STR})
+# ``party`` is human-reviewable — declare its shape (mirrors ENRICH_OUTPUT.parties items). ``envelope`` is an
+# agent-produced pass-through context object, so it stays loosely typed.
+SCREEN_INPUT = _input({
+    "party": _typed_open({"role": _STR, "name": _STR, "account": _STR}),
+    "envelope": _open(),
+    "exception_id": _STR,
+    "hint": _STR,
+})
 
 SCREEN_OUTPUT = _output(
     {
@@ -177,7 +194,14 @@ SCREEN_OUTPUT = _output(
 # 6) apply_repair (side-effectful)
 # --------------------------------------------------------------------------- #
 
-APPLY_REPAIR_INPUT = _input({"repair": _open(), "exception_id": _STR})
+# ``repair`` is the human-authored/agent-drafted repair — declare its shape (mirrors DRAFT_REPAIR_OUTPUT) so the
+# HITL review form renders real fields, not a raw JSON editor.
+APPLY_REPAIR_INPUT = _input({
+    "repair": _typed_open({
+        "field": _STR, "current_value": _STR, "proposed_value": _STR, "justification": _STR,
+    }),
+    "exception_id": _STR,
+})
 
 APPLY_REPAIR_OUTPUT = _ack_output({"release_ref": _STR, "performed_at": _STR})
 
@@ -223,7 +247,14 @@ DRAFT_RETURN_OUTPUT = _output(
 # 10) execute_return (side-effectful)
 # --------------------------------------------------------------------------- #
 
-EXECUTE_RETURN_INPUT = _input({"return_instruction": _open(), "exception_id": _STR})
+# ``return_instruction`` is the human-authored/agent-drafted return — declare its shape (mirrors
+# DRAFT_RETURN_OUTPUT, plus a free-text ``reason``) so its HITL review form renders real fields.
+EXECUTE_RETURN_INPUT = _input({
+    "return_instruction": _typed_open({
+        "return_reason_code": _STR, "reason": _STR, "pacs004_ref": _STR, "amount": _NUM, "currency": _STR,
+    }),
+    "exception_id": _STR,
+})
 
 EXECUTE_RETURN_OUTPUT = _ack_output({"return_ref": _STR, "performed_at": _STR})
 

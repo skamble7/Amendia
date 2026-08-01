@@ -786,6 +786,50 @@ describe("Onboarding wizard", () => {
     expect(screen.getByRole("button", { name: /Use a distinct domain/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Reuse the existing capability/i })).toBeInTheDocument();
   });
+
+  it("capabilities step surfaces an opaque-object warning without blocking selection (ADR-057)", async () => {
+    const session = {
+      session_id: "sess-warn", created_by: "owner-1", created_at: "", updated_at: "", state: "capabilities_resolved",
+      basics: { pack_key: "ws_stan", version: "1.0.0", title: "P", default_domain: "payment" },
+      bpmn: { process_id: "P", bpmn_file: "p.bpmn", sha256: "x", service_tasks: [], user_tasks: [], gateways: [], task_names: {}, bindable_elements: [], message_flows: [] },
+      staged_artifacts: [], staged_capabilities: [], reused_capability_refs: [], bindings: [],
+      triage_rules: [], gateway_variables: [], sod_policies: [], roles: [],
+      inferred: { roles: [], bindings: [], gateway_variables: [], capability_candidates: [], artifact_seeds: [], sod_candidates: [], annotations: [] },
+      dry_run_report: null, commit_progress: [], result_pack: null, last_cleared: [],
+    };
+    server.use(
+      http.get(`${REG}/onboarding/sess-warn`, () => HttpResponse.json(session)),
+      http.get(`${REG}/capabilities`, () => HttpResponse.json([])),
+      http.post(`${REG}/capabilities/introspect-mcp`, () => HttpResponse.json({
+        endpoint: "http://mcp:8060/mcp", transport: "streamable_http",
+        tools: [{
+          name: "apply_repair", description: "Apply a repair.",
+          // compliant, but with a non-blocking advisory
+          compliance: {
+            compliant: true, reasons: [],
+            warnings: ["apply_repair.repair is an untyped object — its HITL form will be a raw editor unless the schema declares its properties"],
+          },
+          input_schema: { type: "object", properties: { repair: { type: "object" } } },
+          output_schema: { type: "object", properties: { acknowledged: { type: "boolean" } } },
+          suggested_input_artifact_key: "art.payment.apply_repair_input",
+          suggested_output_artifact_key: "art.payment.apply_repair_output",
+          suggested_capability_id: "cap.payment.apply_repair",
+        }],
+      })),
+    );
+    const user = userEvent.setup();
+    renderApp("/registry/onboard/sess-warn", "owner-1");
+
+    await user.type(await screen.findByPlaceholderText(/your-mcp-service/i), "http://mcp:8060/mcp");
+    await user.click(await screen.findByRole("button", { name: /Introspect/i }));
+
+    // the advisory renders...
+    expect(await screen.findByText(/apply_repair\.repair is an untyped object/i)).toBeInTheDocument();
+    // ...and the tool is still compliant + selectable (warning never blocks)
+    expect(screen.getByText("compliant")).toBeInTheDocument();
+    const checkbox = screen.getAllByRole("checkbox").find((c) => !(c as HTMLInputElement).disabled);
+    expect(checkbox).toBeDefined();
+  });
 });
 
 describe("Pack config editing (ADR-056)", () => {

@@ -39,8 +39,18 @@ def _closed(properties: Dict[str, Any], *, required: Iterable[str] = ()) -> Dict
 
 
 def _open() -> Dict[str, Any]:
-    """A permissive nested object — a caller may pass any structure inside it."""
+    """A permissive nested object — a caller may pass any structure inside it. Use ONLY for an agent-produced
+    pass-through context object that no human authors (its shape is upstream's concern). For any field a HUMAN
+    authors or reviews, use ``_typed_open`` — an opaque object degrades the derived HITL review form to a raw
+    JSON editor (see the MCP Implementor Guideline §3.7)."""
     return {"type": "object"}
+
+
+def _typed_open(properties: Dict[str, Any]) -> Dict[str, Any]:
+    """ADR-057: a nested input object that DECLARES its ``properties`` — so Amendia derives a real field-by-field
+    HITL review form — while staying TOLERANT (no ``additionalProperties: false``), so a caller may still pass a
+    whole upstream artifact carrying extra keys without a 400. Use for every input field a human authors/reviews."""
+    return {"type": "object", "properties": properties}
 
 
 def _order() -> Dict[str, Any]:
@@ -148,7 +158,8 @@ VALIDATE_ORDER_OUTPUT = _output(
 
 SCREEN_ALLERGENS_INPUT = _input({
     "order": _order(),
-    "party": _open(),
+    # ``party`` is human-reviewable — declare its shape so its HITL form renders real fields (tolerant of extras).
+    "party": _typed_open({"name": _STR, "dietary_flags": _STR_ARR}),
     # The party's allergies pass straight from the trigger as a top-level string array; the handler
     # reads ``dietary_flags`` top-level (falling back to ``party.dietary_flags``).
     "dietary_flags": _STR_ARR,
@@ -198,7 +209,12 @@ FIRE_TICKET_OUTPUT = _ack_output({"ticket_ref": _STR, "fired_at": _STR})
 # --------------------------------------------------------------------------- #
 
 CHARGE_PAYMENT_INPUT = _input({
-    "bill": _open(),
+    # ``bill`` is human-reviewable — declare its shape (mirrors GENERATE_BILL_OUTPUT) so the HITL review form
+    # renders real fields, not a raw JSON editor. Tolerant (no additionalProperties:false) so a whole bill passes.
+    "bill": _typed_open({
+        "line_items": _arr(_closed({"name": _STR, "qty": _NUM, "price": _NUM})),
+        "subtotal": _NUM, "tax": _NUM, "total": _NUM, "currency": _STR,
+    }),
     "ticket_id": _STR,
     # Effective tender = ``tender`` (the human's retry choice from art.dining.payment_retry, top precedence)
     # else ``tender_hint`` (the trigger's first-pass tender). A "declined" effective tender drives the

@@ -54,6 +54,25 @@ def test_compliance_self_check_passes():
         assert t["input_schema"].get("additionalProperties") is False
 
 
+# ADR-057: an input field a HUMAN authors/reviews must declare its `properties` (an opaque `{type:object}` degrades
+# the derived HITL form to a raw JSON editor). Each of these stays TOLERANT — no additionalProperties:false — so a
+# whole upstream artifact carrying extra keys still validates.
+HUMAN_ARTIFACT_INPUT_FIELDS = {
+    "apply_repair": "repair",
+    "execute_return": "return_instruction",
+    "screen_party": "party",
+}
+
+
+def test_human_artifact_input_fields_declare_their_properties():
+    for tool, field in HUMAN_ARTIFACT_INPUT_FIELDS.items():
+        prop = TOOLS_BY_NAME[tool]["input_schema"]["properties"][field]
+        assert prop["type"] == "object"
+        assert prop.get("properties"), f"{tool}.{field} is an opaque object — declare its properties (ADR-057)"
+        # tolerant: a whole upstream object with extra keys must not be rejected
+        assert prop.get("additionalProperties") is not False
+
+
 def test_action_tools_output_requires_ack_fields():
     for name in ACTION_TOOLS:
         required = set(TOOLS_BY_NAME[name]["output_schema"]["required"])

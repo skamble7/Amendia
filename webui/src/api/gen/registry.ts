@@ -2468,6 +2468,8 @@ export interface components {
             compliant: boolean;
             /** Reasons */
             reasons?: string[];
+            /** Warnings */
+            warnings?: string[];
         };
         /** TriageRule */
         "TriageRule-Input": {

@@ -4792,6 +4792,13 @@
             },
             "title": "Reasons",
             "type": "array"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Warnings",
+            "type": "array"
           }
         },
         "required": [

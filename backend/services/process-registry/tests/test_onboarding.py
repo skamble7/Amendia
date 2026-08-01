@@ -117,6 +117,41 @@ def test_compliance_non_object_root_is_non_compliant():
     assert verdict.compliant is False
 
 
+def test_compliance_warns_on_opaque_object_input_but_does_not_block():
+    # ADR-057: an object-typed input property with no declared `properties` is a WARNING (its HITL form degrades to
+    # a raw editor), never a blocking reason — Amendia can't force a third-party server to declare its shape.
+    opaque_in = {"type": "object", "properties": {"repair": {"type": "object"}, "id": {"type": "string"}}}
+    verdict = evaluate_compliance(RawMcpTool("apply_repair", None, opaque_in, _SCREEN_OUT))
+    assert verdict.compliant is True                       # not blocked
+    assert not verdict.reasons
+    assert any("apply_repair.repair" in w and "untyped object" in w for w in verdict.warnings)
+
+
+def test_compliance_warns_recursively_and_stays_quiet_on_typed_objects():
+    # Nested opaque object (inside an array of objects) is flagged by path; a fully typed input yields no warnings.
+    nested_in = {"type": "object", "properties": {
+        "bill": {"type": "array", "items": {"type": "object", "properties": {"line": {"type": "object"}}}},
+    }}
+    verdict = evaluate_compliance(RawMcpTool("charge", None, nested_in, _SCREEN_OUT))
+    assert verdict.compliant is True
+    assert any("charge.bill[].line" in w for w in verdict.warnings)
+
+    typed_in = {"type": "object", "properties": {
+        "party": {"type": "object", "properties": {"name": {"type": "string"}}},
+        "id": {"type": "string"},
+    }}
+    clean = evaluate_compliance(RawMcpTool("screen", None, typed_in, _SCREEN_OUT))
+    assert clean.compliant is True
+    assert clean.warnings == []
+
+
+def test_introspection_response_surfaces_opaque_object_warning():
+    opaque_in = {"type": "object", "properties": {"repair": {"type": "object"}}}
+    tool = introspect_response_tool(RawMcpTool("apply_repair", None, opaque_in, _SCREEN_OUT), domain="wirefix")
+    assert tool.compliance.compliant is True
+    assert any("apply_repair.repair" in w for w in tool.compliance.warnings)
+
+
 def test_side_effect_defaults_from_ack_shape():
     # ADR-052 E3: a tool whose OUTPUT carries the acknowledgement shape defaults side_effectful; else read_only.
     ack_out = {"type": "object", "required": ["acknowledged"],
