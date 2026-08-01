@@ -414,6 +414,32 @@ describe("Copilot flow — stepped review + schema refiner (ADR-054)", () => {
     expect(setterCalls).toEqual([]);
   });
 
+  it("edit mode (ADR-056): the review frames as an edit and the final action publishes the new version via commit", async () => {
+    const user = userEvent.setup();
+    let committed = false;
+    const editing = session({ basics: { pack_key: "wire-repair", version: "1.1.0", title: "Wire repair", default_domain: "payments" } });
+    server.use(
+      http.get(`${REG}/onboarding/sess-c`, () => HttpResponse.json(editing)),
+      http.post(`${REG}/onboarding/sess-c/commit`, () => {
+        committed = true;
+        return HttpResponse.json(session({ state: "completed", result_pack: "wire-repair@1.1.0",
+          basics: { pack_key: "wire-repair", version: "1.1.0", title: "Wire repair", default_domain: "payments" } }));
+      }),
+    );
+    renderCopilot("/registry/onboard/sess-c?mode=edit");
+
+    // the header frames it as an edit → new version (not a fresh review)
+    expect(await screen.findByText(/Editing wire-repair/i)).toBeInTheDocument();
+    expect(screen.getByText(/new version 1\.1\.0/i)).toBeInTheDocument();
+
+    // the final step's action reads "Publish version 1.1.0" and calls the commit (publish) endpoint
+    await user.click(await screen.findByRole("button", { name: /review & go live/i }));
+    const publish = await screen.findByRole("button", { name: /publish version 1\.1\.0/i });
+    await user.click(publish);
+    await waitFor(() => expect(committed).toBe(true));
+    expect(await screen.findByText(/your process is live/i)).toBeInTheDocument();   // publish succeeded
+  });
+
   it("every step has a uniform Back/Continue footer; Continue advances", async () => {
     const user = userEvent.setup();
     server.use(http.get(`${REG}/onboarding/sess-c`, () => HttpResponse.json(wireSession())));

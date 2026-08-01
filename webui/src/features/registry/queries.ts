@@ -2,6 +2,7 @@ import { useApiQuery } from "@/api/live";
 import {
   listPacks,
   getPack,
+  getPackVersions,
   getPackBpmn,
   getPackResolution,
   getValidationReport,
@@ -20,6 +21,9 @@ export function usePacks(filters: PackFilters = {}) {
 }
 export function usePackDetail(key: string | undefined, version: string | undefined) {
   return useApiQuery(["pack", key, version], (s) => getPack(key!, version!, s), { enabled: !!key && !!version, staleTime: Infinity });
+}
+export function usePackVersions(key: string | undefined) {
+  return useApiQuery(["pack-versions", key], (s) => getPackVersions(key!, s), { enabled: !!key });
 }
 export function usePackBpmn(key: string | undefined, version: string | undefined) {
   return useApiQuery(["pack-bpmn", key, version], (s) => getPackBpmn(key!, version!, s), { enabled: !!key && !!version, staleTime: Infinity });

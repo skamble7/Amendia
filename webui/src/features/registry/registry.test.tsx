@@ -1,6 +1,6 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { http, HttpResponse } from "msw";
-import { screen } from "@testing-library/react";
+import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { renderApp } from "@/test/renderApp";
 import { server } from "@/test/server";
@@ -785,5 +785,51 @@ describe("Onboarding wizard", () => {
     expect(screen.getByText(/kind=skill/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Use a distinct domain/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Reuse the existing capability/i })).toBeInTheDocument();
+  });
+});
+
+describe("Pack config editing (ADR-056)", () => {
+  const active = { ...synthPack, version: "1.1.0", status: "active", updated_at: "2026-08-01T00:00:00Z" };
+  const deprecated = { ...synthPack, version: "1.0.0", status: "deprecated", updated_at: "2026-07-01T00:00:00Z" };
+
+  function stubDetail() {
+    server.use(
+      http.get(`${REG}/packs/test-pack/1.1.0`, () => HttpResponse.json(active)),
+      http.get(`${REG}/packs/test-pack/1.1.0/bpmn`, () => HttpResponse.text("<x/>")),
+      http.get(`${REG}/packs/test-pack/1.1.0/resolution`, () => HttpResponse.json({ capabilities: {}, artifacts: {} })),
+      http.get(`${REG}/packs/test-pack`, () => HttpResponse.json([deprecated, active])),
+    );
+  }
+
+  it("an active pack shows Edit and opens the edit session in the stepped review", async () => {
+    let editBody: Record<string, unknown> | undefined;
+    stubDetail();
+    server.use(http.post(`${REG}/onboarding/from-pack/test-pack`, async ({ request }) => {
+      editBody = (await request.json()) as Record<string, unknown>;
+      return HttpResponse.json({ session_id: "onb-edit" });
+    }));
+    const user = userEvent.setup();
+    renderApp("/registry/packs/test-pack/1.1.0", "owner-1");
+
+    await user.click(await screen.findByRole("button", { name: /edit config/i }));
+    await waitFor(() => expect(editBody).toBeDefined());
+    expect(editBody!.bump).toBe("minor");                       // default bump; a major option is selectable
+  });
+
+  it("the versions tab lists history and Make live calls rollback", async () => {
+    let rolledTo: string | undefined;
+    stubDetail();
+    server.use(http.post(`${REG}/packs/test-pack/rollback`, async ({ request }) => {
+      rolledTo = ((await request.json()) as { to_version: string }).to_version;
+      return HttpResponse.json({ ...deprecated, status: "active" });
+    }));
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    const user = userEvent.setup();
+    renderApp("/registry/packs/test-pack/1.1.0", "owner-1");
+
+    await user.click(await screen.findByRole("tab", { name: /versions/i }));
+    expect(await screen.findByText("1.0.0")).toBeInTheDocument();   // history renders both versions
+    await user.click(screen.getByRole("button", { name: /make live/i }));   // rollback the deprecated one
+    await waitFor(() => expect(rolledTo).toBe("1.0.0"));
   });
 });

@@ -12,6 +12,7 @@ from amendia_auth import require_roles
 
 from amendia_contracts.process_pack import ProcessPackManifest
 from app.config import settings
+from app.models.onboarding import RollbackPackRequest
 from app.dal.base import DuplicateError
 from app.dal.artifact_schema_repo import ArtifactSchemaRepository
 from app.dal.bpmn_repo import BpmnRepository
@@ -145,6 +146,31 @@ async def deprecate_pack(
     await repo.set_status(pack_key, version, "deprecated")
     resolver.invalidate()
     return await repo.get(pack_key, version)
+
+
+@router.post("/{pack_key}/rollback", response_model=ProcessPackManifest, dependencies=[_OWNER])
+async def rollback_pack(
+    pack_key: str, req: RollbackPackRequest,
+    repo: ProcessPackRepository = Depends(get_pack_repo),
+    resolver: ResolveService = Depends(get_resolver),
+):
+    """ADR-056: make a prior (non-draft) version live again. Because the resolver prefers the highest ACTIVE
+    version, the currently-active one MUST be deprecated for the rollback to take effect — so this deprecates it
+    and activates ``to_version``. The target keeps its stored capability resolution (valid when first published)."""
+    versions = await repo.list_versions(pack_key)
+    if not versions:
+        raise HTTPException(status_code=404, detail=f"Unknown pack: {pack_key}")
+    target = next((m for m in versions if m.version == req.to_version), None)
+    if target is None:
+        raise HTTPException(status_code=404, detail=f"{pack_key}@{req.to_version} not found")
+    if target.status.value == "draft":
+        raise HTTPException(status_code=422, detail="cannot roll back to a draft version")
+    for m in versions:                                          # deprecate whatever is currently live for this key
+        if m.status.value == "active" and m.version != req.to_version:
+            await repo.set_status(pack_key, m.version, "deprecated")
+    await repo.set_status(pack_key, req.to_version, "active")
+    resolver.invalidate()
+    return await repo.get(pack_key, req.to_version)
 
 
 # -- reads --

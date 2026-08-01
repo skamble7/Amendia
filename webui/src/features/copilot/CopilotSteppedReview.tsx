@@ -45,7 +45,7 @@ const BLURBS: Record<number, string> = {
   6: "A plain-language summary and the validation report. Approve to go live once everything is clean.",
 };
 
-export function CopilotSteppedReview({ session: initial, xml }: { session: OnboardingSession; xml?: string }) {
+export function CopilotSteppedReview({ session: initial, xml, editMode }: { session: OnboardingSession; xml?: string; editMode?: boolean }) {
   const [session, setSession] = useState<OnboardingSession>(initial);
   const [step, setStep] = useState(0);
 
@@ -130,7 +130,7 @@ export function CopilotSteppedReview({ session: initial, xml }: { session: Onboa
                                      onBack={() => setStep(4)} nextLabel="Continue" navigateOnly />}
         {step === 6 && (
           <div className="space-y-4">
-            <CopilotReview session={session} xml={xml} />
+            <CopilotReview session={session} xml={xml} editMode={editMode} />
             <StepFooter summary="approve to go live" busy={false} onBack={() => setStep(5)} />
           </div>
         )}

@@ -12,22 +12,27 @@ import { BpmnViewer } from "@/features/registry/BpmnViewer";
 import { commitOnboarding, type OnboardingSession } from "@/api/services/registry";
 import { gatesOf, readinessOf } from "./humanize";
 
-export function CopilotReview({ session, xml }: { session: OnboardingSession; xml?: string }) {
+export function CopilotReview({ session, xml, editMode }: { session: OnboardingSession; xml?: string; editMode?: boolean }) {
   const [activated, setActivated] = useState<string | null>(session.result_pack ?? null);
   const gates = gatesOf(session);
   const readiness = readinessOf(session);
   const report = session.copilot_report;
   const openQuestions = report?.open_questions ?? [];
 
+  // ADR-056: publishing an edit uses the SAME commit path — it activates the bumped version and auto-deprecates the
+  // prior one server-side. Only the labels change: "Publish version X.Y.Z" instead of "Approve & go live".
   const activate = useMutation({
     mutationFn: () => commitOnboarding(session.session_id),
     onSuccess: (s) => {
       if (s.state === "completed" && s.result_pack) {
         setActivated(s.result_pack);
-        toast.success(`${s.result_pack} is live — it now handles matching work.`);
+        toast.success(editMode
+          ? `Published ${s.result_pack} — new work routes to it; the prior version was deprecated.`
+          : `${s.result_pack} is live — it now handles matching work.`);
       }
     },
-    onError: () => toast.error("Couldn't go live. See readiness below or the technical detail."),
+    onError: () => toast.error(editMode ? "Couldn't publish. See readiness below or the technical detail."
+                                        : "Couldn't go live. See readiness below or the technical detail."),
   });
 
   if (activated) {
@@ -127,7 +132,7 @@ export function CopilotReview({ session, xml }: { session: OnboardingSession; xm
 
           <div className="mt-4 flex items-center justify-between gap-3">
             <Button variant="success" disabled={!readiness.ready || activate.isPending} onClick={() => activate.mutate()}>
-              <Rocket className="size-4" /> Approve &amp; go live
+              <Rocket className="size-4" /> {editMode ? `Publish version ${session.basics.version}` : "Approve & go live"}
             </Button>
             <Link to={`/registry/onboard/technical/${session.session_id}`}
               className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
