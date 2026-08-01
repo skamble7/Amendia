@@ -193,6 +193,31 @@ def _reconciler_with_graph(proposal: CopilotProposal, tools: list, flow_graph) -
         proposal=proposal, owner="usr-owner", flow_graph=flow_graph)
 
 
+def test_human_read_only_input_from_a_branch_producer_is_marked_optional():
+    # Prep (guaranteed upstream) → `prepared`; Recover (SLA-branch only) → `recovery`. Serve (human) reads BOTH as
+    # read-only context. The loop-back optionality that already covers capability inputs must cover human read-only
+    # inputs too: `prepared` stays required, `recovery` becomes optional (absent on the normal path where the branch
+    # didn't run) — so the runtime resolves Serve's inputs instead of hard-failing "not produced upstream".
+    graph = FlowGraph([("Start", "Prep"), ("Prep", "Gw"), ("Gw", "Serve"),
+                       ("Gw", "Recover"), ("Recover", "Serve"), ("Serve", "End")], "Start")
+    serve = ElementProposal(
+        element_id="Serve", executor=ExecutorProposal(type="human", role="role.payment.server"),
+        read_only_inputs=[ReadOnlyInputProposal(name="prepared", source_output="prepared"),
+                          ReadOnlyInputProposal(name="recovery", source_output="recovery")])
+    rec = _reconciler_with_graph(CopilotProposal(elements=[serve]), [], graph)
+    rec._producers = {"prepared": {"Prep"}, "recovery": {"Recover"}}
+    out_artifact = {"prepared": "art.payment.prepared", "recovery": "art.payment.recovery"}
+    inv = SimpleNamespace(element_id="Serve", element_kind="userTask", category="human", message_name=None)
+
+    b = rec._binding(inv, None, out_artifact, {})
+
+    assert b.input_sources["prepared"] == {"from": "artifact", "name": "prepared"}                    # guaranteed → required
+    assert "optional" not in b.input_sources["prepared"]
+    assert b.input_sources["recovery"] == {"from": "artifact", "name": "recovery", "optional": True}  # branch → optional
+    assert any(d.kind == "input_map" and d.element_id == "Serve" and "recovery" in d.summary and "optional" in d.summary
+               for d in rec.decisions)
+
+
 def test_orphaned_human_output_is_rewired_to_the_downstream_draft_consumer():
     # DraftRepair (agent) → ApproveRepair (human approves) → ApplyRepair (side-effect). ApproveRepair reviews the
     # draft `repair_instruction` and outputs the approved `approval_repair`, but the LLM wired ApplyRepair to the

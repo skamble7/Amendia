@@ -162,7 +162,8 @@ def proposal_from_session(session: OnboardingSession) -> CopilotProposal:
             for io in b.inputs:
                 src = (b.input_sources or {}).get(io.name, {})
                 if isinstance(src, dict) and src.get("name"):
-                    ep.read_only_inputs.append(ReadOnlyInputProposal(name=io.name, source_output=src["name"]))
+                    ep.read_only_inputs.append(ReadOnlyInputProposal(
+                        name=io.name, source_output=src["name"], optional=src.get("optional")))
         elif b.executor_type == "message":
             ep.executor.message_name = b.message_name
         elif b.executor_type == "call":

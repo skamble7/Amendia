@@ -693,7 +693,13 @@ class Reconciler:
                         question=f"{eid}: read-only input '{ri.name}' sources unknown output '{ri.source_output}'."))
                     continue
                 ro_inputs.append(StagedBindingIO(name=ri.name, schema_ref=f"{akey}@^{self._artifact_ref_version(akey)}", required=False))
-                ro_sources[ri.name] = {"from": "artifact", "name": ri.source_output}
+                src: Dict[str, Any] = {"from": "artifact", "name": ri.source_output}
+                # ADR-048: a human read-only input from a branch/loop-back producer is absent-tolerant too — mark it
+                # optional so the normal path (the branch didn't run) resolves instead of hard-failing input_unresolved.
+                optional = bool(ri.optional) if self.flow_graph is None else self._source_is_loopback(eid, ri.source_output, ri.name)
+                if optional:
+                    src["optional"] = True
+                ro_sources[ri.name] = src
             b.inputs = ro_inputs
             b.input_sources = ro_sources
             if p:
@@ -828,12 +834,19 @@ class Reconciler:
             return False                          # trigger/seed inputs are always present
         if self.flow_graph is None:
             return bool(m.optional)               # chat path: honor the flag the proposal/mutation carries
-        producers = self._producers.get(m.name or "", set())
+        return self._source_is_loopback(eid, m.name, m.field)
+
+    def _source_is_loopback(self, eid: str, source_name: Optional[str], field_label: str) -> bool:
+        """The core loop-back decision, keyed on ``(eid, source output name)`` and shared by capability input maps
+        AND human read-only inputs. A from='artifact' source is loop-back/branch OPTIONAL iff NO producer of
+        ``source_name`` is a *guaranteed predecessor* of ``eid`` (on every path from start to eid, with no loop
+        back). Records the same provenance. Requires the flow graph — callers handle the chat path themselves."""
+        producers = self._producers.get(source_name or "", set())
         if any(self.flow_graph.guaranteed_predecessor(prod, eid) for prod in producers):
             return False
         producer_txt = ", ".join(sorted(producers)) or "no upstream step"
-        self._det("input_map", eid, f"marked input '{m.field}' optional — its source '{m.name}' is produced by "
-                                    f"loop-back/branch step {producer_txt}, not guaranteed upstream of {eid}")
+        self._det("input_map", eid, f"marked input '{field_label}' optional — its source '{source_name}' is produced "
+                                    f"by loop-back/branch step {producer_txt}, not guaranteed upstream of {eid}")
         return True
 
     # -- trigger + triage -- #

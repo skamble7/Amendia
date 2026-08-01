@@ -49,6 +49,9 @@ class ReadOnlyInputProposal(BaseModel):
     model_config = ConfigDict(extra="ignore")
     name: str                                    # the binding input name for the read-only context artifact
     source_output: str                           # the upstream output name to read as context
+    # ADR-048: absent-tolerant when the source runs on a branch/loop-back. reconcile is AUTHORITATIVE on the
+    # generate path (flow graph); this only round-trips the flag on the graph-less chat path.
+    optional: Optional[bool] = None
 
 
 class OutputFieldProposal(BaseModel):
