@@ -381,32 +381,40 @@ class ProcessEngine:
             await self._fail(instance, reason, str(exc))
             return
 
-        if isinstance(result, dict) and "__interrupt__" in result:
-            # ADR-027 Phase 2.1: a parallel superstep can raise SEVERAL concurrent interrupts.
-            # Per the "sequentialize" decision, surface exactly ONE — materialize its task, park at
-            # WAITING_HITL — and carry its interrupt id so resume targets this gate; the next
-            # pending interrupt surfaces after this one is decided (one open HITL task at a time).
-            interrupts = result["__interrupt__"]
-            first = interrupts[0]
-            if len(interrupts) > 1:
-                logger.info("instance %s: %d concurrent interrupts — surfacing one at a time",
-                            instance.process_instance_id, len(interrupts))
-            payload = first.value
-            kind = payload.get("kind") if isinstance(payload, dict) else None
-            # ADR-027 Phase 2.2 / ADR-031 Phase 2.4: dispatch the interrupt by kind — a timer catch
-            # parks WAITING_TIMER, a message catch/receive parks WAITING_MESSAGE, an event gateway
-            # registers all arms and parks; anything else is a HITL gate.
-            if kind == "timer":
-                await self._park_timer(instance, payload, interrupt_id=first.id)
-            elif kind == "message":
-                await self._park_message(instance, payload, interrupt_id=first.id)
-            elif kind == "event_gateway":
-                await self._park_event_gateway(instance, payload, interrupt_id=first.id)
+        # Parking / materializing / completing the NEXT gate is under the same failure handling as graph.invoke:
+        # an error while advancing (e.g. materializing a task whose payload can't validate) must FAIL the instance
+        # cleanly — not propagate a 500 out to the decide/resume caller and orphan the instance in RUNNING.
+        try:
+            if isinstance(result, dict) and "__interrupt__" in result:
+                # ADR-027 Phase 2.1: a parallel superstep can raise SEVERAL concurrent interrupts.
+                # Per the "sequentialize" decision, surface exactly ONE — materialize its task, park at
+                # WAITING_HITL — and carry its interrupt id so resume targets this gate; the next
+                # pending interrupt surfaces after this one is decided (one open HITL task at a time).
+                interrupts = result["__interrupt__"]
+                first = interrupts[0]
+                if len(interrupts) > 1:
+                    logger.info("instance %s: %d concurrent interrupts — surfacing one at a time",
+                                instance.process_instance_id, len(interrupts))
+                payload = first.value
+                kind = payload.get("kind") if isinstance(payload, dict) else None
+                # ADR-027 Phase 2.2 / ADR-031 Phase 2.4: dispatch the interrupt by kind — a timer catch
+                # parks WAITING_TIMER, a message catch/receive parks WAITING_MESSAGE, an event gateway
+                # registers all arms and parks; anything else is a HITL gate.
+                if kind == "timer":
+                    await self._park_timer(instance, payload, interrupt_id=first.id)
+                elif kind == "message":
+                    await self._park_message(instance, payload, interrupt_id=first.id)
+                elif kind == "event_gateway":
+                    await self._park_event_gateway(instance, payload, interrupt_id=first.id)
+                else:
+                    state = await asyncio.to_thread(lambda: graph.get_state(cfg).values)
+                    await self._materialize_task(instance, payload, state, interrupt_id=first.id)
             else:
-                state = await asyncio.to_thread(lambda: graph.get_state(cfg).values)
-                await self._materialize_task(instance, payload, state, interrupt_id=first.id)
-        else:
-            await self._complete(instance, result)
+                await self._complete(instance, result)
+        except Exception as exc:  # noqa: BLE001 - a parking/materialization error fails the instance, never a 500
+            reason = getattr(exc, "reason", "advance_failed")
+            logger.exception("instance %s failed advancing to the next gate: %s", instance.process_instance_id, exc)
+            await self._fail(instance, reason, str(exc))
 
     async def _park_timer(self, instance: ProcessInstance, payload: Dict[str, Any],
                           *, interrupt_id: Optional[str]) -> None:
