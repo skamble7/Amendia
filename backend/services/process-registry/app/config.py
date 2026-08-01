@@ -25,6 +25,10 @@ class Settings(BaseSettings):
     # Seeding (drives the seed dataset through the real onboarding APIs). Unset by default → no seed.
     SEED_DIR: str = ""
     SEED_ON_STARTUP: bool = False
+    # ADR-052: seed the reference wire-repair-standard pack (+ its art.payment.*/art.compliance.* schemas and
+    # cap.payment.* capabilities) on startup. Default True keeps existing behavior/tests; set false once processes
+    # are onboarded via the copilot, so the reference pack's domain baggage doesn't compete on triage.
+    SEED_REFERENCE_PACK: bool = False
 
     # /resolve active-pack cache TTL (seconds)
     RESOLVE_CACHE_TTL: float = 30.0
@@ -50,6 +54,17 @@ class Settings(BaseSettings):
     # service directly. The Vite/nginx proxy avoids CORS in the normal setup;
     # this is default-on in compose and should be disabled in production.
     ENABLE_DEV_CORS: bool = True
+
+    # ADR-052 Phase 2 — the onboarding copilot's LLM (reuses the polyllm + ConfigForge stack,
+    # exactly like agent-runtime's llm/deep_agent capabilities; ADR-016/017/018). The copilot resolves
+    # a ModelProfile by REF from config-forge — secrets stay references, never raw keys in code/config.
+    CONFIG_FORGE_URL: str = "http://localhost:8040"
+    # The strong model the copilot's semantic reasoning runs on. Mirrors agent-runtime's LLM_CONFIG_REF;
+    # default to the same seeded Bedrock/Claude ref the runtime defaults to. A generate request may override.
+    COPILOT_LLM_CONFIG_REF: str = "dev.llm.bedrock.explicit-creds"
+    # Dev flag: when true the copilot never contacts ConfigForge/a live model — the generate endpoint
+    # requires an injected/fake client. Tests set this (or monkeypatch the client seam) to run offline.
+    COPILOT_LLM_DISABLED: bool = False
 
     model_config = SettingsConfigDict(
         env_prefix="REGISTRY_",

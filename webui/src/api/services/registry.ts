@@ -210,10 +210,12 @@ type _Sess = Require<_Schemas["OnboardingSession"],
   "staged_artifacts" | "staged_capabilities" | "reused_capability_refs" | "bindings"
   | "triage_rules" | "gateway_variables" | "sod_policies" | "roles" | "commit_progress" | "last_cleared">;
 // dry_run_report is an untyped dict server-side; bpmn/inferred need the collection-required aliases.
-export type OnboardingSession = Omit<_Sess, "dry_run_report" | "bpmn" | "inferred"> & {
+export type OnboardingSession = Omit<_Sess, "dry_run_report" | "bpmn" | "inferred" | "copilot_report" | "conversation"> & {
   dry_run_report?: ValidationReport | null;
   bpmn?: OnbBpmnInventory | null;
   inferred?: InferenceDraft | null;
+  copilot_report?: CopilotReport | null;   // ADR-052 2a/2b: plain-language summary + provenance + open questions
+  conversation?: ConversationTurn[];       // ADR-052 2b: the refine transcript
 };
 
 export type ToolCompliance = Require<_Schemas["ToolCompliance"], "reasons">;
@@ -265,6 +267,11 @@ export function declareOnboardingTrigger(id: string, body: OnbTriggerRequest): P
 export function declareOnboardingArtifact(id: string, body: OnbArtifactRequest): Promise<OnboardingSession> {
   return request<OnboardingSession>("registry", `/onboarding/${id}/artifacts`, { method: "PUT", body, silent: true });
 }
+// ADR-054: refine a human-authored artifact's schema (typed props, labels, enums). Version resolved server-side.
+export type OnbArtifactRefineRequest = _Schemas["RefineArtifactRequest"];
+export function refineOnboardingArtifact(id: string, body: OnbArtifactRefineRequest): Promise<OnboardingSession> {
+  return request<OnboardingSession>("registry", `/onboarding/${id}/artifacts/refine`, { method: "PUT", body, silent: true });
+}
 export function setOnboardingPolicies(id: string, body: { gateway_variables: OnbGatewayVariable[]; sod_policies: OnbSod[]; roles: string[]; role_meta?: Record<string, OnbRoleMeta> }): Promise<OnboardingSession> {
   return request<OnboardingSession>("registry", `/onboarding/${id}/policies`, { method: "PUT", body, silent: true });
 }
@@ -273,4 +280,40 @@ export function assembleOnboarding(id: string): Promise<OnboardingSession> {
 }
 export function commitOnboarding(id: string): Promise<OnboardingSession> {
   return request<OnboardingSession>("registry", `/onboarding/${id}/commit`, { method: "POST", silent: true });
+}
+
+// -- ADR-052 Phase 2/3: the onboarding copilot (generate + conversational refine) --
+export type CopilotReport = Require<_Schemas["CopilotReport"], "decisions" | "open_questions">;
+export type CopilotDecision = _Schemas["CopilotDecision"];
+export type CopilotOpenQuestion = _Schemas["CopilotOpenQuestion"];
+export type ChangeDiff = _Schemas["ChangeDiff"];
+export type ConversationTurn = Require<_Schemas["ConversationTurn"], "changes">;
+export type CopilotChatResponse = Omit<_Schemas["CopilotChatResponse"], "session" | "changes" | "validation" | "report"> & {
+  session: OnboardingSession;
+  changes: ChangeDiff[];
+  report?: CopilotReport | null;
+  validation?: ValidationReport | null;
+};
+export interface CopilotGenerateBody {
+  pack_key: string;
+  version?: string;
+  title: string;
+  description?: string;
+  domain?: string;
+  bpmn_xml: string;
+  bpmn_file?: string;
+  mcp: { endpoint: string; transport?: string; headers?: Record<string, string> };
+  // USER-PROVIDED: the trigger (a JSON Schema or a sample event) + the manual triage predicate rules.
+  trigger: Record<string, unknown>;
+  triage_rules: OnbTriageRule[];
+  model_config_ref?: string;
+}
+
+// 2a — generate a validator-clean draft from a BPMN + a live MCP endpoint (can take tens of seconds).
+export function generateCopilot(body: CopilotGenerateBody): Promise<OnboardingSession> {
+  return request<OnboardingSession>("registry", "/onboarding/copilot/generate", { method: "POST", body, silent: true });
+}
+// 2b — refine the draft one natural-language message at a time.
+export function copilotChat(id: string, body: { message: string; model_config_ref?: string }): Promise<CopilotChatResponse> {
+  return request<CopilotChatResponse>("registry", `/onboarding/${id}/copilot/chat`, { method: "POST", body, silent: true });
 }

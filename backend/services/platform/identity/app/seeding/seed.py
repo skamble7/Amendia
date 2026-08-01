@@ -21,9 +21,12 @@ logger = logging.getLogger(__name__)
 # alex is platform-admin-only (proves the admin-only nav composition); sam is
 # deliberately absent here so his first login lands in the roleless state.
 SEED_ROLES: Dict[str, List[str]] = {
-    "riya@amendia.dev": ["role.payments.ops_analyst"],
-    "marcus@amendia.dev": ["role.payments.ops_approver"],
-    "priya@amendia.dev": ["role.process.owner", "role.platform.admin"],
+    # The copilot wire-repair pack's HITL roles are granted to existing dev users so its tasks can be claimed.
+    # ops_analyst and ops_approver MUST be different users so the pack's distinct_actor SoD (Task_ObtainInfo
+    # preparer ≠ Task_ApproveRepair approver) is satisfiable.
+    "riya@amendia.dev": ["role.payments.ops_analyst", "role.wire_repair.ops_analyst"],
+    "marcus@amendia.dev": ["role.payments.ops_approver", "role.wire_repair.ops_approver"],
+    "priya@amendia.dev": ["role.process.owner", "role.platform.admin", "role.wire_repair.supervisor"],
     "alex@amendia.dev": ["role.platform.admin"],
     "sam@amendia.dev": [],
     # Dedicated restaurant dine-in personas (kept off the shared payments users).

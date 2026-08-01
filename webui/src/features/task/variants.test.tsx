@@ -28,11 +28,13 @@ function manualTask(artifacts: unknown[]): HitlTask {
   });
 }
 
-describe("ManualVariant — copy matches editability", () => {
+describe("ManualVariant — copy matches draft presence", () => {
   afterEach(() => server.resetHandlers());
-
-  it("no editable output → approval copy + 'Approve'", () => {
+  const schemaOk = () =>
     server.use(http.get(`${SERVICE_BASE.registry}/artifact-schemas/:key/:version`, () => HttpResponse.json({ json_schema: {} })));
+
+  it("(c) no editable output → approve-only copy + 'Approve'", () => {
+    schemaOk();
     renderVariant(
       <ManualVariant task={manualTask([{ name: "repair", schema: "art.payment.repair@1.0.0", data: { field: "x" } }])} onDecide={() => {}} pending={false} />,
     );
@@ -42,14 +44,28 @@ describe("ManualVariant — copy matches editability", () => {
     expect(screen.queryByRole("button", { name: "Complete task" })).toBeNull();
   });
 
-  it("editable output → authoring copy + 'Complete task'", () => {
-    server.use(http.get(`${SERVICE_BASE.registry}/artifact-schemas/:key/:version`, () => HttpResponse.json({ json_schema: {} })));
+  it("(a) editable output WITH an agent pre-draft → 'complete or correct it' + 'Complete task'", () => {
+    schemaOk();
     renderVariant(
-      <ManualVariant task={manualTask([{ name: "rfi", schema: "art.payment.rfi@1.0.0", data: {}, draft: true }])} onDecide={() => {}} pending={false} />,
+      <ManualVariant task={manualTask([{ name: "rfi", schema: "art.payment.rfi@1.0.0", data: { question: "Confirm IBAN" }, draft: true }])} onDecide={() => {}} pending={false} />,
     );
-    expect(screen.getByText(/complete or correct it/i)).toBeTruthy();
+    expect(screen.getByText(/pre-drafted it — complete or correct it/i)).toBeTruthy();
     expect(screen.getByRole("button", { name: "Complete task" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Approve" })).toBeNull();
+  });
+
+  it("(b) editable output with NO pre-draft → 'provide the required output' (not the misleading pre-draft copy)", () => {
+    schemaOk();
+    renderVariant(
+      <ManualVariant
+        task={manualTask([{ name: "approved_repair", schema: "art.payment.approved_repair@1.0.0", data: {}, draft: true, authored_by_human: true }])}
+        onDecide={() => {}}
+        pending={false}
+      />,
+    );
+    expect(screen.getByText(/Provide the required output/i)).toBeTruthy();
+    expect(screen.queryByText(/complete or correct it/i)).toBeNull();       // the empty human-authored output isn't "pre-drafted"
+    expect(screen.getByRole("button", { name: "Complete task" })).toBeTruthy();
   });
 });
 

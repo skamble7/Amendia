@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://amendia.dev/schemas/artifacts/wirefix_mcp/approved_repair/1.0.0.json",
+  "title": "Approved Repair",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["field", "proposed_value"],
+  "properties": {
+    "field": {
+      "title": "Field",
+      "description": "The payment field being corrected (e.g. creditor_account).",
+      "type": "string"
+    },
+    "proposed_value": {
+      "title": "Corrected Value",
+      "description": "The approved corrected value (e.g. the beneficiary IBAN).",
+      "type": "string"
+    },
+    "justification": {
+      "title": "Justification",
+      "description": "Why this correction is valid — recorded for audit.",
+      "type": "string"
+    }
+  }
+}

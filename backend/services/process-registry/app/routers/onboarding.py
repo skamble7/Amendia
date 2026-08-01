@@ -17,8 +17,12 @@ from amendia_auth.models import AuthenticatedUser
 from app.deps import get_onboarding_service
 from app.models.onboarding import (
     AttachBpmnRequest,
+    CopilotChatRequest,
+    CopilotChatResponse,
+    CopilotGenerateRequest,
     CreateSessionRequest,
     DeclareArtifactRequest,
+    RefineArtifactRequest,
     DeclareTriggerRequest,
     IntrospectMcpRequest,
     IntrospectMcpResponse,
@@ -28,6 +32,8 @@ from app.models.onboarding import (
     SetPoliciesRequest,
     SetTriageRequest,
 )
+from app.services.copilot.llm import CopilotLLMError
+from app.services.copilot.service import CopilotService
 from app.services.onboarding import OnboardingService, TransitionError
 
 router = APIRouter(prefix="/onboarding", tags=["onboarding"])
@@ -67,6 +73,46 @@ async def introspect_mcp(
         return await svc.introspect_mcp(req)
     except TransitionError as exc:
         _raise(exc)
+
+
+# --------------------------------------------------------------------------- #
+# ADR-052 Phase 2a — the onboarding copilot (autopilot generation)
+# --------------------------------------------------------------------------- #
+
+@router.post("/copilot/generate", response_model=OnboardingSession, status_code=201)
+async def copilot_generate(
+    req: CopilotGenerateRequest,
+    owner: str = Depends(_owner_id),
+    svc: OnboardingService = Depends(get_onboarding_service),
+):
+    """Given a comprehensive BPMN + a live MCP endpoint, generate a complete, validator-clean DRAFT pack into a
+    new onboarding session (deterministic engine + one LLM call + deterministic invariant enforcement + the
+    7-stage validator with a bounded repair loop). Returns the populated session — reviewable/activatable in the
+    existing wizard — carrying its ``copilot_report`` (plain-language summary + provenance + open questions)."""
+    try:
+        return await CopilotService(svc).generate(req, owner=owner)
+    except TransitionError as exc:
+        _raise(exc)
+    except CopilotLLMError as exc:
+        raise HTTPException(status_code=502, detail={"error": "copilot_llm_unavailable", "message": str(exc)})
+
+
+@router.post("/{session_id}/copilot/chat", response_model=CopilotChatResponse)
+async def copilot_chat(
+    session_id: str,
+    req: CopilotChatRequest,
+    owner: str = Depends(_owner_id),
+    svc: OnboardingService = Depends(get_onboarding_service),
+):
+    """ADR-052 Phase 2b — conversational refine. Interpret one natural-language edit into typed mutations, apply
+    them through the same deterministic reconcile/validate path (floors always enforced), re-validate, update the
+    copilot_report + conversation log, and reply in plain language with a ChangeDiff. The draft stays activatable."""
+    try:
+        return await CopilotService(svc).chat(session_id, req, owner=owner)
+    except TransitionError as exc:
+        _raise(exc)
+    except CopilotLLMError as exc:
+        raise HTTPException(status_code=502, detail={"error": "copilot_llm_unavailable", "message": str(exc)})
 
 
 # --------------------------------------------------------------------------- #
@@ -180,6 +226,21 @@ async def declare_artifact(
     output (e.g. art.dining.order). Registered + listed among the pack artifacts at assemble."""
     try:
         return await svc.declare_artifact(session_id, req, owner=owner)
+    except TransitionError as exc:
+        _raise(exc)
+
+
+@router.put("/{session_id}/artifacts/refine", response_model=OnboardingSession)
+async def refine_artifact(
+    session_id: str, req: RefineArtifactRequest,
+    owner: str = Depends(_owner_id),
+    svc: OnboardingService = Depends(get_onboarding_service),
+):
+    """ADR-054: refine a human-authored artifact's JSON schema (typed props, labels, enums). The version is
+    resolved server-side (bump-on-change) and the referencing bindings are re-pinned, so the activated pack's
+    HITL form renders labeled, typed fields — not a raw JSON blob."""
+    try:
+        return await svc.refine_artifact(session_id, req, owner=owner)
     except TransitionError as exc:
         _raise(exc)
 

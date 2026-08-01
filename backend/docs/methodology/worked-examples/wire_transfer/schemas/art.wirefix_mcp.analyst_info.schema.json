@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://amendia.dev/schemas/artifacts/wirefix_mcp/analyst_info/1.0.0.json",
+  "title": "Analyst Info",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["resolution"],
+  "properties": {
+    "resolution": {
+      "title": "Resolution",
+      "description": "Whether the missing information could be obtained.",
+      "type": "string",
+      "enum": ["resolved", "cannot_obtain"]
+    },
+    "notes": {
+      "title": "Notes",
+      "description": "What was obtained, or why it could not be.",
+      "type": "string"
+    }
+  }
+}

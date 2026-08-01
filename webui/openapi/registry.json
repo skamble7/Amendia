@@ -1385,6 +1385,43 @@
         "title": "CapabilityToolSelection",
         "type": "object"
       },
+      "ChangeDiff": {
+        "description": "One before\u2192after change on a touched element, so the reply can show exactly what moved.",
+        "properties": {
+          "after": {
+            "anyOf": [
+              {},
+              {
+                "type": "null"
+              }
+            ],
+            "title": "After"
+          },
+          "before": {
+            "anyOf": [
+              {},
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Before"
+          },
+          "element_id": {
+            "title": "Element Id",
+            "type": "string"
+          },
+          "field": {
+            "title": "Field",
+            "type": "string"
+          }
+        },
+        "required": [
+          "element_id",
+          "field"
+        ],
+        "title": "ChangeDiff",
+        "type": "object"
+      },
       "CommitStep": {
         "properties": {
           "detail": {
@@ -1452,6 +1489,374 @@
           }
         },
         "title": "Constraints",
+        "type": "object"
+      },
+      "ConversationTurn": {
+        "description": "One audit-trail entry on the session's conversation log (the design-sign-off transcript 2c renders).",
+        "properties": {
+          "changes": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Changes",
+            "type": "array"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "needs_clarification": {
+            "default": false,
+            "title": "Needs Clarification",
+            "type": "boolean"
+          },
+          "reply": {
+            "title": "Reply",
+            "type": "string"
+          }
+        },
+        "required": [
+          "message",
+          "reply"
+        ],
+        "title": "ConversationTurn",
+        "type": "object"
+      },
+      "CopilotChatRequest": {
+        "description": "Body for ``POST /onboarding/{id}/copilot/chat`` \u2014 one natural-language edit at a time.",
+        "properties": {
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "model_config_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Config Ref"
+          }
+        },
+        "required": [
+          "message"
+        ],
+        "title": "CopilotChatRequest",
+        "type": "object"
+      },
+      "CopilotChatResponse": {
+        "description": "The chat turn result: a plain-language reply, the concrete diffs, the refreshed report + validation, and\nthe full updated session (so the caller/wizard renders the draft without a second fetch).",
+        "properties": {
+          "changes": {
+            "items": {
+              "$ref": "#/components/schemas/ChangeDiff"
+            },
+            "title": "Changes",
+            "type": "array"
+          },
+          "needs_clarification": {
+            "default": false,
+            "title": "Needs Clarification",
+            "type": "boolean"
+          },
+          "reply": {
+            "title": "Reply",
+            "type": "string"
+          },
+          "report": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CopilotReport"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "session": {
+            "$ref": "#/components/schemas/OnboardingSession"
+          },
+          "validation": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Validation"
+          }
+        },
+        "required": [
+          "reply",
+          "session"
+        ],
+        "title": "CopilotChatResponse",
+        "type": "object"
+      },
+      "CopilotDecision": {
+        "description": "One provenance entry: what the copilot decided, WHO decided it (the deterministic engine vs the LLM),\nand why. The 2b conversation and 2c review render these so a human can audit every generated choice.",
+        "properties": {
+          "confidence": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confidence"
+          },
+          "decided_by": {
+            "title": "Decided By",
+            "type": "string"
+          },
+          "element_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Element Id"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "rationale": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rationale"
+          },
+          "summary": {
+            "title": "Summary",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "decided_by",
+          "summary"
+        ],
+        "title": "CopilotDecision",
+        "type": "object"
+      },
+      "CopilotGenerateRequest": {
+        "description": "Body for ``POST /onboarding/copilot/generate`` \u2014 a comprehensive BPMN + a live MCP endpoint in, a\npopulated validator-clean draft session out.",
+        "properties": {
+          "bpmn_file": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bpmn File"
+          },
+          "bpmn_xml": {
+            "title": "Bpmn Xml",
+            "type": "string"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "domain": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Domain"
+          },
+          "mcp": {
+            "$ref": "#/components/schemas/CopilotMcpConfig"
+          },
+          "model_config_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Config Ref"
+          },
+          "pack_key": {
+            "title": "Pack Key",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "triage_rules": {
+            "items": {
+              "$ref": "#/components/schemas/StagedTriageRule"
+            },
+            "title": "Triage Rules",
+            "type": "array"
+          },
+          "trigger": {
+            "additionalProperties": true,
+            "title": "Trigger",
+            "type": "object"
+          },
+          "version": {
+            "default": "1.0.0",
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "pack_key",
+          "title",
+          "bpmn_xml",
+          "mcp",
+          "trigger"
+        ],
+        "title": "CopilotGenerateRequest",
+        "type": "object"
+      },
+      "CopilotMcpConfig": {
+        "properties": {
+          "endpoint": {
+            "title": "Endpoint",
+            "type": "string"
+          },
+          "headers": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Headers",
+            "type": "object"
+          },
+          "transport": {
+            "default": "streamable_http",
+            "title": "Transport",
+            "type": "string"
+          }
+        },
+        "required": [
+          "endpoint"
+        ],
+        "title": "CopilotMcpConfig",
+        "type": "object"
+      },
+      "CopilotOpenQuestion": {
+        "description": "A low-confidence or discretionary decision the 2b conversation should confirm with the operator.",
+        "properties": {
+          "confidence": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confidence"
+          },
+          "element_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Element Id"
+          },
+          "question": {
+            "title": "Question",
+            "type": "string"
+          },
+          "topic": {
+            "title": "Topic",
+            "type": "string"
+          }
+        },
+        "required": [
+          "topic",
+          "question"
+        ],
+        "title": "CopilotOpenQuestion",
+        "type": "object"
+      },
+      "CopilotReport": {
+        "description": "The artifact 2b/2c stand on: a plain-language process summary, per-decision provenance, and the open\nquestions. Persisted on the session by a copilot-generated run; additive (never part of the manifest).",
+        "properties": {
+          "decisions": {
+            "items": {
+              "$ref": "#/components/schemas/CopilotDecision"
+            },
+            "title": "Decisions",
+            "type": "array"
+          },
+          "llm_used": {
+            "default": true,
+            "title": "Llm Used",
+            "type": "boolean"
+          },
+          "model_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Ref"
+          },
+          "open_questions": {
+            "items": {
+              "$ref": "#/components/schemas/CopilotOpenQuestion"
+            },
+            "title": "Open Questions",
+            "type": "array"
+          },
+          "repair_passes": {
+            "default": 0,
+            "title": "Repair Passes",
+            "type": "integer"
+          },
+          "summary": {
+            "default": "",
+            "title": "Summary",
+            "type": "string"
+          }
+        },
+        "title": "CopilotReport",
         "type": "object"
       },
       "CreateSessionRequest": {
@@ -2799,6 +3204,23 @@
             "title": "Commit Progress",
             "type": "array"
           },
+          "conversation": {
+            "items": {
+              "$ref": "#/components/schemas/ConversationTurn"
+            },
+            "title": "Conversation",
+            "type": "array"
+          },
+          "copilot_report": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CopilotReport"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "created_at": {
             "format": "date-time",
             "title": "Created At",
@@ -3479,6 +3901,37 @@
           "output_artifact_key"
         ],
         "title": "ReduceSpec",
+        "type": "object"
+      },
+      "RefineArtifactRequest": {
+        "description": "ADR-054: refine an existing HUMAN-authored artifact's JSON schema (typed properties, JSON-Schema ``title``\nlabels, enums, ``required``) so the runtime HITL form renders labeled/typed fields, not a raw JSON blob. Unlike\nDeclareArtifactRequest the version is resolved SERVER-side (bump-on-change vs the registered body), so the\ncaller sends only the key + refined schema (+ optional title); the referencing bindings are re-pinned to it.",
+        "properties": {
+          "artifact_key": {
+            "title": "Artifact Key",
+            "type": "string"
+          },
+          "json_schema": {
+            "additionalProperties": true,
+            "title": "Json Schema",
+            "type": "object"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          }
+        },
+        "required": [
+          "artifact_key",
+          "json_schema"
+        ],
+        "title": "RefineArtifactRequest",
         "type": "object"
       },
       "RequiresCapability": {
@@ -5249,6 +5702,53 @@
         ]
       }
     },
+    "/onboarding/copilot/generate": {
+      "post": {
+        "description": "Given a comprehensive BPMN + a live MCP endpoint, generate a complete, validator-clean DRAFT pack into a\nnew onboarding session (deterministic engine + one LLM call + deterministic invariant enforcement + the\n7-stage validator with a bounded repair loop). Returns the populated session \u2014 reviewable/activatable in the\nexisting wizard \u2014 carrying its ``copilot_report`` (plain-language summary + provenance + open questions).",
+        "operationId": "copilot_generate_onboarding_copilot_generate_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CopilotGenerateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OnboardingSession"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Copilot Generate",
+        "tags": [
+          "onboarding"
+        ]
+      }
+    },
     "/onboarding/{session_id}": {
       "delete": {
         "operationId": "delete_session_onboarding__session_id__delete",
@@ -5387,6 +5887,64 @@
           }
         ],
         "summary": "Declare Artifact",
+        "tags": [
+          "onboarding"
+        ]
+      }
+    },
+    "/onboarding/{session_id}/artifacts/refine": {
+      "put": {
+        "description": "ADR-054: refine a human-authored artifact's JSON schema (typed props, labels, enums). The version is\nresolved server-side (bump-on-change) and the referencing bindings are re-pinned, so the activated pack's\nHITL form renders labeled, typed fields \u2014 not a raw JSON blob.",
+        "operationId": "refine_artifact_onboarding__session_id__artifacts_refine_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RefineArtifactRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OnboardingSession"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Refine Artifact",
         "tags": [
           "onboarding"
         ]
@@ -5652,6 +6210,64 @@
           }
         ],
         "summary": "Commit",
+        "tags": [
+          "onboarding"
+        ]
+      }
+    },
+    "/onboarding/{session_id}/copilot/chat": {
+      "post": {
+        "description": "ADR-052 Phase 2b \u2014 conversational refine. Interpret one natural-language edit into typed mutations, apply\nthem through the same deterministic reconcile/validate path (floors always enforced), re-validate, update the\ncopilot_report + conversation log, and reply in plain language with a ChangeDiff. The draft stays activatable.",
+        "operationId": "copilot_chat_onboarding__session_id__copilot_chat_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CopilotChatRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CopilotChatResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Copilot Chat",
         "tags": [
           "onboarding"
         ]

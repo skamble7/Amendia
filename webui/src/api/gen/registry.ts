@@ -193,6 +193,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/onboarding/copilot/generate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Copilot Generate
+         * @description Given a comprehensive BPMN + a live MCP endpoint, generate a complete, validator-clean DRAFT pack into a
+         *     new onboarding session (deterministic engine + one LLM call + deterministic invariant enforcement + the
+         *     7-stage validator with a bounded repair loop). Returns the populated session — reviewable/activatable in the
+         *     existing wizard — carrying its ``copilot_report`` (plain-language summary + provenance + open questions).
+         */
+        post: operations["copilot_generate_onboarding_copilot_generate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/onboarding/{session_id}": {
         parameters: {
             query?: never;
@@ -225,6 +248,28 @@ export interface paths {
          *     output (e.g. art.dining.order). Registered + listed among the pack artifacts at assemble.
          */
         put: operations["declare_artifact_onboarding__session_id__artifacts_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/onboarding/{session_id}/artifacts/refine": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Refine Artifact
+         * @description ADR-054: refine a human-authored artifact's JSON schema (typed props, labels, enums). The version is
+         *     resolved server-side (bump-on-change) and the referencing bindings are re-pinned, so the activated pack's
+         *     HITL form renders labeled, typed fields — not a raw JSON blob.
+         */
+        put: operations["refine_artifact_onboarding__session_id__artifacts_refine_put"];
         post?: never;
         delete?: never;
         options?: never;
@@ -311,6 +356,28 @@ export interface paths {
         put?: never;
         /** Commit */
         post: operations["commit_onboarding__session_id__commit_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/onboarding/{session_id}/copilot/chat": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Copilot Chat
+         * @description ADR-052 Phase 2b — conversational refine. Interpret one natural-language edit into typed mutations, apply
+         *     them through the same deterministic reconcile/validate path (floors always enforced), re-validate, update the
+         *     copilot_report + conversation log, and reply in plain language with a ChangeDiff. The draft stays activatable.
+         */
+        post: operations["copilot_chat_onboarding__session_id__copilot_chat_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1020,6 +1087,20 @@ export interface components {
              */
             transport: string;
         };
+        /**
+         * ChangeDiff
+         * @description One before→after change on a touched element, so the reply can show exactly what moved.
+         */
+        ChangeDiff: {
+            /** After */
+            after?: unknown | null;
+            /** Before */
+            before?: unknown | null;
+            /** Element Id */
+            element_id: string;
+            /** Field */
+            field: string;
+        };
         /** CommitStep */
         CommitStep: {
             /** Detail */
@@ -1052,6 +1133,163 @@ export interface components {
              * @default 120
              */
             timeout_seconds: number;
+        };
+        /**
+         * ConversationTurn
+         * @description One audit-trail entry on the session's conversation log (the design-sign-off transcript 2c renders).
+         */
+        ConversationTurn: {
+            /** Changes */
+            changes?: string[];
+            /** Message */
+            message: string;
+            /**
+             * Needs Clarification
+             * @default false
+             */
+            needs_clarification: boolean;
+            /** Reply */
+            reply: string;
+        };
+        /**
+         * CopilotChatRequest
+         * @description Body for ``POST /onboarding/{id}/copilot/chat`` — one natural-language edit at a time.
+         */
+        CopilotChatRequest: {
+            /** Message */
+            message: string;
+            /** Model Config Ref */
+            model_config_ref?: string | null;
+        };
+        /**
+         * CopilotChatResponse
+         * @description The chat turn result: a plain-language reply, the concrete diffs, the refreshed report + validation, and
+         *     the full updated session (so the caller/wizard renders the draft without a second fetch).
+         */
+        CopilotChatResponse: {
+            /** Changes */
+            changes?: components["schemas"]["ChangeDiff"][];
+            /**
+             * Needs Clarification
+             * @default false
+             */
+            needs_clarification: boolean;
+            /** Reply */
+            reply: string;
+            report?: components["schemas"]["CopilotReport"] | null;
+            session: components["schemas"]["OnboardingSession"];
+            /** Validation */
+            validation?: {
+                [key: string]: unknown;
+            } | null;
+        };
+        /**
+         * CopilotDecision
+         * @description One provenance entry: what the copilot decided, WHO decided it (the deterministic engine vs the LLM),
+         *     and why. The 2b conversation and 2c review render these so a human can audit every generated choice.
+         */
+        CopilotDecision: {
+            /** Confidence */
+            confidence?: number | null;
+            /** Decided By */
+            decided_by: string;
+            /** Element Id */
+            element_id?: string | null;
+            /** Kind */
+            kind: string;
+            /** Rationale */
+            rationale?: string | null;
+            /** Summary */
+            summary: string;
+        };
+        /**
+         * CopilotGenerateRequest
+         * @description Body for ``POST /onboarding/copilot/generate`` — a comprehensive BPMN + a live MCP endpoint in, a
+         *     populated validator-clean draft session out.
+         */
+        CopilotGenerateRequest: {
+            /** Bpmn File */
+            bpmn_file?: string | null;
+            /** Bpmn Xml */
+            bpmn_xml: string;
+            /** Description */
+            description?: string | null;
+            /** Domain */
+            domain?: string | null;
+            mcp: components["schemas"]["CopilotMcpConfig"];
+            /** Model Config Ref */
+            model_config_ref?: string | null;
+            /** Pack Key */
+            pack_key: string;
+            /** Title */
+            title: string;
+            /** Triage Rules */
+            triage_rules?: components["schemas"]["StagedTriageRule"][];
+            /** Trigger */
+            trigger: {
+                [key: string]: unknown;
+            };
+            /**
+             * Version
+             * @default 1.0.0
+             */
+            version: string;
+        };
+        /** CopilotMcpConfig */
+        CopilotMcpConfig: {
+            /** Endpoint */
+            endpoint: string;
+            /** Headers */
+            headers?: {
+                [key: string]: string;
+            };
+            /**
+             * Transport
+             * @default streamable_http
+             */
+            transport: string;
+        };
+        /**
+         * CopilotOpenQuestion
+         * @description A low-confidence or discretionary decision the 2b conversation should confirm with the operator.
+         */
+        CopilotOpenQuestion: {
+            /** Confidence */
+            confidence?: number | null;
+            /** Element Id */
+            element_id?: string | null;
+            /** Question */
+            question: string;
+            /** Topic */
+            topic: string;
+        };
+        /**
+         * CopilotReport
+         * @description The artifact 2b/2c stand on: a plain-language process summary, per-decision provenance, and the open
+         *     questions. Persisted on the session by a copilot-generated run; additive (never part of the manifest).
+         */
+        CopilotReport: {
+            /** Decisions */
+            decisions?: components["schemas"]["CopilotDecision"][];
+            /**
+             * Llm Used
+             * @default true
+             */
+            llm_used: boolean;
+            /** Model Ref */
+            model_ref?: string | null;
+            /** Open Questions */
+            open_questions?: components["schemas"]["CopilotOpenQuestion"][];
+            /**
+             * Repair Passes
+             * @default 0
+             */
+            repair_passes: number;
+            /**
+             * Summary
+             * @default
+             */
+            summary: string;
         };
         /** CreateSessionRequest */
         CreateSessionRequest: {
@@ -1579,6 +1817,9 @@ export interface components {
             bpmn?: components["schemas"]["BpmnInventory"] | null;
             /** Commit Progress */
             commit_progress?: components["schemas"]["CommitStep"][];
+            /** Conversation */
+            conversation?: components["schemas"]["ConversationTurn"][];
+            copilot_report?: components["schemas"]["CopilotReport"] | null;
             /**
              * Created At
              * Format: date-time
@@ -1811,6 +2052,23 @@ export interface components {
              * @default 1.0.0
              */
             output_version: string;
+            /** Title */
+            title?: string | null;
+        };
+        /**
+         * RefineArtifactRequest
+         * @description ADR-054: refine an existing HUMAN-authored artifact's JSON schema (typed properties, JSON-Schema ``title``
+         *     labels, enums, ``required``) so the runtime HITL form renders labeled/typed fields, not a raw JSON blob. Unlike
+         *     DeclareArtifactRequest the version is resolved SERVER-side (bump-on-change vs the registered body), so the
+         *     caller sends only the key + refined schema (+ optional title); the referencing bindings are re-pinned to it.
+         */
+        RefineArtifactRequest: {
+            /** Artifact Key */
+            artifact_key: string;
+            /** Json Schema */
+            json_schema: {
+                [key: string]: unknown;
+            };
             /** Title */
             title?: string | null;
         };
@@ -2643,6 +2901,39 @@ export interface operations {
             };
         };
     };
+    copilot_generate_onboarding_copilot_generate_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CopilotGenerateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OnboardingSession"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_session_onboarding__session_id__get: {
         parameters: {
             query?: never;
@@ -2715,6 +3006,41 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["DeclareArtifactRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OnboardingSession"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    refine_artifact_onboarding__session_id__artifacts_refine_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RefineArtifactRequest"];
             };
         };
         responses: {
@@ -2892,6 +3218,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["OnboardingSession"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    copilot_chat_onboarding__session_id__copilot_chat_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CopilotChatRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CopilotChatResponse"];
                 };
             };
             /** @description Validation Error */

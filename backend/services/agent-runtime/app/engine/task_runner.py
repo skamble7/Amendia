@@ -436,7 +436,11 @@ def _gate_artifacts(specs: List[IOSpec], data_by_name: Dict[str, Any]) -> List[D
     return [
         {"name": s.name, "schema": s.schema_ref, "data": data_by_name.get(s.name)}
         for s in specs
-        if s.name in data_by_name
+        # Omit an absent optional read-only input: a loop-back/branch source not produced on THIS path resolves to
+        # None (ADR-048) and has no context to render — it must not reach the model as data:None (the HitlTask
+        # payload artifact requires a dict). A REQUIRED absent input already failed earlier as input_unresolved, so
+        # anything None here is optional-and-absent → safe to drop. `is not None` keeps a present empty dict {}.
+        if data_by_name.get(s.name) is not None
     ]
 
 

@@ -107,10 +107,10 @@
       <bpmn:outgoing>Flow_Prepare_Serve</bpmn:outgoing>
     </bpmn:userTask>
 
-    <bpmn:boundaryEvent id="Boundary_SLA" name="30 min SLA" attachedToRef="Task_PrepareReady" cancelActivity="true">
+    <bpmn:boundaryEvent id="Boundary_SLA" name="2 min SLA" attachedToRef="Task_PrepareReady" cancelActivity="true">
       <bpmn:outgoing>Flow_SLA_Recovery</bpmn:outgoing>
       <bpmn:timerEventDefinition>
-        <bpmn:timeDuration xsi:type="bpmn:tFormalExpression">PT30M</bpmn:timeDuration>
+        <bpmn:timeDuration xsi:type="bpmn:tFormalExpression">PT2M</bpmn:timeDuration>
       </bpmn:timerEventDefinition>
     </bpmn:boundaryEvent>
 

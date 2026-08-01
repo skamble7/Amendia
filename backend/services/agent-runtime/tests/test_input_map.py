@@ -61,6 +61,45 @@ def test_mcp_arguments_omit_none_valued_fields():
     assert _mcp_arguments({"in": {"x": 0, "y": False, "z": ""}}) == {"x": 0, "y": False, "z": ""}  # falsy≠None kept
 
 
+def test_optional_composite_field_absent_is_omitted_then_included_on_loop_reentry():
+    # ADR-052 e2e: Assess reads `resolution` from a loop-back producer (ObtainInfo). Per-field optionality means
+    # the FIRST pass (info_resolution absent) resolves the composite with `resolution` omitted — no input_unresolved
+    # — while its guaranteed siblings still resolve. On loop re-entry the produced artifact is included as normal.
+    ctx = _ctx({"assess_input": {"fields": {
+        "exception_id": {"from": "trigger", "path": "exception_id"},
+        "resolution": {"from": "artifact", "name": "info_resolution", "path": "outcome", "optional": True},
+    }}}, ["assess_input"])
+
+    # first pass — info_resolution not produced yet: optional field → None → dropped from the tool arguments
+    first = _gather_inputs(ctx, {"envelope": {"exception_id": "EXC-1"}, "artifacts": {}})
+    assert first["assess_input"] == {"exception_id": "EXC-1", "resolution": None}
+    assert _mcp_arguments(first) == {"exception_id": "EXC-1"}                 # resolution omitted, task runs
+
+    # loop re-entry — info_resolution now present: the field resolves and is included
+    reentry = _gather_inputs(ctx, {"envelope": {"exception_id": "EXC-1"},
+                                   "artifacts": {"info_resolution": {"outcome": "repairable"}}})
+    assert _mcp_arguments(reentry) == {"exception_id": "EXC-1", "resolution": "repairable"}
+
+
+def test_non_optional_absent_artifact_field_still_raises():
+    # The optionality is per-field: a NON-optional field whose source is absent is still a hard data-flow error.
+    ctx = _ctx({"assess_input": {"fields": {
+        "resolution": {"from": "artifact", "name": "info_resolution", "path": "outcome"},
+    }}}, ["assess_input"])
+    with pytest.raises(NodeExecutionError) as ei:
+        _gather_inputs(ctx, {"envelope": {}, "artifacts": {}})
+    assert "info_resolution" in str(ei.value)
+
+
+def test_optional_top_level_artifact_input_absent_resolves_to_none():
+    # A human read-only input from a branch/boundary producer is a TOP-LEVEL optional artifact source (not a
+    # composite field): e.g. Task_ServeOrder reading `recovery`, produced only on the SLA-breach branch. On the
+    # NORMAL path (the branch didn't run) it resolves to None — never "not produced upstream". Present → included.
+    ctx = _ctx({"recovery": {"from": "artifact", "name": "recovery", "optional": True}}, ["recovery"])
+    assert _gather_inputs(ctx, {"envelope": {}, "artifacts": {}})["recovery"] is None
+    assert _gather_inputs(ctx, {"envelope": {}, "artifacts": {"recovery": {"note": "x"}}})["recovery"] == {"note": "x"}
+
+
 def test_field_level_map_resolves_then_spreads_into_tool_arguments():
     # ADR-048 D4: a field-level composite input (dossier←upstream output, exception_id/reason_codes←trigger)
     # resolves to the object the tool expects, then spreads into the MCP tool-call arguments as-is.

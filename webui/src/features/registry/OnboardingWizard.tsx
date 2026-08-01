@@ -17,6 +17,7 @@ import { BpmnViewer, type BpmnMarker } from "./BpmnViewer";
 import { rankCapMatches, tokenize, type MatchTier } from "./capMatch";
 import { ApiError } from "@/api/client";
 import { groupByStage, countBySeverity, SEVERITY_VARIANT } from "@/lib/validation";
+import { PREDICATE_OPS as LEAF_PREDICATE_OPS, opsForType, defaultOpForType } from "@/lib/predicate";
 import { cn } from "@/lib/utils";
 import {
   assembleOnboarding, attachOnboardingBpmn, commitOnboarding, createOnboardingSession,
@@ -414,7 +415,7 @@ const COVERAGE_TIERS: { key: string; label: string; dot: string; hint: string }[
   { key: "unknown", label: "Unknown", dot: "bg-muted-foreground", hint: "unrecognized element" },
 ];
 
-function CoverageCard({ inv, inferred, xml, onContinue }: { inv: OnbBpmnInventory; inferred: InferenceDraft | null; xml: string; onContinue: () => void }) {
+export function CoverageCard({ inv, inferred, xml, onContinue }: { inv: OnbBpmnInventory; inferred: InferenceDraft | null; xml: string; onContinue: () => void }) {
   const counts = inv.coverage_counts ?? {};
   const markers = useMemo(() => coverageMarkers(inv), [inv]);
   const docs = inv.documented_elements ?? [];
@@ -730,8 +731,13 @@ function ReuseSearchDialog({ reused, onToggle }: { reused: string[]; onToggle: (
   );
 }
 
-function CapabilitiesStep({ session, onDone }: { session: OnboardingSession; onDone: (s: OnboardingSession) => void }) {
-  const [endpoint, setEndpoint] = useState("");
+export function CapabilitiesStep({ session, onDone, prefilledEndpoint }: {
+  session: OnboardingSession;
+  onDone: (s: OnboardingSession) => void;
+  prefilledEndpoint?: string;   // ADR-054/copilot: seed the endpoint (already introspected at Generate) so the
+                                // operator isn't asked for the MCP URL a second time; empty in the manual wizard.
+}) {
+  const [endpoint, setEndpoint] = useState(prefilledEndpoint ?? "");
   const [transport, setTransport] = useState("streamable_http");
   const [introspecting, setIntrospecting] = useState(false);
   const [drafts, setDrafts] = useState<ToolDraft[]>([]);
@@ -1220,7 +1226,7 @@ function HumanInputsEditor({ row, artifactChoices, outputs, onChange }: {
   );
 }
 
-function BindingsStep({ session, onDone, onSession }: { session: OnboardingSession; onDone: (s: OnboardingSession) => void; onSession: (s: OnboardingSession) => void }) {
+export function BindingsStep({ session, onDone, onSession, onBack, nextLabel, navigateOnly }: { session: OnboardingSession; onDone: (s: OnboardingSession) => void; onSession: (s: OnboardingSession) => void; onBack?: () => void; nextLabel?: string; navigateOnly?: boolean }) {
   const tasks: OnbBindableElement[] = session.bpmn!.bindable_elements;
   const capOptions = useMemo(
     () => [...session.staged_capabilities.map((c) => `${c.capability_id}@^${c.version}`), ...session.reused_capability_refs],
@@ -1483,6 +1489,11 @@ function BindingsStep({ session, onDone, onSession }: { session: OnboardingSessi
   });
   const [busy, setBusy] = useState(false);
   const [fieldErrs, setFieldErrs] = useState<Record<string, string>>({});
+  // Copilot stepped review: Continue is navigation-only unless the operator actually edited the bindings this
+  // visit (so an unedited generated session isn't regressed below TRIAGE_SET). Any change to `rows` marks it dirty.
+  const [dirty, setDirty] = useState(false);
+  const firstRows = useRef(true);
+  useEffect(() => { if (firstRows.current) { firstRows.current = false; return; } setDirty(true); }, [rows]);
 
   const patch = (id: string, p: Partial<BindingInput>) => setRows((r) => ({ ...r, [id]: { ...r[id]!, ...p } as BindingInput }));
   // Resolve any element's capability from the LIVE rows (bound row, else the pre-select).
@@ -1536,6 +1547,7 @@ function BindingsStep({ session, onDone, onSession }: { session: OnboardingSessi
   };
 
   async function submit() {
+    if (navigateOnly && !dirty) { onDone(session); return; }   // copilot: unedited Continue → advance, no persist
     setBusy(true); setFieldErrs({});
     try {
       // ADR-050: only send fully-authored outputs (both a name and a chosen schema) — a half-filled row would
@@ -1736,25 +1748,14 @@ function BindingsStep({ session, onDone, onSession }: { session: OnboardingSessi
           </Card>
         );
       })}
-      <StepFooter summary={`${tasks.length} element${tasks.length === 1 ? "" : "s"}`} busy={busy} onNext={submit} />
+      <StepFooter summary={`${tasks.length} element${tasks.length === 1 ? "" : "s"}`} busy={busy} onNext={submit} onBack={onBack} nextLabel={nextLabel} />
     </div>
   );
 }
 
 // -- Step 5: triage (predicate tree) ------------------------------------------
-const OPS = ["eq", "ne", "in", "starts_with", "intersects", "exists", "gt", "gte", "lt", "lte"];
-// Batch-4: ops valid per JSON type (mirrors the backend `validate_predicate`), so the Triage step only
-// offers a field's type-compatible operators — no authoring `eq` on an array or `reason_code`-that-doesn't-exist.
-const OPS_BY_TYPE: Record<string, string[]> = {
-  array: ["intersects", "in", "exists"],
-  string: ["eq", "ne", "in", "starts_with", "exists"],
-  number: ["eq", "ne", "in", "gt", "gte", "lt", "lte", "exists"],
-  integer: ["eq", "ne", "in", "gt", "gte", "lt", "lte", "exists"],
-  boolean: ["eq", "ne", "exists"],
-  object: ["exists"],
-};
-const opsForType = (t?: string): string[] => (t && OPS_BY_TYPE[t]) || OPS;      // unknown type → all ops
-const defaultOpForType = (t?: string): string => (t === "array" ? "intersects" : "eq");
+// Op vocabulary + per-type compatibility are shared with the copilot Start builder (see lib/predicate).
+const OPS = [...LEAF_PREDICATE_OPS];
 
 function toPredicate(n: any): Record<string, unknown> {
   if (n.leaf) {
@@ -1862,7 +1863,7 @@ function TriggerDeclareCard({ session, onSession }: { session: OnboardingSession
   );
 }
 
-function TriageStep({ session, onDone, onSession }: { session: OnboardingSession; onDone: (s: OnboardingSession) => void; onSession: (s: OnboardingSession) => void }) {
+export function TriageStep({ session, onDone, onSession }: { session: OnboardingSession; onDone: (s: OnboardingSession) => void; onSession: (s: OnboardingSession) => void }) {
   // ADR-049: the pack's trigger field/type map — flattened from the DECLARED trigger schema when the operator
   // declared one (below), else the deployment sample envelopes. When present, leaves author against the real
   // schema (field picker + type-valid ops) so a non-existent field or an incompatible op can't be hand-authored.
@@ -1977,7 +1978,7 @@ function PredicateEditor({ node, onChange, depth, onRemove, fields, newLeaf }: {
 }
 
 // -- Step 6: policies ----------------------------------------------------------
-function PoliciesStep({ session, onDone }: { session: OnboardingSession; onDone: (s: OnboardingSession) => void }) {
+export function PoliciesStep({ session, onDone, onBack, nextLabel = "Save & review", navigateOnly }: { session: OnboardingSession; onDone: (s: OnboardingSession) => void; onBack?: () => void; nextLabel?: string; navigateOnly?: boolean }) {
   const gateways = session.bpmn!.gateways;
   const tasks = session.bpmn!.bindable_elements.map((e) => e.element_id);   // SoD over the full bindable set
   // ADR-051/052 E3: a gateway branches on a produced binding OUTPUT (its name is the variable's first segment).
@@ -2032,6 +2033,10 @@ function PoliciesStep({ session, onDone }: { session: OnboardingSession; onDone:
   );
   const [roleInput, setRoleInput] = useState("");
   const [busy, setBusy] = useState(false);
+  // Copilot stepped review: Continue is navigation-only unless the operator edited gateways/SoD/roles this visit.
+  const [dirty, setDirty] = useState(false);
+  const firstPolicy = useRef(true);
+  useEffect(() => { if (firstPolicy.current) { firstPolicy.current = false; return; } setDirty(true); }, [gvars, sod, roles, roleMeta]);
 
   function metaFor(id: string) {
     return roleMeta[id] ?? { label: "", description: "" };
@@ -2041,6 +2046,7 @@ function PoliciesStep({ session, onDone }: { session: OnboardingSession; onDone:
   }
 
   async function submit() {
+    if (navigateOnly && !dirty) { onDone(session); return; }   // copilot: unedited Continue → advance, no persist
     setBusy(true);
     try {
       const gateway_variables = gateways
@@ -2092,16 +2098,16 @@ function PoliciesStep({ session, onDone }: { session: OnboardingSession; onDone:
             const rationale = sodRationale[[...elements].sort().join("|")];
             return (
             <div key={i} className="rounded-md border border-border p-3">
-              <div className="mb-2 flex items-center justify-between gap-2">
-                <div className="flex flex-wrap items-center gap-2">
+              <div className="mb-2 flex items-start justify-between gap-2">
+                <div className="flex min-w-0 flex-wrap items-center gap-2">
                   <span className="text-xs uppercase tracking-wide text-muted-foreground">distinct_actor</span>
                   {rationale && (
-                    <Badge variant="agent" className="text-[10px]" title="Inferred from the BPMN lanes — accept or remove">
+                    <Badge variant="agent" className="max-w-full whitespace-normal break-words text-[10px]" title="Inferred from the BPMN lanes — accept or remove">
                       suggested · {rationale}
                     </Badge>
                   )}
                 </div>
-                <Button variant="ghost" size="icon" className="size-7" onClick={() => setSod(sod.filter((_, j) => j !== i))}><Trash2 className="size-3.5" /></Button>
+                <Button variant="ghost" size="icon" className="size-7 shrink-0" onClick={() => setSod(sod.filter((_, j) => j !== i))}><Trash2 className="size-3.5" /></Button>
               </div>
               <div className="flex flex-wrap gap-1.5">
                 {tasks.map((t) => {
@@ -2154,13 +2160,13 @@ function PoliciesStep({ session, onDone }: { session: OnboardingSession; onDone:
         </CardContent>
       </Card>
 
-      <StepFooter summary="gateway variables · SoD · roles" busy={busy} onNext={submit} nextLabel="Save & review" />
+      <StepFooter summary="gateway variables · SoD · roles" busy={busy} onNext={submit} onBack={onBack} nextLabel={nextLabel} />
     </div>
   );
 }
 
 // -- Step 7: review / validate / activate -------------------------------------
-function ReviewStep({ session, onChange, goStep }: { session: OnboardingSession; onChange: (s: OnboardingSession) => void; goStep: (i: number) => void }) {
+export function ReviewStep({ session, onChange, goStep }: { session: OnboardingSession; onChange: (s: OnboardingSession) => void; goStep: (i: number) => void }) {
   const [busy, setBusy] = useState<"assemble" | "commit" | null>(null);
   const report = session.dry_run_report ?? null;
   const errorCount = report ? countBySeverity(report.findings).error : 0;
@@ -2260,7 +2266,7 @@ function CommitProgress({ steps }: { steps: OnboardingSession["commit_progress"]
   );
 }
 
-function ReportView({ report, goStep }: { report: ValidationReport; goStep?: (i: number) => void }) {
+export function ReportView({ report, goStep }: { report: ValidationReport; goStep?: (i: number) => void }) {
   const counts = countBySeverity(report.findings);
   const groups = groupByStage(report.findings);
   const stageToStep: Record<number, number> = { 1: 1, 2: 3, 3: 2, 4: 3, 5: 3, 6: 5, 7: 4 };
@@ -2320,7 +2326,7 @@ function BackLink() {
     </div>
   );
 }
-function Field({ label, hint, error, className, children }: { label: string; hint?: string; error?: string; className?: string; children: React.ReactNode }) {
+export function Field({ label, hint, error, className, children }: { label: string; hint?: string; error?: string; className?: string; children: React.ReactNode }) {
   return (
     <div className={className}>
       <Label className="mb-1.5 flex items-center gap-2">{label}{hint && <span className="text-xs font-normal text-muted-foreground">· {hint}</span>}</Label>
@@ -2329,7 +2335,7 @@ function Field({ label, hint, error, className, children }: { label: string; hin
     </div>
   );
 }
-function ReadRow({ label, value, mono, className }: { label: string; value: string; mono?: boolean; className?: string }) {
+export function ReadRow({ label, value, mono, className }: { label: string; value: string; mono?: boolean; className?: string }) {
   return (
     <div className={className}>
       <p className="text-xs uppercase tracking-wide text-muted-foreground">{label}</p>
@@ -2337,17 +2343,26 @@ function ReadRow({ label, value, mono, className }: { label: string; value: stri
     </div>
   );
 }
-function StepFooter({ summary, busy, disabled, onNext, nextLabel = "Save & continue" }: { summary: string; busy: boolean; disabled?: boolean; onNext: () => void; nextLabel?: string }) {
+export function StepFooter({ summary, busy, disabled, onNext, onBack, nextLabel = "Save & continue" }: { summary: string; busy: boolean; disabled?: boolean; onNext?: () => void; onBack?: () => void; nextLabel?: string }) {
   return (
     <div className="flex items-center justify-between border-t border-border pt-4">
-      <span className="text-sm text-muted-foreground">{summary}</span>
-      <Button disabled={busy || disabled} onClick={onNext}>
-        {busy ? <Loader2 className="mr-1 size-4 animate-spin" /> : null}{nextLabel} <ArrowRight className="ml-1 size-4" />
-      </Button>
+      <div className="flex items-center gap-3">
+        {onBack && (
+          <Button variant="outline" onClick={onBack} disabled={busy}>
+            <ArrowLeft className="mr-1 size-4" /> Back
+          </Button>
+        )}
+        <span className="text-sm text-muted-foreground">{summary}</span>
+      </div>
+      {onNext && (
+        <Button disabled={busy || disabled} onClick={onNext}>
+          {busy ? <Loader2 className="mr-1 size-4 animate-spin" /> : null}{nextLabel} <ArrowRight className="ml-1 size-4" />
+        </Button>
+      )}
     </div>
   );
 }
-function EmptyBox({ title, body }: { title: string; body: string }) {
+export function EmptyBox({ title, body }: { title: string; body: string }) {
   return <Card><CardContent className="py-10 text-center"><p className="text-sm font-medium">{title}</p>{body && <p className="mt-1 text-sm text-muted-foreground">{body}</p>}</CardContent></Card>;
 }
 function SeverityIcon({ severity }: { severity: string }) {

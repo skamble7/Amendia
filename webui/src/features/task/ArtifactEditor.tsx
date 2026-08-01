@@ -70,19 +70,32 @@ export interface ArtifactEditorProps {
   className?: string;
 }
 
-/** One tab per artifact (or the single artifact bare). `renderBody` differs for read-only vs editable. */
-function TabbedArtifacts({ artifacts, renderBody }: {
+/** One tab per artifact (or the single artifact bare). `renderBody` differs for read-only vs editable. When a
+ *  submit is BLOCKED by client validation the parent controls the active tab (value/onValueChange) so the
+ *  offending artifact is focused, and marks its tab via `errorNames` — so a blocked Complete is never silent. */
+function TabbedArtifacts({ artifacts, renderBody, value, onValueChange, errorNames }: {
   artifacts: PayloadArtifact[];
   renderBody: (a: PayloadArtifact) => React.ReactNode;
+  value?: string;
+  onValueChange?: (v: string) => void;
+  errorNames?: Set<string>;
 }) {
   if (artifacts.length === 0) return null;
   if (artifacts.length === 1) return <>{renderBody(artifacts[0]!)}</>;
+  const tabsProps = value !== undefined ? { value, onValueChange } : { defaultValue: artifacts[0]!.name };
   return (
-    <Tabs defaultValue={artifacts[0]!.name}>
+    <Tabs {...tabsProps}>
       <TabsList className="flex-wrap">
-        {artifacts.map((a) => (
-          <TabsTrigger key={a.name} value={a.name}>{humanizeKey(a.name)}</TabsTrigger>
-        ))}
+        {artifacts.map((a) => {
+          const errored = errorNames?.has(a.name) ?? false;
+          return (
+            <TabsTrigger key={a.name} value={a.name} aria-invalid={errored || undefined}
+              className={cn(errored && "text-danger")}>
+              {humanizeKey(a.name)}
+              {errored && <span aria-hidden className="ml-1 inline-block size-1.5 rounded-full bg-danger" />}
+            </TabsTrigger>
+          );
+        })}
       </TabsList>
       {/* Inactive tabs unmount, but react-hook-form (shouldUnregister:false) retains each artifact's values and
           the per-artifact raw text lives in local state — so a single submit spans every artifact, visited or not. */}
@@ -153,6 +166,10 @@ function EditForm({
 
   const [raw, setRaw] = useState<Record<string, string>>({});
   const [rawErr, setRawErr] = useState<Record<string, string>>({});
+  // Part A: a blocked Complete must never be a silent dead click. When client validation fails we record the
+  // reason per artifact, focus that artifact's tab, and mark the tab — the human always sees WHY.
+  const [blockErr, setBlockErr] = useState<Record<string, string>>({});
+  const [active, setActive] = useState<string>(artifacts[0]?.name ?? "");
 
   const assembleStructured = (a: PayloadArtifact): Record<string, unknown> =>
     (parseValues(schemaByName[a.name], getValues(a.name), a.name, a.name, 0) as Record<string, unknown>) ?? {};
@@ -181,8 +198,25 @@ function EditForm({
     });
   }
 
+  /** The visible reason a required output blocks Complete: name the empty output, else the first field problem. */
+  const blockReason = (a: PayloadArtifact, issues: { path: (string | number)[]; message: string }[],
+                       assembled: Record<string, unknown>): string => {
+    const label = humanizeKey(a.name);
+    if (Object.keys(assembled).length === 0) return `${label} is required — fill it before completing.`;
+    const first = issues[0];
+    const field = first?.path?.length ? humanizeKey(String(first.path[first.path.length - 1])) : label;
+    return `${label} — ${field}: ${first?.message ?? "invalid"}. Fix it before completing.`;
+  };
+
+  /** Surface a block on `a`: record the reason, focus its tab, mark it. Never a no-op. */
+  const block = (name: string, message: string) => {
+    setBlockErr({ [name]: message });
+    setActive(name);
+  };
+
   function submit(values: Record<string, unknown>) {
     const edits: Record<string, unknown> = {};
+    setBlockErr({});
     try {
       for (const a of editable) {
         const schema = schemaByName[a.name];
@@ -192,6 +226,7 @@ function EditForm({
             assembled = raw[a.name]!.trim() === "" ? {} : (JSON.parse(raw[a.name]!) as Record<string, unknown>);
           } catch {
             setRawErr((e) => ({ ...e, [a.name]: "Invalid JSON" }));
+            block(a.name, `${humanizeKey(a.name)} has invalid JSON — fix it before completing.`);
             return;
           }
         } else {
@@ -202,6 +237,7 @@ function EditForm({
           for (const issue of zres.error.issues) {
             setError([a.name, ...issue.path].join(".") as never, { message: issue.message });
           }
+          block(a.name, blockReason(a, zres.error.issues, assembled));
           return;
         }
         edits[a.name] = assembled;
@@ -209,6 +245,8 @@ function EditForm({
     } catch (e) {
       if (e instanceof FieldParseError) {
         setError(e.path as never, { message: e.message });
+        const name = String(e.path.split(".")[0] ?? editable[0]?.name ?? "");
+        block(name, `${humanizeKey(name)} — ${e.message}. Fix it before completing.`);
         return;
       }
       throw e;
@@ -223,6 +261,9 @@ function EditForm({
     const isRaw = raw[a.name] !== undefined;
     return (
       <div className="space-y-2">
+        {blockErr[a.name] && (
+          <p role="alert" className="rounded-md bg-danger/10 px-3 py-2 text-xs text-danger">{blockErr[a.name]}</p>
+        )}
         <div className="flex justify-end">
           <Button type="button" variant="ghost" size="sm" className="h-7 gap-1 px-2 text-xs text-muted-foreground" onClick={() => toggleRaw(a)}>
             {isRaw ? <ListTree className="size-3.5" /> : <Braces className="size-3.5" />}
@@ -249,7 +290,13 @@ function EditForm({
             <span className="size-1.5 rounded-full bg-agent" /> Drafted by agent
           </Badge>
         )}
-        <TabbedArtifacts artifacts={artifacts} renderBody={renderBody} />
+        <TabbedArtifacts
+          artifacts={artifacts}
+          renderBody={renderBody}
+          value={active}
+          onValueChange={setActive}
+          errorNames={new Set(Object.keys(blockErr).filter((k) => blockErr[k]))}
+        />
       </form>
     </FormProvider>
   );

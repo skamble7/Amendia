@@ -13,6 +13,7 @@ import { DashboardPage } from "@/features/dashboard/DashboardPage";
 import { RegistryPage } from "@/features/registry/RegistryPage";
 import { PackDetailPage } from "@/features/registry/PackDetailPage";
 import { OnboardingWizard } from "@/features/registry/OnboardingWizard";
+import { CopilotFlow } from "@/features/copilot/CopilotFlow";
 import { UsersListPage } from "@/features/admin/UsersListPage";
 import { UserDetailPage } from "@/features/admin/UserDetailPage";
 import { RequireRole } from "@/app/RequireRole";
@@ -43,8 +44,11 @@ export const router = createBrowserRouter([
       { path: "exceptions", element: <ExceptionsPage /> },
       { path: "exceptions/:exceptionId", element: <ExceptionDetailPage /> },
       { path: "registry", element: <RegistryPage /> },
-      { path: "registry/onboard", element: <OnboardingWizard /> },
-      { path: "registry/onboard/:sessionId", element: <OnboardingWizard /> },
+      // ADR-052 2c: the copilot flow is the default front door; the technical wizard demotes to an inspection view.
+      { path: "registry/onboard", element: <CopilotFlow /> },
+      { path: "registry/onboard/:sessionId", element: <CopilotFlow /> },
+      { path: "registry/onboard/technical", element: <OnboardingWizard /> },
+      { path: "registry/onboard/technical/:sessionId", element: <OnboardingWizard /> },
       { path: "registry/packs/:packKey/:version", element: <PackDetailPage /> },
       {
         path: "admin/users",

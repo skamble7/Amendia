@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://amendia.dev/schemas/artifacts/wirefix_mcp/escalation_decision/1.0.0.json",
+  "title": "Escalation Decision",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["decision"],
+  "properties": {
+    "decision": {
+      "title": "Decision",
+      "description": "The supervisor's ruling on the escalated approval (e.g. an SLA breach).",
+      "type": "string",
+      "enum": ["approve", "reassign", "extend_deadline", "reject"]
+    },
+    "rationale": {
+      "title": "Rationale",
+      "description": "Why the supervisor ruled this way — recorded for audit.",
+      "type": "string"
+    },
+    "notes": {
+      "title": "Notes",
+      "type": "string"
+    }
+  }
+}

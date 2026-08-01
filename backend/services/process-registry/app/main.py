@@ -49,7 +49,10 @@ async def lifespan(app: FastAPI):
     app.state.resolver = ResolveService(app.state.pack_repo, settings.RESOLVE_CACHE_TTL)
     app.state.auth = AuthContext(auth_settings)
 
-    if settings.SEED_ON_STARTUP and settings.SEED_DIR:   # L2: opt-in; no SEED_DIR → boot clean, seed nothing
+    if not settings.SEED_REFERENCE_PACK:
+        # ADR-052: the copilot onboards processes now; skip the reference pack so it doesn't compete on triage.
+        logger.info("Reference pack seed skipped (SEED_REFERENCE_PACK=false).")
+    elif settings.SEED_ON_STARTUP and settings.SEED_DIR:   # L2: opt-in; no SEED_DIR → boot clean, seed nothing
         try:
             from app.seeding.onboard_seed import onboard
             report = await onboard(
