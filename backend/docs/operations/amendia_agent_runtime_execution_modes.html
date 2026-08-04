@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Amendia agent-runtime — execution modes</title>
+<style>
+  :root{
+    --ink:#1c2430; --muted:#5b6673; --line:#e2e6ec; --bg:#f7f9fc; --card:#ffffff;
+    --native:#3b6fd6; --nemo:#2f9e5f; --cross:#d99a2b;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    padding:28px 20px 40px}
+  .wrap{max-width:1120px;margin:0 auto}
+  h1{font-size:22px;margin:0 0 4px}
+  .sub{color:var(--muted);font-size:14px;margin:0 0 18px}
+  .legend{display:flex;flex-wrap:wrap;gap:10px;margin:0 0 18px}
+  .chip{background:var(--card);border:1px solid var(--line);border-radius:10px;
+    padding:8px 12px;font-size:12.5px;line-height:1.35;max-width:340px}
+  .chip b{display:block;font-size:12px;letter-spacing:.02em;text-transform:uppercase;color:var(--muted);margin-bottom:2px}
+  .chip code{background:#eef1f6;border-radius:4px;padding:1px 5px;font-size:11.5px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 8px 6px;overflow-x:auto}
+  .mermaid{font-size:14px}
+  .note{margin-top:14px;font-size:13px;color:var(--muted)}
+  .note b{color:var(--ink)}
+  .swatch{display:inline-block;width:10px;height:10px;border-radius:3px;vertical-align:middle;margin-right:5px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Amendia agent-runtime — execution modes</h1>
+  <p class="sub">One engine, two substrates. The <b>executor factory</b> picks where a capability runs; everything else — the graph, HITL gates, artifacts, timers, audit — is shared.</p>
+
+  <div class="legend">
+    <div class="chip"><b>Where it runs</b><code>AGENTRT_EXECUTION_MODE</code> = <b style="color:var(--native)">native</b> (in-process) · <b style="color:var(--nemo)">nemoclaw</b> (OpenShell sandbox). <em>This diagram's two branches.</em></div>
+    <div class="chip"><b>Whether it's real</b><code>AGENTRT_SIMULATION_MODE</code> = true → stubbed · false → real LLM/MCP calls.</div>
+    <div class="chip"><b>Which model</b><code>AGENTRT_LLM_CONFIG_REF</code> → a ConfigForge profile (provider + model, hot-swappable).</div>
+  </div>
+
+  <div class="card">
+    <pre class="mermaid">
+flowchart TB
+  EV["Exception dispatched<br/>(RabbitMQ)"]
+  PACK["Process pack<br/>BPMN · bindings · triage<br/>pinned artifact schemas · capabilities"]
+  ENG["Process engine<br/>LangGraph graph + Mongo checkpointer"]
+  FAC{"Executor factory<br/>reads EXECUTION_MODE"}
+
+  EV --> ENG
+  PACK -. "loaded, version-pinned" .-> ENG
+  ENG --> FAC
+
+  FAC -->|"native (default)"| INP
+  FAC -->|"nemoclaw"| SND
+  FAC -. "gateway down + NEMOCLAW_REQUIRED=false → degrade" .-> INP
+
+  subgraph NAT["NATIVE  ·  in-process, no sandbox"]
+    direction TB
+    INP["InProcessExecutor"]
+    INP --> NL["llm"]
+    INP --> NM["mcp"]
+    INP --> NS["skill (side-effect)"]
+    INP -. "refused · fail-closed" .-> NDA["deep_agent"]
+    NL --> CF["polyllm + ConfigForge<br/>resolve model profile"]
+    CF --> PROV["LLM provider<br/>Bedrock · OpenAI · Gemini"]
+    NM --> MS1["MCP server<br/>(real HTTP)"]
+  end
+
+  subgraph NEM["NEMOCLAW  ·  OpenShell sandbox"]
+    direction TB
+    SND["SandboxedExecutor"]
+    SND --> CLI{"OpenShell client"}
+    CLI -->|"CAPABILITY_WORKER_ENABLED"| BRK["BrokerOpenShellClient<br/>RabbitMQ request / reply"]
+    CLI -->|"else (dev/CI)"| FK["FakeOpenShellClient<br/>deterministic · same core"]
+    BRK --> WRK["capability-worker<br/>same shared core, jailed in sandbox"]
+    WRK --> WL["llm"]
+    WRK --> WM["mcp"]
+    WRK --> WDA["deep_agent<br/>supported · HITL-gated · memoized"]
+    WL --> PXY["inference.local/v1<br/>managed inference proxy"]
+    WM --> MS2["MCP server<br/>egress-allowlisted"]
+    GW["OpenShell gateway<br/>credential brokering · egress enforce · OTLP"]
+    POL["EgressPolicy<br/>derived from capability contract"]
+    GW -. "injects creds — none held in sandbox" .-> PXY
+    POL -. "provisions at sandbox create" .-> GW
+  end
+
+  INP --> HG
+  WRK --> HG
+  FK --> HG
+
+  subgraph GOVX["EVERY STEP  ·  governed · lineaged · traced"]
+    direction LR
+    HG["HITL gate<br/>approve_actions · four-eyes · role check"]
+    AR["Committed artifact<br/>validated vs pinned schema"]
+    AL["Actor log + checkpoint<br/>(+ OTLP trace in nemoclaw)"]
+    HG --> AR --> AL
+  end
+
+  style NAT fill:#eef4ff,stroke:#3b6fd6,stroke-width:1.2px
+  style NEM fill:#eafaf0,stroke:#2f9e5f,stroke-width:1.2px
+  style GOVX fill:#fff6e6,stroke:#d99a2b,stroke-width:1.2px
+  style FAC fill:#f0eefc,stroke:#6b52c8,stroke-width:1.2px
+    </pre>
+  </div>
+
+  <p class="note">
+    <span class="swatch" style="background:#eef4ff;border:1px solid var(--native)"></span><b>Native</b> is byte-for-byte the pre-NemoClaw executor — capabilities run in the agent-runtime container; no sandbox, egress enforcement, credential isolation, or <code>deep_agent</code>. <b>This is what you run locally today.</b><br/>
+    <span class="swatch" style="background:#eafaf0;border:1px solid var(--nemo)"></span><b>NeMoClaw</b> routes execution to a capability-worker inside an OpenShell sandbox: the gateway brokers credentials (the workload never holds keys), egress is default-deny + a contract-derived allowlist, and everything is OTLP-traced. Dev Level 1 uses the deterministic Fake client; real OpenShell is Level 2.<br/>
+    <span class="swatch" style="background:#fff6e6;border:1px solid var(--cross)"></span><b>Shared, mode-independent:</b> the BPMN engine, HITL approval gates, typed/pinned artifacts + declared dataflow (lineage), the actor log, durable timers, and version-pinned reproducibility apply in <em>both</em> modes.
+  </p>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mermaid/10.9.1/mermaid.min.js"></script>
+<script>
+  mermaid.initialize({
+    startOnLoad:true, theme:'base',
+    flowchart:{ htmlLabels:true, curve:'basis', nodeSpacing:38, rankSpacing:46 },
+    themeVariables:{
+      fontFamily:'-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial,sans-serif',
+      fontSize:'13px', primaryColor:'#ffffff', primaryBorderColor:'#9aa6b4',
+      primaryTextColor:'#1c2430', lineColor:'#8a94a3', tertiaryColor:'#ffffff'
+    }
+  });
+</script>
+</body>
+</html>
