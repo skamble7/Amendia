@@ -78,6 +78,7 @@ class AuditReader:
         # each node's artifact identity, and Links.SpanId are the lineage edges (producer spans).
         sql = (
             "SELECT SpanId AS span_id, "
+            "toUnixTimestamp64Nano(Timestamp) AS start_ns, "
             "SpanAttributes['amendia.element_id'] AS element_id, "
             "SpanAttributes['amendia.artifact_key'] AS artifact_key, "
             "SpanAttributes['amendia.schema_ref'] AS schema_ref, "
@@ -204,6 +205,39 @@ class AuditReader:
                 FROM {audit} FINAL WHERE {scope}
             """))
         return inputs
+
+    # ------------------------------------------------------------------ #
+    # ADR-058 hash-chain sealing support (reads)
+    # ------------------------------------------------------------------ #
+    def _unsealed_quiescent_sync(self, client: Any, quiescent_seconds: int) -> List[str]:
+        # Correlations with at least one UNSEALED row and no write in the last N seconds (quiescent).
+        sql = (
+            f"SELECT correlation_id FROM {self._table} FINAL "
+            "WHERE (seal IS NULL OR seal = '') AND correlation_id != '' "
+            "GROUP BY correlation_id "
+            "HAVING max(ingested_at) < now() - {q:UInt32}"
+        )
+        try:
+            res = client.query(sql, parameters={"q": int(quiescent_seconds)})
+        except Exception as exc:  # noqa: BLE001
+            raise StorageUnavailable(f"sealing scan failed: {exc}") from exc
+        return [str(r[0]) for r in res.result_rows]
+
+    def _sealing_rows_sync(self, client: Any, correlation_id: str) -> List[Dict[str, Any]]:
+        cols = ", ".join(schema.SEALING_COLUMNS)
+        sql = (f"SELECT {cols} FROM {self._table} FINAL "
+               f"WHERE correlation_id = {{cid:String}} ORDER BY occurred_at ASC, event_id ASC")
+        try:
+            res = client.query(sql, parameters={"cid": correlation_id})
+        except Exception as exc:  # noqa: BLE001
+            raise StorageUnavailable(f"sealing read failed: {exc}") from exc
+        return [dict(zip(res.column_names, row)) for row in res.result_rows]
+
+    async def unsealed_quiescent_correlations(self, quiescent_seconds: int) -> List[str]:
+        return await self._pool.run(lambda c: self._unsealed_quiescent_sync(c, quiescent_seconds))
+
+    async def sealing_rows(self, correlation_id: str) -> List[Dict[str, Any]]:
+        return await self._pool.run(lambda c: self._sealing_rows_sync(c, correlation_id))
 
     async def metrics_inputs(self, *, correlation_id=None, since=None, until=None) -> Dict[str, Any]:
         # Resolve trace_id + run all aggregates on ONE borrowed client, SEQUENTIALLY (no concurrent

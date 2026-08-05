@@ -16,7 +16,11 @@ dependencies = [
   "python-dotenv>=1.0",
   "orjson>=3.10",
   "dnspython>=2.6",
-  # OTel bootstrap (ADR-058) — the first amendia_* lib this otherwise-standalone service consumes.
+  # ADR-058 fast-follow: publish ConfigRefResolvedEvent on config-ref resolution.
+  "aio-pika>=9.4",
+  "amendia-common",
+  "amendia-contracts",
+  # OTel bootstrap (ADR-058) — the first amendia_* lib this otherwise-standalone service consumed.
   "amendia-telemetry",
 ]
 
@@ -28,14 +32,16 @@ dev = [
   "anyio>=4.4",
 ]
 
-# Editable path source for the telemetry lib (config-forge is one dir deeper: platform/*).
+# Editable path sources for the amendia_* libs (config-forge is one dir deeper: platform/*).
 [tool.uv.sources]
+amendia-common = { path = "../../../../libs", editable = true }
+amendia-contracts = { path = "../../../../libs/amendia_contracts", editable = true }
 amendia-telemetry = { path = "../../../../libs/amendia_telemetry", editable = true }
 
 [tool.hatch.build.targets.wheel]
 packages = ["app"]
 
 [tool.pytest.ini_options]
-pythonpath = ["app", "../../../../libs/amendia_telemetry"]
+pythonpath = ["app", "../../../../libs", "../../../../libs/amendia_contracts", "../../../../libs/amendia_telemetry"]
 addopts = "-q"
 asyncio_mode = "auto"

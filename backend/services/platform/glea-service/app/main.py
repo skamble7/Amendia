@@ -19,6 +19,7 @@ from amendia_telemetry import configure_telemetry
 from app.clickhouse.client import StorageUnavailable
 from app.clickhouse.provider import ClickHousePool
 from app.clickhouse.reader import AuditReader
+from app.clickhouse.sealer import AuditSealer
 from app.clickhouse.writer import AuditWriter
 from app.config import settings
 from app.events.consumer import AuditConsumer
@@ -27,6 +28,23 @@ from app.logging_conf import configure_logging
 from app.routers import audit, health
 
 logger = logging.getLogger(__name__)
+
+
+async def _sealer_loop(sealer: AuditSealer, stop: asyncio.Event) -> None:
+    """Periodic tamper-evidence sealing pass. Fail-soft: ClickHouse down → retry next tick."""
+    while not stop.is_set():
+        try:
+            await asyncio.wait_for(stop.wait(), timeout=settings.SEALING_INTERVAL_SECONDS)
+        except asyncio.TimeoutError:
+            pass
+        if stop.is_set():
+            break
+        try:
+            await sealer.seal_quiescent(settings.SEALING_QUIESCENT_SECONDS)
+        except StorageUnavailable as exc:
+            logger.debug("sealing pass skipped (clickhouse unavailable): %s", exc)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("sealing pass error: %s", exc)
 
 
 @asynccontextmanager
@@ -42,10 +60,12 @@ async def lifespan(app: FastAPI):
         await writer.insert(row)
 
     consumer = AuditConsumer(settings.RABBITMQ_URL, handle)
+    sealer = AuditSealer(reader, writer)
     app.state.pool = pool
     app.state.writer = writer
     app.state.reader = reader
     app.state.consumer = consumer
+    app.state.sealer = sealer
 
     # Best-effort early schema bootstrap; if ClickHouse is down it self-heals on the first event.
     try:
@@ -54,16 +74,25 @@ async def lifespan(app: FastAPI):
         logger.warning("clickhouse not ready at startup (will connect on first event): %s", exc)
 
     consumer_task = asyncio.create_task(consumer.run())
+    seal_stop = asyncio.Event()
+    seal_task = (
+        asyncio.create_task(_sealer_loop(sealer, seal_stop)) if settings.SEALING_ENABLED else None
+    )
     logger.info("glea-service ready")
     try:
         yield
     finally:
         await consumer.stop()
         consumer_task.cancel()
-        try:
-            await consumer_task
-        except asyncio.CancelledError:
-            pass
+        seal_stop.set()
+        for task in (consumer_task, seal_task):
+            if task is None:
+                continue
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
         pool.close()
 
 

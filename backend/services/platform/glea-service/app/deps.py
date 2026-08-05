@@ -14,3 +14,7 @@ def get_reader(request: Request) -> AuditReader:
 
 def get_consumer(request: Request) -> AuditConsumer:
     return request.app.state.consumer
+
+
+def get_sealer(request: Request):
+    return request.app.state.sealer

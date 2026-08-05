@@ -101,29 +101,61 @@ def build_lineage(trace_id: str, span_rows: List[Dict[str, Any]],
             "schema_ref": s.get("schema_ref", ""),
             "actor_kind": s.get("actor_kind", ""),
             "authored_by_human": authored.get(ak),
+            "_start": int(s.get("start_ns") or 0),  # tie-break for "prefer later"; not emitted
         }
 
-    edges: List[Dict[str, Any]] = []
-    seen = set()
+    # Raw producer→consumer edges (a consumer's span links point at the spans that produced its inputs).
+    raw_edges = []
     for s in span_rows:
         to_sid = s.get("span_id", "")
         if to_sid not in producers:
             continue
         for from_sid in (s.get("link_span_ids") or []):
             if from_sid in producers and from_sid != to_sid:
-                key = (from_sid, to_sid)
-                if key in seen:
-                    continue
-                seen.add(key)
-                edges.append({
-                    "from_span": from_sid, "to_span": to_sid,
-                    "from_artifact_key": producers[from_sid]["artifact_key"],
-                    "to_artifact_key": producers[to_sid]["artifact_key"],
-                })
+                raw_edges.append((from_sid, to_sid))
+
+    # Dedupe duplicate producers of the same (element_id, artifact_key) — the HITL park+resume case
+    # emits two spans for one logical artifact. A producer that is REFERENCED by a downstream edge is
+    # the committing (resume) span; a park span never becomes a link target. So keep the referenced
+    # producers (this preserves the MI fan-in — every iteration is referenced by the join) and drop
+    # the unreferenced duplicates, re-pointing their edges. When none in a group is referenced
+    # (a terminal artifact with no consumer), keep the latest.
+    referenced = {f for f, _ in raw_edges}
+    groups: Dict[tuple, List[str]] = {}
+    for sid, node in producers.items():
+        groups.setdefault((node["element_id"], node["artifact_key"]), []).append(sid)
+    remap: Dict[str, str] = {}
+    dropped: set = set()
+    for sids in groups.values():
+        if len(sids) < 2:
+            continue
+        keep = [s for s in sids if s in referenced] or [max(sids, key=lambda s: producers[s]["_start"])]
+        rep = max(keep, key=lambda s: producers[s]["_start"])  # latest kept = the resume producer
+        for s in sids:
+            if s not in keep:
+                remap[s] = rep
+                dropped.add(s)
+
+    nodes = [{k: v for k, v in producers[s].items() if k != "_start"}
+             for s in producers if s not in dropped]
+
+    edges: List[Dict[str, Any]] = []
+    seen = set()
+    for f0, t0 in raw_edges:
+        f = remap.get(f0, f0)
+        t = remap.get(t0, t0)
+        if f == t or (f, t) in seen:
+            continue
+        seen.add((f, t))
+        edges.append({
+            "from_span": f, "to_span": t,
+            "from_artifact_key": producers[f]["artifact_key"],
+            "to_artifact_key": producers[t]["artifact_key"],
+        })
 
     return {
         "trace_id": trace_id,
-        "nodes": list(producers.values()),
+        "nodes": nodes,
         "edges": edges,
     }
 

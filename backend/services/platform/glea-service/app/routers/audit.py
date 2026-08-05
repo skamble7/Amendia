@@ -12,7 +12,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.clickhouse.client import StorageUnavailable
 from app.clickhouse.reader import AuditReader
-from app.deps import get_reader
+from app.clickhouse.sealer import AuditSealer
+from app.deps import get_reader, get_sealer
 from app.models.audit import (
     AuditEventOut,
     DecisionTrailOut,
@@ -79,6 +80,16 @@ async def lineage(correlation_id: str, reader: AuditReader = Depends(get_reader)
         raise HTTPException(status_code=503, detail="audit store unavailable") from exc
     graph = build_lineage(trace_id, spans, artifacts)
     return LineageOut(correlation_id=correlation_id, **graph)
+
+
+@router.get("/instances/{correlation_id}/seal")
+async def seal_verification(correlation_id: str, sealer: AuditSealer = Depends(get_sealer)):
+    """Recompute the hash-chain for the instance and report intact/broken (ADR-058 tamper-evidence).
+    Returns ``{rows, sealed, intact, broken_event_id}`` — ``intact`` false ⇒ a sealed row was mutated."""
+    try:
+        return await sealer.verify_correlation(correlation_id)
+    except StorageUnavailable as exc:
+        raise HTTPException(status_code=503, detail="audit store unavailable") from exc
 
 
 @router.get("/instances/{correlation_id}/trace", response_model=TraceTreeOut)

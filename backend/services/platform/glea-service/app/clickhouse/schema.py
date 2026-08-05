@@ -40,6 +40,11 @@ INSERT_COLUMNS = [
 # The read columns a per-instance audit query returns (occurred_at order).
 READ_COLUMNS = INSERT_COLUMNS + ["ingested_at"]
 
+# The columns the sealing pass reads/writes: the immutable audit fields + the chain columns. ``ingested_at``
+# is deliberately excluded from INSERT_COLUMNS (server DEFAULT now64) so a re-insert of a sealed row gets a
+# NEWER ingested_at and wins under ReplacingMergeTree(ingested_at).
+SEALING_COLUMNS = INSERT_COLUMNS + ["prev_hash", "seal"]
+
 
 def create_database_ddl(db: str) -> str:
     return f"CREATE DATABASE IF NOT EXISTS {db}"

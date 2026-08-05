@@ -37,3 +37,20 @@ class AuditWriter:
         """Append one audit row on its OWN borrowed client (off the event loop). Raises
         ``StorageUnavailable`` on connect/insert failure so the consumer nacks + requeues."""
         await self._pool.run(lambda client: self._insert(client, row))
+
+    def _reinsert_sealed(self, client: Any, rows: List[Dict[str, Any]]) -> None:
+        # Re-insert the identical immutable rows with prev_hash/seal set. ingested_at is NOT written
+        # (server DEFAULT now64) → the sealed rows are newer → FINAL returns them. glea stays sole
+        # writer; the immutable fields are byte-identical to the originals (else the seal wouldn't verify).
+        cols = schema.SEALING_COLUMNS
+        data = [[r.get(c) for c in cols] for r in rows]
+        try:
+            client.insert(self._table, data, column_names=cols)
+        except Exception as exc:  # noqa: BLE001
+            raise StorageUnavailable(f"seal reinsert failed: {exc}") from exc
+
+    async def reinsert_sealed(self, rows: List[Dict[str, Any]]) -> None:
+        """Persist a computed hash-chain by re-inserting each row with prev_hash/seal set (ADR-058)."""
+        if not rows:
+            return
+        await self._pool.run(lambda client: self._reinsert_sealed(client, rows))

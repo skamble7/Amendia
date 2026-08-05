@@ -93,6 +93,29 @@ def test_lineage_includes_mi_join_fan_in():
     assert len([n for n in g["nodes"] if n["element_id"] == "H__mi_iter"]) == 2
 
 
+def test_lineage_dedupes_hitl_park_resume_duplicate():
+    # A HITL gate emits TWO spans for one artifact (park on interrupt + resume on commit). The resume
+    # is the committing producer a downstream consumer links to; the park is never a link target.
+    spans = [
+        {"span_id": "up", "element_id": "Prev", "artifact_key": "art.a", "link_span_ids": [], "start_ns": 1},
+        {"span_id": "park", "element_id": "Gate", "artifact_key": "art.g",
+         "link_span_ids": ["up"], "start_ns": 2},                       # park: consumed art.a, produced nothing yet
+        {"span_id": "resume", "element_id": "Gate", "artifact_key": "art.g",
+         "link_span_ids": ["up"], "start_ns": 5},                       # resume: committed art.g
+        {"span_id": "cons", "element_id": "Next", "artifact_key": "art.c",
+         "link_span_ids": ["resume"], "start_ns": 9},                   # downstream links to the RESUME
+    ]
+    g = build_lineage("t", spans, artifact_rows=[])
+    # one node per (element_id, artifact_key): Gate collapses park+resume → the resume kept.
+    gate_nodes = [n for n in g["nodes"] if n["element_id"] == "Gate"]
+    assert len(gate_nodes) == 1 and gate_nodes[0]["span_id"] == "resume"
+    node_ids = {n["span_id"] for n in g["nodes"]}
+    assert node_ids == {"up", "resume", "cons"}
+    edges = {(e["from_span"], e["to_span"]) for e in g["edges"]}
+    # the park's incoming edge (up→park) re-points onto resume and dedupes with resume's own (up→resume)
+    assert edges == {("up", "resume"), ("resume", "cons")}
+
+
 def test_trace_tree_computes_depth_and_is_orphan_safe():
     from app.readmodels import build_trace_tree
     spans = [

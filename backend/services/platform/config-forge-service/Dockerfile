@@ -11,9 +11,12 @@ RUN apt-get update \
  && rm -rf /var/lib/apt/lists/* \
  && pip install --no-cache-dir uv
 
-# Shared telemetry lib (path dep, not on an index) — pre-install so the service install finds it satisfied.
+# Shared libs (path deps) — pre-install so the service install finds them satisfied: amendia_common,
+# amendia_contracts (deps on common), amendia_telemetry.
 COPY libs /src/libs
-RUN uv pip install --system /src/libs/amendia_telemetry
+RUN uv pip install --system /src/libs \
+ && uv pip install --system /src/libs/amendia_contracts \
+ && uv pip install --system /src/libs/amendia_telemetry
 
 # Service dependencies + package. `scripts/` is included so the seed can run in-container.
 COPY backend/services/platform/config-forge-service/pyproject.toml /src/backend/services/platform/config-forge-service/pyproject.toml

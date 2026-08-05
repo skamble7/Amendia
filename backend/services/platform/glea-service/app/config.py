@@ -32,6 +32,13 @@ class Settings(BaseSettings):
     # (otel_traces is 72h; audit defaults to ~7 years). TTL is enforced on occurred_at.
     AUDIT_TTL_DAYS: int = 2555
 
+    # --- Hash-chain sealing (ADR-058 tamper-evidence) ---
+    # A background pass seals quiescent correlations (per-correlation append-only hash-chain into the
+    # reserved prev_hash/seal columns). Reads are never blocked; sealing is idempotent.
+    SEALING_ENABLED: bool = True
+    SEALING_INTERVAL_SECONDS: float = 30.0     # how often the sealer wakes
+    SEALING_QUIESCENT_SECONDS: int = 30        # seal only correlations with no write in this window
+
     HOST: str = "0.0.0.0"
     PORT: int = 8090
     LOG_LEVEL: str = "INFO"
