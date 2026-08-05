@@ -25,15 +25,15 @@
       "serviceAccountsEnabled": false,
       "redirectUris": [
         "http://localhost:5173/*",
-        "http://localhost:8085/*"
+        "http://localhost:18085/*"
       ],
       "webOrigins": [
         "http://localhost:5173",
-        "http://localhost:8085"
+        "http://localhost:18085"
       ],
       "attributes": {
         "pkce.code.challenge.method": "S256",
-        "post.logout.redirect.uris": "http://localhost:5173/*##http://localhost:8085/*"
+        "post.logout.redirect.uris": "http://localhost:5173/*##http://localhost:18085/*"
       },
       "protocolMappers": [
         {

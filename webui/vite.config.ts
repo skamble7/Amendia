@@ -6,13 +6,13 @@ import path from "node:path";
 // paths and Vite proxies them to the services, which avoids CORS in dev.
 // In `mock` mode MSW intercepts before any network call, so the proxy is unused.
 const PROXY_TARGETS: Record<string, string> = {
-  "/api/stub": process.env.VITE_STUB_URL ?? "http://localhost:8081",
-  "/api/ingestor": process.env.VITE_INGESTOR_URL ?? "http://localhost:8082",
-  "/api/runtime": process.env.VITE_RUNTIME_URL ?? "http://localhost:8083",
-  "/api/registry": process.env.VITE_REGISTRY_URL ?? "http://localhost:8084",
-  "/api/identity": process.env.VITE_IDENTITY_URL ?? "http://localhost:8086",
-  "/api/notifications": process.env.VITE_NOTIFICATIONS_URL ?? "http://localhost:8088",
-  "/api/glea": process.env.VITE_GLEA_URL ?? "http://localhost:8090",
+  "/api/stub": process.env.VITE_STUB_URL ?? "http://localhost:18081",
+  "/api/ingestor": process.env.VITE_INGESTOR_URL ?? "http://localhost:18082",
+  "/api/runtime": process.env.VITE_RUNTIME_URL ?? "http://localhost:18083",
+  "/api/registry": process.env.VITE_REGISTRY_URL ?? "http://localhost:18084",
+  "/api/identity": process.env.VITE_IDENTITY_URL ?? "http://localhost:18086",
+  "/api/notifications": process.env.VITE_NOTIFICATIONS_URL ?? "http://localhost:18088",
+  "/api/glea": process.env.VITE_GLEA_URL ?? "http://localhost:18090",
 };
 
 export default defineConfig({

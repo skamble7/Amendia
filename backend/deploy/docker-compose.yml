@@ -110,7 +110,7 @@ services:
       context: ../..
       dockerfile: backend/services/platform/identity/Dockerfile
     ports:
-      - "8086:8086"
+      - "18086:8086"
     environment:
       IDENTITY_MONGO_URI: mongodb://mongodb:27017
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318  # ADR-058
@@ -143,7 +143,7 @@ services:
       context: ../..
       dockerfile: backend/services/platform/notification-service/Dockerfile
     ports:
-      - "8088:8088"
+      - "18088:8088"
     environment:
       NOTIFICATION_RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318  # ADR-058
@@ -176,7 +176,7 @@ services:
       context: ../..
       dockerfile: backend/services/platform/config-forge-service/Dockerfile
     ports:
-      - "8040:8040"
+      - "18040:8040"
     environment:
       MONGO_URI: mongodb://mongodb:27017
       MONGO_DB: ConfigForge
@@ -202,7 +202,7 @@ services:
       context: ../..
       dockerfile: backend/services/platform/glea-service/Dockerfile
     ports:
-      - "8090:8090"
+      - "18090:8090"
     environment:
       GLEA_RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
       GLEA_CLICKHOUSE_HOST: clickhouse
@@ -227,7 +227,7 @@ services:
       context: ../..
       dockerfile: stub_exception_generator/Dockerfile
     ports:
-      - "8081:8081"
+      - "18081:8081"
     environment:
       STUBEXC_MONGO_URI: mongodb://mongodb:27017
       STUBEXC_MONGO_DB: amendia
@@ -258,7 +258,7 @@ services:
       context: ../..
       dockerfile: backend/services/ingestor/Dockerfile
     ports:
-      - "8082:8082"
+      - "18082:8082"
     environment:
       INGESTOR_MONGO_URI: mongodb://mongodb:27017
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318  # ADR-058
@@ -296,7 +296,7 @@ services:
       context: ../..
       dockerfile: backend/services/agent-runtime/Dockerfile
     ports:
-      - "8083:8083"
+      - "18083:8083"
     environment:
       AGENTRT_MONGO_URI: mongodb://mongodb:27017
       # ADR-058: service traces → Collector; sandbox OTLP (worker) → same Collector. Unset ⇒ disabled.
@@ -406,7 +406,7 @@ services:
       context: ../..
       dockerfile: backend/services/process-registry/Dockerfile
     ports:
-      - "8084:8084"
+      - "18084:8084"
     environment:
       REGISTRY_MONGO_URI: mongodb://mongodb:27017
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318  # ADR-058
@@ -447,7 +447,7 @@ services:
       context: ../../webui
       dockerfile: Dockerfile
     ports:
-      - "8085:8085"
+      - "18085:8085"
     depends_on:
       stub-exception-generator:
         condition: service_started
