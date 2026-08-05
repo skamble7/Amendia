@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { http, HttpResponse } from "msw";
 import { screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { renderApp } from "@/test/renderApp";
 import { server } from "@/test/server";
 import { SERVICE_BASE } from "@/api/config";
@@ -23,14 +24,13 @@ const stateWithThing = {
   process_instance_id: "PI-TEST-1",
   status: "completed",
   outcome: "End_Test",
-  artifacts: { thing: { verdict: "ok", note: "synthetic" } },
+  artifacts: { thing: { verdict: "ok", note: "synthetic-value" } },
   actor_log: [],
   trace: {},
   last_error: null,
 };
 
-// pack whose Task_Test output maps art.test.thing → the "thing" artifact, so the decision trail can
-// resolve the glea ref to the concrete runtime value.
+// pack whose Task_Test output maps art.test.thing → the "thing" artifact.
 const packWithOutput = {
   ...synthPack,
   bindings: [{ ...synthPack.bindings[0], outputs: [{ name: "thing", schema: "art.test.thing@1.0.0" }] }],
@@ -45,8 +45,11 @@ function stubCore() {
   );
 }
 
-describe("Instance detail — GLEA sections", () => {
-  it("composes the glea read-models into the instance view", async () => {
+const user = userEvent.setup();
+const tab = async (name: RegExp) => user.click(await screen.findByRole("tab", { name }));
+
+describe("Instance detail — tabbed GLEA layout", () => {
+  it("composes the glea read-models across header, KPI strip and tabs", async () => {
     stubCore();
     server.use(
       http.get(`${GLEA}/audit/instances/:cid/decision-trail`, () => HttpResponse.json(synthDecisionTrail())),
@@ -57,48 +60,69 @@ describe("Instance detail — GLEA sections", () => {
     );
     renderApp("/instances/PI-TEST-1", "analyst-1");
 
-    // decision trail: gate + Four-eyes badge + comment
-    expect(await screen.findByText("Decision trail")).toBeInTheDocument();
-    expect(await screen.findByText("Four-eyes")).toBeInTheDocument();
-    expect(await screen.findByText(/synthetic approval note/)).toBeInTheDocument();
+    // header + KPI strip (always visible)
+    expect(await screen.findByText("End_Test")).toBeInTheDocument();
+    expect(await screen.findByText(/Approval latency/)).toBeInTheDocument();
+    expect(await screen.findByText("Duration")).toBeInTheDocument();
 
-    // metrics tiles
-    expect(await screen.findByText(/Approval latency p50/)).toBeInTheDocument();
-
-    // lineage DAG (custom SVG)
-    expect(await screen.findByText("Lineage")).toBeInTheDocument();
-    expect(await screen.findByLabelText("artifact lineage graph")).toBeInTheDocument();
-
-    // trace tree + per-instance audit events
-    expect(await screen.findByText("Trace")).toBeInTheDocument();
-    expect(await screen.findByText("Audit events")).toBeInTheDocument();
-
-    // honest checkpoints line references the real audit rows
+    // Overview (default): activity feed rationale + honest checkpoints line
+    expect((await screen.findAllByText(/synthetic reasoning for the test artifact/)).length).toBeGreaterThan(0);
     expect(await screen.findByText(/2 audit events recorded/)).toBeInTheDocument();
 
-    // actor-log rationale (from the artifact_committed audit row) — both Task_Test entries carry it
-    expect((await screen.findAllByText(/synthetic reasoning for the test artifact/)).length).toBeGreaterThan(0);
+    // Governance tab: decision trail (comment) + audit events
+    await tab(/Governance/);
+    expect(await screen.findByText("Decision trail")).toBeInTheDocument();
+    expect(await screen.findByText(/synthetic approval note/)).toBeInTheDocument();
+    expect(await screen.findByText("Audit events")).toBeInTheDocument();
+
+    // Observability tab: lineage DAG + trace
+    await tab(/Observability/);
+    expect(await screen.findByLabelText("artifact lineage graph")).toBeInTheDocument();
+    expect(await screen.findByText("Trace")).toBeInTheDocument();
   });
 
-  it("renders the core view and degrades gracefully when glea is unreachable", async () => {
+  it("renders the core view and degrades gracefully per tab when glea is unreachable", async () => {
     stubCore();
     for (const p of ["", "/decision-trail", "/lineage", "/metrics", "/trace"]) {
       server.use(http.get(`${GLEA}/audit/instances/:cid${p}`, () => HttpResponse.error()));
     }
     renderApp("/instances/PI-TEST-1", "analyst-1");
 
-    // core agent-runtime view still renders
+    // core view: header outcome + activity feed always render
     expect(await screen.findByText("End_Test")).toBeInTheDocument();
-    expect(await screen.findByText(/Actor log/)).toBeInTheDocument();
+    expect(await screen.findByText("Activity")).toBeInTheDocument();
+    // KPI strip: Duration always renders; the five glea tiles degrade to "unavailable"
+    expect(await screen.findByText("Duration")).toBeInTheDocument();
+    expect((await screen.findAllByText(/unavailable/)).length).toBeGreaterThan(0);
+    // checkpoints falls back to the actor-log transition count (Overview tab)
+    expect(await screen.findByText(/recorded transitions/)).toBeInTheDocument();
 
-    // every GLEA section degrades to an unavailable note — no crash, no blank page
+    // Governance tab: both GLEA sections show an unavailable note
+    await tab(/Governance/);
     expect(await screen.findByText(/Decision trail unavailable/)).toBeInTheDocument();
-    expect(await screen.findByText(/Metrics unavailable/)).toBeInTheDocument();
-    expect(await screen.findByText(/Lineage unavailable/)).toBeInTheDocument();
-    expect(await screen.findByText(/Trace unavailable/)).toBeInTheDocument();
     expect(await screen.findByText(/Audit trail unavailable/)).toBeInTheDocument();
 
-    // checkpoints falls back to the actor-log transition count
-    expect(await screen.findByText(/recorded transitions/)).toBeInTheDocument();
+    // Observability tab: lineage + trace unavailable
+    await tab(/Observability/);
+    expect(await screen.findByText(/Lineage unavailable/)).toBeInTheDocument();
+    expect(await screen.findByText(/Trace unavailable/)).toBeInTheDocument();
+  });
+
+  it("shows artifacts as an accordion collapsed by default; expanding reveals the value", async () => {
+    stubCore(); // glea uses the default empty handlers from server.ts
+    renderApp("/instances/PI-TEST-1", "analyst-1");
+
+    await tab(/Artifacts/);
+    // the row header (artifact name) is visible; the value is NOT (collapsed by default)
+    const toggle = await screen.findByRole("button", { name: /thing/ });
+    expect(toggle).toBeInTheDocument();
+    expect(screen.queryByText(/synthetic-value/)).not.toBeInTheDocument();
+
+    // expand the row → the ArtifactView value renders
+    await user.click(toggle);
+    expect(await screen.findByText(/synthetic-value/)).toBeInTheDocument();
+
+    // Expand all / Collapse all toggle exists and collapses again
+    await user.click(await screen.findByRole("button", { name: /Collapse all|Expand all/ }));
   });
 });

@@ -13,6 +13,9 @@ class Settings(BaseSettings):
     # Named + durable so events queue while glea is down and are consumed on restart (no loss).
     AUDIT_QUEUE: str = "glea.audit_events"
     PREFETCH: int = 16
+    # Brief pause before nack+requeue on a ClickHouse-unavailable insert, so a persistent CH outage
+    # throttles the requeue loop instead of hot-looping. No-loss is preserved (still requeued).
+    REQUEUE_BACKOFF_SECONDS: float = 2.0
 
     # --- ClickHouse (audit system-of-record; glea is the SOLE writer of audit_events) ---
     CLICKHOUSE_HOST: str = "clickhouse"
@@ -21,6 +24,10 @@ class Settings(BaseSettings):
     CLICKHOUSE_USER: str = "default"
     CLICKHOUSE_PASSWORD: str = ""
     CLICKHOUSE_TABLE: str = "audit_events"
+    # Max idle clients kept in the connection pool. Each concurrent operation borrows its OWN client
+    # (clickhouse-connect clients are not safe to share across threads / concurrent queries), so a
+    # backlog-drain burst reuses up to this many connections instead of churning them.
+    CLICKHOUSE_POOL_SIZE: int = 8
     # Append-only audit horizon — long, configurable, and INDEPENDENT of the operational-trace TTL
     # (otel_traces is 72h; audit defaults to ~7 years). TTL is enforced on occurred_at.
     AUDIT_TTL_DAYS: int = 2555

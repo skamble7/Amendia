@@ -5,18 +5,17 @@ foundation; the decision-trail + lineage read-models are Phase C).
 Reads use ``FINAL`` so a redelivered/duplicated ``event_id`` shows exactly once."""
 from __future__ import annotations
 
-import asyncio
 from typing import Any, Dict, List
 
 from app.clickhouse import schema
 from app.clickhouse.client import StorageUnavailable
-from app.clickhouse.provider import ClickHouseProvider
+from app.clickhouse.provider import ClickHousePool
 from app.config import settings
 
 
 class AuditReader:
-    def __init__(self, provider: ClickHouseProvider) -> None:
-        self._provider = provider
+    def __init__(self, pool: ClickHousePool) -> None:
+        self._pool = pool
         self._table = f"{settings.CLICKHOUSE_DB}.{settings.CLICKHOUSE_TABLE}"
         self._cols = schema.READ_COLUMNS
 
@@ -32,8 +31,7 @@ class AuditReader:
         return [dict(zip(names, row)) for row in res.result_rows]
 
     async def instance_events(self, correlation_id: str) -> List[Dict[str, Any]]:
-        client = await self._provider.ensure()
-        return await asyncio.to_thread(self._query_sync, client, correlation_id)
+        return await self._pool.run(lambda c: self._query_sync(c, correlation_id))
 
     # ------------------------------------------------------------------ #
     # ADR-058 Phase C read-models (pure ClickHouse reads)
@@ -51,18 +49,16 @@ class AuditReader:
         return [dict(zip(res.column_names, row)) for row in res.result_rows]
 
     async def decided_rows(self, correlation_id: str) -> List[Dict[str, Any]]:
-        client = await self._provider.ensure()
         cols = ["element_id", "decided_by", "role", "decision", "sod_satisfied", "occurred_at",
                 "payload", "event_id"]
-        return await asyncio.to_thread(self._rows_of_kind_sync, client, correlation_id,
-                                       "hitl_task_decided", cols)
+        return await self._pool.run(
+            lambda c: self._rows_of_kind_sync(c, correlation_id, "hitl_task_decided", cols))
 
     async def artifact_rows(self, correlation_id: str) -> List[Dict[str, Any]]:
-        client = await self._provider.ensure()
         cols = ["element_id", "artifact_key", "schema_ref", "actor", "actor_kind",
                 "authored_by_human", "occurred_at", "event_id"]
-        return await asyncio.to_thread(self._rows_of_kind_sync, client, correlation_id,
-                                       "artifact_committed", cols)
+        return await self._pool.run(
+            lambda c: self._rows_of_kind_sync(c, correlation_id, "artifact_committed", cols))
 
     def _trace_id_sync(self, client: Any, correlation_id: str) -> str:
         sql = (f"SELECT trace_id FROM {self._table} FINAL "
@@ -110,16 +106,13 @@ class AuditReader:
         return [dict(zip(res.column_names, row)) for row in res.result_rows]
 
     async def trace_tree(self, trace_id: str) -> List[Dict[str, Any]]:
-        client = await self._provider.ensure()
-        return await asyncio.to_thread(self._trace_tree_sync, client, trace_id)
+        return await self._pool.run(lambda c: self._trace_tree_sync(c, trace_id))
 
     async def trace_id_for(self, correlation_id: str) -> str:
-        client = await self._provider.ensure()
-        return await asyncio.to_thread(self._trace_id_sync, client, correlation_id)
+        return await self._pool.run(lambda c: self._trace_id_sync(c, correlation_id))
 
     async def trace_spans(self, trace_id: str) -> List[Dict[str, Any]]:
-        client = await self._provider.ensure()
-        return await asyncio.to_thread(self._trace_spans_sync, client, trace_id)
+        return await self._pool.run(lambda c: self._trace_spans_sync(c, trace_id))
 
     # ------------------------------------------------------------------ #
     # ADR-058 Phase D aggregate tiles — everything aggregates IN ClickHouse.
@@ -209,10 +202,10 @@ class AuditReader:
         return inputs
 
     async def metrics_inputs(self, *, correlation_id=None, since=None, until=None) -> Dict[str, Any]:
-        client = await self._provider.ensure()
-        trace_id = None
-        if correlation_id is not None:
-            trace_id = await asyncio.to_thread(self._trace_id_sync, client, correlation_id)
-        return await asyncio.to_thread(
-            self._metrics_sync, client,
-            correlation_id=correlation_id, since=since, until=until, trace_id=trace_id)
+        # Resolve trace_id + run all aggregates on ONE borrowed client, SEQUENTIALLY (no concurrent
+        # queries on it) — a single request never shares its client across threads.
+        def op(client: Any) -> Dict[str, Any]:
+            trace_id = self._trace_id_sync(client, correlation_id) if correlation_id is not None else None
+            return self._metrics_sync(client, correlation_id=correlation_id, since=since, until=until,
+                                      trace_id=trace_id)
+        return await self._pool.run(op)

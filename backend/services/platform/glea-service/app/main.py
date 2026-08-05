@@ -17,7 +17,7 @@ from fastapi import FastAPI
 from amendia_telemetry import configure_telemetry
 
 from app.clickhouse.client import StorageUnavailable
-from app.clickhouse.provider import ClickHouseProvider
+from app.clickhouse.provider import ClickHousePool
 from app.clickhouse.reader import AuditReader
 from app.clickhouse.writer import AuditWriter
 from app.config import settings
@@ -31,9 +31,9 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    provider = ClickHouseProvider()
-    writer = AuditWriter(provider)
-    reader = AuditReader(provider)
+    pool = ClickHousePool()
+    writer = AuditWriter(pool)
+    reader = AuditReader(pool)
 
     async def handle(routing_key: str, payload: dict) -> None:
         # to_row → UnmappableEvent (poison, dropped by the consumer); insert → StorageUnavailable
@@ -42,14 +42,14 @@ async def lifespan(app: FastAPI):
         await writer.insert(row)
 
     consumer = AuditConsumer(settings.RABBITMQ_URL, handle)
-    app.state.provider = provider
+    app.state.pool = pool
     app.state.writer = writer
     app.state.reader = reader
     app.state.consumer = consumer
 
     # Best-effort early schema bootstrap; if ClickHouse is down it self-heals on the first event.
     try:
-        await provider.ensure()
+        await asyncio.to_thread(pool.warm)
     except StorageUnavailable as exc:
         logger.warning("clickhouse not ready at startup (will connect on first event): %s", exc)
 
@@ -64,7 +64,7 @@ async def lifespan(app: FastAPI):
             await consumer_task
         except asyncio.CancelledError:
             pass
-        provider.close()
+        pool.close()
 
 
 def create_app() -> FastAPI:

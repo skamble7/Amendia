@@ -123,8 +123,15 @@ class AuditConsumer:
         try:
             await self._handler(message.routing_key or "", payload)
         except StorageUnavailable as exc:
-            # The ONE case we keep the message: audit must lose nothing when ClickHouse is down.
+            # The ONE case we keep the message: audit must lose nothing when ClickHouse is down. Pause
+            # briefly first so a persistent outage throttles the requeue loop rather than hot-looping.
             logger.warning("ClickHouse unavailable — requeueing (rk=%s): %s", message.routing_key, exc)
+            backoff = getattr(settings, "REQUEUE_BACKOFF_SECONDS", 0.0)
+            if backoff > 0:
+                try:
+                    await asyncio.sleep(backoff)
+                except asyncio.CancelledError:  # shutting down — let the redelivery happen on restart
+                    pass
             await message.nack(requeue=True)
             return
         except UnmappableEvent as exc:

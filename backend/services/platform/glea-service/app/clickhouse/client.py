@@ -22,7 +22,14 @@ class StorageUnavailable(Exception):
 
 
 def connect() -> Any:
-    """Open a ClickHouse client. Raises ``StorageUnavailable`` when the server can't be reached."""
+    """Open a ClickHouse client. Raises ``StorageUnavailable`` when the server can't be reached.
+
+    ``autogenerate_session_id=False`` makes the client **sessionless** — clickhouse-connect's HTTP
+    session forbids concurrent queries within one session ("Attempt to execute concurrent queries
+    within the same session"), and glea runs the consumer's inserts and the read API concurrently.
+    Sessionless removes the session, but a single ``Client`` object is still not safe to share across
+    threads — the connection POOL is the real fix: each concurrent operation borrows its OWN client
+    (see provider.py). One client is thus never used by two threads at once."""
     import clickhouse_connect
 
     try:
@@ -35,6 +42,7 @@ def connect() -> Any:
             # the target DB need not exist at connect time (bootstrap creates it).
             connect_timeout=10,
             send_receive_timeout=30,
+            autogenerate_session_id=False,   # sessionless: no shared session_id to collide on
         )
     except Exception as exc:  # noqa: BLE001
         raise StorageUnavailable(f"clickhouse connect failed: {exc}") from exc

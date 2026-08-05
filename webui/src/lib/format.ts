@@ -40,6 +40,24 @@ export function formatCountdown(dueAt: string | null | undefined): { text: strin
   return { text: overdue ? `${parts} overdue` : `${parts} left`, overdue };
 }
 
+/** Short wall-clock duration between two ISO timestamps (e.g. "3m 26s", "142ms", "1h 4m"). ``endIso``
+ * absent → now (a running instance). Returns "—" on missing/invalid input. */
+export function formatDurationShort(startIso: string | null | undefined, endIso?: string | null): string {
+  if (!startIso) return "—";
+  const start = new Date(startIso).getTime();
+  const end = endIso ? new Date(endIso).getTime() : Date.now();
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) return "—";
+  const ms = end - start;
+  if (ms < 1000) return `${ms}ms`;
+  const secs = Math.round(ms / 1000);
+  if (secs < 60) return `${secs}s`;
+  const m = Math.floor(secs / 60);
+  const s = secs % 60;
+  if (m < 60) return `${m}m ${s}s`;
+  const h = Math.floor(m / 60);
+  return `${h}h ${m % 60}m`;
+}
+
 /** Shorten a long id (UETR, exception id) for dense display, keeping head+tail. */
 export function shortId(id: string | null | undefined, head = 8, tail = 4): string {
   if (!id) return "—";
