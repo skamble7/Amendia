@@ -15,6 +15,7 @@ from typing import Any, Dict, List, Optional
 
 from jsonschema import Draft202012Validator
 
+from amendia_contracts.dispatch import Trace
 from amendia_contracts.hitl_task import Decision, HitlTaskDecidedEvent, TaskStatus
 
 from app.engine.engine import ProcessEngine
@@ -121,7 +122,7 @@ class HitlDecisionService:
 
         token = exception_id_ctx.set(task.exception_id)
         try:
-            await self._publish_decided(task, decision_enum, actor_id)
+            await self._publish_decided(task, decision_enum, actor_id, comment)
             payload = {
                 "decision": decision_enum.value, "decided_by": actor_id,
                 "edits": edits, "approved_action_ids": approved_action_ids, "comment": comment,
@@ -166,13 +167,25 @@ class HitlDecisionService:
                 return f"{spec.schema_ref} at '{loc or '<root>'}': {e.message}"
         return None
 
-    async def _publish_decided(self, task, decision_enum: Decision, user_id: str) -> None:
+    async def _publish_decided(self, task, decision_enum: Decision, user_id: str,
+                               comment: Optional[str] = None) -> None:
         if self._publisher is None:
             return
+        # ADR-058 Phase B: this decision passed the SoD gate (_check_sod would have raised). Record the
+        # four-eyes outcome: True when a separation-of-duties constraint was in force and honored; None
+        # when no SoD constraint applied. Stamp correlation_id + trace_id for the audit↔trace join.
+        sod_satisfied = True if (task.sod and task.sod.excluded_users) else None
         event = HitlTaskDecidedEvent(
             event_id=uuid.uuid4().hex, occurred_at=datetime.now(timezone.utc),
             task_id=task.task_id, exception_id=task.exception_id,
             process_instance_id=task.process_instance_id, element_id=task.element_id,
             role=task.role, decision=decision_enum, decided_by=user_id,
+            sod_satisfied=sod_satisfied, comment=comment,
+            trace=Trace(correlation_id=task.exception_id,
+                        trace_id=getattr(task, "trace_id", None)),
         )
-        await self._publisher.publish(event.to_doc(), event.routing_key(), event.event_id)
+        # Fail-soft: a broker hiccup must never fail a governed decision (mirrors engine._publish).
+        try:
+            await self._publisher.publish(event.to_doc(), event.routing_key(), event.event_id)
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("failed to publish HitlTaskDecidedEvent for %s: %s", task.task_id, exc)

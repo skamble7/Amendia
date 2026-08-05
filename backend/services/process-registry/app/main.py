@@ -9,6 +9,7 @@ import uvicorn
 from fastapi import Depends, FastAPI
 
 from amendia_auth import AuthContext, principal_or_internal
+from amendia_telemetry import configure_telemetry
 
 from app.config import auth_settings, settings
 from app.dal.artifact_schema_repo import ArtifactSchemaRepository
@@ -64,16 +65,28 @@ async def lifespan(app: FastAPI):
         except Exception as exc:  # noqa: BLE001 - never block startup on a seed hiccup
             logger.error("Onboarding seed failed: %s", exc)
 
+    # ADR-058 Phase B: outbound governed events (pack lifecycle). Connect fail-soft — a broker down
+    # must not block startup; lifecycle ops just skip the audit publish until it's up.
+    from app.events.publisher import RabbitPublisher
+    publisher = RabbitPublisher(settings.RABBITMQ_URL)
+    try:
+        await publisher.connect()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("registry publisher not connected (governance events disabled until broker up): %s", exc)
+    app.state.publisher = publisher
+
     logger.info("process-registry ready")
     try:
         yield
     finally:
+        await publisher.close()
         await mongo.close()
 
 
 def create_app() -> FastAPI:
     configure_logging(settings.LOG_LEVEL)
     app = FastAPI(title="Amendia — Process Registry", version="0.1.0", lifespan=lifespan)
+    configure_telemetry("process-registry", app=app)  # ADR-058
     app.add_middleware(RequestIDMiddleware)
     if settings.ENABLE_DEV_CORS:
         from fastapi.middleware.cors import CORSMiddleware

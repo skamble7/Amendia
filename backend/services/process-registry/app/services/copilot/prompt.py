@@ -40,6 +40,10 @@ Decide, for the diagram, all of:
   actually consumes as authoritative and unions your baseline on top; where nothing consumes the artifact, your
   baseline is the operator's starting point (so the form is never blank). A required human output MUST be consumed
   by a downstream step — never leave it orphaned.
+  For any baseline field you type as ``object`` (or an ``array`` of objects), ALWAYS spell out its nested
+  ``properties`` — never a bare ``{type: object}``. When the consuming tool declares that field as an opaque
+  object, the engine adopts your nested shape, so it is what turns a raw-JSON review box into a real field-by-field
+  form. Give a nested object the same clean ``title``s / ``enum``s you'd give a top-level field.
 - approval pattern (agent DRAFTS an artifact → human APPROVES it → a side-effect APPLIES it): the side-effect and
   every downstream step must consume the human-APPROVED output, NEVER the pre-approval draft — otherwise the
   approval doesn't gate execution. Map the apply/downstream input from the human's output, not the draft.
@@ -87,7 +91,10 @@ Return JSON of this shape:
       "outputs": [{"name": "<human output name>", "human_authored": true,
                    "fields": [{"name": "<form field>", "type": "string|number|boolean|object|array",
                                "title": "<label>", "required": false, "description": "<optional>",
-                               "enum": ["<optional closed choices>"]}]}],
+                               "enum": ["<optional closed choices>"],
+                               "items": "<element type if array>",
+                               "properties": [{"name": "<nested field>", "type": "string|...",
+                                               "title": "<label>"}]}]}],
       "input_map": [{"field": "<tool input field — MUST be a declared property of this tool's input schema>",
                      "from": "artifact|trigger",
                      "name": "<upstream output name if artifact>",

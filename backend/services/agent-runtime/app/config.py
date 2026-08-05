@@ -48,6 +48,11 @@ class Settings(BaseSettings):
     # ``native`` (default) is byte-for-byte today's in-process executor. ``nemoclaw`` routes
     # ``llm``/``mcp`` capability execution through NemoClaw's OpenShell sandbox (Phase 1).
     EXECUTION_MODE: Literal["native", "nemoclaw"] = "native"
+    # ADR-058 Phase B: enforce the derived egress allowlist on the NATIVE (in-process) capability path
+    # (nemoclaw is already enforced at sandbox-creation time). On → a capability dialing a host outside
+    # its derived allowlist is BLOCKED with a clear error; either way the decision is recorded
+    # (amendia.egress.decision span attr + an EgressDecisionEvent on deny). Default on.
+    NATIVE_EGRESS_ENFORCE: bool = True
     # Which BPMN conformance level the runtime executes (ADR-034 / Phase 2.8). Two spec levels:
     # "common_executable" (DEFAULT) runs the full built construct set — parallel, timers, error
     # boundary, messages, sub-process, and every task kind; "common_subset" runs only the Phase-0/1

@@ -112,6 +112,15 @@ export function deprecatePack(packKey: string, version: string): Promise<Process
   return request<ProcessPackManifest>("registry", `/packs/${packKey}/${version}/deprecate`, { method: "POST" });
 }
 
+// ADR-056: edit an activated pack's config → a clone-edit onboarding session at a bumped version (BPMN unchanged).
+export function editPack(packKey: string, bump: "minor" | "major" = "minor"): Promise<OnboardingSession> {
+  return request<OnboardingSession>("registry", `/onboarding/from-pack/${packKey}`, { method: "POST", body: { bump }, silent: true });
+}
+// ADR-056: make a prior (non-draft) version live again, deprecating the currently-active one.
+export function rollbackPack(packKey: string, toVersion: string): Promise<ProcessPackManifest> {
+  return request<ProcessPackManifest>("registry", `/packs/${packKey}/rollback`, { method: "POST", body: { to_version: toVersion } });
+}
+
 // ---------------- Capabilities ----------------
 
 export interface CapabilityFilters {

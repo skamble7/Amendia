@@ -1,9 +1,10 @@
 # app/routers/config_routes.py
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from app.db.mongodb import get_db
+from app.events.publisher import emit_config_ref_resolved
 from app.dal.config_dal import (
     create_entry,
     get_entry_by_id,
@@ -37,9 +38,14 @@ async def list_configs(
 
 
 @router.get("/resolve/{ref:path}", response_model=ConfigEntry)
-async def resolve_config(ref: str, db=Depends(get_db)):
+async def resolve_config(ref: str, request: Request, db=Depends(get_db)):
     """Primary polyllm lookup endpoint — resolves a canonical ref to the full config entry."""
     entry = await get_entry_by_ref(db, ref)
+    # ADR-058 fast-follow: audit the resolution (which ref, resolved-or-not) — never the resolved VALUE.
+    # Fail-soft: emit before raising the 404 so a miss is audited too.
+    await emit_config_ref_resolved(
+        getattr(request.app.state, "publisher", None), ref=ref, resolved=bool(entry),
+    )
     if not entry:
         raise HTTPException(status_code=404, detail=f"Config not found: {ref}")
     return entry

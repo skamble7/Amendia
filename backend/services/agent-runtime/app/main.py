@@ -15,6 +15,7 @@ import uvicorn
 from fastapi import Depends, FastAPI
 
 from amendia_auth import AuthContext, current_principal
+from amendia_telemetry import configure_telemetry
 
 from app.clients.registry_client import ExceptionStoreClient, RegistryClient
 from app.config import auth_settings, settings
@@ -187,6 +188,9 @@ async def lifespan(app: FastAPI):
 def create_app() -> FastAPI:
     configure_logging(settings.LOG_LEVEL)
     app = FastAPI(title="Amendia — Agent Runtime", version="0.1.0", lifespan=lifespan)
+    # ADR-058: OTel bootstrap (traces → Collector when OTEL_EXPORTER_OTLP_ENDPOINT is set, else a
+    # no-op) + FastAPI HTTP auto-instrumentation. Domain-neutral; disabled cleanly when unset.
+    configure_telemetry("agent-runtime", app=app)
     app.add_middleware(RequestIDMiddleware)
     if settings.ENABLE_DEV_CORS:
         from fastapi.middleware.cors import CORSMiddleware

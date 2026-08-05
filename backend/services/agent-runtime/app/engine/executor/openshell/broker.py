@@ -61,6 +61,7 @@ def spec_to_job(spec: CapabilityRunSpec) -> Dict[str, Any]:
         "memo_attempt": spec.memo_attempt,
         "simulation": spec.simulation,
         "egress_policy": spec.egress_policy,
+        "otel_traceparent": spec.otel_traceparent,   # ADR-058: parent the sandbox span to the node span
         "descriptor": descriptor_dump,
     }
 

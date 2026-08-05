@@ -16,6 +16,7 @@ import uvicorn
 from fastapi import Depends, FastAPI
 
 from amendia_auth import AuthContext, current_principal
+from amendia_telemetry import configure_telemetry
 
 from app.clients.registry_client import RegistryClient
 from app.clients.stub_client import StubClient
@@ -99,6 +100,7 @@ async def lifespan(app: FastAPI):
 def create_app() -> FastAPI:
     configure_logging(settings.LOG_LEVEL)
     app = FastAPI(title="Amendia — Ingestor", version="0.1.0", lifespan=lifespan)
+    configure_telemetry("ingestor", app=app)  # ADR-058
     app.add_middleware(RequestIDMiddleware)
     if settings.ENABLE_DEV_CORS:
         from fastapi.middleware.cors import CORSMiddleware

@@ -551,7 +551,14 @@ class Reconciler:
                             derived[k] = self._merge_field(derived.get(k), v)
 
             baseline, baseline_required = self._baseline_props(authored[name])
-            props = {**baseline, **derived}                      # union; derived (tool-grounded) wins on conflict
+            # ADR-057: field-level union — the tool-derived TYPE stays authoritative (a scalar the tool consumes is
+            # never upgraded to an object by a baseline guess), but where the tool typed a field as an UNDER-SPECIFIED
+            # object/array/enum (an opaque `{type:object}`, a bare-item array, a string with no enum) we adopt the
+            # LLM baseline's nested `properties`/`items`/`enum` so the HITL form renders real sub-fields, not a raw
+            # editor. A baseline-only field is carried through as-is.
+            props: Dict[str, Any] = dict(baseline)
+            for k, dv in derived.items():
+                props[k] = self._fill_opaque(dv, baseline[k]) if k in baseline else dv
             required = set(derived) | {f for f in baseline_required if f not in derived}
             key = f"art.{self.domain}.{name}"
             seeded = sorted(f for f in baseline if f not in derived)   # fields that came only from the LLM baseline
@@ -610,6 +617,34 @@ class Reconciler:
                        if isinstance(s, dict) and s.get(k) is not None)
 
         return inc if richness(inc) > richness(existing) else existing
+
+    @staticmethod
+    def _fill_opaque(derived: Any, baseline: Any) -> Dict[str, Any]:
+        """ADR-057: keep the tool-DERIVED field's declared type authoritative, but when the tool left it under-
+        specified, borrow the LLM BASELINE's nested shape. Only fills gaps, never overrides the tool's type:
+        - an object with no/empty ``properties`` adopts the baseline's ``properties`` (when the baseline is an object)
+        - an array with no/opaque ``items`` adopts the baseline's ``items``
+        - a string with no ``enum`` adopts the baseline's ``enum``
+        A tool field the baseline can't concretise (e.g. tool says scalar, baseline says object) is returned as-is."""
+        if not isinstance(derived, dict):
+            return copy.deepcopy(baseline) if isinstance(baseline, dict) else {}
+        out = copy.deepcopy(derived)
+        if not isinstance(baseline, dict):
+            return out
+        t = out.get("type")
+        if t == "object" and not (isinstance(out.get("properties"), dict) and out["properties"]):
+            bp = baseline.get("properties")
+            if isinstance(bp, dict) and bp:
+                out["properties"] = copy.deepcopy(bp)
+                if isinstance(baseline.get("required"), list) and "required" not in out:
+                    out["required"] = list(baseline["required"])
+        if t == "array" and not (isinstance(out.get("items"), dict) and out["items"]):
+            bi = baseline.get("items")
+            if isinstance(bi, dict) and bi:
+                out["items"] = copy.deepcopy(bi)
+        if t in ("string", None) and "enum" not in out and isinstance(baseline.get("enum"), list):
+            out["enum"] = list(baseline["enum"])
+        return out
 
     @staticmethod
     def _closed_object(props: Dict[str, Any], required: Optional[set] = None) -> Dict[str, Any]:

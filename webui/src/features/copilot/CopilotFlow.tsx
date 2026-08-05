@@ -2,7 +2,7 @@
 // Review+Chat. The uploaded BPMN is stashed per-session so the diagram survives a refresh (no backend fetch for
 // an onboarding session's raw XML yet — an async+poll/BPMN-GET seam would go here if generation latency grows).
 import { useEffect, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { Skeleton } from "@/components/ui/skeleton";
 import { PageHeader } from "@/app/AppShell";
@@ -33,6 +33,10 @@ function CopilotReviewScreen({ sessionId }: { sessionId: string }) {
   const query = useQuery({ queryKey: ["onboarding", sessionId], queryFn: () => getOnboardingSession(sessionId) });
   const [session, setSession] = useState<OnboardingSession | null>(null);
   useEffect(() => { if (query.data) setSession(query.data); }, [query.data]);
+  // ADR-056: an Edit action lands here with ?mode=edit — the session was cloned from an active pack at a bumped
+  // version. Same stepped review, only the framing (header + final action) reads "edit → publish version" instead.
+  const [params] = useSearchParams();
+  const editMode = params.get("mode") === "edit";
 
   if (query.isError) {
     return <PageHeader title="Process not found" description="This onboarding session could not be loaded." />;
@@ -50,9 +54,15 @@ function CopilotReviewScreen({ sessionId }: { sessionId: string }) {
 
   return (
     <div>
-      <PageHeader title="Review your process" description="The copilot pre-filled every step — review it, refine by chatting or in the detail, then approve to go live." />
+      {editMode ? (
+        <PageHeader
+          title={`Editing ${session.basics.pack_key} → new version ${session.basics.version}`}
+          description="The current config is pre-filled — change what you need, then publish the new version. The diagram is unchanged; the prior version stays live for running work until you publish." />
+      ) : (
+        <PageHeader title="Review your process" description="The copilot pre-filled every step — review it, refine by chatting or in the detail, then approve to go live." />
+      )}
       {/* keyed by session_id so a fresh generate remounts the stepper at step 0 with the new draft */}
-      <CopilotSteppedReview key={session.session_id} session={session} xml={xml} />
+      <CopilotSteppedReview key={session.session_id} session={session} xml={xml} editMode={editMode} />
     </div>
   );
 }

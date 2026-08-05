@@ -30,6 +30,8 @@ dependencies = [
   "amendia-contracts",
   "amendia-bpmn",
   "amendia-auth",
+  # OTel bootstrap + instance-trace helpers (ADR-058).
+  "amendia-telemetry",
   # Provider-agnostic real LLM path (config-driven via ConfigForge). Pulls the
   # LangChain provider backends (openai / google-genai / aws) + the remote loader.
   "polyllm[langchain,remote]",
@@ -50,13 +52,14 @@ amendia-common = { path = "../../../libs", editable = true }
 amendia-contracts = { path = "../../../libs/amendia_contracts", editable = true }
 amendia-bpmn = { path = "../../../libs/amendia_bpmn", editable = true }
 amendia-auth = { path = "../../../libs/amendia_auth", editable = true }
+amendia-telemetry = { path = "../../../libs/amendia_telemetry", editable = true }
 polyllm = { path = "../../../libs/polyllm", editable = true }
 
 [tool.hatch.build.targets.wheel]
 packages = ["app"]
 
 [tool.pytest.ini_options]
-pythonpath = ["app", "../../../libs", "../../../libs/amendia_contracts", "../../../libs/amendia_bpmn", "../../../libs/amendia_auth"]
+pythonpath = ["app", "../../../libs", "../../../libs/amendia_contracts", "../../../libs/amendia_bpmn", "../../../libs/amendia_auth", "../../../libs/amendia_telemetry"]
 asyncio_mode = "auto"
 addopts = "-q"
 markers = [

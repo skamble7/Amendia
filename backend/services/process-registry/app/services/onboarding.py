@@ -66,10 +66,14 @@ from app.models.onboarding import (
     RefineArtifactRequest,
     DeclareTriggerRequest,
     SetTriageRequest,
+    RoleMeta,
     StagedArtifact,
     StagedBinding,
     StagedBindingIO,
     StagedCapability,
+    StagedGatewayVariable,
+    StagedSod,
+    StagedTriageRule,
     state_rank,
 )
 from app.services.activation import resolve_pins
@@ -122,6 +126,35 @@ def humanize_role(role_id: str) -> str:
     Title Cased (``role.payments.ops_analyst`` → ``Ops Analyst``)."""
     tail = role_id.rsplit(".", 1)[-1]
     return tail.replace("_", " ").title() or role_id
+
+
+# -- ADR-056 reverse-hydration helpers (manifest → session) -- #
+def _enum(v: Any) -> Any:
+    """The plain value of a possibly-enum field (``kind``/``side_effect``/``compatibility``…)."""
+    return getattr(v, "value", v)
+
+
+def _ref_parts(ref: str) -> Tuple[str, str]:
+    """Split a versioned ref (``art.x@^1.2.3`` / ``cap.x@1.2.3``) → (id, exact version). Range operators stripped;
+    an id with no ``@`` defaults to 1.0.0."""
+    core = (ref or "").split("@", 1)
+    key = core[0]
+    ver = core[1].lstrip("^~>=< ") if len(core) == 2 and core[1] else "1.0.0"
+    return key, (ver or "1.0.0")
+
+
+def _domain_from_pack(raw: Dict[str, Any]) -> str:
+    """Derive the pack's default domain from a ``cap.<domain>.<tool>`` (else ``art.<domain>.<name>``) ref."""
+    for rc in raw.get("requires_capabilities", []):
+        ref = rc.get("resolved") or rc.get("ref") or ""
+        parts = _ref_parts(ref)[0].split(".")
+        if len(parts) >= 3 and parts[0] == "cap":
+            return parts[1]
+    for a in raw.get("artifacts", []):
+        parts = _ref_parts(a)[0].split(".")
+        if len(parts) >= 3 and parts[0] == "art":
+            return parts[1]
+    return _san(raw.get("pack_key", ""))
 
 
 class TransitionError(Exception):
@@ -277,6 +310,195 @@ class OnboardingService:
             trigger_fields=infer_field_types(self._samples),
         )
         return await self.sessions.insert(session)
+
+    # ------------------------------------------------------------------ #
+    # ADR-056: edit an activated pack's CONFIG by cloning it into a new version — hydrate an OnboardingSession
+    # from the stored pack (the inverse of _compose), bump the version, and hand it to the stepped review.
+    # ------------------------------------------------------------------ #
+    async def create_edit_session(self, pack_key: str, *, bump: str = "minor", owner: str) -> OnboardingSession:
+        """Open an edit session over the current active (else highest) version of ``pack_key`` at a bumped version."""
+        versions = await self.packs.list_versions(pack_key)
+        if not versions:
+            raise TransitionError(404, {"error": "pack_not_found",
+                                        "message": f"no pack '{pack_key}' to edit"})
+        active = [m for m in versions if m.status.value == "active"]
+        base = active[0] if active else max(versions, key=lambda m: Version(m.version))
+        new_version = self._next_pack_version([m.version for m in versions], bump)
+        return await self.hydrate_from_pack(pack_key, base.version, new_version, owner=owner)
+
+    @staticmethod
+    def _next_pack_version(versions: List[str], bump: str) -> str:
+        highest = max(Version(v) for v in versions)
+        nv = f"{highest.major + 1}.0.0" if bump == "major" else f"{highest.major}.{highest.minor + 1}.0"
+        if nv in {str(Version(v)) for v in versions}:                # defensive — bumping the highest can't collide
+            raise TransitionError(409, {"error": "version_collision", "message": f"version {nv} already exists"})
+        return nv
+
+    async def hydrate_from_pack(self, pack_key: str, source_version: str, new_version: str,
+                                *, owner: str) -> OnboardingSession:
+        """Build an ASSEMBLED OnboardingSession from a STORED, activated pack — the inverse of ``_compose``. Reads
+        the pack + its sidecars (never the original onboarding session), rebuilds staged caps/schemas from the
+        registry (no MCP re-introspect), re-parses the SAME BPMN + re-runs inference, then reuses ``assemble`` to
+        re-validate. The new pack carries the SAME BPMN (content + sha) forward to ``new_version`` at commit."""
+        raw = await self.packs.get_raw(pack_key, source_version)
+        if raw is None:
+            raise TransitionError(404, {"error": "pack_not_found",
+                                        "message": f"{pack_key}@{source_version} not found"})
+        if await self.packs.get(pack_key, new_version) is not None:
+            raise TransitionError(409, {"error": "version_collision",
+                                        "message": f"{pack_key}@{new_version} already exists"})
+        bpmn_xml = await self.bpmn.get_xml(pack_key, source_version)
+        if not bpmn_xml or not bpmn_xml.strip():
+            raise TransitionError(422, {"error": "bpmn_missing",
+                                        "message": f"{pack_key}@{source_version} has no stored BPMN"})
+
+        session_id = "onb-" + uuid.uuid4().hex[:12]
+        domain = _domain_from_pack(raw)
+
+        # capabilities + their I/O schemas ← requires_capabilities (rebuilt from the registered descriptors)
+        staged_caps: List[StagedCapability] = []
+        staged_arts: Dict[str, StagedArtifact] = {}
+        reused_refs: List[str] = []
+        for rc in raw.get("requires_capabilities", []):
+            resolved = rc.get("resolved") or rc.get("ref") or ""
+            cap_id, cap_ver = _ref_parts(resolved)
+            desc = await self.caps.get(cap_id, cap_ver)
+            if desc is None:
+                if rc.get("ref"):
+                    reused_refs.append(rc["ref"])                    # can't rebuild → carry as a reused ref
+                continue
+            sc = self._staged_capability_from_descriptor(desc)
+            staged_caps.append(sc)
+            for key in (sc.input_artifact_key, sc.output_artifact_key):
+                if key and key not in staged_arts:
+                    art = await self._staged_artifact_from_key(key)
+                    if art is not None:
+                        staged_arts[key] = art
+
+        # human-authored artifacts ← the schema_refs on human bindings' outputs (so the refiner can edit them)
+        authored: Dict[str, StagedArtifact] = {}
+        for b in raw.get("bindings", []):
+            if (b.get("executor") or {}).get("type") == "human":
+                for io in b.get("outputs", []):
+                    key, _v = _ref_parts(io.get("schema", ""))
+                    if key and key not in authored and key not in staged_arts:
+                        art = await self._staged_artifact_from_key(key)
+                        if art is not None:
+                            authored[key] = art
+
+        trigger_artifact = None
+        if raw.get("trigger"):
+            trigger_artifact = await self._staged_artifact_from_key(_ref_parts(raw["trigger"])[0])
+
+        bindings = [self._staged_binding_from_manifest(b) for b in raw.get("bindings", [])]
+        triage = [StagedTriageRule(rule_id=r["rule_id"], priority=r.get("priority", 100),
+                                   description=r.get("description"), when=r.get("when", {}))
+                  for r in raw.get("triage_rules", [])]
+        gvars = [StagedGatewayVariable(gateway_id=g["gateway_id"], variable=g["variable"],
+                                       source_artifact=g["source_artifact"])
+                 for g in (raw.get("gateway_variables") or [])]
+        sod = [StagedSod(elements=s.get("elements", []))
+               for s in ((raw.get("policies") or {}).get("separation_of_duties") or [])]
+        role_docs = await self.packs.get_pack_roles(pack_key, source_version)
+        roles = [d["role_id"] for d in role_docs]
+        role_meta = {d["role_id"]: RoleMeta(label=d.get("label"), description=d.get("description")) for d in role_docs}
+        if not roles:                                                # sidecar absent → derive from the bindings
+            roles = sorted({r for b in bindings for r in (b.role, b.hitl_role) if r})
+
+        # BPMN inventory + inference re-derived from the SAME xml (read-only Understanding/Gateways views)
+        process_id, inv_errors, inventory = self._parse_and_check_bpmn(bpmn_xml)
+        if inv_errors:
+            raise TransitionError(422, {"error": "bpmn_invalid", "findings": inv_errors})
+        sem = extract_semantics(bpmn_xml, process_id)
+        sha = ((raw.get("process") or {}).get("bpmn_sha256")) or compute_sha256(bpmn_xml)
+        bpmn = BpmnInventory(
+            process_id=process_id, bpmn_file=(raw.get("process") or {}).get("bpmn_file") or f"{pack_key}.bpmn",
+            sha256=sha, bindable_elements=inventory["bindable_elements"],
+            service_tasks=inventory["service_tasks"], user_tasks=inventory["user_tasks"],
+            gateways=inventory["gateways"], task_names=inventory["task_names"],
+            subprocesses=inventory.get("subprocesses", []),
+            documented_elements=inventory.get("documented_elements", []),
+            coverage_counts=inventory.get("coverage_counts", {}),
+            required_execution_profile=inventory.get("required_execution_profile", "common_subset"),
+            **build_semantic_summary(sem))
+
+        session = OnboardingSession(
+            session_id=session_id, created_by=owner, state=OnboardingState.POLICIES_SET,
+            basics=Basics(pack_key=pack_key, version=new_version, title=raw.get("title") or pack_key,
+                          description=raw.get("description"), default_domain=domain),
+            trigger_fields=infer_field_types(self._samples), trigger_artifact=trigger_artifact,
+            authored_artifacts=list(authored.values()), bpmn=bpmn,
+            staged_artifacts=list(staged_arts.values()), staged_capabilities=staged_caps,
+            reused_capability_refs=reused_refs, bindings=bindings, triage_rules=triage,
+            gateway_variables=gvars, sod_policies=sod, roles=roles, role_meta=role_meta,
+            inferred=infer_draft(sem, domain))
+        # stage the (unchanged) BPMN under this session's key so commit re-uploads it to the new version
+        await self.bpmn.upsert(self._staging_pk(session), new_version, xml=bpmn_xml, sha256=sha)
+        await self.sessions.insert(session)
+        # reuse assemble to re-validate + advance to ASSEMBLED (so the Review step shows a fresh dry-run)
+        return await self.assemble(session_id, owner=owner)
+
+    def _staged_binding_from_manifest(self, b: Dict[str, Any]) -> StagedBinding:
+        ex = b.get("executor") or {}
+        sb = StagedBinding(element_id=b["element_id"], element_kind=b["element_kind"], executor_type=ex.get("type", ""))
+        if ex.get("type") == "capability":
+            sb.capability_ref = ex.get("capability")
+        elif ex.get("type") == "human":
+            sb.role = ex.get("role")
+            sb.assist_capability_ref = ex.get("assist_capability")
+        elif ex.get("type") == "message":
+            sb.message_name = ex.get("message_name")
+        elif ex.get("type") == "call":
+            sb.call_pack = ex.get("pack")
+            sb.call_version = ex.get("version")
+            sb.input_map = dict(ex.get("input_map") or {})
+            sb.output_map = dict(ex.get("output_map") or {})
+        hitl = b.get("hitl") or {}
+        sb.hitl_mode = hitl.get("mode", "none")
+        sb.hitl_role = hitl.get("role")
+        sb.inputs = [StagedBindingIO(name=io["name"], schema_ref=io["schema"], required=io.get("required", True))
+                     for io in b.get("inputs", [])]
+        sb.outputs = [StagedBindingIO(name=io["name"], schema_ref=io["schema"], required=io.get("required", True))
+                      for io in b.get("outputs", [])]
+        sb.input_sources = dict(b.get("input_map") or {})           # ADR-048 per-input sources (not the call maps)
+        return sb
+
+    def _staged_capability_from_descriptor(self, desc: Any) -> StagedCapability:
+        in_io = desc.inputs[0] if desc.inputs else None
+        out_io = desc.outputs[0] if desc.outputs else None
+        kind = _enum(desc.kind)
+        sc = StagedCapability(
+            capability_id=desc.capability_id, version=desc.version, title=desc.title, description=desc.description,
+            kind=kind, side_effect=_enum(desc.side_effect), idempotent=desc.idempotent,
+            min_hitl_mode=(_enum(desc.constraints.min_hitl_mode)
+                           if desc.constraints and desc.constraints.min_hitl_mode else None),
+            input_name=(in_io.name if in_io else "in"),
+            input_artifact_key=(_ref_parts(str(in_io.schema_))[0] if in_io else ""),
+            output_name=(out_io.name if out_io else "out"),
+            output_artifact_key=(_ref_parts(str(out_io.schema_))[0] if out_io else ""))
+        rt = desc.runtime
+        if kind == "mcp":
+            sc.endpoint = getattr(rt, "endpoint", None)
+            tools = getattr(rt, "tools", None) or []
+            sc.tool = tools[0] if tools else None
+            sc.transport = getattr(rt, "transport", None) or "streamable_http"
+            sc.headers = dict(getattr(rt, "headers", None) or {})
+        elif kind == "decision":
+            sc.table = getattr(rt, "table", None)
+        elif kind == "reduce":
+            sc.config = getattr(rt, "config", None)
+        return sc
+
+    async def _staged_artifact_from_key(self, key: str) -> Optional[StagedArtifact]:
+        if not key:
+            return None
+        regs = await self.schemas.list_by_key(key)
+        if not regs:
+            return None
+        reg = max(regs, key=lambda r: Version(r.version))           # the highest registered version at this key
+        return StagedArtifact(artifact_key=key, version=reg.version, title=reg.title,
+                              description=reg.description, json_schema=reg.json_schema,
+                              compatibility=_enum(getattr(reg, "compatibility", "backward")))
 
     # ------------------------------------------------------------------ #
     # 2) attach_bpmn — BPMN_ATTACHED
@@ -934,6 +1156,12 @@ class OnboardingService:
             for rid in s.roles
         ]
         await self.packs.save_pack_roles(pk, ver, role_docs)
+        # ADR-056: publishing a version auto-deprecates every OTHER currently-active version of the same pack_key —
+        # so the resolver routes NEW events to this version, while instances pinned to a prior version keep running
+        # its immutable stored bundle. A no-op for a first onboard (this is the only active version of its key).
+        for other in await self.packs.list_versions(pk):
+            if other.version != ver and other.status.value == "active":
+                await self.packs.set_status(pk, other.version, "deprecated")
         _mark("activate", "done")
 
         s.state = OnboardingState.COMPLETED

@@ -183,6 +183,48 @@ def test_baseline_does_not_override_a_tool_derived_field_on_a_name_collision():
     assert "amount" in schema["required"]
 
 
+def test_opaque_tool_object_adopts_baseline_nested_properties():
+    # ADR-057: the consuming tool types the human's field as an OPAQUE object (no properties). The tool type stays
+    # authoritative (still `object`) but the LLM baseline's nested `properties` fill the gap — so the HITL form
+    # renders real sub-fields instead of a raw JSON editor.
+    apply_tool = _tool("apply", {"payload": {"type": "object"}})    # opaque — a raw editor without a baseline
+    proposal = CopilotProposal(elements=[
+        ElementProposal(element_id="Author", executor=ExecutorProposal(type="human", role="role.payment.ops_approver"),
+                        outputs=[OutputProposal(name="approved_repair", human_authored=True, fields=[
+                            OutputFieldProposal(name="repair", type="object", title="Repair", properties=[
+                                OutputFieldProposal(name="field", type="string", title="Field"),
+                                OutputFieldProposal(name="proposed_value", type="string", title="Proposed value")])])]),
+        ElementProposal(element_id="Apply", executor=ExecutorProposal(type="capability", capability_tool="apply"),
+                        input_map=[InputMapProposal(field="payload", **{"from": "artifact"}, name="approved_repair",
+                                                    path="repair")]),
+    ])
+    _title, schema = _reconciler(proposal, [apply_tool])._derive_human_artifacts({})["art.payment.approved_repair"]
+
+    repair = schema["properties"]["repair"]
+    assert repair["type"] == "object"                              # tool type kept
+    assert set(repair["properties"]) == {"field", "proposed_value"}   # baseline nested shape adopted
+    assert repair["properties"]["field"]["title"] == "Field"
+
+
+def test_scalar_tool_field_is_not_upgraded_to_baseline_object():
+    # The mirror guard: when the tool types the field as a SCALAR, a baseline object guess must NOT override it — the
+    # tool contract wins on type, the human just can't turn a string into an object.
+    apply_tool = _tool("apply", {"code": {"type": "string"}})
+    proposal = CopilotProposal(elements=[
+        ElementProposal(element_id="Author", executor=ExecutorProposal(type="human", role="role.payment.ops_approver"),
+                        outputs=[OutputProposal(name="approved_repair", human_authored=True, fields=[
+                            OutputFieldProposal(name="code", type="object", title="Code", properties=[
+                                OutputFieldProposal(name="nested", type="string")])])]),
+        ElementProposal(element_id="Apply", executor=ExecutorProposal(type="capability", capability_tool="apply"),
+                        input_map=[InputMapProposal(field="code", **{"from": "artifact"}, name="approved_repair",
+                                                    path="code")]),
+    ])
+    _title, schema = _reconciler(proposal, [apply_tool])._derive_human_artifacts({})["art.payment.approved_repair"]
+
+    assert schema["properties"]["code"]["type"] == "string"        # scalar kept — baseline object ignored
+    assert "properties" not in schema["properties"]["code"]
+
+
 # --------------------------------------------------------------------------- #
 # Part 1 — an orphaned required human output is a wiring error → rewire onto the flow
 # --------------------------------------------------------------------------- #

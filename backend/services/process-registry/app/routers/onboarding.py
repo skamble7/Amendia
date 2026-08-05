@@ -14,13 +14,14 @@ from fastapi import APIRouter, Depends, HTTPException
 from amendia_auth import require_roles
 from amendia_auth.models import AuthenticatedUser
 
-from app.deps import get_onboarding_service
+from app.deps import get_onboarding_service, get_resolver
 from app.models.onboarding import (
     AttachBpmnRequest,
     CopilotChatRequest,
     CopilotChatResponse,
     CopilotGenerateRequest,
     CreateSessionRequest,
+    EditPackRequest,
     DeclareArtifactRequest,
     RefineArtifactRequest,
     DeclareTriggerRequest,
@@ -127,6 +128,20 @@ async def create_session(
 ):
     try:
         return await svc.create(req, owner=owner)
+    except TransitionError as exc:
+        _raise(exc)
+
+
+@router.post("/from-pack/{pack_key}", response_model=OnboardingSession, status_code=201)
+async def edit_pack(
+    pack_key: str, req: EditPackRequest,
+    owner: str = Depends(_owner_id),
+    svc: OnboardingService = Depends(get_onboarding_service),
+):
+    """ADR-056: open an EDIT session over an activated pack — hydrate its config into a bumped-version onboarding
+    session, editable through the stepped review; committing publishes the new version (auto-deprecating the prior)."""
+    try:
+        return await svc.create_edit_session(pack_key, bump=req.bump, owner=owner)
     except TransitionError as exc:
         _raise(exc)
 
@@ -286,8 +301,13 @@ async def commit(
     session_id: str,
     owner: str = Depends(_owner_id),
     svc: OnboardingService = Depends(get_onboarding_service),
+    resolver=Depends(get_resolver),
 ):
     try:
-        return await svc.commit(session_id, owner=owner)
+        session = await svc.commit(session_id, owner=owner)
     except TransitionError as exc:
         _raise(exc)
+    # ADR-056: commit may have activated a new version + auto-deprecated a prior one — drop the resolver's
+    # active-pack cache so NEW events route to the just-published version immediately.
+    resolver.invalidate()
+    return session

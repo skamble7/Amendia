@@ -242,7 +242,9 @@ def test_ac01_runs_to_resolved_through_broker_worker():
     cap_entries = [e for e in result["actor_log"] if e["kind"] == "capability" and "exec_meta" in e]
     traced = {e["element_id"]: e["exec_meta"]["otlp_trace_id"] for e in cap_entries}
     assert "Task_DraftRepair" in traced and "Task_SanctionsRescreen" in traced
-    assert all(t.startswith("otlp-worker-") for t in traced.values())
+    # ADR-058: the worker now emits a REAL OTLP span parented to the node span's traceparent, so the
+    # ids are 32-char hex trace ids (unified into the instance trace) — not the old `otlp-worker-` marker.
+    assert all(len(t) == 32 and int(t, 16) != 0 for t in traced.values())
 
 
 def test_native_vs_broker_worker_invariance():

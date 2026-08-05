@@ -2210,6 +2210,18 @@
         "title": "DocumentedElement",
         "type": "object"
       },
+      "EditPackRequest": {
+        "description": "ADR-056: open an edit session over an activated pack's config at a bumped version (BPMN unchanged).",
+        "properties": {
+          "bump": {
+            "default": "minor",
+            "title": "Bump",
+            "type": "string"
+          }
+        },
+        "title": "EditPackRequest",
+        "type": "object"
+      },
       "EventSummary": {
         "properties": {
           "attached_to": {
@@ -4082,6 +4094,20 @@
         "title": "RoleMeta",
         "type": "object"
       },
+      "RollbackPackRequest": {
+        "description": "ADR-056: make a prior (non-draft) version live again, deprecating the currently-active one.",
+        "properties": {
+          "to_version": {
+            "title": "To Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "to_version"
+        ],
+        "title": "RollbackPackRequest",
+        "type": "object"
+      },
       "SchemaIO": {
         "additionalProperties": false,
         "description": "A named input/output bound to a versioned artifact schema.",
@@ -4765,6 +4791,13 @@
               "type": "string"
             },
             "title": "Reasons",
+            "type": "array"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Warnings",
             "type": "array"
           }
         },
@@ -5749,6 +5782,64 @@
         ]
       }
     },
+    "/onboarding/from-pack/{pack_key}": {
+      "post": {
+        "description": "ADR-056: open an EDIT session over an activated pack \u2014 hydrate its config into a bumped-version onboarding\nsession, editable through the stepped review; committing publishes the new version (auto-deprecating the prior).",
+        "operationId": "edit_pack_onboarding_from_pack__pack_key__post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pack_key",
+            "required": true,
+            "schema": {
+              "title": "Pack Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EditPackRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OnboardingSession"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Edit Pack",
+        "tags": [
+          "onboarding"
+        ]
+      }
+    },
     "/onboarding/{session_id}": {
       "delete": {
         "operationId": "delete_session_onboarding__session_id__delete",
@@ -6616,6 +6707,64 @@
           }
         ],
         "summary": "List Pack Versions",
+        "tags": [
+          "packs"
+        ]
+      }
+    },
+    "/packs/{pack_key}/rollback": {
+      "post": {
+        "description": "ADR-056: make a prior (non-draft) version live again. Because the resolver prefers the highest ACTIVE\nversion, the currently-active one MUST be deprecated for the rollback to take effect \u2014 so this deprecates it\nand activates ``to_version``. The target keeps its stored capability resolution (valid when first published).",
+        "operationId": "rollback_pack_packs__pack_key__rollback_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pack_key",
+            "required": true,
+            "schema": {
+              "title": "Pack Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RollbackPackRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProcessPackManifest-Output"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Rollback Pack",
         "tags": [
           "packs"
         ]

@@ -571,6 +571,18 @@ class DeclareArtifactRequest(BaseModel):
     json_schema: Dict[str, Any]
 
 
+class EditPackRequest(BaseModel):
+    """ADR-056: open an edit session over an activated pack's config at a bumped version (BPMN unchanged)."""
+
+    bump: str = "minor"                          # minor | major
+
+
+class RollbackPackRequest(BaseModel):
+    """ADR-056: make a prior (non-draft) version live again, deprecating the currently-active one."""
+
+    to_version: str
+
+
 class RefineArtifactRequest(BaseModel):
     """ADR-054: refine an existing HUMAN-authored artifact's JSON schema (typed properties, JSON-Schema ``title``
     labels, enums, ``required``) so the runtime HITL form renders labeled/typed fields, not a raw JSON blob. Unlike
@@ -607,6 +619,9 @@ class IntrospectMcpRequest(BaseModel):
 class ToolCompliance(BaseModel):
     compliant: bool
     reasons: List[str] = Field(default_factory=list)
+    # ADR-057: non-blocking advisories — e.g. an object-typed input property with no declared `properties` (an
+    # opaque object renders the HITL review form as a raw JSON editor). Distinct from the blocking `reasons`.
+    warnings: List[str] = Field(default_factory=list)
 
 
 class IdCollision(BaseModel):

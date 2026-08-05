@@ -9,6 +9,7 @@ import uvicorn
 from fastapi import FastAPI
 
 from amendia_auth import AuthContext
+from amendia_telemetry import configure_telemetry
 
 from app.config import auth_settings, settings
 from app.dal.role_repo import RoleRepository
@@ -64,16 +65,28 @@ async def lifespan(app: FastAPI):
     except Exception as exc:  # noqa: BLE001 - never block startup on a reconcile hiccup
         logger.error("pending reconcile failed: %s", exc)
 
+    # ADR-058 Phase B: outbound governed events (role grant/revoke). Connect fail-soft — a broker that
+    # is down must not block identity startup; role changes just skip the audit publish until it's up.
+    from app.events.publisher import RabbitPublisher
+    publisher = RabbitPublisher(settings.RABBITMQ_URL)
+    try:
+        await publisher.connect()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("identity publisher not connected (governance events disabled until broker up): %s", exc)
+    app.state.publisher = publisher
+
     logger.info("identity service ready")
     try:
         yield
     finally:
+        await publisher.close()
         await mongo.close()
 
 
 def create_app() -> FastAPI:
     configure_logging(settings.LOG_LEVEL)
     app = FastAPI(title="Amendia — Identity", version="0.1.0", lifespan=lifespan)
+    configure_telemetry("identity", app=app)  # ADR-058
     app.add_middleware(RequestIDMiddleware)
     if settings.ENABLE_DEV_CORS:
         from fastapi.middleware.cors import CORSMiddleware

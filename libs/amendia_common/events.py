@@ -9,6 +9,10 @@ class Service(str, Enum):
     STUBEXCEPTION = "stub_exception"
     INGESTOR = "ingestor"
     AGENT_RUNTIME = "agent_runtime"
+    # ADR-058 Phase B: governed-event producers whose actions are audited (they had no events before).
+    IDENTITY = "identity"
+    PROCESS_REGISTRY = "process_registry"
+    CONFIG_FORGE = "config_forge"
 
 class Version(str, Enum):
     V1 = "v1"
@@ -34,6 +38,13 @@ PROCESS_FAILED = "process_failed"
 # request key and the capability-worker publishes the correlated result (or replies directly).
 CAPABILITY_EXEC_REQUEST = "capability_exec_request"
 CAPABILITY_EXEC_RESULT = "capability_exec_result"
+# ADR-058 Phase B: governed decision-point events persisted by glea-service into the audit_events
+# system-of-record. Domain-neutral / structural — no pack term ever enters an event name.
+EGRESS_DECISION = "egress_decision"           # allow/deny of a capability's outbound host (governance)
+ARTIFACT_COMMITTED = "artifact_committed"      # a validated artifact was committed (schema_ref + authored_by_human)
+ROLE_CHANGED = "role_changed"                  # identity: role grant/revoke (incl. admin-protection refusals)
+PACK_LIFECYCLE = "pack_lifecycle"              # process-registry: pack publish/deprecate/rollback
+CONFIG_REF_RESOLVED = "config_ref_resolved"    # config-forge: a config/credential ref was resolved
 
 def rk(service: Service | str, event: str, version: str = Version.V1.value) -> str:
     """

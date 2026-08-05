@@ -138,7 +138,9 @@ class RealDeepAgentRunner:
         if data is None:
             raise CapabilityError(
                 f"{capability_id}: deep_agent returned non-JSON: {text[:200]!r}")
-        return data
+        # ADR-058 Phase C: surface the agent's reasoning (the prose across its loop, minus the final
+        # JSON artifact) as a bounded rationale for explainability. Absent → the caller records none.
+        return data, _reasoning_text(result, text)
 
 
 async def _ainvoke(agent, user, max_steps):  # pragma: no cover - integration only
@@ -146,6 +148,24 @@ async def _ainvoke(agent, user, max_steps):  # pragma: no cover - integration on
         {"messages": [{"role": "user", "content": user}]},
         config={"recursion_limit": max_steps},
     )
+
+
+def _reasoning_text(result: Any, final_text: str) -> Optional[str]:  # pragma: no cover - integration only
+    """The deep agent's reasoning prose: the assistant messages across its loop, minus the final JSON
+    artifact. Best-effort — returns None when the run emitted only the structured output (no reasoning)."""
+    parts: list[str] = []
+    msgs = result.get("messages") if isinstance(result, dict) else None
+    for m in (msgs or [])[:-1]:  # every message except the final (JSON) answer
+        content = getattr(m, "content", None) or (m.get("content") if isinstance(m, dict) else None)
+        role = getattr(m, "type", None) or (m.get("role") if isinstance(m, dict) else None)
+        if isinstance(content, str) and content.strip() and role in (None, "ai", "assistant"):
+            parts.append(content.strip())
+    # If the final message carried prose alongside the JSON, keep that prose too.
+    head = (final_text or "").split("{", 1)[0].strip()
+    if head:
+        parts.append(head)
+    joined = "\n".join(p for p in parts if p)
+    return joined or None
 
 
 def _final_text(result: Any) -> str:  # pragma: no cover - integration only

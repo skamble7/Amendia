@@ -33,6 +33,10 @@ class Trace(ContractModel):
         ..., description="Stable across the exception journey; set to exception_id unless overridden"
     )
     causation_id: Optional[str] = None
+    # ADR-058: the instance's OTel trace id (32-hex), stamped from state.trace["otel"] at emit time, so
+    # every audit event joins to its otel_traces spans (the Phase A trace) on trace_id. Optional/None
+    # when telemetry is off — the audit row still lands, just without a trace join (fail-soft).
+    trace_id: Optional[str] = None
 
 
 class ExceptionDispatchedEvent(EventBase):

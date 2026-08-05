@@ -63,7 +63,10 @@ def restaurant_tools() -> List[RawMcpTool]:
         RawMcpTool(
             name="screen_allergens", description="Screen an order against the party's dietary flags.",
             input_schema={"type": "object", "additionalProperties": False,
-                          "properties": {"order": _ORDER_INPUT, "party": {"type": "object"},
+                          "properties": {"order": _ORDER_INPUT,
+                                         "party": {"type": "object", "properties": {
+                                             "name": {"type": "string"},
+                                             "dietary_flags": {"type": "array", "items": {"type": "string"}}}},
                                          "dietary_flags": {"type": "array", "items": {"type": "string"}},
                                          "ticket_id": {"type": "string"}, "hint": {"type": "string"}}},
             output_schema={"type": "object", "additionalProperties": False,
@@ -90,7 +93,14 @@ def restaurant_tools() -> List[RawMcpTool]:
         RawMcpTool(
             name="charge_payment", description="Charge the bill at the POS and issue the receipt (side-effectful).",
             input_schema={"type": "object", "additionalProperties": False,
-                          "properties": {"bill": {"type": "object"}, "ticket_id": {"type": "string"},
+                          "properties": {"bill": {"type": "object", "properties": {
+                                             "line_items": {"type": "array", "items": {"type": "object",
+                                                 "additionalProperties": False, "properties": {
+                                                     "name": {"type": "string"}, "qty": {"type": "number"},
+                                                     "price": {"type": "number"}}}},
+                                             "subtotal": {"type": "number"}, "tax": {"type": "number"},
+                                             "total": {"type": "number"}, "currency": {"type": "string"}}},
+                                         "ticket_id": {"type": "string"},
                                          "tender": {"type": "string"}, "tender_hint": {"type": "string"},
                                          "amount": {"type": "number"}}},
             output_schema={"type": "object", "additionalProperties": False,

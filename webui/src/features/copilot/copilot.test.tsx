@@ -332,6 +332,42 @@ describe("Copilot flow — stepped review + schema refiner (ADR-054)", () => {
     expect(schema.properties.decision.title).toBe("Decision outcome");
   });
 
+  it("the schema refiner drills into an object property to author nested fields → the preview renders labeled sub-fields, and Save persists them (ADR-057)", async () => {
+    const user = userEvent.setup();
+    let refineBody: Record<string, unknown> | undefined;
+    server.use(
+      http.get(`${REG}/onboarding/sess-c`, () => HttpResponse.json(wireSession())),
+      http.put(`${REG}/onboarding/sess-c/artifacts/refine`, async ({ request }) => {
+        refineBody = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json(wireSession());
+      }),
+    );
+    renderCopilot("/registry/onboard/sess-c");
+
+    await user.click(await screen.findByRole("button", { name: /artifacts & schemas/i }));
+    // property 0 = "decision", left as an object → its nested editor is available
+    expect(await screen.findByLabelText(/^property 0 name$/i)).toHaveValue("decision");
+    expect(screen.getByText(/nested fields of decision/i)).toBeInTheDocument();
+
+    // add a nested child field of `decision` (the nested "Add property" is the first one in the DOM)
+    fireEvent.click(screen.getAllByRole("button", { name: /add property/i })[0]!);
+    fireEvent.change(await screen.findByLabelText(/^property 0 property 0 name$/i), { target: { value: "outcome" } });
+    fireEvent.change(screen.getByLabelText(/^property 0 property 0 label$/i), { target: { value: "Outcome label" } });
+
+    // the live form preview renders the nested labeled field (not a raw JSON editor)
+    expect(await screen.findByText("Outcome label")).toBeInTheDocument();
+
+    // Save → the refine endpoint receives the nested concrete schema
+    await user.click(screen.getByRole("button", { name: /save schema/i }));
+    await waitFor(() => expect(refineBody).toBeDefined());
+    const schema = refineBody!.json_schema as {
+      properties: { decision: { type: string; properties?: { outcome?: { type: string; title?: string } } } };
+    };
+    expect(schema.properties.decision.type).toBe("object");
+    expect(schema.properties.decision.properties?.outcome?.type).toBe("string");
+    expect(schema.properties.decision.properties?.outcome?.title).toBe("Outcome label");
+  });
+
   it("the Capabilities step is read-mostly — the connected endpoint + staged caps show, with no second MCP URL entry", async () => {
     const user = userEvent.setup();
     const cap = (over: Record<string, unknown>) => ({
@@ -412,6 +448,32 @@ describe("Copilot flow — stepped review + schema refiner (ADR-054)", () => {
     // reached Review & go live — ready, and NO setter was re-invoked (no regress, no "set triage rules before policies")
     expect(await screen.findByRole("button", { name: /approve & go live/i })).toBeInTheDocument();
     expect(setterCalls).toEqual([]);
+  });
+
+  it("edit mode (ADR-056): the review frames as an edit and the final action publishes the new version via commit", async () => {
+    const user = userEvent.setup();
+    let committed = false;
+    const editing = session({ basics: { pack_key: "wire-repair", version: "1.1.0", title: "Wire repair", default_domain: "payments" } });
+    server.use(
+      http.get(`${REG}/onboarding/sess-c`, () => HttpResponse.json(editing)),
+      http.post(`${REG}/onboarding/sess-c/commit`, () => {
+        committed = true;
+        return HttpResponse.json(session({ state: "completed", result_pack: "wire-repair@1.1.0",
+          basics: { pack_key: "wire-repair", version: "1.1.0", title: "Wire repair", default_domain: "payments" } }));
+      }),
+    );
+    renderCopilot("/registry/onboard/sess-c?mode=edit");
+
+    // the header frames it as an edit → new version (not a fresh review)
+    expect(await screen.findByText(/Editing wire-repair/i)).toBeInTheDocument();
+    expect(screen.getByText(/new version 1\.1\.0/i)).toBeInTheDocument();
+
+    // the final step's action reads "Publish version 1.1.0" and calls the commit (publish) endpoint
+    await user.click(await screen.findByRole("button", { name: /review & go live/i }));
+    const publish = await screen.findByRole("button", { name: /publish version 1\.1\.0/i });
+    await user.click(publish);
+    await waitFor(() => expect(committed).toBe(true));
+    expect(await screen.findByText(/your process is live/i)).toBeInTheDocument();   // publish succeeded
   });
 
   it("every step has a uniform Back/Continue footer; Continue advances", async () => {

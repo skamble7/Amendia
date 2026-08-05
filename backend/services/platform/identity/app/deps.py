@@ -24,3 +24,8 @@ def get_role_repo(request: Request) -> RoleRepository:
 
 def get_resolve_service(request: Request) -> ResolveService:
     return request.app.state.resolve_service
+
+
+def get_publisher(request: Request):
+    """The governed-event publisher (ADR-058). May be None/disconnected — callers emit fail-soft."""
+    return getattr(request.app.state, "publisher", None)

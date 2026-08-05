@@ -216,6 +216,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/onboarding/from-pack/{pack_key}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Edit Pack
+         * @description ADR-056: open an EDIT session over an activated pack — hydrate its config into a bumped-version onboarding
+         *     session, editable through the stepped review; committing publishes the new version (auto-deprecating the prior).
+         */
+        post: operations["edit_pack_onboarding_from_pack__pack_key__post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/onboarding/{session_id}": {
         parameters: {
             query?: never;
@@ -467,6 +488,28 @@ export interface paths {
         get: operations["list_pack_versions_packs__pack_key__get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/packs/{pack_key}/rollback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Rollback Pack
+         * @description ADR-056: make a prior (non-draft) version live again. Because the resolver prefers the highest ACTIVE
+         *     version, the currently-active one MUST be deprecated for the rollback to take effect — so this deprecates it
+         *     and activates ``to_version``. The target keeps its stored capability resolution (valid when first published).
+         */
+        post: operations["rollback_pack_packs__pack_key__rollback_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1473,6 +1516,17 @@ export interface components {
             /** Tier */
             tier: string;
         };
+        /**
+         * EditPackRequest
+         * @description ADR-056: open an edit session over an activated pack's config at a bumped version (BPMN unchanged).
+         */
+        EditPackRequest: {
+            /**
+             * Bump
+             * @default minor
+             */
+            bump: string;
+        };
         /** EventSummary */
         EventSummary: {
             /** Attached To */
@@ -2129,6 +2183,14 @@ export interface components {
             label?: string | null;
         };
         /**
+         * RollbackPackRequest
+         * @description ADR-056: make a prior (non-draft) version live again, deprecating the currently-active one.
+         */
+        RollbackPackRequest: {
+            /** To Version */
+            to_version: string;
+        };
+        /**
          * SchemaIO
          * @description A named input/output bound to a versioned artifact schema.
          */
@@ -2406,6 +2468,8 @@ export interface components {
             compliant: boolean;
             /** Reasons */
             reasons?: string[];
+            /** Warnings */
+            warnings?: string[];
         };
         /** TriageRule */
         "TriageRule-Input": {
@@ -2911,6 +2975,41 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["CopilotGenerateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OnboardingSession"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    edit_pack_onboarding_from_pack__pack_key__post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                pack_key: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EditPackRequest"];
             };
         };
         responses: {
@@ -3455,6 +3554,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ProcessPackManifest-Output"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    rollback_pack_packs__pack_key__rollback_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                pack_key: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RollbackPackRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProcessPackManifest-Output"];
                 };
             };
             /** @description Validation Error */

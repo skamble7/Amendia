@@ -60,6 +60,9 @@ class CapabilityRunSpec:
     # ADR-048 / ADR-047 D2: the resolved MCP tool-call arguments (from the binding's input_map), threaded so
     # the sandbox makes the SAME tool call as the native path — the native↔sandbox transparency guarantee.
     mcp_arguments: Optional[Dict[str, Any]] = None
+    # ADR-058: the W3C traceparent of the enclosing node span. The sandbox parents its own OTLP span to it
+    # so the sandbox execution unifies into the instance trace (child of the node span). None → uncorrelated.
+    otel_traceparent: Optional[str] = None
 
 
 @dataclass
@@ -116,10 +119,20 @@ class FakeOpenShellClient:
         return True
 
     async def run_capability(self, spec: CapabilityRunSpec) -> SandboxResult:
+        from amendia_telemetry import conventions as tconv, emit_linked_span
         from app.engine.executor.base import ExecutionContext
         from app.engine.executor.core import execute_capability
         self._n += 1
-        trace = f"fake-otlp-{spec.element_id or spec.capability_id}-{self._n}"
+        # ADR-058: emit a REAL span for this sandboxed execution, parented to the node span's
+        # traceparent so it unifies into the instance trace (a child of the node span). Returns the
+        # real hex trace id; falls back to a synthetic marker when telemetry is off / no parent.
+        real = emit_linked_span(
+            spec.otel_traceparent, "sandbox.capability",
+            attrs={tconv.ELEMENT_ID: spec.element_id, tconv.ACTOR: spec.capability_id,
+                   tconv.ACTOR_KIND: "capability", tconv.EXECUTION_MODE: "nemoclaw",
+                   tconv.SIMULATION: bool(spec.simulation)},
+        )
+        trace = real or f"fake-otlp-{spec.element_id or spec.capability_id}-{self._n}"
         if spec.descriptor is None:
             raise CapabilityError(f"{spec.capability_id}: sandbox spec carries no pinned descriptor")
         ctx = ExecutionContext(

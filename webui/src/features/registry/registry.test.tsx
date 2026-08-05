@@ -1,6 +1,6 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { http, HttpResponse } from "msw";
-import { screen } from "@testing-library/react";
+import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { renderApp } from "@/test/renderApp";
 import { server } from "@/test/server";
@@ -785,5 +785,95 @@ describe("Onboarding wizard", () => {
     expect(screen.getByText(/kind=skill/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Use a distinct domain/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Reuse the existing capability/i })).toBeInTheDocument();
+  });
+
+  it("capabilities step surfaces an opaque-object warning without blocking selection (ADR-057)", async () => {
+    const session = {
+      session_id: "sess-warn", created_by: "owner-1", created_at: "", updated_at: "", state: "capabilities_resolved",
+      basics: { pack_key: "ws_stan", version: "1.0.0", title: "P", default_domain: "payment" },
+      bpmn: { process_id: "P", bpmn_file: "p.bpmn", sha256: "x", service_tasks: [], user_tasks: [], gateways: [], task_names: {}, bindable_elements: [], message_flows: [] },
+      staged_artifacts: [], staged_capabilities: [], reused_capability_refs: [], bindings: [],
+      triage_rules: [], gateway_variables: [], sod_policies: [], roles: [],
+      inferred: { roles: [], bindings: [], gateway_variables: [], capability_candidates: [], artifact_seeds: [], sod_candidates: [], annotations: [] },
+      dry_run_report: null, commit_progress: [], result_pack: null, last_cleared: [],
+    };
+    server.use(
+      http.get(`${REG}/onboarding/sess-warn`, () => HttpResponse.json(session)),
+      http.get(`${REG}/capabilities`, () => HttpResponse.json([])),
+      http.post(`${REG}/capabilities/introspect-mcp`, () => HttpResponse.json({
+        endpoint: "http://mcp:8060/mcp", transport: "streamable_http",
+        tools: [{
+          name: "apply_repair", description: "Apply a repair.",
+          // compliant, but with a non-blocking advisory
+          compliance: {
+            compliant: true, reasons: [],
+            warnings: ["apply_repair.repair is an untyped object — its HITL form will be a raw editor unless the schema declares its properties"],
+          },
+          input_schema: { type: "object", properties: { repair: { type: "object" } } },
+          output_schema: { type: "object", properties: { acknowledged: { type: "boolean" } } },
+          suggested_input_artifact_key: "art.payment.apply_repair_input",
+          suggested_output_artifact_key: "art.payment.apply_repair_output",
+          suggested_capability_id: "cap.payment.apply_repair",
+        }],
+      })),
+    );
+    const user = userEvent.setup();
+    renderApp("/registry/onboard/sess-warn", "owner-1");
+
+    await user.type(await screen.findByPlaceholderText(/your-mcp-service/i), "http://mcp:8060/mcp");
+    await user.click(await screen.findByRole("button", { name: /Introspect/i }));
+
+    // the advisory renders...
+    expect(await screen.findByText(/apply_repair\.repair is an untyped object/i)).toBeInTheDocument();
+    // ...and the tool is still compliant + selectable (warning never blocks)
+    expect(screen.getByText("compliant")).toBeInTheDocument();
+    const checkbox = screen.getAllByRole("checkbox").find((c) => !(c as HTMLInputElement).disabled);
+    expect(checkbox).toBeDefined();
+  });
+});
+
+describe("Pack config editing (ADR-056)", () => {
+  const active = { ...synthPack, version: "1.1.0", status: "active", updated_at: "2026-08-01T00:00:00Z" };
+  const deprecated = { ...synthPack, version: "1.0.0", status: "deprecated", updated_at: "2026-07-01T00:00:00Z" };
+
+  function stubDetail() {
+    server.use(
+      http.get(`${REG}/packs/test-pack/1.1.0`, () => HttpResponse.json(active)),
+      http.get(`${REG}/packs/test-pack/1.1.0/bpmn`, () => HttpResponse.text("<x/>")),
+      http.get(`${REG}/packs/test-pack/1.1.0/resolution`, () => HttpResponse.json({ capabilities: {}, artifacts: {} })),
+      http.get(`${REG}/packs/test-pack`, () => HttpResponse.json([deprecated, active])),
+    );
+  }
+
+  it("an active pack shows Edit and opens the edit session in the stepped review", async () => {
+    let editBody: Record<string, unknown> | undefined;
+    stubDetail();
+    server.use(http.post(`${REG}/onboarding/from-pack/test-pack`, async ({ request }) => {
+      editBody = (await request.json()) as Record<string, unknown>;
+      return HttpResponse.json({ session_id: "onb-edit" });
+    }));
+    const user = userEvent.setup();
+    renderApp("/registry/packs/test-pack/1.1.0", "owner-1");
+
+    await user.click(await screen.findByRole("button", { name: /edit config/i }));
+    await waitFor(() => expect(editBody).toBeDefined());
+    expect(editBody!.bump).toBe("minor");                       // default bump; a major option is selectable
+  });
+
+  it("the versions tab lists history and Make live calls rollback", async () => {
+    let rolledTo: string | undefined;
+    stubDetail();
+    server.use(http.post(`${REG}/packs/test-pack/rollback`, async ({ request }) => {
+      rolledTo = ((await request.json()) as { to_version: string }).to_version;
+      return HttpResponse.json({ ...deprecated, status: "active" });
+    }));
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    const user = userEvent.setup();
+    renderApp("/registry/packs/test-pack/1.1.0", "owner-1");
+
+    await user.click(await screen.findByRole("tab", { name: /versions/i }));
+    expect(await screen.findByText("1.0.0")).toBeInTheDocument();   // history renders both versions
+    await user.click(screen.getByRole("button", { name: /make live/i }));   // rollback the deprecated one
+    await waitFor(() => expect(rolledTo).toBe("1.0.0"));
   });
 });

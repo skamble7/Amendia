@@ -217,7 +217,10 @@ def _execute_deep_agent(descriptor, inputs, ctx: ExecutionContext, runner, mcp_c
     output_schema = (ctx.extras or {}).get("output_schemas", {}).get(artifact_key)
     ref = getattr(rt, "model_config_key", None) or settings.LLM_CONFIG_REF
     try:
-        artifact = _run_blocking(runner.run(
+        # ADR-058 Phase C: a runner MAY return ``(artifact, rationale)`` — the deep agent's bounded
+        # reasoning prose — to surface explainability. The fake/schema-stub runners return the bare
+        # artifact (no reasoning), so accept either shape (non-breaking).
+        _ran = _run_blocking(runner.run(
             capability_id=descriptor.capability_id,
             prompt_key=getattr(rt, "prompt_key", ""),
             # ADR-047: framing is descriptor-sourced (title/description), never a hardcoded domain — mirror
@@ -234,6 +237,7 @@ def _execute_deep_agent(descriptor, inputs, ctx: ExecutionContext, runner, mcp_c
             envelope=ctx.envelope,
             mcp_client=mcp_client,
         ))
+        artifact, rationale = _ran if isinstance(_ran, tuple) else (_ran, None)
     except CapabilityBusinessError:
         # ADR-035: the runner may raise a modeled business error directly — propagate it unwrapped
         # (mirror _call / the mcp path) so it is NOT swallowed as a technical CapabilityError.
@@ -247,9 +251,12 @@ def _execute_deep_agent(descriptor, inputs, ctx: ExecutionContext, runner, mcp_c
     be = business_error_from_object(artifact)
     if be is not None:
         raise be
+    from amendia_telemetry import bound_rationale
+    bounded = bound_rationale(rationale)
     return {
         "outputs": {artifact_key: artifact},
         "log": f"deep_agent [{ref}] tools={list(getattr(rt, 'tools', []) or [])} produced {artifact_key}",
+        "exec_meta": {"rationale": bounded} if bounded else None,
     }
 
 

@@ -15,9 +15,11 @@ dependencies = [
   "pydantic-settings>=2.3",
   "orjson>=3.10",
   "dnspython>=2.6",
+  "aio-pika>=9.4",
   "amendia-common",
   "amendia-contracts",
   "amendia-auth",
+  "amendia-telemetry",
 ]
 
 [project.optional-dependencies]
@@ -34,11 +36,12 @@ dev = [
 amendia-common = { path = "../../../../libs", editable = true }
 amendia-contracts = { path = "../../../../libs/amendia_contracts", editable = true }
 amendia-auth = { path = "../../../../libs/amendia_auth", editable = true }
+amendia-telemetry = { path = "../../../../libs/amendia_telemetry", editable = true }
 
 [tool.hatch.build.targets.wheel]
 packages = ["app"]
 
 [tool.pytest.ini_options]
-pythonpath = ["app", "../../../../libs", "../../../../libs/amendia_contracts", "../../../../libs/amendia_auth"]
+pythonpath = ["app", "../../../../libs", "../../../../libs/amendia_contracts", "../../../../libs/amendia_auth", "../../../../libs/amendia_telemetry"]
 asyncio_mode = "auto"
 addopts = "-q"

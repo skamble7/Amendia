@@ -30,10 +30,19 @@ from typing import Any, Callable, Dict, Optional, Tuple
 from amendia_bpmn import BpmnModel
 from amendia_bpmn.model import Flow
 
+from amendia_telemetry import conventions as tconv
+
 from app.engine import expr
 from app.engine.bundle import PackBundle, build_node_contexts
 from app.engine.state import actor_entry
-from app.engine.task_runner import IOSpec, NodeContext, OutputSpec
+from app.engine.task_runner import (
+    IOSpec,
+    NodeContext,
+    OutputSpec,
+    _augment_node_trace,
+    _lineage_links_for_names,
+    node_trace,
+)
 
 # A caller loads the pinned callee PackBundle through this seam (registry client / seed loader).
 BundleProvider = Callable[[str, str], PackBundle]
@@ -252,19 +261,34 @@ def _splice(merged: BpmnModel, merged_ctxs: Dict[str, NodeContext], maps: Dict[s
 # --------------------------------------------------------------------------- #
 # Boundary map node factory (compiled into the graph)
 # --------------------------------------------------------------------------- #
-def make_map_node(m: MapNode) -> Callable:
+def make_map_node(m: MapNode, *, execution_mode: str = "native", simulation: bool = False) -> Callable:
     """A pure state-copy node at a callActivity boundary. ``in``: write each scoped callee input from a
     caller-state dotpath. ``out``: write each caller artifact from a scoped callee output. Emits one
-    ``actor_log`` entry (kind ``call``) so the single instance's audit trail carries the composition."""
+    ``actor_log`` entry (kind ``call``) so the single instance's audit trail carries the composition.
+
+    ADR-058: an artifact-producing boundary span — links to the producer spans of each mapping SOURCE
+    (a caller dotpath for ``in``, a scoped callee output for ``out``) and records itself as producer of
+    every mapped artifact, so lineage crosses the callActivity boundary without a gap."""
     def node(state: Dict[str, Any]) -> Dict[str, Any]:
         arts = state.get("artifacts", {}) or {}
-        delta: Dict[str, Any] = {}
-        for dest, src in m.mapping.items():
-            delta[dest] = expr.resolve_path(src.split("."), arts)
-        return {
-            "artifacts": delta,
-            "actor_log": [actor_entry(m.call_element, f"call:{m.callee_pack}", "call",
-                                      meta={"map": m.kind})],
+        src_roots = {src.split(".")[0] for src in m.mapping.values()}
+        attrs = {
+            tconv.ELEMENT_ID: m.element_id,
+            tconv.ACTOR: f"call:{m.callee_pack}",
+            tconv.ACTOR_KIND: "call",
+            tconv.EXECUTION_MODE: execution_mode,
+            tconv.SIMULATION: bool(simulation),
         }
+        with node_trace(state, m.element_id, attrs=attrs,
+                        links=_lineage_links_for_names(state, src_roots)) as span:
+            mapped: Dict[str, Any] = {}
+            for dest, src in m.mapping.items():
+                mapped[dest] = expr.resolve_path(src.split("."), arts)
+            delta = {
+                "artifacts": mapped,
+                "actor_log": [actor_entry(m.call_element, f"call:{m.callee_pack}", "call",
+                                          meta={"map": m.kind})],
+            }
+            return _augment_node_trace(delta, span)
     node.__name__ = f"callmap_{m.element_id}"
     return node

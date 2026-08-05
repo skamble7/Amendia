@@ -16,6 +16,7 @@ COPY libs /src/libs
 RUN uv pip install --system /src/libs \
  && uv pip install --system /src/libs/amendia_contracts \
  && uv pip install --system /src/libs/amendia_auth \
+ && uv pip install --system /src/libs/amendia_telemetry \
  && uv pip install --system "/src/libs/polyllm[langchain,remote]"
 
 # 2) Service dependencies + package.

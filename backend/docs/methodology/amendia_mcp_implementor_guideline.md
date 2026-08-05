@@ -42,6 +42,7 @@ The wizard rewrites each tool schema into an Amendia artifact registration. You 
 4. **Mark required fields that carry decisions.** Any field a downstream BPMN gateway will branch on must be `required`. Amendia's pack validation rejects a gateway that reads an optional field, because a gateway must never branch on possibly-absent data. If your output drives a decision (e.g. `repair_verdict`, `screening_result`), make that field required.
 5. **Prefer enums and bounded types.** Enumerations, `minimum`/`maximum`, and explicit formats survive into the artifact schema and make both validation and HITL rendering precise.
 6. **Name fields in `snake_case`** and keep names stable across versions — a rename is a breaking change under Amendia's semver rules.
+7. **Declare the shape of every object.** A property typed `object` MUST declare its `properties` — never an opaque `{"type": "object"}`. Amendia derives its human-in-the-loop review forms from the declared shape; an opaque object renders as a raw JSON editor and cannot be validated field-by-field. This matters most for any field a human authors (a repair, a return instruction, a screening decision): give it the same field-by-field shape you would give the tool's `outputSchema`. The onboarding wizard does not reject an opaque object — Amendia cannot force a third-party server to declare its shape — but it flags one as a **warning** on the affected tool, and the derived HITL form degrades to a raw editor. Array-typed properties likewise declare their `items` shape.
 
 ---
 

@@ -26,10 +26,12 @@ dependencies = [
   # ADR-052 Phase 2 copilot LLM stack (same as agent-runtime; ADR-016/017/018). langchain backends +
   # the remote ConfigForge loader. Lazy-imported behind the copilot's client seam; a fake is injected in tests.
   "polyllm[langchain,remote]",
+  "aio-pika>=9.4",
   "amendia-common",
   "amendia-contracts",
   "amendia-bpmn",
   "amendia-auth",
+  "amendia-telemetry",
 ]
 
 [project.optional-dependencies]
@@ -46,12 +48,13 @@ amendia-common = { path = "../../../libs", editable = true }
 amendia-contracts = { path = "../../../libs/amendia_contracts", editable = true }
 amendia-bpmn = { path = "../../../libs/amendia_bpmn", editable = true }
 amendia-auth = { path = "../../../libs/amendia_auth", editable = true }
+amendia-telemetry = { path = "../../../libs/amendia_telemetry", editable = true }
 polyllm = { path = "../../../libs/polyllm", editable = true }
 
 [tool.hatch.build.targets.wheel]
 packages = ["app"]
 
 [tool.pytest.ini_options]
-pythonpath = ["app", "../../../libs", "../../../libs/amendia_contracts", "../../../libs/amendia_bpmn", "../../../libs/amendia_auth"]
+pythonpath = ["app", "../../../libs", "../../../libs/amendia_contracts", "../../../libs/amendia_bpmn", "../../../libs/amendia_auth", "../../../libs/amendia_telemetry"]
 asyncio_mode = "auto"
 addopts = "-q"

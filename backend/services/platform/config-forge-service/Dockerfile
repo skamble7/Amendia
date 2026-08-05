@@ -1,6 +1,6 @@
 # backend/services/platform/config-forge-service/Dockerfile
 # Build context is the repo root (mirrors the other platform services), so paths
-# below are repo-root-relative. ConfigForge is standalone — it needs no amendia_* libs.
+# below are repo-root-relative. ConfigForge's only amendia_* lib is amendia_telemetry (ADR-058).
 FROM public.ecr.aws/docker/library/python:3.12-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -10,6 +10,13 @@ RUN apt-get update \
  && apt-get install -y --no-install-recommends ca-certificates \
  && rm -rf /var/lib/apt/lists/* \
  && pip install --no-cache-dir uv
+
+# Shared libs (path deps) — pre-install so the service install finds them satisfied: amendia_common,
+# amendia_contracts (deps on common), amendia_telemetry.
+COPY libs /src/libs
+RUN uv pip install --system /src/libs \
+ && uv pip install --system /src/libs/amendia_contracts \
+ && uv pip install --system /src/libs/amendia_telemetry
 
 # Service dependencies + package. `scripts/` is included so the seed can run in-container.
 COPY backend/services/platform/config-forge-service/pyproject.toml /src/backend/services/platform/config-forge-service/pyproject.toml

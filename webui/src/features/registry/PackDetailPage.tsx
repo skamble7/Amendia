@@ -1,20 +1,25 @@
-import { Link, useParams } from "react-router-dom";
-import { ArrowLeft } from "lucide-react";
+import { useState } from "react";
+import { Link, useNavigate, useParams } from "react-router-dom";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
+import { ArrowLeft, Pencil, Loader2, RotateCcw } from "lucide-react";
 import { PageHeader } from "@/app/AppShell";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ModeBadge } from "@/components/primitives";
 import { EmptyState } from "@/components/primitives";
 import { ConnectivityState } from "@/components/ConnectivityState";
-import { isConnectivityError } from "@/api/client";
+import { ApiError, isConnectivityError } from "@/api/client";
+import { editPack, rollbackPack } from "@/api/services/registry";
 import { StatusBadge } from "./RegistryPage";
 import { BpmnViewer } from "./BpmnViewer";
-import { usePackDetail, usePackBpmn, usePackResolution } from "./queries";
+import { usePackDetail, usePackBpmn, usePackResolution, usePackVersions } from "./queries";
 import { elementLabel } from "@/lib/steps";
-import type { Binding } from "@/api/types";
+import type { Binding, ProcessPackManifest } from "@/api/types";
 import type { HitlTaskMode } from "@/lib/hitl";
 
 export function PackDetailPage() {
@@ -39,7 +44,12 @@ export function PackDetailPage() {
       <PageHeader
         title={pack.title}
         description={`${pack.pack_key}@${pack.version}`}
-        actions={<StatusBadge status={pack.status} />}
+        actions={
+          <div className="flex items-center gap-2">
+            <StatusBadge status={pack.status} />
+            {pack.status === "active" && <EditPackControl packKey={pack.pack_key} />}
+          </div>
+        }
       />
 
       <Tabs defaultValue="overview">
@@ -47,6 +57,7 @@ export function PackDetailPage() {
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="diagram">Diagram</TabsTrigger>
           <TabsTrigger value="bpmn">BPMN XML</TabsTrigger>
+          <TabsTrigger value="versions">Versions</TabsTrigger>
         </TabsList>
 
         <TabsContent value="overview" className="space-y-4">
@@ -142,7 +153,89 @@ export function PackDetailPage() {
             </CardContent>
           </Card>
         </TabsContent>
+
+        <TabsContent value="versions">
+          <VersionsTab packKey={pack.pack_key} currentVersion={pack.version} />
+        </TabsContent>
       </Tabs>
     </>
+  );
+}
+
+// ADR-056: Edit an active pack's config → clone-edit session at a bumped version → stepped review in edit mode.
+function EditPackControl({ packKey }: { packKey: string }) {
+  const navigate = useNavigate();
+  const [bump, setBump] = useState<"minor" | "major">("minor");
+  const edit = useMutation({
+    mutationFn: () => editPack(packKey, bump),
+    onSuccess: (s) => navigate(`/registry/onboard/${s.session_id}?mode=edit`),
+    onError: (e) => toast.error(e instanceof ApiError ? e.detailText : "Couldn't open the editor."),
+  });
+  return (
+    <div className="flex items-center gap-1">
+      <select
+        aria-label="version bump" value={bump} onChange={(e) => setBump(e.target.value as "minor" | "major")}
+        className="h-8 rounded-md border border-input bg-transparent px-2 text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+        <option value="minor">minor</option>
+        <option value="major">major</option>
+      </select>
+      <Button size="sm" className="gap-1" disabled={edit.isPending} onClick={() => edit.mutate()}>
+        {edit.isPending ? <Loader2 className="size-4 animate-spin" /> : <Pencil className="size-3.5" />} Edit config
+      </Button>
+    </div>
+  );
+}
+
+// ADR-056: per-pack version history + rollback (make a deprecated version live again).
+function VersionsTab({ packKey, currentVersion }: { packKey: string; currentVersion: string }) {
+  const { data: versions } = usePackVersions(packKey);
+  const qc = useQueryClient();
+  const rollback = useMutation({
+    mutationFn: (to: string) => rollbackPack(packKey, to),
+    onSuccess: (m) => {
+      toast.success(`${m.pack_key}@${m.version} is live again — new work routes to it.`);
+      qc.invalidateQueries({ queryKey: ["pack-versions", packKey] });
+      qc.invalidateQueries({ queryKey: ["pack", packKey] });
+      qc.invalidateQueries({ queryKey: ["packs"] });
+    },
+    onError: (e) => toast.error(e instanceof ApiError ? e.detailText : "Rollback failed."),
+  });
+  const sorted = [...(versions ?? [])].sort((a, b) => b.version.localeCompare(a.version, undefined, { numeric: true }));
+
+  return (
+    <Card>
+      <CardHeader><CardTitle>Version history</CardTitle></CardHeader>
+      <CardContent className="p-0">
+        <Table>
+          <TableHeader>
+            <TableRow className="hover:bg-transparent">
+              <TableHead>Version</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead>Updated</TableHead>
+              <TableHead className="text-right">Actions</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {sorted.map((m: ProcessPackManifest) => (
+              <TableRow key={m.version} className={m.version === currentVersion ? "bg-surface/40" : undefined}>
+                <TableCell className="font-mono text-xs">
+                  {m.version}{m.status === "active" && <Badge variant="success" className="ml-2 text-[10px]">live</Badge>}
+                </TableCell>
+                <TableCell><StatusBadge status={m.status} /></TableCell>
+                <TableCell className="text-xs text-muted-foreground">{(m.updated_at ?? m.created_at ?? "").slice(0, 10)}</TableCell>
+                <TableCell className="text-right">
+                  {m.status === "deprecated" && (
+                    <Button size="sm" variant="outline" className="gap-1" disabled={rollback.isPending}
+                      onClick={() => { if (window.confirm(`Make ${packKey}@${m.version} live again? The current live version will be deprecated.`)) rollback.mutate(m.version); }}>
+                      <RotateCcw className="size-3.5" /> Make live
+                    </Button>
+                  )}
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </CardContent>
+    </Card>
   );
 }

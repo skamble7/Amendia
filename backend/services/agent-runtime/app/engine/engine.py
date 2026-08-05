@@ -32,6 +32,7 @@ except Exception:  # pragma: no cover
     MongoDBSaver = None  # type: ignore
 
 from amendia_bpmn import parse, profile_rank
+from amendia_telemetry import conventions as tconv, start_instance_trace
 from amendia_contracts.capability import CapabilityDescriptor
 from amendia_contracts.dispatch import Trace
 from amendia_contracts.hitl_task import (
@@ -45,6 +46,11 @@ from amendia_contracts.process_events import (
     ProcessCompletedEvent,
     ProcessFailedEvent,
     TimerFiredEvent,
+)
+from amendia_contracts.governance_events import (
+    ArtifactCommittedEvent,
+    EgressDecision,
+    EgressDecisionEvent,
 )
 from jsonschema import Draft202012Validator
 from amendia_contracts.process_pack import ProcessPackManifest
@@ -117,6 +123,10 @@ class ProcessEngine:
         self._graphs: Dict[Tuple[str, str], Any] = {}
         self._lock = asyncio.Lock()
         self._checkpointer = checkpointer or self._make_checkpointer(settings)
+        # ADR-058 Phase B: per-instance high-water into state.audit_log — how many governed intents this
+        # process has already published, so each segment publishes only the new ones. Resets on restart
+        # (in-memory) → a crash-recovery segment republishes; glea dedupes by event_id, so no double rows.
+        self._audit_hw: Dict[str, int] = {}
 
     @staticmethod
     def _make_checkpointer(settings):
@@ -208,6 +218,8 @@ class ProcessEngine:
                 simulation=self._settings.SIMULATION_MODE, checkpointer=self._checkpointer,
                 profile=getattr(self._settings, "EXECUTION_PROFILE", "common_subset"),
                 bundle_provider=provider,
+                execution_mode=getattr(self._settings, "EXECUTION_MODE", "native"),
+                native_egress_enforce=getattr(self._settings, "NATIVE_EGRESS_ENFORCE", True),
             )
             self._graphs[key] = graph
             return graph
@@ -238,6 +250,20 @@ class ProcessEngine:
     async def start(self, instance: ProcessInstance, envelope: Dict[str, Any]) -> None:
         graph = await self.get_graph(instance.pack_key, instance.pack_version)
         trace = {"correlation_id": instance.correlation_id, "causation_id": None}
+        # ADR-058: open the instance ROOT span and persist its context into state.trace["otel"], so
+        # every node span (this segment and every future resume/recovery segment) re-parents to it —
+        # one coherent trace per instance. Empty when telemetry is off → nodes start a fresh trace.
+        otel = start_instance_trace(
+            instance.correlation_id,
+            attrs={
+                tconv.CORRELATION_ID: instance.correlation_id,
+                tconv.PROCESS_INSTANCE_ID: instance.process_instance_id,
+                tconv.PACK_KEY: instance.pack_key,
+                tconv.PACK_VERSION: instance.pack_version,
+            },
+        )
+        if otel:
+            trace["otel"] = otel
         init = initial_state(
             envelope=envelope, trace=trace,
             pack={"pack_key": instance.pack_key, "pack_version": instance.pack_version},
@@ -378,6 +404,10 @@ class ProcessEngine:
         except Exception as exc:  # noqa: BLE001 - any node failure terminates the instance
             reason = getattr(exc, "reason", "node_error")
             logger.exception("instance %s failed in a node: %s", instance.process_instance_id, exc)
+            # ADR-058 Phase B: an ENFORCED egress deny blocked the call → publish the governed deny event
+            # before failing (the intent never reached state.audit_log because the node raised).
+            if reason == "egress_denied":
+                await self._publish_egress_denied(instance, exc)
             await self._fail(instance, reason, str(exc))
             return
 
@@ -385,7 +415,15 @@ class ProcessEngine:
         # an error while advancing (e.g. materializing a task whose payload can't validate) must FAIL the instance
         # cleanly — not propagate a 500 out to the decide/resume caller and orphan the instance in RUNNING.
         try:
-            if isinstance(result, dict) and "__interrupt__" in result:
+            interrupted = isinstance(result, dict) and "__interrupt__" in result
+            # ADR-058 Phase B: the full channel values (on interrupt, ``result`` is only the interrupt
+            # marker; fetch the state once, reused for the audit drain AND task materialization).
+            state_values = (await asyncio.to_thread(lambda: graph.get_state(cfg).values)
+                            if interrupted else result)
+            # Publish the governed audit events accumulated inside the graph this segment (artifact
+            # commits, native egress decisions) — the one fail-soft publish point (a node can't publish).
+            await self._drain_audit(instance, state_values)
+            if interrupted:
                 # ADR-027 Phase 2.1: a parallel superstep can raise SEVERAL concurrent interrupts.
                 # Per the "sequentialize" decision, surface exactly ONE — materialize its task, park at
                 # WAITING_HITL — and carry its interrupt id so resume targets this gate; the next
@@ -407,8 +445,7 @@ class ProcessEngine:
                 elif kind == "event_gateway":
                     await self._park_event_gateway(instance, payload, interrupt_id=first.id)
                 else:
-                    state = await asyncio.to_thread(lambda: graph.get_state(cfg).values)
-                    await self._materialize_task(instance, payload, state, interrupt_id=first.id)
+                    await self._materialize_task(instance, payload, state_values, interrupt_id=first.id)
             else:
                 await self._complete(instance, result)
         except Exception as exc:  # noqa: BLE001 - a parking/materialization error fails the instance, never a 500
@@ -631,6 +668,7 @@ class ProcessEngine:
                 due_at_iso = boundary_fire_at.isoformat()
             except Exception as exc:  # noqa: BLE001 - a malformed timer must not block the gate
                 logger.warning("skipping SLA timer for %s: %s", element_id, exc)
+        trace_id = self._otel_trace_id(state)
         task_doc = {
             "task_id": task_id,
             "process_instance_id": pid,
@@ -642,6 +680,8 @@ class ProcessEngine:
             "role": payload["role"],
             "title": payload.get("title") or payload["element_id"],
             "priority": "normal",
+            # ADR-058: carry the instance trace id onto the task so its decide/expire audit events stamp it.
+            "trace_id": trace_id,
             "sod": {"excluded_users": excluded, "derived_from": derived},
             "payload": {
                 "artifacts": artifacts,
@@ -671,6 +711,7 @@ class ProcessEngine:
             event_id=uuid.uuid4().hex, occurred_at=datetime.now(timezone.utc),
             task_id=task_id, exception_id=instance.exception_id, process_instance_id=pid,
             element_id=payload["element_id"], role=payload["role"],
+            trace=Trace(correlation_id=instance.correlation_id, trace_id=trace_id),
         ))
 
     # ------------------------------------------------------------------ #
@@ -693,7 +734,7 @@ class ProcessEngine:
             process_instance_id=instance.process_instance_id, exception_id=instance.exception_id,
             pack_key=instance.pack_key, pack_version=instance.pack_version,
             outcome=outcome or "unknown",
-            trace=Trace(correlation_id=instance.correlation_id),
+            trace=Trace(correlation_id=instance.correlation_id, trace_id=self._otel_trace_id(result)),
         ))
 
     async def _fail(self, instance: ProcessInstance, reason: str, detail: Optional[str]) -> None:
@@ -703,11 +744,24 @@ class ProcessEngine:
         )
         logger.warning("instance %s failed reason=%s detail=%s",
                        instance.process_instance_id, reason, detail)
+        # ADR-058: fetch the checkpoint to stamp trace_id + drain any audit intents (e.g. an enforced
+        # egress deny committed before the node failed). Best-effort — never let it mask the failure.
+        state = {}
+        try:
+            state = await self.get_checkpoint_state(
+                instance.process_instance_id, instance.pack_key, instance.pack_version)
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            await self._drain_audit(instance, state)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("audit drain on failure failed for %s: %s", instance.process_instance_id, exc)
         await self._publish(ProcessFailedEvent(
             event_id=uuid.uuid4().hex, occurred_at=datetime.now(timezone.utc),
             process_instance_id=instance.process_instance_id, exception_id=instance.exception_id,
             pack_key=instance.pack_key, pack_version=instance.pack_version,
-            reason=reason, detail=detail, trace=Trace(correlation_id=instance.correlation_id),
+            reason=reason, detail=detail,
+            trace=Trace(correlation_id=instance.correlation_id, trace_id=self._otel_trace_id(state)),
         ))
 
     # ------------------------------------------------------------------ #
@@ -724,3 +778,83 @@ class ProcessEngine:
             await self._publisher.publish(event.to_doc(), event.routing_key(), event.event_id)
         except Exception as exc:  # noqa: BLE001
             logger.exception("failed to publish %s: %s", type(event).__name__, exc)
+
+    # ------------------------------------------------------------------ #
+    # ADR-058 Phase B — governed audit-event drain
+    # ------------------------------------------------------------------ #
+    @staticmethod
+    def _otel_trace_id(state: Optional[Dict[str, Any]]) -> Optional[str]:
+        """The instance's OTel trace id (the audit↔trace join key), or None when telemetry is off."""
+        return (((state or {}).get("trace") or {}).get("otel") or {}).get("trace_id")
+
+    async def _drain_audit(self, instance: ProcessInstance, state: Optional[Dict[str, Any]]) -> None:
+        """Publish the governed intents accumulated in ``state.audit_log`` (artifact commits, native
+        egress decisions) that this process hasn't published yet. Idempotent across segments/restarts:
+        the in-memory high-water skips already-published intents, and each intent's stable ``event_id``
+        lets glea dedupe a republish. Fail-soft — a publish hiccup never breaks execution."""
+        entries = (state or {}).get("audit_log") or []
+        pid = instance.process_instance_id
+        hw = self._audit_hw.get(pid, 0)
+        if len(entries) <= hw:
+            return
+        trace_id = self._otel_trace_id(state)
+        for entry in entries[hw:]:
+            event = self._audit_event(instance, entry, trace_id)
+            if event is not None:
+                await self._publish(event)
+        self._audit_hw[pid] = len(entries)
+
+    async def _publish_egress_denied(self, instance: ProcessInstance, exc: Exception) -> None:
+        """Publish an EgressDecisionEvent(deny, enforced=True) for a blocked native egress. The
+        event_id is deterministic so a crash-recovery re-raise dedupes at glea."""
+        host = getattr(exc, "host", "") or ""
+        element_id = getattr(exc, "element_id", "") or ""
+        capability_id = getattr(exc, "capability_id", "") or ""
+        trace_id = None
+        try:
+            st = await self.get_checkpoint_state(
+                instance.process_instance_id, instance.pack_key, instance.pack_version)
+            trace_id = self._otel_trace_id(st)
+        except Exception:  # noqa: BLE001
+            pass
+        await self._publish(EgressDecisionEvent(
+            event_id=f"egress-deny-{instance.process_instance_id}-{element_id}-{host}",
+            occurred_at=datetime.now(timezone.utc),
+            process_instance_id=instance.process_instance_id, element_id=element_id,
+            capability_id=capability_id,
+            execution_mode=getattr(self._settings, "EXECUTION_MODE", "native"),
+            host=host, decision=EgressDecision.DENY, enforced=True,
+            trace=Trace(correlation_id=instance.correlation_id, trace_id=trace_id),
+        ))
+
+    def _audit_event(self, instance: ProcessInstance, entry: Dict[str, Any], trace_id: Optional[str]):
+        """Build the governed event for one ``audit_log`` intent (or None for an unknown type)."""
+        if not isinstance(entry, dict) or not entry.get("event_id"):
+            return None
+        occurred_at = datetime.now(timezone.utc)
+        at = entry.get("at")
+        if isinstance(at, str) and at:
+            try:
+                occurred_at = datetime.fromisoformat(at)
+            except ValueError:
+                pass
+        tr = Trace(correlation_id=instance.correlation_id, trace_id=trace_id)
+        kind = entry.get("type")
+        if kind == "artifact_committed":
+            return ArtifactCommittedEvent(
+                event_id=entry["event_id"], occurred_at=occurred_at,
+                process_instance_id=instance.process_instance_id, element_id=entry.get("element_id", ""),
+                artifact_key=entry.get("artifact_key", ""), schema_ref=entry.get("schema_ref", ""),
+                actor=entry.get("actor", ""), actor_kind=entry.get("actor_kind", ""),
+                authored_by_human=entry.get("authored_by_human"), rationale=entry.get("rationale"),
+                trace=tr,
+            )
+        if kind == "egress_decision":
+            return EgressDecisionEvent(
+                event_id=entry["event_id"], occurred_at=occurred_at,
+                process_instance_id=instance.process_instance_id, element_id=entry.get("element_id", ""),
+                capability_id=entry.get("capability_id", ""), execution_mode=entry.get("execution_mode", "native"),
+                host=entry.get("host", ""), decision=EgressDecision(entry.get("decision", "deny")),
+                enforced=bool(entry.get("enforced", False)), trace=tr,
+            )
+        return None

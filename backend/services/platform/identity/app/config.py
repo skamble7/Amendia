@@ -16,6 +16,8 @@ from amendia_auth import AuthSettings, load_auth_settings
 class Settings(BaseSettings):
     # MongoDB
     MONGO_URI: str = "mongodb://localhost:27017"
+    # ADR-058 Phase B: broker for outbound governed events (role grant/revoke → glea audit store).
+    RABBITMQ_URL: str = "amqp://guest:guest@rabbitmq:5672/"
     MONGO_DB: str = "amendia"
 
     # JIT provisioning: status new users are created with.

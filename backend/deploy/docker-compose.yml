@@ -32,6 +32,46 @@ services:
       timeout: 5s
       retries: 5
 
+  # ADR-058: telemetry backend. ClickHouse is the single store for traces + logs (and the Phase-B
+  # audit system-of-record). No Prometheus / Grafana / Loki. The Collector's clickhouse exporter
+  # creates the otel_traces / otel_logs schema on startup.
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.8
+    ports:
+      - "8123:8123"   # HTTP (SQL queries / read UIs)
+      # Native protocol is used by the Collector over the internal network (clickhouse:9000); the
+      # host mapping is only for external tools. Mapped to 9001 to avoid a common host 9000 conflict.
+      - "9001:9000"
+    environment:
+      CLICKHOUSE_DB: otel
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8123/ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # ADR-058: the single OTLP aggregation point — every service (via amendia_telemetry) and the
+  # OpenShell/NeMoClaw sandboxes export here; traces + logs land in ClickHouse. Reference config in
+  # ./otel/collector-config.yaml.
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.109.0
+    command: ["--config=/etc/otel/collector-config.yaml"]
+    volumes:
+      - ./otel:/etc/otel:ro
+    ports:
+      - "4317:4317"   # OTLP gRPC
+      - "4318:4318"   # OTLP HTTP
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+
   # Dev IdP. The committed realm (amendia-dev) is imported on startup.
   #
   # DEV-NETWORKING FOOTGUN (the #1 setup gotcha): tokens carry the *browser-facing*
@@ -73,6 +113,7 @@ services:
       - "8086:8086"
     environment:
       IDENTITY_MONGO_URI: mongodb://mongodb:27017
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318  # ADR-058
       IDENTITY_MONGO_DB: amendia
       IDENTITY_SEED_ON_STARTUP: "true"
       IDENTITY_JIT_DEFAULT_STATUS: active
@@ -105,6 +146,7 @@ services:
       - "8088:8088"
     environment:
       NOTIFICATION_RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318  # ADR-058
       NOTIFICATION_AUTH_ISSUER: http://localhost:8087/realms/amendia-dev
       NOTIFICATION_AUTH_AUDIENCE: amendia-api
       NOTIFICATION_AUTH_JWKS_URI: http://keycloak:8080/realms/amendia-dev/protocol/openid-connect/certs
@@ -138,6 +180,7 @@ services:
     environment:
       MONGO_URI: mongodb://mongodb:27017
       MONGO_DB: ConfigForge
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318  # ADR-058
       SERVICE_NAME: config-forge-service
       PORT: 8040
       ENV: local
@@ -148,6 +191,34 @@ services:
       retries: 10
     depends_on:
       mongodb:
+        condition: service_healthy
+
+  # --- glea-service (ADR-058 Phase B) — audit system-of-record ----------------
+  # Consumes governed events off amendia.events on a DURABLE NAMED queue and persists them append-only
+  # into ClickHouse `glea.audit_events` (the sole writer of that table). Reads back the per-instance
+  # audit trail. Fail-soft: broker or ClickHouse down never crashes it (events queue / requeue).
+  glea-service:
+    build:
+      context: ../..
+      dockerfile: backend/services/platform/glea-service/Dockerfile
+    ports:
+      - "8090:8090"
+    environment:
+      GLEA_RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+      GLEA_CLICKHOUSE_HOST: clickhouse
+      GLEA_CLICKHOUSE_PORT: 8123
+      GLEA_CLICKHOUSE_DB: glea
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318  # ADR-058
+      GLEA_LOG_LEVEL: INFO
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8090/health').status==200 else 1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      clickhouse:
         condition: service_healthy
 
   stub-exception-generator:
@@ -190,6 +261,7 @@ services:
       - "8082:8082"
     environment:
       INGESTOR_MONGO_URI: mongodb://mongodb:27017
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318  # ADR-058
       INGESTOR_MONGO_DB: amendia
       INGESTOR_MONGO_COLLECTION: ingestions
       INGESTOR_RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
@@ -227,6 +299,9 @@ services:
       - "8083:8083"
     environment:
       AGENTRT_MONGO_URI: mongodb://mongodb:27017
+      # ADR-058: service traces → Collector; sandbox OTLP (worker) → same Collector. Unset ⇒ disabled.
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      AGENTRT_OTLP_ENDPOINT: http://otel-collector:4318/v1/traces
       AGENTRT_MONGO_DB: amendia
       AGENTRT_RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
       AGENTRT_RABBITMQ_DISPATCH_QUEUE: agent-runtime.exception_dispatched.v1
@@ -290,6 +365,9 @@ services:
       dockerfile: backend/services/agent-runtime/Dockerfile
     command: ["python", "-m", "worker.main"]
     environment:
+      # ADR-058: the worker's sandbox.capability spans → the same Collector as every service, so a
+      # cross-process capability execution unifies into the instance trace (parented to the node span).
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
       AGENTRT_RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
       AGENTRT_CONFIG_FORGE_URL: http://config-forge:8040
       AGENTRT_LLM_CONFIG_REF: dev.llm.nemoclaw.nim          # llm → inference stub (dev)
@@ -331,6 +409,7 @@ services:
       - "8084:8084"
     environment:
       REGISTRY_MONGO_URI: mongodb://mongodb:27017
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318  # ADR-058
       REGISTRY_MONGO_DB: amendia
       REGISTRY_SEED_ON_STARTUP: "true"
       # ADR-052: processes are onboarded via the copilot now — start with a clean slate so the reference
@@ -383,3 +462,4 @@ services:
 
 volumes:
   mongo_data:
+  clickhouse_data:

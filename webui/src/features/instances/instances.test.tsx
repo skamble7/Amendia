@@ -37,7 +37,7 @@ describe("Instances", () => {
     );
     renderApp("/instances/PI-TEST-1", "analyst-1");
     expect(await screen.findByText("End_Test")).toBeInTheDocument();
-    expect(await screen.findByText(/Actor log/)).toBeInTheDocument();
+    expect(await screen.findByText(/Activity/)).toBeInTheDocument();
     expect(await screen.findByText(/Artifacts/)).toBeInTheDocument();
   });
 });

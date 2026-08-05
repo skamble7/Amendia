@@ -17,6 +17,7 @@ import uvicorn
 from fastapi import FastAPI
 
 from amendia_auth import AuthContext
+from amendia_telemetry import configure_telemetry
 
 from app.config import auth_settings, settings
 from app.events.consumer import BroadcastConsumer
@@ -60,6 +61,7 @@ async def lifespan(app: FastAPI):
 def create_app() -> FastAPI:
     configure_logging(settings.LOG_LEVEL)
     app = FastAPI(title="Amendia — Notifications", version="0.1.0", lifespan=lifespan)
+    configure_telemetry("notification-service", app=app)  # ADR-058
     app.add_middleware(RequestIDMiddleware)
     if settings.ENABLE_DEV_CORS:
         from fastapi.middleware.cors import CORSMiddleware
