@@ -25,7 +25,17 @@ from amendia_bpmn import MultiInstance
 from app.engine import expr
 from app.engine.executor import ExecutionContext, Executor
 from app.engine.state import actor_entry
-from app.engine.task_runner import NodeContext, NodeExecutionError, _map_and_validate
+from app.engine.task_runner import (
+    NodeContext,
+    NodeExecutionError,
+    _augment_node_trace,
+    _input_lineage_links,
+    _lightweight_attrs,
+    _lineage_links_for_names,
+    _map_and_validate,
+    _node_span_attrs,
+    node_trace,
+)
 
 
 def mi_node_ids(host: str) -> Tuple[str, str]:
@@ -134,10 +144,14 @@ def _validate_iteration(ctx: NodeContext, host: str, index: int, produced: Dict[
 # --------------------------------------------------------------------------- #
 # Parallel MI — Send fan-out → iteration node → join barrier
 # --------------------------------------------------------------------------- #
-def make_mi_dispatch_node(host: str) -> Callable:
-    """The MI host entry node: pure passthrough; the conditional edge fans out the iterations."""
+def make_mi_dispatch_node(host: str, *, execution_mode: str = "native",
+                          simulation: bool = False) -> Callable:
+    """The MI host entry node: pure passthrough; the conditional edge fans out the iterations.
+    ADR-058: a lightweight control span (no lineage/producer) so the fan-out has a node in the tree."""
     def node(state: Dict[str, Any]) -> Dict[str, Any]:
-        return {}
+        with node_trace(state, f"{host}__mi_dispatch",
+                        attrs=_lightweight_attrs(host, execution_mode, simulation)):
+            return {}
     node.__name__ = f"mi_dispatch_{host}"
     return node
 
@@ -154,8 +168,12 @@ def make_mi_fan_out(host: str, mi: MultiInstance) -> Callable:
         if n <= 0:
             return [Send(join_id, {})]
         env = state.get("envelope", {})
+        # ADR-058: carry the instance trace root (+ existing artifact_spans) into each Send branch so
+        # the iteration span re-parents to the instance root (no orphan) and can link to the spans that
+        # produced its inputs. The branch echoes back only its own producer entry via merge_trace.
+        tr = state.get("trace", {})
         return [
-            Send(iter_id, {"envelope": env, "artifacts": artifacts,
+            Send(iter_id, {"envelope": env, "artifacts": artifacts, "trace": tr,
                            "__mi__": {"index": i, "item": (items[i] if items is not None else None)}})
             for i in range(n)
         ]
@@ -163,33 +181,56 @@ def make_mi_fan_out(host: str, mi: MultiInstance) -> Callable:
 
 
 def make_mi_iteration_node(ctx: NodeContext, executor: Executor, *, simulation: bool,
-                           host: str, mi: MultiInstance) -> Callable:
+                           host: str, mi: MultiInstance, execution_mode: str = "native") -> Callable:
     """One parallel iteration: reads its ``Send`` payload (index/item + envelope/artifacts), runs the
-    capability, and writes the index-scoped result into ``mi_results`` (never the bare binding)."""
+    capability, and writes the index-scoped result into ``mi_results`` (never the bare binding).
+
+    ADR-058: wrapped in a node span parented to the instance root (carried in the Send payload), with
+    input-artifact lineage links, and recorded as producer of its ``{host}/{i}`` result so the join
+    can link back to it — making ``dispatch → N iterations → join → downstream`` navigable."""
+    iter_id, _join_id = mi_node_ids(host)
+
     def node(state: Dict[str, Any], config: Optional[RunnableConfig] = None) -> Dict[str, Any]:
         pid = ((config or {}).get("configurable") or {}).get("thread_id")
         idx = state["__mi__"]["index"]
         item = state["__mi__"].get("item")
-        produced = _run_one(ctx, executor, simulation, state.get("envelope", {}),
-                            state.get("artifacts", {}) or {}, mi, idx, item, pid)
-        return {
-            "mi_results": {f"{host}/{idx}": produced},
-            "actor_log": [actor_entry(host, _cap_id(ctx), "capability", meta={"mi_index": idx})],
-        }
+        with node_trace(state, iter_id,
+                        attrs=_node_span_attrs(ctx, state, simulation, execution_mode),
+                        links=_input_lineage_links(ctx, state)) as span:
+            produced = _run_one(ctx, executor, simulation, state.get("envelope", {}),
+                                state.get("artifacts", {}) or {}, mi, idx, item, pid)
+            delta = {
+                "mi_results": {f"{host}/{idx}": produced},
+                "actor_log": [actor_entry(host, _cap_id(ctx), "capability", meta={"mi_index": idx})],
+            }
+            return _augment_node_trace(delta, span, produced_names=[f"{host}/{idx}"])
     node.__name__ = f"mi_iter_{host}"
     return node
 
 
-def make_mi_join_node(ctx: NodeContext, *, host: str, mi: MultiInstance) -> Callable:
+def make_mi_join_node(ctx: NodeContext, *, host: str, mi: MultiInstance,
+                      execution_mode: str = "native", simulation: bool = False) -> Callable:
     """The join barrier (runs once after all iterations): reads the index-scoped ``mi_results`` in
     index order, validates each against the pinned output schema, and writes the aggregated final
-    artifact into ``artifacts`` under the binding name(s). Downstream consumes it unchanged."""
+    artifact into ``artifacts`` under the binding name(s). Downstream consumes it unchanged.
+
+    ADR-058: the join span **links to every per-iteration producer span** (so the aggregate's lineage
+    fans back out to the N iterations) and records itself as producer of the aggregated artifact (so
+    downstream consumers link to the join)."""
     def node(state: Dict[str, Any], config: Optional[RunnableConfig] = None) -> Dict[str, Any]:
         res = state.get("mi_results", {}) or {}
         prefix = f"{host}/"
         idxs = sorted(int(k[len(prefix):]) for k in res if k.startswith(prefix))
-        committed = [_validate_iteration(ctx, host, i, res[f"{host}/{i}"]) for i in idxs]
-        return {"artifacts": _aggregate(ctx, committed, mi.aggregation)}
+        # Link the aggregate back to each iteration's producer span + this MI host's own inputs.
+        links = _input_lineage_links(ctx, state) + _lineage_links_for_names(
+            state, [f"{host}/{i}" for i in idxs])
+        _iter_id, join_id = mi_node_ids(host)
+        with node_trace(state, join_id,
+                        attrs=_node_span_attrs(ctx, state, simulation, execution_mode),
+                        links=links) as span:
+            committed = [_validate_iteration(ctx, host, i, res[f"{host}/{i}"]) for i in idxs]
+            delta = {"artifacts": _aggregate(ctx, committed, mi.aggregation)}
+            return _augment_node_trace(delta, span)
     node.__name__ = f"mi_join_{host}"
     return node
 
@@ -198,33 +239,40 @@ def make_mi_join_node(ctx: NodeContext, *, host: str, mi: MultiInstance) -> Call
 # Sequential MI — one guarded loop node (completionCondition early-exit)
 # --------------------------------------------------------------------------- #
 def make_sequential_mi_node(ctx: NodeContext, executor: Executor, *, simulation: bool,
-                            host: str, mi: MultiInstance) -> Callable:
+                            host: str, mi: MultiInstance, execution_mode: str = "native") -> Callable:
     """A sequential MI: iterate 0..N-1 in order, evaluating ``completionCondition`` after each
     iteration for an early exit, with the same index-scoped validation + index-ordered aggregation as
-    the parallel path (so both produce identical artifacts for identical inputs)."""
+    the parallel path (so both produce identical artifacts for identical inputs).
+
+    ADR-058: one node span (all iterations run inline here) — input lineage links + recorded as
+    producer of the aggregated artifact, so downstream consumers link straight back to this host."""
     def node(state: Dict[str, Any], config: Optional[RunnableConfig] = None) -> Dict[str, Any]:
         pid = ((config or {}).get("configurable") or {}).get("thread_id")
-        envelope = state.get("envelope", {})
-        artifacts = state.get("artifacts", {}) or {}
-        n, items = _resolve_cardinality(mi, artifacts)
-        committed: List[Dict[str, Any]] = []
-        log: List[Dict[str, Any]] = []
-        scratch: Dict[str, Any] = {}
-        for i in range(n):
-            item = items[i] if items is not None else None
-            produced = _run_one(ctx, executor, simulation, envelope, artifacts, mi, i, item, pid)
-            c = _validate_iteration(ctx, host, i, produced)
-            committed.append(c)
-            scratch[f"{host}/{i}"] = produced
-            log.append(actor_entry(host, _cap_id(ctx), "capability", meta={"mi_index": i}))
-            # completionCondition (sequential early-exit): evaluate against the artifacts overlaid with
-            # THIS iteration's committed output, so a condition can branch on the iteration's own result.
-            if mi.completion_condition and expr.evaluate(mi.completion_condition, {**artifacts, **c}):
-                break
-        return {
-            "artifacts": _aggregate(ctx, committed, mi.aggregation),
-            "mi_results": scratch,
-            "actor_log": log,
-        }
+        with node_trace(state, host,
+                        attrs=_node_span_attrs(ctx, state, simulation, execution_mode),
+                        links=_input_lineage_links(ctx, state)) as span:
+            envelope = state.get("envelope", {})
+            artifacts = state.get("artifacts", {}) or {}
+            n, items = _resolve_cardinality(mi, artifacts)
+            committed: List[Dict[str, Any]] = []
+            log: List[Dict[str, Any]] = []
+            scratch: Dict[str, Any] = {}
+            for i in range(n):
+                item = items[i] if items is not None else None
+                produced = _run_one(ctx, executor, simulation, envelope, artifacts, mi, i, item, pid)
+                c = _validate_iteration(ctx, host, i, produced)
+                committed.append(c)
+                scratch[f"{host}/{i}"] = produced
+                log.append(actor_entry(host, _cap_id(ctx), "capability", meta={"mi_index": i}))
+                # completionCondition (sequential early-exit): evaluate against the artifacts overlaid
+                # with THIS iteration's committed output, so a condition can branch on its own result.
+                if mi.completion_condition and expr.evaluate(mi.completion_condition, {**artifacts, **c}):
+                    break
+            delta = {
+                "artifacts": _aggregate(ctx, committed, mi.aggregation),
+                "mi_results": scratch,
+                "actor_log": log,
+            }
+            return _augment_node_trace(delta, span)
     node.__name__ = f"mi_seq_{host}"
     return node

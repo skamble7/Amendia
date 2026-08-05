@@ -50,7 +50,15 @@ def stub_outputs(descriptor, ctx) -> Dict[str, Any]:
     for out in descriptor.outputs:
         akey = out.model_dump(by_alias=True)["schema"].split("@", 1)[0]
         produced[akey] = stub_from_schema(output_schemas.get(akey, {}))
-    return {"outputs": produced, "log": f"stub inference for {descriptor.capability_id}"}
+    # ADR-058 Phase C: an `llm` capability reasons before answering — surface a bounded rationale (the
+    # sim model's reasoning stand-in) so explainability is exercised in dev/CI. Structural key; content
+    # value. A plain MCP tool has no rationale and never gets one (this is the llm path only).
+    from amendia_telemetry import bound_rationale
+    rationale = bound_rationale(
+        f"[simulated reasoning] produced {', '.join(produced) or 'no output'} for "
+        f"{descriptor.capability_id}")
+    return {"outputs": produced, "log": f"stub inference for {descriptor.capability_id}",
+            "exec_meta": {"rationale": rationale} if rationale else None}
 
 
 class SchemaStubDeepAgentRunner:

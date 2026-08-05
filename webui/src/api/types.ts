@@ -91,3 +91,132 @@ export interface InstanceState {
   trace: Record<string, unknown>;
   last_error: string | null;
 }
+
+/**
+ * GLEA read-models (glea-service, :8090 — ADR-058 Phase B–E). Hand-written here (mirroring the
+ * InstanceDetail convention); a proper gen/glea.ts can be produced with `npm run gen:api` once
+ * glea-service is running (its entry is registered in scripts/gen-api.mjs). Keep in sync with
+ * backend/services/platform/glea-service/app/models/audit.py.
+ */
+export interface GleaArtifactRef {
+  artifact_key: string;
+  schema_ref: string;
+}
+
+export interface AuditEvent {
+  event_id: string;
+  occurred_at: string;
+  ingested_at?: string | null;
+  kind: string;
+  correlation_id: string;
+  trace_id: string;
+  actor?: string;
+  actor_kind?: string;
+  role?: string;
+  element_id?: string;
+  pack_key?: string;
+  pack_version?: string;
+  decision?: string;
+  decided_by?: string;
+  sod_satisfied?: boolean | null;
+  schema_ref?: string;
+  authored_by_human?: boolean | null;
+  egress_host?: string;
+  egress_decision?: string;
+  payload?: Record<string, unknown> | null;
+}
+
+export interface InstanceAuditOut {
+  correlation_id: string;
+  count: number;
+  events: AuditEvent[];
+}
+
+export interface DecisionTrailEntry {
+  element_id: string;
+  decided_by: string;
+  role: string;
+  decided_at: string | null;
+  decision: string;
+  sod_satisfied: boolean | null;
+  comment: string | null;
+  proposed: GleaArtifactRef | null;
+  approved: GleaArtifactRef | null;
+}
+
+export interface DecisionTrailOut {
+  correlation_id: string;
+  count: number;
+  gates: DecisionTrailEntry[];
+}
+
+export interface LineageNode {
+  span_id: string;
+  element_id: string;
+  artifact_key: string;
+  schema_ref: string;
+  actor_kind: string;
+  authored_by_human: boolean | null;
+}
+
+export interface LineageEdge {
+  from_span: string;
+  to_span: string;
+  from_artifact_key: string;
+  to_artifact_key: string;
+}
+
+export interface LineageOut {
+  correlation_id: string;
+  trace_id: string;
+  nodes: LineageNode[];
+  edges: LineageEdge[];
+}
+
+export interface Quantiles {
+  p50: number;
+  p95: number;
+  count: number;
+}
+
+export interface DecisionCount {
+  decision: string;
+  role: string;
+  count: number;
+}
+
+export interface OutcomeCounts {
+  completed: number;
+  failed: number;
+}
+
+export interface MetricsBundle {
+  correlation_id: string | null;
+  window?: { since: string | null; until: string | null } | null;
+  approval_latency_ms: Quantiles;
+  capability_duration_ms: Quantiles;
+  hitl_decisions: DecisionCount[];
+  four_eyes_enforced: number;
+  egress_denied: number;
+  sla_breaches: number;
+  instances_by_outcome: OutcomeCounts | null;
+}
+
+export interface TraceSpan {
+  span_id: string;
+  parent_span_id: string;
+  name: string;
+  start_ns: number;
+  duration_ns: number;
+  depth: number;
+  element_id: string;
+  actor: string;
+  actor_kind: string;
+  artifact_key: string;
+}
+
+export interface TraceTreeOut {
+  correlation_id: string;
+  trace_id: string;
+  spans: TraceSpan[];
+}

@@ -131,6 +131,8 @@ class SandboxedExecutor:
             timeout_seconds=float(timeout_s) if timeout_s else None,
             max_retries=int(max_retries),
             idempotent=bool(getattr(descriptor, "idempotent", False)),
+            # ADR-058: hand the node span's traceparent to the sandbox so its OTLP span joins the trace.
+            otel_traceparent=extras.get("otel_traceparent"),
         )
 
     def _assemble(self, spec: CapabilityRunSpec, result) -> Dict[str, Any]:

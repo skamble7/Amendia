@@ -25,7 +25,14 @@ from typing import Any, Callable, Dict, List, Optional
 from langchain_core.runnables import RunnableConfig
 
 from app.engine.executor import Executor
-from app.engine.task_runner import NodeContext, _run_node
+from app.engine.task_runner import (
+    NodeContext,
+    _augment_node_trace,
+    _input_lineage_links,
+    _node_span_attrs,
+    _run_node,
+    node_trace,
+)
 
 
 def pending_compensations(state: Dict[str, Any], scope: str, process_id: str) -> List[Dict[str, Any]]:
@@ -49,7 +56,7 @@ def pending_compensations(state: Dict[str, Any], scope: str, process_id: str) ->
 
 def make_compensation_driver(throw_id: str, scope: str, process_id: str,
                              handler_ctxs: Dict[str, NodeContext], executor: Executor,
-                             *, simulation: bool) -> Callable:
+                             *, simulation: bool, execution_mode: str = "native") -> Callable:
     """A compensate-throw driver: compensate ONE activity per superstep (LIFO), running its handler's undo
     through the ordinary task-runner path (HITL gate included), then mark it done. Re-entrant: on a
     resume-replay it re-selects the SAME pending entry (``compensations_done`` is unchanged until the node
@@ -66,7 +73,14 @@ def make_compensation_driver(throw_id: str, scope: str, process_id: str,
             return {"compensations_done": {activity_id: True}}
         # Run the undo handler (may interrupt for its HITL gate). One handler per superstep → one
         # interrupt max, so the execute (side effect) runs exactly once on the final resume pass.
-        delta = dict(_run_node(hctx, executor, simulation, state, pid))
+        # ADR-058: wrap the handler execution in a node span (parented to the instance root) — same
+        # instrumentation as any capability node (actor_kind stays ``capability``), so the compensating
+        # undo is not a gap in the trace and its committed artifact carries lineage.
+        with node_trace(state, hctx.element_id,
+                        attrs=_node_span_attrs(hctx, state, simulation, execution_mode),
+                        links=_input_lineage_links(hctx, state)) as span:
+            delta = dict(_run_node(hctx, executor, simulation, state, pid))
+            delta = _augment_node_trace(delta, span)
         done = dict(delta.get("compensations_done") or {})
         done[activity_id] = True
         delta["compensations_done"] = done

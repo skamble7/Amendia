@@ -28,6 +28,11 @@ export const SERVICES = {
   runtime: process.env.VITE_RUNTIME_URL ?? "http://localhost:8083",
   registry: process.env.VITE_REGISTRY_URL ?? "http://localhost:8084",
   identity: process.env.VITE_IDENTITY_URL ?? "http://localhost:8086",
+  // NOTE (ADR-058 Phase E): glea-service HAS response_models, but its read-model types are hand-written
+  // in src/api/types.ts (the same convention as the agent-runtime instance-detail shapes) so the build
+  // needs no live glea. To switch to generated types, add
+  //   glea: process.env.VITE_GLEA_URL ?? "http://localhost:8090",
+  // here, run `npm run gen:api` with glea-service up, and drop the hand-written glea block from types.ts.
 };
 
 // Services with a committed OpenAPI snapshot generate OFFLINE from the file (no stack needed).

@@ -17,15 +17,28 @@ from __future__ import annotations
 
 import logging
 import time
+import uuid
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional
+from urllib.parse import urlparse
 
 from jsonschema import Draft202012Validator
 from langchain_core.runnables import RunnableConfig
 from langgraph.types import interrupt
 
 from amendia_bpmn import parse_iso_duration
+from amendia_telemetry import (
+    add_exec_meta_link,
+    bound_rationale,
+    conventions as tconv,
+    current_traceparent,
+    link_to,
+    node_span,
+    restore_instance_context,
+    span_context_dict,
+)
 from amendia_contracts.capability import CapabilityDescriptor
 from app.engine import expr
 from app.engine.executor import (
@@ -35,7 +48,7 @@ from app.engine.executor import (
     ExecutionContext,
     Executor,
 )
-from app.engine.executor.policy import _kind, _side_effect
+from app.engine.executor.policy import _kind, _side_effect, derive_egress_policy
 from app.engine.state import actor_entry, now_iso
 
 logger = logging.getLogger(__name__)
@@ -54,6 +67,20 @@ class NodeExecutionError(Exception):
     def __init__(self, message: str, reason: str = "node_error") -> None:
         super().__init__(message)
         self.reason = reason
+
+
+class EgressDenied(Exception):
+    """ADR-058 Phase B: a native-mode capability tried to reach a host outside its derived egress
+    allowlist and ``NATIVE_EGRESS_ENFORCE`` blocked the call. Distinct from ``CapabilityError`` so the
+    executor retry loop never swallows/retries it — it propagates straight out to fail the node; the
+    engine publishes the ``EgressDecisionEvent(deny, enforced)`` on the failure path."""
+
+    def __init__(self, host: str, capability_id: str, element_id: str) -> None:
+        super().__init__(f"egress denied: {element_id} → host '{host}' not in the derived allowlist")
+        self.host = host
+        self.capability_id = capability_id
+        self.element_id = element_id
+        self.reason = "egress_denied"
 
 
 @dataclass
@@ -102,7 +129,9 @@ class NodeContext:
 def make_task_node(ctx: NodeContext, executor: Executor, *, simulation: bool,
                    boundary_timer: Optional[Any] = None,
                    clock: Optional[Callable[[], float]] = None,
-                   scope_timers: Optional[List[Any]] = None) -> Callable:
+                   scope_timers: Optional[List[Any]] = None,
+                   execution_mode: str = "native",
+                   native_egress_enforce: bool = True) -> Callable:
     # ``config`` is injected by LangGraph; its thread id is the process_instance_id, which
     # the executor uses to scope per-instance memoization (ADR-019). Purely additive — with
     # memoization off (native default) it is unused.
@@ -115,24 +144,252 @@ def make_task_node(ctx: NodeContext, executor: Executor, *, simulation: bool,
 
     def node(state: Dict[str, Any], config: Optional[RunnableConfig] = None) -> Dict[str, Any]:
         pid = ((config or {}).get("configurable") or {}).get("thread_id")
-        try:
-            return _run_node(ctx, executor, simulation, state, pid,
-                             boundary_timer=boundary_timer, clock=_clock, scope_timers=scope_timers)
-        except CapabilityBusinessError as exc:
-            # ADR-030 (Phase 2.3): a MODELED business error. Mark the error boundary so the post-node
-            # conditional edge routes to the matching (or catch-all) boundary target; the instance
-            # stays running. An unmodeled code (no matching/catch-all boundary) falls through to
-            # FAILURE_SINK — last_error carries the code. Record the capability + code in the log.
-            return {
-                "boundary": {ctx.element_id: {"kind": "error", "code": exc.error_code}},
-                "last_error": f"business error: {exc.error_code}",
-                "actor_log": [actor_entry(
-                    ctx.element_id, _cap_id(ctx), "capability",
-                    meta={"business_error": exc.error_code, **(exc.detail or {})},
-                )],
-            }
+        # ADR-058: wrap this node execution in a span parented to the persisted instance root
+        # (state.trace["otel"]), with span *links* to the spans that produced its input artifacts
+        # (lineage). Additive + side-effect-free: telemetry off / root absent → a fresh no-op span,
+        # graph control flow byte-unchanged (``interrupt`` still raises straight through).
+        with node_trace(state, ctx.element_id,
+                        attrs=_node_span_attrs(ctx, state, simulation, execution_mode),
+                        links=_input_lineage_links(ctx, state)) as span:
+            # ADR-058 Phase B: enforce the derived egress allowlist on the native path (records
+            # amendia.egress.decision/host on the span; raises EgressDenied to block an enforced deny —
+            # BEFORE any capability call). Returns an audit-only deny intent (or None) otherwise.
+            egress_intent = _native_egress(ctx, execution_mode, span, native_egress_enforce)
+            try:
+                delta = _run_node(ctx, executor, simulation, state, pid,
+                                  boundary_timer=boundary_timer, clock=_clock, scope_timers=scope_timers)
+            except CapabilityBusinessError as exc:
+                # ADR-030 (Phase 2.3): a MODELED business error. Mark the error boundary so the post-node
+                # conditional edge routes to the matching (or catch-all) boundary target; the instance
+                # stays running. An unmodeled code (no matching/catch-all boundary) falls through to
+                # FAILURE_SINK — last_error carries the code. Record the capability + code in the log.
+                delta = {
+                    "boundary": {ctx.element_id: {"kind": "error", "code": exc.error_code}},
+                    "last_error": f"business error: {exc.error_code}",
+                    "actor_log": [actor_entry(
+                        ctx.element_id, _cap_id(ctx), "capability",
+                        meta={"business_error": exc.error_code, **(exc.detail or {})},
+                    )],
+                }
+            if egress_intent is not None and isinstance(delta, dict):
+                delta = {**delta, "audit_log": [*(delta.get("audit_log") or []), egress_intent]}
+            return _augment_node_trace(delta, span)
     node.__name__ = f"node_{ctx.element_id}"
     return node
+
+
+# --------------------------------------------------------------------------- #
+# ADR-058: the shared node-span + lineage core (structural attributes only; no domain terms).
+# Extracted from ``make_task_node`` so EVERY node factory (task, multi-instance, callActivity,
+# compensation, and the compiler's control/routing nodes) wraps its execution the same way — one
+# coherent trace tree with navigable artifact lineage, in both native + nemoclaw modes.
+# --------------------------------------------------------------------------- #
+@contextmanager
+def node_trace(state: Dict[str, Any], name: str, *,
+               attrs: Optional[Dict[str, Any]] = None, links: Optional[List[Any]] = None):
+    """Open a node span parented to the persisted instance root (``state.trace["otel"]``).
+
+    The universal span primitive: restores the root context and opens a child ``node_span`` under
+    it, so all node spans across the instance (survived HITL waits + crash recovery) share the one
+    root trace. Yields the live span so the caller can record producers / links after the body runs.
+    Additive + side-effect-free: telemetry off / root absent → a fresh no-op span, control flow
+    (including ``interrupt``) byte-unchanged."""
+    root_ctx = restore_instance_context((state.get("trace") or {}).get("otel"))
+    with node_span(root_ctx, name, links=links, attrs=attrs) as span:
+        yield span
+
+
+def _lightweight_attrs(element_id: str, execution_mode: str, simulation: bool) -> Dict[str, Any]:
+    """Structural attributes for a control/routing node span (end, gateway, timer, passthrough, …):
+    its element id + the graph-wide execution mode / simulation flag. No lineage, no producer
+    recording — a control node commits no artifact."""
+    return {
+        tconv.ELEMENT_ID: element_id,
+        tconv.EXECUTION_MODE: execution_mode,
+        tconv.SIMULATION: bool(simulation),
+    }
+
+
+# --------------------------------------------------------------------------- #
+# ADR-058 Phase B: native egress enforcement + governed audit intents
+# --------------------------------------------------------------------------- #
+def _egress_target_host(descriptor) -> Optional[str]:
+    """The host an ``mcp`` capability dials (its ADR-024 self-descriptive ``runtime.endpoint``). None
+    when there is no network endpoint (a local/skill capability — nothing to gate)."""
+    rt = getattr(descriptor, "runtime", None)
+    endpoint = getattr(rt, "endpoint", None) if rt is not None else None
+    if not endpoint:
+        return None
+    try:
+        return urlparse(endpoint).hostname
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _native_egress(ctx: NodeContext, execution_mode: str, span, enforce: bool) -> Optional[Dict[str, Any]]:
+    """Consult the derived egress allowlist for this capability on the NATIVE path (nemoclaw is enforced
+    by the sandbox at creation time). Always records ``amendia.egress.decision``/``host`` on the node
+    span. Returns an audit-only ``egress_decision`` deny intent (for the engine to publish), or None on
+    allow / not-applicable. Raises :class:`EgressDenied` to BLOCK an enforced deny before any call.
+
+    ``mcp`` hosts are enforceable; ``llm``/``deep_agent`` default to **audit-only** — their concrete
+    provider host is resolved from ConfigForge and can legitimately differ from the proxy host, so
+    blocking them risks breaking a real call (per the ADR-058 "if uncertain, audit-only" rule)."""
+    if execution_mode != "native" or ctx.descriptor is None:
+        return None
+    host = _egress_target_host(ctx.descriptor)
+    if not host:
+        return None
+    try:
+        allow_hosts = set(derive_egress_policy(ctx.descriptor).allow_hosts or [])
+    except Exception:  # noqa: BLE001 — a derivation error must not block a legitimate call (fail-open)
+        return None
+    decision = "allow" if host in allow_hosts else "deny"
+    span.set_attribute(tconv.EGRESS_DECISION, decision)
+    span.set_attribute(tconv.EGRESS_HOST, host)
+    if decision == "allow":
+        return None
+    kind = _kind(ctx.descriptor)
+    enforceable = bool(enforce) and kind == "mcp"
+    if enforceable:
+        # Block: the engine publishes the EgressDecisionEvent(deny, enforced=True) on the failure path.
+        raise EgressDenied(host, _cap_id(ctx), ctx.element_id)
+    # Audit-only deny (enforcement off, or a non-mcp host we won't block): record but let the call run.
+    return {
+        "type": "egress_decision", "event_id": uuid.uuid4().hex, "at": now_iso(),
+        "element_id": ctx.element_id, "capability_id": _cap_id(ctx),
+        "execution_mode": execution_mode, "host": host, "decision": "deny", "enforced": False,
+    }
+
+
+def _rationale_from(cap_meta: Optional[Dict[str, Any]],
+                    extra_actors: Optional[List[Dict[str, Any]]]) -> Optional[str]:
+    """The bounded rationale for this commit, from the capability's ``exec_meta`` (a capability primary)
+    or the capability entry in ``extra_actors`` (a human-primary review/manual commit)."""
+    if isinstance(cap_meta, dict) and cap_meta.get("rationale"):
+        return bound_rationale(cap_meta.get("rationale"))
+    for e in (extra_actors or []):
+        m = e.get("exec_meta") if isinstance(e, dict) else None
+        if isinstance(m, dict) and m.get("rationale"):
+            return bound_rationale(m.get("rationale"))
+    return None
+
+
+def _artifact_audit_intents(ctx: NodeContext, committed: Dict[str, Any], actor: str,
+                            kind: str, rationale: Optional[str] = None) -> List[Dict[str, Any]]:
+    """One ``artifact_committed`` audit intent per committed output (its pinned ``schema_ref`` +
+    whether a human authored it — an output of a manual/human task). The engine drains these into
+    ``ArtifactCommittedEvent``s. Structural only; ``rationale`` (bounded, optional) rides the payload."""
+    authored = ctx.executor_type == "human"
+    out: List[Dict[str, Any]] = []
+    for spec in ctx.outputs:
+        if spec.name in committed:
+            intent = {
+                "type": "artifact_committed", "event_id": uuid.uuid4().hex, "at": now_iso(),
+                "element_id": ctx.element_id, "artifact_key": spec.artifact_key,
+                "schema_ref": spec.schema_ref, "actor": actor, "actor_kind": kind,
+                "authored_by_human": authored,
+            }
+            if rationale:
+                intent["rationale"] = rationale
+            out.append(intent)
+    return out
+
+
+def _node_span_attrs(ctx: NodeContext, state: Dict[str, Any], simulation: bool,
+                     execution_mode: str) -> Dict[str, Any]:
+    pack = state.get("pack") or {}
+    attrs: Dict[str, Any] = {
+        tconv.ELEMENT_ID: ctx.element_id,
+        tconv.ACTOR: _cap_id(ctx),
+        tconv.ACTOR_KIND: "human" if ctx.executor_type == "human" else "capability",
+        tconv.EXECUTION_MODE: execution_mode,
+        tconv.SIMULATION: bool(simulation),
+        tconv.PACK_KEY: pack.get("pack_key"),
+        tconv.PACK_VERSION: pack.get("pack_version"),
+    }
+    if ctx.role:
+        attrs[tconv.ROLE] = ctx.role
+    if ctx.outputs:  # primary output identity (lineage) — the pack's own pinned artifact ids, structural
+        attrs[tconv.ARTIFACT_KEY] = ctx.outputs[0].artifact_key
+        attrs[tconv.SCHEMA_REF] = ctx.outputs[0].schema_ref
+    return attrs
+
+
+def _artifact_names_in_source(src: Any) -> List[str]:
+    """ADR-048/058: the upstream artifact name(s) an input source reads (for lineage links).
+    A ``from:artifact`` source names one; a composite (``fields``) recurses; ``trigger`` names none."""
+    if not isinstance(src, dict):
+        return []
+    if isinstance(src.get("fields"), dict):
+        out: List[str] = []
+        for v in src["fields"].values():
+            out.extend(_artifact_names_in_source(v))
+        return out
+    if src.get("from") == "artifact" and src.get("name"):
+        return [src["name"]]
+    return []
+
+
+def _lineage_links_for_names(state: Dict[str, Any], names) -> List[Any]:
+    """Span links to the producer spans of the named artifacts (ADR-058 §5). The one lookup shared
+    by every consuming node — the task runner's declared inputs, the MI join's per-iteration results,
+    and a callActivity boundary map's mapping sources all resolve to this."""
+    artifact_spans = (state.get("trace") or {}).get("artifact_spans") or {}
+    if not artifact_spans:
+        return []
+    return link_to(artifact_spans.get(n) for n in names)
+
+
+def _input_lineage_links(ctx: NodeContext, state: Dict[str, Any]):
+    """Span links from this node to the spans that produced its declared input artifacts (ADR-058 §5)."""
+    names: set = set()
+    input_map = ctx.input_map or {}
+    for spec in ctx.inputs:
+        src = input_map.get(spec.name)
+        if src is not None:
+            names.update(_artifact_names_in_source(src))
+        else:
+            names.add(spec.name)  # shared-name chaining (no input_map entry)
+    return _lineage_links_for_names(state, names)
+
+
+def _augment_node_trace(delta: Dict[str, Any], span, *,
+                        produced_names: Optional[List[str]] = None) -> Dict[str, Any]:
+    """After the node body returns its delta, record this span as the producer of each committed
+    artifact (into ``trace.artifact_spans`` for downstream lineage) and correlate any sandbox
+    ``exec_meta`` trace id to the node span. Purely additive to the delta.
+
+    ``produced_names`` names the artifacts THIS span produced when they are not the delta's
+    ``artifacts`` keys — e.g. a parallel MI iteration writes its result into the index-scoped
+    ``mi_results["{host}/{i}"]`` channel, so it records ``[f"{host}/{i}"]`` here and the join links
+    back to it. Defaults to the delta's committed ``artifacts`` keys (task / join / map / message)."""
+    if not isinstance(delta, dict):
+        return delta
+    names = produced_names if produced_names is not None else list((delta.get("artifacts") or {}).keys())
+    if names:
+        node_ctx = span_context_dict(span.get_span_context())
+        prev_trace = dict(delta.get("trace") or {})
+        prev_spans = dict(prev_trace.get("artifact_spans") or {})
+        for name in names:
+            prev_spans[name] = node_ctx
+        prev_trace["artifact_spans"] = prev_spans
+        delta = {**delta, "trace": prev_trace}
+    for entry in delta.get("actor_log") or []:
+        em = entry.get("exec_meta") if isinstance(entry, dict) else None
+        if isinstance(em, dict):
+            if em.get("otlp_trace_id"):
+                add_exec_meta_link(span, em.get("otlp_trace_id"))
+            # ADR-058 Phase C: a reasoning capability's bounded rationale → the amendia.rationale span
+            # attribute (it already rides the actor_log entry meta). Structural key; content value.
+            rationale = bound_rationale(em.get("rationale"))
+            if rationale:
+                span.set_attribute(tconv.RATIONALE, rationale)
+    log = delta.get("actor_log") or []
+    if log and isinstance(log[-1], dict) and log[-1].get("kind") == "human":
+        span.set_attribute(tconv.ACTOR, str(log[-1].get("actor")))
+        span.set_attribute(tconv.ACTOR_KIND, "human")
+    return delta
 
 
 # --------------------------------------------------------------------------- #
@@ -302,6 +559,10 @@ def _run_capability(ctx: NodeContext, descriptor, executor, simulation, envelope
             # argument object (a composite input spreads; scalars key by name). The mcp executor uses
             # this instead of the legacy {envelope, inputs} wrapper. None → legacy shape (seed packs).
             "mcp_arguments": _mcp_arguments(inputs) if ctx.input_map else None,
+            # ADR-058: the W3C traceparent of the enclosing node span (active here because this runs
+            # inside ``node_span``). A sandbox execution (nemoclaw) parents its OTLP span to it so the
+            # two unify into one instance trace. None in native / when telemetry is off.
+            "otel_traceparent": current_traceparent(),
         },
     )
     return executor.execute(descriptor, inputs, exec_ctx)
@@ -416,6 +677,12 @@ def _commit(ctx: NodeContext, committed: Dict[str, Any], *, actor: str, kind: st
     # meta on its own ``extra_actors`` entry.
     log.append(actor_entry(ctx.element_id, actor, kind, meta=cap_meta if kind == "capability" else None))
     delta: Dict[str, Any] = {"artifacts": committed, "actor_log": log}
+    # ADR-058 Phase B: record an artifact_committed governed intent per output (the engine publishes it).
+    # Phase C: carry the reasoning capability's bounded rationale onto the intent.
+    intents = _artifact_audit_intents(ctx, committed, actor, kind,
+                                      rationale=_rationale_from(cap_meta, extra_actors))
+    if intents:
+        delta["audit_log"] = intents
     # ADR-043 (Item G): a compensable primary appends a compensation-log entry on commit — the snapshot
     # (its committed outputs) is what a later compensate throw hands the undo handler. Append-only, so a
     # re-run of this node (idempotent capability) simply re-appends an identical entry keyed by

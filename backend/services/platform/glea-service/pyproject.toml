@@ -1,0 +1,37 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "glea-service"
+version = "0.1.0"
+description = "Amendia — GLEA audit system-of-record (ADR-058 Phase B): consumes governed events off amendia.events and persists the append-only audit_events table in ClickHouse."
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi>=0.115",
+  "uvicorn[standard]>=0.30",
+  "pydantic>=2.7",
+  "pydantic-settings>=2.3",
+  "orjson>=3.10",
+  "aio-pika>=9.4",
+  "clickhouse-connect>=0.7",
+  "amendia-common",
+  "amendia-contracts",
+  "amendia-telemetry",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.2", "pytest-asyncio>=0.23", "httpx>=0.27", "anyio>=4.4"]
+
+[tool.uv.sources]
+amendia-common = { path = "../../../../libs", editable = true }
+amendia-contracts = { path = "../../../../libs/amendia_contracts", editable = true }
+amendia-telemetry = { path = "../../../../libs/amendia_telemetry", editable = true }
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]
+
+[tool.pytest.ini_options]
+pythonpath = ["app", "../../../../libs", "../../../../libs/amendia_contracts", "../../../../libs/amendia_telemetry"]
+asyncio_mode = "auto"
+addopts = "-q"

@@ -3,6 +3,8 @@ import uvicorn
 from fastapi import FastAPI
 from fastapi.responses import ORJSONResponse
 
+from amendia_telemetry import configure_telemetry
+
 from app.routers.config_routes import router as config_router
 from app.config import settings
 from app.logging_conf import *  # configure root logger
@@ -13,6 +15,7 @@ app = FastAPI(
     version="0.1.0",
     default_response_class=ORJSONResponse,
 )
+configure_telemetry("config-forge", app=app)  # ADR-058
 
 app.include_router(config_router)
 

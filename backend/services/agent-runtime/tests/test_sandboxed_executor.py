@@ -126,7 +126,9 @@ def test_ac01_runs_to_resolved_through_sandbox_with_trace_ids():
               for e in cap_entries if "exec_meta" in e}
     assert "Task_DraftRepair" in traced
     assert "Task_SanctionsRescreen" in traced
-    assert all(t.startswith("fake-otlp-") for t in traced.values())
+    # ADR-058: sandbox executions now emit REAL OTLP spans that unify into the instance trace (child of
+    # the node span), so their ids are 32-char hex trace ids — not the old synthetic `fake-otlp-` marker.
+    assert all(len(t) == 32 and int(t, 16) != 0 for t in traced.values())
 
 
 # --------------------------------------------------------------------------- #
@@ -154,5 +156,11 @@ def test_native_and_nemoclaw_fake_are_transparent():
     assert n_result["outcome"] == s_result["outcome"] == "End_Resolved"
     # Same actor_log structure (modulo the added trace metadata + timestamps).
     assert _strip(n_result["actor_log"]) == _strip(s_result["actor_log"])
-    # And native carries no exec_meta at all — byte-for-byte the old shape.
-    assert all("exec_meta" not in e for e in n_result["actor_log"])
+    # ADR-058 Phase C: native reasoning capabilities (llm/deep_agent) now carry an explainability
+    # rationale in exec_meta — but NO sandbox trace metadata (the nemoclaw-only otlp_trace_id). So a
+    # native exec_meta, when present, contains ONLY 'rationale'.
+    for e in n_result["actor_log"]:
+        em = e.get("exec_meta")
+        if em is not None:
+            assert set(em) <= {"rationale"}, em
+            assert "otlp_trace_id" not in em

@@ -62,6 +62,11 @@ def get_onboarding_repo(request: Request) -> OnboardingRepository:
     return request.app.state.onboarding_repo
 
 
+def get_publisher(request: Request):
+    """The governed-event publisher (ADR-058). May be None/disconnected — callers emit fail-soft."""
+    return getattr(request.app.state, "publisher", None)
+
+
 def get_onboarding_service(request: Request) -> OnboardingService:
     st = request.app.state
     return OnboardingService(

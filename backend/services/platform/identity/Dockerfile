@@ -11,7 +11,8 @@ RUN pip install --no-cache-dir uv
 COPY libs /src/libs
 RUN uv pip install --system /src/libs \
  && uv pip install --system /src/libs/amendia_contracts \
- && uv pip install --system /src/libs/amendia_auth
+ && uv pip install --system /src/libs/amendia_auth \
+ && uv pip install --system /src/libs/amendia_telemetry
 
 # 2) Service dependencies + package.
 COPY backend/services/platform/identity/pyproject.toml /src/backend/services/platform/identity/pyproject.toml

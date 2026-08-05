@@ -8,7 +8,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import signal
+
+from amendia_telemetry import configure_telemetry
 
 from app.config import settings
 from app.logging_conf import configure_logging
@@ -38,6 +41,17 @@ async def _run() -> None:
 
 def main() -> None:
     configure_logging(settings.LOG_LEVEL)
+    # ADR-058: stand up the worker's OWN TracerProvider so its ``sandbox.capability`` execution spans
+    # export to the Collector, parented (via ``emit_linked_span``) to the node span whose W3C
+    # traceparent the host threaded down in the job spec — so a real cross-process capability run
+    # unifies into the one instance trace instead of vanishing. Endpoint: the standard
+    # ``OTEL_EXPORTER_OTLP_ENDPOINT`` (dev compose → otel-collector) else ``settings.OTLP_ENDPOINT``
+    # (the in-sandbox host endpoint in prod nemoclaw). Unreachable ⇒ fail-soft (spans dropped on a
+    # background thread); no endpoint at all ⇒ telemetry disabled — the worker never crashes on either.
+    endpoint = (os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT")
+                or os.environ.get("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT")
+                or settings.OTLP_ENDPOINT)
+    configure_telemetry("agent-runtime-worker", endpoint=endpoint)
     asyncio.run(_run())
 
 

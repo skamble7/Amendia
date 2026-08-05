@@ -28,6 +28,7 @@ from amendia_contracts.common import (
     SemVerStr,
     TimestampsMixin,
 )
+from amendia_contracts.dispatch import Trace
 
 # Pinned artifact ref (e.g. art.payment.repair_verdict@1.0.0) for review snapshots.
 PinnedArtifactRefStr = Annotated[str, StringConstraints(pattern=r"^art\..+@\d+\.\d+\.\d+$")]
@@ -124,6 +125,10 @@ class HitlTask(ContractModel, TimestampsMixin):
     allowed_decisions: List[Decision] = Field(..., min_length=1)
     status: TaskStatus
     decision: Optional[DecisionRecord] = None
+    # ADR-058: the instance's OTel trace id (32-hex), carried from state.trace["otel"] at materialization
+    # so a HITL decide/expire audit event can stamp it (the join key to otel_traces). Optional/None when
+    # telemetry is off. Additive — legacy tasks simply omit it.
+    trace_id: Optional[str] = None
     # ADR-027 Phase 2.1: the LangGraph interrupt id this task corresponds to. Required to resume
     # exactly this gate when a parallel superstep raises several concurrent interrupts (they must
     # be resolved one at a time via ``Command(resume={id: decision})``). Absent for legacy tasks.
@@ -155,6 +160,9 @@ class HitlTaskCreatedEvent(EventBase):
     process_instance_id: str
     element_id: str
     role: RoleId
+    # ADR-058: correlation_id + trace_id for the audit join. Optional/None keeps existing publishers
+    # valid; the runtime populates it from the instance trace.
+    trace: Optional[Trace] = None
 
 
 class HitlTaskDecidedEvent(EventBase):
@@ -169,6 +177,13 @@ class HitlTaskDecidedEvent(EventBase):
     role: RoleId
     decision: Decision
     decided_by: str
+    # ADR-058: the four-eyes / separation-of-duties outcome for this decision. True — a SoD constraint
+    # was in force and honored (the decider was not an excluded user); None — no SoD constraint applied.
+    sod_satisfied: Optional[bool] = None
+    # ADR-058 Phase C: the reviewer's free-text comment (small, non-sensitive) — carried so the
+    # decision-trail read-model can surface it. Absent when no comment was given.
+    comment: Optional[str] = None
+    trace: Optional[Trace] = None
 
 
 class HitlTaskExpiredEvent(EventBase):
@@ -185,3 +200,4 @@ class HitlTaskExpiredEvent(EventBase):
     element_id: str
     role: RoleId
     escalated_to: Optional[str] = None   # the boundary's escalation target element id
+    trace: Optional[Trace] = None

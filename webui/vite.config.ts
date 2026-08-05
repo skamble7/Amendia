@@ -12,6 +12,7 @@ const PROXY_TARGETS: Record<string, string> = {
   "/api/registry": process.env.VITE_REGISTRY_URL ?? "http://localhost:8084",
   "/api/identity": process.env.VITE_IDENTITY_URL ?? "http://localhost:8086",
   "/api/notifications": process.env.VITE_NOTIFICATIONS_URL ?? "http://localhost:8088",
+  "/api/glea": process.env.VITE_GLEA_URL ?? "http://localhost:8090",
 };
 
 export default defineConfig({
@@ -49,6 +50,7 @@ export default defineConfig({
       VITE_REGISTRY_BASE: "http://localhost/api/registry",
       VITE_IDENTITY_BASE: "http://localhost/api/identity",
       VITE_NOTIFICATIONS_BASE: "http://localhost/api/notifications",
+      VITE_GLEA_BASE: "http://localhost/api/glea",
     },
   },
 });

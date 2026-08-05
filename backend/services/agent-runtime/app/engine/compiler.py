@@ -48,7 +48,14 @@ from app.engine.multi_instance import (
     mi_node_ids,
 )
 from app.engine.state import ProcessState, actor_entry
-from app.engine.task_runner import make_task_node
+from app.engine.task_runner import (
+    _augment_node_trace,
+    _input_lineage_links,
+    _lightweight_attrs,
+    _node_span_attrs,
+    make_task_node,
+    node_trace,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -62,7 +69,9 @@ class CompilerError(Exception):
 
 def compile_graph(bundle: PackBundle, executor: Executor, *, simulation: bool, checkpointer,
                   profile: str = "common_subset", bundle_provider: Optional[BundleProvider] = None,
-                  clock: Optional[Callable[[], float]] = None):
+                  clock: Optional[Callable[[], float]] = None,
+                  execution_mode: str = "native",
+                  native_egress_enforce: bool = True):
     model = bundle.bpmn_model
     # ADR-027 §1a / Phase 2: refuse the un-runnable structural constructs off the SAME shared
     # predicate the registry gates activation with — so runtime and registry can never diverge on
@@ -211,18 +220,20 @@ def compile_graph(bundle: PackBundle, executor: Executor, *, simulation: bool, c
             continue  # message → message node; arms → gateway; MI → dispatch/iter/join; comp handler → inline
         g.add_node(element_id, make_task_node(ctx, executor, simulation=simulation,
                                               boundary_timer=_running_deadline(element_id, ctx), clock=clock,
-                                              scope_timers=_scope_timers_for(element_id, ctx)))
+                                              scope_timers=_scope_timers_for(element_id, ctx),
+                                              execution_mode=execution_mode,
+                                              native_egress_enforce=native_egress_enforce))
 
     for end_id in model.end_events:
         if end_id in end_throw_ids:
             continue  # ADR-043: a terminal compensate-throw endEvent compiles to a driver, not an end node
-        g.add_node(end_id, _make_end_node(end_id))
+        g.add_node(end_id, _make_end_node(end_id, execution_mode, simulation))
         g.add_edge(end_id, END)
 
     # ADR-042: an event sub-process body's ends are terminal too — mark the outcome and edge to END
     # (the ESP is the handler; once it completes the instance is done).
     for end_id in esp_end_ids:
-        g.add_node(end_id, _make_end_node(end_id))
+        g.add_node(end_id, _make_end_node(end_id, execution_mode, simulation))
         g.add_edge(end_id, END)
 
     # ADR-043 (Item G): each compensate-throw event → a self-looping driver node that compensates its
@@ -230,28 +241,29 @@ def compile_graph(bundle: PackBundle, executor: Executor, *, simulation: bool, c
     for tid in comp_throw_ids:
         thr = model.compensate_throws[tid]
         g.add_node(tid, make_compensation_driver(tid, thr.scope, model.process_id, handler_ctxs,
-                                                 executor, simulation=simulation))
+                                                 executor, simulation=simulation,
+                                                 execution_mode=execution_mode))
 
     # Parallel gateways compile to passthrough nodes: a fork's N outgoing edges fan out (parallel
     # superstep); a join's N incoming edges make LangGraph wait for all branches (barrier).
     for gw in parallels:
-        g.add_node(gw, _passthrough_node(gw))
+        g.add_node(gw, _passthrough_node(gw, execution_mode, simulation))
 
     # Timer intermediate-catch events (Phase 2.2): a node that interrupts on entry so the engine
     # parks WAITING_TIMER, then auto-proceeds when the poller resumes it at the timer's fire_at.
     for cid in timer_catches:
-        g.add_node(cid, _timer_catch_node(cid))
+        g.add_node(cid, _timer_catch_node(cid, execution_mode, simulation))
 
     # Message catch / receive nodes (Phase 2.4): interrupt on entry so the engine registers a
     # subscription and parks WAITING_MESSAGE; resume on correlated delivery.
     for mid in message_nodes:
         sub_kind = "receive" if mid in receive_tasks else "catch"
-        g.add_node(mid, _message_node(node_ctxs[mid], sub_kind))
+        g.add_node(mid, _message_node(node_ctxs[mid], sub_kind, execution_mode, simulation))
 
     # Event-based gateways (Phase 2.4 capstone): interrupt on entry so the engine registers ALL arms
     # (timer + message) and parks; first arm to fire wins, the losers are cancelled.
     for gw in event_gateways:
-        g.add_node(gw, _event_gateway_node(gw))
+        g.add_node(gw, _event_gateway_node(gw, execution_mode, simulation))
 
     # Multi-instance hosts (ADR-036): a bound task that runs N times. Sequential → one guarded loop
     # node; parallel → a dispatch node (fans out one Send per iteration), an iteration node (runs one),
@@ -277,24 +289,27 @@ def compile_graph(bundle: PackBundle, executor: Executor, *, simulation: bool, c
                 raise CompilerError(f"multi-instance host '{host}': completionCondition {exc}") from exc
         if mi.is_sequential:
             g.add_node(host, make_sequential_mi_node(mctx, executor, simulation=simulation,
-                                                     host=host, mi=mi))
+                                                     host=host, mi=mi, execution_mode=execution_mode))
         else:
             iter_id, join_id = mi_node_ids(host)
-            g.add_node(host, make_mi_dispatch_node(host))
+            g.add_node(host, make_mi_dispatch_node(host, execution_mode=execution_mode,
+                                                   simulation=simulation))
             g.add_node(iter_id, make_mi_iteration_node(mctx, executor, simulation=simulation,
-                                                       host=host, mi=mi))
-            g.add_node(join_id, make_mi_join_node(mctx, host=host, mi=mi))
+                                                       host=host, mi=mi, execution_mode=execution_mode))
+            g.add_node(join_id, make_mi_join_node(mctx, host=host, mi=mi,
+                                                  execution_mode=execution_mode, simulation=simulation))
 
     # ADR-039: callActivity input/output boundary-map nodes (pure state-copy at the callee boundary).
     for mid, mnode in boundary_maps.items():
-        g.add_node(mid, make_map_node(mnode))
+        g.add_node(mid, make_map_node(mnode, execution_mode=execution_mode, simulation=simulation))
 
     # ADR-041: scope-entry nodes stamp a subProcess timer-boundary's scope-wide SLA deadline on entry.
     for sid, entry_id in scope_entry_ids.items():
         _dur = parse_iso_duration(subproc_timers[sid].timer.value).total_seconds()
-        g.add_node(entry_id, _scope_entry_node(sid, _dur, clock or time.monotonic))
+        g.add_node(entry_id, _scope_entry_node(sid, _dur, clock or time.monotonic,
+                                               execution_mode, simulation))
 
-    g.add_node(FAILURE_SINK, _failure_node)
+    g.add_node(FAILURE_SINK, _failure_node(execution_mode, simulation))
     g.add_edge(FAILURE_SINK, END)
 
     # ADR-032 Phase 2.6: inline embedded sub-processes. A flow targeting a subProcess box routes to
@@ -454,7 +469,7 @@ def compile_graph(bundle: PackBundle, executor: Executor, *, simulation: bool, c
         thr = model.compensate_throws[tid]
         if thr.is_end:
             done_node = f"{tid}__done"
-            g.add_node(done_node, _make_end_node(tid))
+            g.add_node(done_node, _make_end_node(tid, execution_mode, simulation))
             g.add_edge(done_node, END)
             done_target = done_node
         else:
@@ -518,90 +533,119 @@ def compile_graph(bundle: PackBundle, executor: Executor, *, simulation: bool, c
     return g.compile(checkpointer=checkpointer)
 
 
-def _make_end_node(end_id: str) -> Callable:
+def _make_end_node(end_id: str, execution_mode: str = "native", simulation: bool = False) -> Callable:
     def end_node(state: Dict[str, Any]) -> Dict[str, Any]:
-        return {"outcome": end_id}
+        with node_trace(state, f"end_{end_id}",
+                        attrs=_lightweight_attrs(end_id, execution_mode, simulation)):
+            return {"outcome": end_id}
     end_node.__name__ = f"end_{end_id}"
     return end_node
 
 
-def _timer_catch_node(element_id: str) -> Callable:
+def _timer_catch_node(element_id: str, execution_mode: str = "native",
+                      simulation: bool = False) -> Callable:
     """A timer intermediate-catch event (ADR-027 Phase 2.2). On first entry ``interrupt`` parks the
     graph — the engine sees the ``kind:"timer"`` payload, registers a durable timer, and sets the
     instance WAITING_TIMER. When the poller fires it, the engine resumes with a signal and
     ``interrupt`` returns, so the node proceeds to its outgoing flow (no state change)."""
     def node(state: Dict[str, Any]) -> Dict[str, Any]:
-        interrupt({"kind": "timer", "timer_kind": "intermediate", "element_id": element_id})
-        return {}
+        with node_trace(state, f"timer_{element_id}",
+                        attrs=_lightweight_attrs(element_id, execution_mode, simulation)):
+            interrupt({"kind": "timer", "timer_kind": "intermediate", "element_id": element_id})
+            return {}
     node.__name__ = f"timer_{element_id}"
     return node
 
 
-def _message_node(ctx, sub_kind: str) -> Callable:
+def _message_node(ctx, sub_kind: str, execution_mode: str = "native",
+                  simulation: bool = False) -> Callable:
     """A message intermediate-catch / receive task (ADR-031 Phase 2.4). On first entry ``interrupt``
     parks the graph — the engine registers a subscription and sets WAITING_MESSAGE. On a correlated
     delivery the engine resumes with the (already-validated) committed artifact, or the raw payload
-    when the binding is a pure signal; the node writes it and proceeds."""
+    when the binding is a pure signal; the node writes it and proceeds.
+
+    ADR-058: an artifact-producing span when it commits a typed artifact (recorded as producer for
+    downstream lineage), a lightweight span for a pure signal (``_augment_node_trace`` no-ops when the
+    delta has no ``artifacts``)."""
     def node(state: Dict[str, Any]) -> Dict[str, Any]:
-        resumed = interrupt({"kind": "message", "sub_kind": sub_kind,
-                             "element_id": ctx.element_id, "message_name": ctx.message_name})
-        delta: Dict[str, Any] = {
-            "actor_log": [actor_entry(ctx.element_id, "external", "message")],
-        }
-        if isinstance(resumed, dict) and resumed.get("committed"):
-            delta["artifacts"] = resumed["committed"]      # typed: validated + committed by the engine
-        elif isinstance(resumed, dict) and "payload" in resumed:
-            delta["messages"] = {ctx.element_id: resumed.get("payload")}  # untyped signal
-        return delta
+        with node_trace(state, f"msg_{ctx.element_id}",
+                        attrs=_node_span_attrs(ctx, state, simulation, execution_mode),
+                        links=_input_lineage_links(ctx, state)) as span:
+            resumed = interrupt({"kind": "message", "sub_kind": sub_kind,
+                                 "element_id": ctx.element_id, "message_name": ctx.message_name})
+            delta: Dict[str, Any] = {
+                "actor_log": [actor_entry(ctx.element_id, "external", "message")],
+            }
+            if isinstance(resumed, dict) and resumed.get("committed"):
+                delta["artifacts"] = resumed["committed"]      # typed: validated + committed by the engine
+            elif isinstance(resumed, dict) and "payload" in resumed:
+                delta["messages"] = {ctx.element_id: resumed.get("payload")}  # untyped signal
+            return _augment_node_trace(delta, span)
     node.__name__ = f"msg_{ctx.element_id}"
     return node
 
 
-def _event_gateway_node(gw_id: str) -> Callable:
+def _event_gateway_node(gw_id: str, execution_mode: str = "native",
+                        simulation: bool = False) -> Callable:
     """An event-based gateway (ADR-031 Phase 2.4 capstone). On entry ``interrupt`` parks the graph —
     the engine registers ALL arms (timer + message) and parks. The first arm to fire resumes here
     with ``{"arm": <arm_id>, ...}``; the node records the winner so the conditional edge routes to
     that arm's downstream target (the engine has already cancelled the losing arms)."""
     def node(state: Dict[str, Any]) -> Dict[str, Any]:
-        resumed = interrupt({"kind": "event_gateway", "element_id": gw_id})
-        arm = resumed.get("arm") if isinstance(resumed, dict) else None
-        delta: Dict[str, Any] = {
-            "boundary": {gw_id: {"kind": "event", "arm": arm}},
-            "actor_log": [actor_entry(arm or gw_id, (resumed or {}).get("actor", "external"),
-                                      (resumed or {}).get("actor_kind", "message"))],
-        }
-        if isinstance(resumed, dict) and resumed.get("payload") is not None:
-            delta["messages"] = {arm: resumed["payload"]}
-        return delta
+        with node_trace(state, f"evgw_{gw_id}",
+                        attrs=_lightweight_attrs(gw_id, execution_mode, simulation)):
+            resumed = interrupt({"kind": "event_gateway", "element_id": gw_id})
+            arm = resumed.get("arm") if isinstance(resumed, dict) else None
+            delta: Dict[str, Any] = {
+                "boundary": {gw_id: {"kind": "event", "arm": arm}},
+                "actor_log": [actor_entry(arm or gw_id, (resumed or {}).get("actor", "external"),
+                                          (resumed or {}).get("actor_kind", "message"))],
+            }
+            if isinstance(resumed, dict) and resumed.get("payload") is not None:
+                delta["messages"] = {arm: resumed["payload"]}
+            return delta
     node.__name__ = f"evgw_{gw_id}"
     return node
 
 
-def _scope_entry_node(scope_id: str, duration: float, clock: Callable[[], float]) -> Callable:
+def _scope_entry_node(scope_id: str, duration: float, clock: Callable[[], float],
+                      execution_mode: str = "native", simulation: bool = False) -> Callable:
     """ADR-041: the entry to a subProcess with a timer boundary — stamps the scope-wide SLA deadline
     (absolute, injected clock) into ``state.scope_deadlines[scope_id]`` so every inner node enforces the
     remaining budget. Re-runs (recovery) re-stamp a fresh deadline (same semantic as ADR-040)."""
     _clock = clock or time.monotonic
 
     def node(state: Dict[str, Any]) -> Dict[str, Any]:
-        return {"scope_deadlines": {scope_id: _clock() + duration}}
+        with node_trace(state, f"scope_entry_{scope_id}",
+                        attrs=_lightweight_attrs(scope_id, execution_mode, simulation)):
+            return {"scope_deadlines": {scope_id: _clock() + duration}}
     node.__name__ = f"scope_entry_{scope_id}"
     return node
 
 
-def _passthrough_node(gw_id: str) -> Callable:
+def _passthrough_node(gw_id: str, execution_mode: str = "native",
+                      simulation: bool = False) -> Callable:
     """A parallel gateway: no state change; edges do the fork/join (ADR-027 Phase 2.1)."""
     def node(state: Dict[str, Any]) -> Dict[str, Any]:
-        return {}
+        with node_trace(state, f"gw_{gw_id}",
+                        attrs=_lightweight_attrs(gw_id, execution_mode, simulation)):
+            return {}
     node.__name__ = f"gw_{gw_id}"
     return node
 
 
-def _failure_node(state: Dict[str, Any]) -> Dict[str, Any]:
-    return {
-        "outcome": FAILED_OUTCOME,
-        "last_error": state.get("last_error") or "no gateway route matched and no default flow",
-    }
+def _failure_node(execution_mode: str = "native", simulation: bool = False) -> Callable:
+    """The compiled-in failure sink: records the failed outcome + carried error. ADR-058: a lightweight
+    control span so an unrouted/failed instance still terminates inside the one trace tree."""
+    def node(state: Dict[str, Any]) -> Dict[str, Any]:
+        with node_trace(state, f"gw_{FAILURE_SINK}",
+                        attrs=_lightweight_attrs(FAILURE_SINK, execution_mode, simulation)):
+            return {
+                "outcome": FAILED_OUTCOME,
+                "last_error": state.get("last_error") or "no gateway route matched and no default flow",
+            }
+    node.__name__ = "failure_node"
+    return node
 
 
 def _build_gateway_router(bundle, model, gateway_id, resolve_node):

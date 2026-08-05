@@ -18,11 +18,34 @@ def merge_dicts(a: Dict[str, Any], b: Dict[str, Any]) -> Dict[str, Any]:
     return out
 
 
+def merge_trace(a: Dict[str, Any], b: Dict[str, Any]) -> Dict[str, Any]:
+    """Reducer for ``trace`` (ADR-058): overlay scalar keys (``correlation_id``/``causation_id``/
+    ``otel`` — set once at start), but **deep-merge** the ``artifact_spans`` sub-dict so every node
+    that commits an artifact adds its producing span context without clobbering peers on concurrent
+    branches. A node delta only ever carries ``{"artifact_spans": {name: ctx}}``; absent → unchanged."""
+    if not b:
+        return a or {}
+    out = dict(a or {})
+    for k, v in b.items():
+        if k == "artifact_spans" and isinstance(out.get(k), dict) and isinstance(v, dict):
+            merged = dict(out[k])
+            merged.update(v)
+            out[k] = merged
+        else:
+            out[k] = v
+    return out
+
+
 class ProcessState(TypedDict, total=False):
     envelope: Dict[str, Any]
     artifacts: Annotated[Dict[str, Any], merge_dicts]
     actor_log: Annotated[List[Dict[str, Any]], operator.add]
-    trace: Dict[str, Any]
+    # ADR-058: ``trace`` carries the persisted instance root-span context (``otel``, set once at
+    # start so node spans re-parent to it across HITL waits / recovery) plus ``artifact_spans``
+    # (artifact name → producing-node span context, accumulated for lineage span links). The
+    # reducer overlays scalars and deep-merges ``artifact_spans``. Both keys are optional (absent →
+    # a fresh trace, never a crash), mirroring the ADR-017 native-parity discipline.
+    trace: Annotated[Dict[str, Any], merge_trace]
     pack: Dict[str, Any]
     outcome: Optional[str]
     last_error: Optional[str]
@@ -52,6 +75,13 @@ class ProcessState(TypedDict, total=False):
     # NEVER compensates the same activity twice (the append-only log can't be mutated in place).
     compensation_log: Annotated[List[Dict[str, Any]], operator.add]
     compensations_done: Annotated[Dict[str, bool], merge_dicts]
+    # ADR-058 Phase B: APPEND-only audit intents raised at governed decision points inside the graph
+    # (a node can't publish — it's sync + has no broker). ``_commit`` appends an ``artifact_committed``
+    # intent per output; the native egress check appends an ``egress_decision`` intent (audit-only path).
+    # The async engine drains this after each segment and publishes the governed events (stamping
+    # ``trace_id``), so publishing stays in the one fail-soft place. Each intent carries a stable
+    # ``event_id`` so a re-publish (crash recovery) dedupes at glea. Purely additive, side-effect-free.
+    audit_log: Annotated[List[Dict[str, Any]], operator.add]
 
 
 def now_iso() -> str:
@@ -87,4 +117,5 @@ def initial_state(*, envelope: Dict[str, Any], trace: Dict[str, Any], pack: Dict
         "scope_deadlines": {},
         "compensation_log": [],
         "compensations_done": {},
+        "audit_log": [],
     }

@@ -23,11 +23,27 @@ logger = logging.getLogger(__name__)
 
 
 def _emit_otlp_trace(spec: Dict[str, Any]) -> str:
-    """Return an OTLP trace id for this execution. In an OpenShell sandbox the worker exports
-    spans to ``settings.OTLP_ENDPOINT`` (host.openshell.internal:4318); in dev/CI export is a
-    no-op and we just mint a correlatable id. # [confirm] OTLP span/exporter wiring in-sandbox.
+    """Emit a real OTLP span for this sandboxed execution and return its trace id (ADR-058).
+
+    Parented to the node span's W3C ``traceparent`` (``spec["otel_traceparent"]``, threaded from the
+    host) so the sandbox execution unifies into the instance trace via the SAME Collector. In an
+    OpenShell sandbox the worker's own telemetry exports to ``settings.OTLP_ENDPOINT``; falls back to
+    a synthetic correlatable id when telemetry is off / no parent is present.
     """
     rid = spec.get("_request_id") or spec.get("element_id") or spec.get("capability_id") or "x"
+    try:
+        from amendia_telemetry import conventions as tconv, emit_linked_span
+
+        real = emit_linked_span(
+            spec.get("otel_traceparent"), "sandbox.capability",
+            attrs={tconv.ELEMENT_ID: spec.get("element_id"), tconv.ACTOR: spec.get("capability_id"),
+                   tconv.ACTOR_KIND: "capability", tconv.EXECUTION_MODE: "nemoclaw",
+                   tconv.SIMULATION: bool(spec.get("simulation", True))},
+        )
+        if real:
+            return real
+    except Exception:  # noqa: BLE001 - telemetry must never break a capability execution
+        pass
     return f"otlp-worker-{rid}-{uuid.uuid4().hex[:8]}"
 
 

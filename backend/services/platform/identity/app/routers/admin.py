@@ -16,7 +16,8 @@ from amendia_auth import AuthenticatedUser, require_roles
 from app.dal.base import DuplicateError
 from app.dal.role_repo import RoleRepository
 from app.dal.user_repo import UserRepository
-from app.deps import get_role_repo, get_user_repo
+from app.deps import get_publisher, get_role_repo, get_user_repo
+from app.events.publisher import emit_role_changed
 from app.models.identity import AssignRoleRequest, User, UserStatus, UserView
 from app.services.guardrails import (
     ADMIN_ROLE,
@@ -82,6 +83,7 @@ async def assign_role(
     admin: AuthenticatedUser = Depends(_ADMIN),
     user_repo: UserRepository = Depends(get_user_repo),
     role_repo: RoleRepository = Depends(get_role_repo),
+    publisher=Depends(get_publisher),
 ):
     user = await user_repo.get(amendia_user_id)
     if user is None:
@@ -89,7 +91,11 @@ async def assign_role(
     try:
         await role_repo.assign(amendia_user_id, body.role, admin.amendia_user_id)
     except DuplicateError as exc:
+        await emit_role_changed(publisher, subject_user=amendia_user_id, role=body.role, op="grant",
+                                actor=admin.amendia_user_id, outcome="duplicate")
         raise HTTPException(status_code=409, detail=str(exc))
+    await emit_role_changed(publisher, subject_user=amendia_user_id, role=body.role, op="grant",
+                            actor=admin.amendia_user_id, outcome="granted")
     return await _to_view(user, role_repo)
 
 
@@ -100,14 +106,20 @@ async def revoke_role(
     admin: AuthenticatedUser = Depends(_ADMIN),
     user_repo: UserRepository = Depends(get_user_repo),
     role_repo: RoleRepository = Depends(get_role_repo),
+    publisher=Depends(get_publisher),
 ):
     user = await user_repo.get(amendia_user_id)
     if user is None:
         raise HTTPException(status_code=404, detail=f"Unknown user: {amendia_user_id}")
 
+    async def _emit(outcome: str) -> None:
+        await emit_role_changed(publisher, subject_user=amendia_user_id, role=role, op="revoke",
+                                actor=admin.amendia_user_id, outcome=outcome)
+
     # Self-protection: an admin can't strip their own admin role (checked before any
     # mutation, and independent of how many other admins exist).
     if role == ADMIN_ROLE and amendia_user_id == admin.amendia_user_id:
+        await _emit("self_protection")
         raise self_protection_error("You cannot revoke your own platform-admin role.")
 
     removed = await role_repo.pop_assignment(amendia_user_id, role)
@@ -120,8 +132,10 @@ async def revoke_role(
     # one admin always survives.
     if role == ADMIN_ROLE and await active_admin_count(role_repo, user_repo) == 0:
         await role_repo.restore_assignment(removed)
+        await _emit("last_admin")
         raise last_admin_error("Refused: this is the last active platform admin.")
 
+    await _emit("revoked")
     return await _to_view(user, role_repo)
 
 
