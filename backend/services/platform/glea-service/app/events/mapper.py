@@ -66,6 +66,9 @@ def to_row(routing_key: str, payload: Dict[str, Any]) -> Dict[str, Any]:
         "decision": "" if is_egress else str(payload.get("decision") or ""),
         "decided_by": str(payload.get("decided_by") or ""),
         "sod_satisfied": _u8(payload.get("sod_satisfied")),
+        # ArtifactCommittedEvent carries artifact_key; the decision-trail + lineage read-models join on
+        # it. Other kinds leave "".
+        "artifact_key": str(payload.get("artifact_key") or ""),
         "schema_ref": str(payload.get("schema_ref") or ""),
         "authored_by_human": _u8(payload.get("authored_by_human")),
         "egress_host": str(payload.get("host") or "") if is_egress else "",

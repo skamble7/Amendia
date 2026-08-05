@@ -55,8 +55,12 @@ class AuditReader:
             lambda c: self._rows_of_kind_sync(c, correlation_id, "hitl_task_decided", cols))
 
     async def artifact_rows(self, correlation_id: str) -> List[Dict[str, Any]]:
-        cols = ["element_id", "artifact_key", "schema_ref", "actor", "actor_kind",
-                "authored_by_human", "occurred_at", "event_id"]
+        # artifact_key was added to the schema after Phase B; rows written before the migration have it
+        # empty in the column but present in the stored full-event payload — fall back to that so a
+        # redeploy doesn't need a re-run. (Fresh rows populate the column directly.)
+        cols = ["element_id",
+                "coalesce(nullIf(artifact_key, ''), JSONExtractString(payload, 'artifact_key')) AS artifact_key",
+                "schema_ref", "actor", "actor_kind", "authored_by_human", "occurred_at", "event_id"]
         return await self._pool.run(
             lambda c: self._rows_of_kind_sync(c, correlation_id, "artifact_committed", cols))
 

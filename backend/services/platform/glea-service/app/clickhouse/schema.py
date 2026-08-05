@@ -29,6 +29,7 @@ INSERT_COLUMNS = [
     "decision",
     "decided_by",
     "sod_satisfied",
+    "artifact_key",
     "schema_ref",
     "authored_by_human",
     "egress_host",
@@ -42,6 +43,16 @@ READ_COLUMNS = INSERT_COLUMNS + ["ingested_at"]
 
 def create_database_ddl(db: str) -> str:
     return f"CREATE DATABASE IF NOT EXISTS {db}"
+
+
+def alter_add_columns_ddl(db: str, table: str) -> list[str]:
+    """Idempotent column migrations for a table that predates a schema addition. ``CREATE TABLE IF NOT
+    EXISTS`` won't add a column to an existing table, so a redeploy over an existing DB runs these to
+    gain the new column without a drop. ``artifact_key`` (the join key the decision-trail + lineage
+    read-models select) was missing from the original Phase B schema."""
+    return [
+        f"ALTER TABLE {db}.{table} ADD COLUMN IF NOT EXISTS artifact_key String AFTER sod_satisfied",
+    ]
 
 
 def create_table_ddl(db: str, table: str, ttl_days: int) -> str:
@@ -62,6 +73,7 @@ CREATE TABLE IF NOT EXISTS {db}.{table} (
   decision          LowCardinality(String),
   decided_by        String,
   sod_satisfied     Nullable(UInt8),
+  artifact_key      String,
   schema_ref        String,
   authored_by_human Nullable(UInt8),
   egress_host       String,

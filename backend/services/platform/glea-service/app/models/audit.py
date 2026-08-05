@@ -24,6 +24,7 @@ class AuditEventOut(BaseModel):
     decision: str = ""
     decided_by: str = ""
     sod_satisfied: Optional[bool] = None
+    artifact_key: str = ""
     schema_ref: str = ""
     authored_by_human: Optional[bool] = None
     egress_host: str = ""

@@ -60,6 +60,22 @@ def test_pack_lifecycle_version_aliases_pack_version():
     assert row["correlation_id"] == "reg-1"
 
 
+def test_artifact_committed_populates_artifact_key():
+    payload = _envelope(
+        artifact_key="art.payment.resolution_record", schema_ref="art.payment.resolution_record@1.0.0",
+        element_id="Task_Record", actor="cap.x", actor_kind="capability", authored_by_human=False,
+        trace={"correlation_id": "EXC-9", "trace_id": "c" * 32},
+    )
+    row = to_row("agent_runtime.artifact_committed.v1", payload)
+    assert row["artifact_key"] == "art.payment.resolution_record"     # the decision-trail/lineage join key
+    assert row["schema_ref"] == "art.payment.resolution_record@1.0.0"
+
+
+def test_non_artifact_kinds_leave_artifact_key_empty():
+    payload = _envelope(exception_id="EXC-1", trace={"correlation_id": "EXC-1"})
+    assert to_row("agent_runtime.process_completed.v1", payload)["artifact_key"] == ""
+
+
 def test_payload_column_preserves_the_full_event():
     payload = _envelope(exception_id="EXC-3", trace={"correlation_id": "EXC-3"})
     row = to_row("agent_runtime.process_completed.v1", payload)

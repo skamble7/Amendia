@@ -54,6 +54,10 @@ def bootstrap(client: Any) -> None:
     db, table, ttl = settings.CLICKHOUSE_DB, settings.CLICKHOUSE_TABLE, settings.AUDIT_TTL_DAYS
     client.command(schema.create_database_ddl(db))
     client.command(schema.create_table_ddl(db, table, ttl))
+    # Idempotent migrations for a table created by an older deploy (CREATE TABLE IF NOT EXISTS won't
+    # add a new column to an existing table). Adds artifact_key over an existing DB without a drop.
+    for ddl in schema.alter_add_columns_ddl(db, table):
+        client.command(ddl)
     logger.info("audit_events schema ready: %s.%s (ttl=%dd)", db, table, ttl)
 
 

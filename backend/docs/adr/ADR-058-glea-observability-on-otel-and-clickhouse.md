@@ -1,7 +1,9 @@
 # ADR-058 — GLEA hardening: OpenTelemetry collection, a ClickHouse system-of-record, and a dedicated `glea-service`
 
-**Status:** Proposed (2026-08-04)
+**Status:** Accepted (2026-08-05)
 **Related:** ADR-017 (OTLP `exec_meta` in nemoclaw), ADR-019 (egress policy / sandbox-creation-time enforcement), ADR-024 (self-descriptive endpoints), ADR-043 (compensation log), ADR-048 (capability input_map / dataflow), ADR-055 (deterministic four-eyes), the GLEA engineering assessment (`backend/docs/engineering/amendia_governance_lineage_explainability_audit_assessment.md`) and implementation plan (`backend/docs/engineering/amendia_glea_otel_implementation_plan.md`).
+
+**Implementation status (2026-08-05):** Phases A–E implemented and validated end-to-end on a live stack (restaurant dine-in run `pi-79e3a7b3df78460d`): OTel traces + lineage, the `glea-service` audit system-of-record, the decision-trail / lineage / metrics / trace read-models, and the composed tabbed instance view all confirmed against real ClickHouse. Three live-surfaced fixes applied: glea ClickHouse client concurrency (single session → bounded pool), a missing `audit_events.artifact_key` column, and confirmation of the lineage `Links.SpanId` extraction. Outstanding (bundled fast-follow): config-forge `ConfigRefResolvedEvent` publisher, hash-chain sealing of `prev_hash`/`seal`, and a cosmetic lineage node dedupe; Phase D §3 scheduled-query alerting remains optional.
 
 ## Context
 
