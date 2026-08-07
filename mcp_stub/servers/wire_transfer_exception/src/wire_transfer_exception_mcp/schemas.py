@@ -173,8 +173,12 @@ DRAFT_REPAIR_OUTPUT = _output(
 
 # ``party`` is human-reviewable — declare its shape (mirrors ENRICH_OUTPUT.parties items). ``envelope`` is an
 # agent-produced pass-through context object, so it stays loosely typed.
+# ADR-052 follow-up (reference fix): ``account`` is genuinely a structured ``{id, scheme}`` on a wire creditor,
+# not a bare string — declaring it ``_STR`` made a semantically-correct ``party ← payment.creditor`` mapping
+# fail the tool's typed schema at runtime (isError → MCP_TOOL_ERROR, masked as a "hold"). Typed-open so the
+# HITL form still renders id/scheme, tolerant of extra keys.
 SCREEN_INPUT = _input({
-    "party": _typed_open({"role": _STR, "name": _STR, "account": _STR}),
+    "party": _typed_open({"role": _STR, "name": _STR, "account": _typed_open({"id": _STR, "scheme": _STR})}),
     "envelope": _open(),
     "exception_id": _STR,
     "hint": _STR,
@@ -210,7 +214,10 @@ APPLY_REPAIR_OUTPUT = _ack_output({"release_ref": _STR, "performed_at": _STR})
 # 7) notify_parties (side-effectful)
 # --------------------------------------------------------------------------- #
 
-NOTIFY_INPUT = _input({"resolution": _open(), "exception_id": _STR, "recipients": _STR_ARR})
+# ADR-052 follow-up (reference fix): ``recipients`` derived from the trigger's ``related_messages`` are
+# structured ({type,id,assigner_bic}), not bare strings — an array<string> declaration made that mapping fail
+# the typed schema. Accept an array of (open) objects so the real, structured recipients validate.
+NOTIFY_INPUT = _input({"resolution": _open(), "exception_id": _STR, "recipients": _arr(_open())})
 
 NOTIFY_OUTPUT = _ack_output({"message_ids": _STR_ARR, "performed_at": _STR})
 

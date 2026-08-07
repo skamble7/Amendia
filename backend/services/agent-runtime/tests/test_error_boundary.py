@@ -75,6 +75,10 @@ def _steered_apply_repair(args):
     exc = str(args.get("exception_id") or "")
     if "RJCT" in exc:
         return {"isError": True, "structuredContent": {"error_code": "PAYMENT_REJECTED"}}
+    if "MCPERR" in exc:
+        # isError with NO conventional error_code → the runtime's fallback MCP_TOOL_ERROR (a technical/
+        # tool-protocol failure, e.g. a closed-schema arg rejection), NOT a modeled business outcome.
+        return {"isError": True, "structuredContent": {}}
     if "TECHFAIL" in exc:
         raise RuntimeError("simulated technical failure at ApplyRepair")
     from tests._mcp_server_tools import server_tool_map
@@ -91,7 +95,7 @@ def _initial(reason_codes):
     env["reason_codes"] = ["AC01"]  # AC01 → repairable path (reaches apply_repair)
     # Encode any RJCT/TECHFAIL steer into the exception_id — the field apply_repair actually receives (its
     # closed inputSchema is {exception_id, repair}); reason_codes never reaches it (test_input_map_contract).
-    steer = next((c for c in reason_codes if c in ("RJCT", "TECHFAIL")), None)
+    steer = next((c for c in reason_codes if c in ("RJCT", "MCPERR", "TECHFAIL")), None)
     env["exception_id"] = f"EXC-STEER-{steer}" if steer else "EXC-CLEAN"
     return initial_state(envelope=env, trace={"correlation_id": "c"},
                          pack={"pack_key": PK, "pack_version": PV})
@@ -121,6 +125,18 @@ def test_catch_all_catches_a_code_with_no_specific_boundary():
     cfg = {"configurable": {"thread_id": "eb2"}}
     result, _ = drive(app, cfg, _initial(["AC01", "RJCT"]))
     assert result["outcome"] == "End_Returned" and result["outcome"] != FAILED_OUTCOME
+
+
+def test_catch_all_does_not_mask_technical_mcp_tool_error():
+    # ADR-035 masking guard: a tool isError WITHOUT a modeled error_code → fallback MCP_TOOL_ERROR (technical).
+    # A catch-all boundary (no errorRef) must NOT absorb it as a business outcome — it goes to FAILURE_SINK so
+    # a genuine tool failure surfaces as `failed`, never a silent "hold". (Contrast: a REAL code IS caught — see
+    # test_catch_all_catches_a_code_with_no_specific_boundary.)
+    app = _graph(_error_xml(code="SOMETHING_ELSE", target="End_Returned", catch_all=True))
+    cfg = {"configurable": {"thread_id": "eb_mcperr"}}
+    result, _ = drive(app, cfg, _initial(["AC01", "MCPERR"]))
+    assert result["outcome"] == FAILED_OUTCOME
+    assert "MCP_TOOL_ERROR" in (result.get("last_error") or "")
 
 
 def test_unmatched_code_no_catch_all_goes_to_failure_sink():

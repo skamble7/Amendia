@@ -39,6 +39,7 @@ from app.engine.call_activity import (
 )
 from app.engine.compensation import make_compensation_driver, make_compensation_router
 from app.engine.executor import Executor
+from app.engine.executor.mcp_client import _MCP_TOOL_ERROR as MCP_TOOL_ERROR
 from app.engine.multi_instance import (
     make_mi_dispatch_node,
     make_mi_fan_out,
@@ -412,11 +413,24 @@ def compile_graph(bundle: PackBundle, executor: Executor, *, simulation: bool, c
                     return _tt
                 if b.get("kind") == "error":
                     code = b.get("code")
+                    # ADR-035 masking guard: MCP_TOOL_ERROR is the runtime's *fallback* code for a tool that
+                    # set ``isError`` with NO conventional ``error_code`` — i.e. a technical/tool-protocol
+                    # failure (a closed-schema arg rejection, a crash), not a modeled domain outcome. A
+                    # catch-all boundary (no ``errorRef``) exists to catch MODELED business errors; letting it
+                    # absorb this technical fallback silently disguises the failure as a business outcome
+                    # (e.g. a screening "hold"). So the fallback is caught ONLY by an EXPLICIT ``errorRef``
+                    # for it; otherwise it falls through to FAILURE_SINK (instance failed) — never a catch-all.
+                    technical = code == MCP_TOOL_ERROR
                     for by_code, ca in _chains:   # own, then enclosing scopes (inner→outer)
-                        if code in by_code:
+                        if code in by_code:       # an explicit errorRef for this code always wins
                             return by_code[code]
-                        if ca is not None:
-                            return ca
+                        if ca is not None and not technical:
+                            return ca             # catch-all catches modeled codes, not the technical fallback
+                    if technical:
+                        logger.error(
+                            "capability at '%s' failed TECHNICALLY (code=%s, no modeled error_code) — routing "
+                            "to FAILURE_SINK; a catch-all error boundary did NOT mask it as a business "
+                            "outcome. last_error=%s", _tid, code, state.get("last_error"))
                     return FAILURE_SINK
             # ADR-041: a scope timer breach marked by ANY inner node diverts the whole scope.
             bd = state.get("boundary") or {}

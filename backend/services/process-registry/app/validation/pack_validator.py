@@ -19,6 +19,7 @@ from amendia_contracts.process_pack import ProcessPackManifest
 from app.validation.deep_agent import validate_deep_agent_bindings
 from app.validation.decision import validate_decision_bindings
 from app.validation.reduce import validate_reduce_bindings
+from app.validation.type_compat import describe_mismatch, schema_at_path, schema_type_compat
 from app.dal.artifact_schema_repo import ArtifactSchemaRepository
 from app.dal.capability_repo import CapabilityRepository
 from app.validation.bpmn import BpmnModel, parse_and_validate
@@ -620,6 +621,59 @@ class PackValidator:
                                  message=f"input_map for '{b.element_id}' sends fields {sorted(extra)} not "
                                          f"declared in MCP tool '{ex.capability.ref_id}' input schema (closed); "
                                          f"the tool call will be rejected at runtime (isError → MCP_TOOL_ERROR)")
+
+        # ADR-052 follow-up (type compatibility): the overflow guard above checks field NAMES; this checks the
+        # mapped SOURCE's json-TYPE against the tool field's DECLARED type. A composite (``{"fields":{…}}``) — the
+        # shape an introspected MCP cap always gets — is checked field-by-field: each field's source (a trigger or
+        # upstream-artifact dotpath) is compared to the input artifact schema's declared type for that field (the
+        # artifact schema mirrors the tool ``inputSchema`` by ADR-025 introspection). An ``object`` into a
+        # ``string``, or ``array``-of-``object`` into ``array``-of-``string``, can NEVER satisfy the closed tool
+        # schema (isError → MCP_TOOL_ERROR — previously masked as a compliance "hold"). Only a DEFINITE mismatch
+        # is rejected; an opaque/permissive side degrades to no-op (schema_type_compat → "unknown"/"compatible").
+        _full_cache: Dict[str, dict] = {}
+
+        async def _full_schema(ref_id: Optional[str]) -> dict:
+            if not ref_id:
+                return {}
+            if ref_id not in _full_cache:
+                reg = await self._latest_active_schema(ref_id)
+                _full_cache[ref_id] = (reg.json_schema if reg is not None else {}) or {}
+            return _full_cache[ref_id]
+
+        for b in manifest.bindings:
+            ex = b.executor
+            if ex.type != "capability":
+                continue
+            desc = resolved.get(ex.capability.ref_id)
+            if desc is None or _kind(desc) != "mcp":
+                continue
+            imap = {k: (v.model_dump(by_alias=True) if hasattr(v, "model_dump") else v)
+                    for k, v in (getattr(b, "input_map", None) or {}).items()}
+            for io in b.inputs:
+                src = imap.get(io.name)
+                fields = src.get("fields") if isinstance(src, dict) and isinstance(src.get("fields"), dict) else None
+                if not fields:
+                    continue                                # unmapped / whole-source (names governed above)
+                tgt_props = (await _full_schema(io.schema_.ref_id)).get("properties") or {}
+                for fname, fsrc in fields.items():
+                    tgt_schema = tgt_props.get(fname)
+                    if not isinstance(fsrc, dict) or tgt_schema is None:
+                        continue                            # undeclared field (overflow guard) or nothing to check
+                    path = fsrc.get("path")
+                    if fsrc.get("from") == "trigger":
+                        src_schema = schema_at_path(trigger_schema, path or fname)
+                    elif fsrc.get("from") == "artifact" and fsrc.get("name"):
+                        up = await _full_schema(out_schema_ref.get(fsrc["name"]))
+                        src_schema = schema_at_path(up, path) if path else up
+                    else:
+                        src_schema = None
+                    if schema_type_compat(src_schema, tgt_schema) == "incompatible":
+                        detail = describe_mismatch(src_schema, tgt_schema) or "type mismatch"
+                        report.error("input_map_type_incompatible", stage=5, element_id=b.element_id,
+                                     message=f"input_map for '{b.element_id}' field '{io.name}.{fname}' ← "
+                                             f"'{path or fname}': {detail} — the MCP tool "
+                                             f"'{ex.capability.ref_id}' call would be rejected at runtime "
+                                             f"(isError → MCP_TOOL_ERROR)")
 
     # ------------------------------------------------------------------ #
     # Stage 6 — gateway variables

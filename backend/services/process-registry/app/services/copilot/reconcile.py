@@ -55,6 +55,7 @@ from app.services.copilot.proposal import (
     ReadOnlyInputProposal,
 )
 from app.services.mcp_introspect import sanitize_name
+from app.validation.type_compat import describe_mismatch, schema_at_path, schema_type_compat
 from app.services.onboarding import TransitionError
 
 logger = logging.getLogger(__name__)
@@ -852,6 +853,23 @@ class Reconciler:
                 src["path"] = m.path
             if self._is_optional_source(eid, m):
                 src["optional"] = True            # ADR-048: absent-tolerant (loop-back / branch producer)
+            # TYPE-COMPAT GUARD (ADR-052 follow-up): the name is declared, but a mapped source whose JSON TYPE
+            # can't satisfy the tool field's declared type still fails at runtime (isError → MCP_TOOL_ERROR —
+            # the wire "Screen" hold). Warn so the operator repoints it; the commit validator hard-rejects it.
+            # Only trigger-sourced fields are checkable here (the trigger schema is in hand); artifact sources
+            # and a missing schema degrade to no-op (schema_type_compat → unknown).
+            tgt = (t.input_schema.get("properties") or {}).get(m.field) if declared else None
+            if tgt is not None and m.from_ == "trigger" and isinstance(self.user_trigger_schema, dict):
+                src_schema = schema_at_path(self.user_trigger_schema, m.path or m.field)
+                if schema_type_compat(src_schema, tgt) == "incompatible":
+                    detail = describe_mismatch(src_schema, tgt) or "type mismatch"
+                    self._det("input_map", eid, f"type-incompatible input '{m.field}' ← trigger "
+                                                f"'{m.path or m.field}': {detail}")
+                    self.questions.append(CopilotOpenQuestion(
+                        topic="input_map", element_id=eid, confidence=0.0,
+                        question=(f"'{eid}' input '{m.field}' ← trigger '{m.path or m.field}': {detail}. The tool "
+                                  f"'{tool}' will reject this shape at runtime — map a type-compatible source "
+                                  f"(e.g. a scalar leaf) or drop the field.")))
             fields[m.field] = src
         return {f"{sanitize_name(tool)}_input": {"fields": fields}} if fields else {}
 
