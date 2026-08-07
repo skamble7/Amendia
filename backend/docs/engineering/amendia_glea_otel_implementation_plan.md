@@ -1,5 +1,8 @@
 # Amendia GLEA Hardening — OpenTelemetry-Backed Implementation Plan
 
+> **STATUS: DELIVERED (2026-08-05).** ADR-058 is Accepted and Phases A–E + the fast-follow bundle are implemented and validated end-to-end. See **[Implementation status — DELIVERED](#implementation-status--delivered-adr-058-accepted-2026-08-05)** at the end for the as-built record; the planning tense below is preserved as the design record.
+
+
 _Closing the Governance, Lineage, Explainability & Audit gaps identified in the engineering assessment, on an OpenTelemetry collection backbone. This is the basis for **ADR-058** and the phased CC prompts that follow it._
 
 ## Decisions locked this session
@@ -158,3 +161,38 @@ Building on what the current view already shows (step tracker, actor log, artifa
 1. Turn this into **ADR-058 — GLEA hardening on an OpenTelemetry backbone** (written to `backend/docs/adr/`).
 2. Produce the phased CC prompts (A→E), each self-contained with exit criteria and the domain-neutrality guardrail baked in.
 3. Land Phase A first (telemetry foundation) and validate against a wire-repair run before moving on.
+
+---
+
+## Implementation status — DELIVERED (ADR-058 Accepted 2026-08-05)
+
+This plan is fully implemented. **ADR-058 is Accepted**; Phases A–E plus a fast-follow bundle landed and were validated end-to-end against live wire-repair and restaurant dine-in runs. This section is the as-built record and supersedes the "Open decisions to confirm" and "Next steps" sections above.
+
+### Delivered, by phase
+
+- **A — Telemetry foundation.** `libs/amendia_telemetry` (shared bootstrap + the `amendia.*` conventions + instance-trace helpers). OTLP/HTTP → OTel Collector → ClickHouse `otel_traces`. The instance root `SpanContext` is persisted in `state.trace["otel"]` and restored across HITL waits and crash-recovery resumes, so every node span re-parents to one root. **Every** node factory is span-wrapped — task, MI iteration/join, call-activity, compensation, and control/routing nodes — with input-artifact **span links** as the lineage edges, including the MI-join fan-in (aggregate links back to every per-iteration producer). Native + nemoclaw parity; the real out-of-process capability-worker bootstraps its own provider and unifies its span into the instance trace.
+- **B — Audit system-of-record + governance.** New **`glea-service`** consumes the durable `amendia.events` RabbitMQ exchange on its own named (competing-consumers) queue and is the **sole writer** of ClickHouse **`audit_events`** (ReplacingMergeTree, idempotent by `event_id`, multi-year TTL, reserved `prev_hash`/`seal`). Lifecycle + `HitlTaskDecided` events were enriched (decision/decided_by/role/sod_satisfied) and new governance events added — `EgressDecisionEvent`, `ArtifactCommittedEvent`, `RoleChangedEvent`, `PackLifecycleEvent`. **Native-mode egress enforcement** landed (`NATIVE_EGRESS_ENFORCE`, default on), closing the fail-open gap.
+- **C — Explainability.** A bounded `amendia.rationale` (~1.2 KB cap) is captured for deep-agent/LLM capabilities onto the span and the actor-log entry meta — never fabricated for plain MCP tools. Decision-trail read-model (ordered gates with proposed→approved artifact refs + decided_by/role/sod/comment) and the lineage projection API (span-link graph → artifact DAG, MI fan-in preserved).
+- **D — Aggregate read-models.** A per-instance metrics bundle plus a platform-wide window, every figure a **SQL aggregation over ClickHouse** — no metrics pipeline, no Prometheus.
+- **E — Frontend.** The instance view was rebuilt as a tabbed surface (**Overview / Artifacts / Governance / Observability**) composing agent-runtime (live state + artifact values) with the glea read-models: decision trail via the existing `CorrectionDiff` + a four-eyes badge, actor-log enriched with role + rationale + a "view trace" affordance, the lineage DAG, an in-view trace waterfall, per-instance audit events with an honest checkpoints line, and the metric tiles. Every GLEA section degrades gracefully when `glea-service` is absent (no blank page, no crash).
+- **Fast-follow bundle.** config-forge `ConfigRefResolvedEvent` publisher (emits which ref + resolved-or-not, **never the resolved value**, fail-soft); **hash-chain sealing** (per-`correlation_id` `prev_hash`/`seal`, a background sealer loop, and a `GET /audit/instances/{cid}/seal` verification endpoint); lineage node dedupe that preserves MI producers.
+
+### As-built refinements vs. the plan above
+
+- **Audit rides the RabbitMQ backbone, not the OTel logs signal.** The plan framed audit as OTel *log records* → ClickHouse. As built, governed events travel the existing **`amendia.events`** topic exchange to `glea-service`, the sole writer of `audit_events`. Traces still flow OTLP → Collector → `otel_traces`; the two join on `correlation_id` + `trace_id`. (A logs provider is wired and fail-soft in `amendia_telemetry`, but it is not the audit path.)
+- **Metrics are SQL-derived — there are no OTel meters.** No `Meter` / counter / histogram / gauge instruments were defined anywhere. Every operational figure is a ClickHouse aggregation exposed by `glea-service`. This is the deliberate ADR-058 choice; a dedicated OTel metrics signal remains a "later, into ClickHouse" option only.
+
+### Read-model API surface (`glea-service`, prefix `/audit`)
+
+`GET /audit/instances/{correlation_id}` · `…/decision-trail` · `…/lineage` · `…/trace` · `…/metrics` · `…/seal`, and the platform-wide `GET /audit/metrics?since=…&until=…`. The per-instance **metrics bundle** returns: `approval_latency_ms{p50,p95,count}`, `capability_duration_ms{p50,p95,count}`, `hitl_decisions[{decision,role,count}]`, `four_eyes_enforced`, `egress_denied`, `sla_breaches`; the platform-wide window adds `instances_by_outcome{completed,failed}`.
+
+### Open decisions — resolved
+
+1. **Hash-chain now or fast-follow?** → **Delivered in the fast-follow.** Schema-ready in B (`prev_hash`/`seal`); chaining + a background sealer + the `/seal` verification endpoint landed after Phase E.
+2. **Dedicated metrics signal later?** → **Held: derive-by-SQL.** No OTel metric instruments; revisit only if volume demands pre-aggregation (still into ClickHouse, still no Prometheus).
+3. **Trace lifetime for long-lived instances** → **Accepted for v1.** Root-span persistence handles multi-day pauses; unchanged.
+
+### Still deferred (explicitly out of scope; foundations in place)
+
+- The **cross-instance Governance & Audit console** (global audit search, SoD/four-eyes reports, auditor export) — `GET /audit/metrics` is its foundation.
+- **Push alerting** (Phase D §3) — not built; the intended path remains a scheduled ClickHouse query → the existing notification-service.

@@ -1,5 +1,8 @@
 # Amendia — Trust, Control & Accountability: What We Have and Where We're Going
 
+> **STATUS: the gaps described below have since been delivered (2026-08-05).** See **[Update — what we've since delivered](#update--what-weve-since-delivered-2026-08-05)** at the end for the current state; the "what we have / the gap" framing below is kept as the before-picture.
+
+
 _A business-stakeholder view of how Amendia stays governable, traceable, explainable, and auditable. Companion to the engineering assessment.
 
 ## Why this matters
@@ -67,3 +70,32 @@ The remaining work is not about inventing new foundations — it's about **surfa
 ## Bottom line
 
 The hard, foundational work — enforced controls, versioned traceable data, an honest record of AI-proposed versus human-approved decisions — is already built into how Amendia runs. What remains is to give that record a proper home built for auditors, present it in a way a non-engineer can read, and close a small number of enforcement and rationale gaps. That is a focused, well-understood body of work standing on solid ground, not a rebuild.
+
+---
+
+## Update — what we've since delivered (2026-08-05)
+
+_When this note was first written, the honest summary was "the memory is there; the reporting and the strongroom are the next build." **That build is now done.** The gaps described above have been closed and validated on real end-to-end runs. Here is what changed, in the same plain terms._
+
+**The strongroom now exists.** Every governed thing that happens in a process — an approval, a rejection, an external system being contacted, a piece of work being committed, a role being granted — is now written to a **dedicated, append-only audit store** that is separate from the machinery that runs the work. Nothing is overwritten, and each record is **chained to the one before it with a tamper-evidence seal**, so we can demonstrate that the history hasn't been altered after the fact. Records are kept on a multi-year retention schedule appropriate for audit, independent of shorter-lived operational data.
+
+**The trail is now readable.** The per-process view was rebuilt around four tabs — an overview, the artifacts, a **governance** tab, and an **observability** tab — so a reviewer no longer needs an engineer. It shows, for each sensitive step, exactly **what the AI proposed and what the human approved side by side**, who approved it, their role, when, any comment, and a clear **"four-eyes" badge** when a genuine second person signed off. It draws the **lineage picture** — which inputs fed which step, all the way to the outcome — as an actual diagram, and it shows the execution as a readable timeline.
+
+**The "why" is now captured.** For AI capabilities that reason before they act, the platform now records a short, bounded **rationale** — the agent's own explanation for its choice — attached to that step. (Simple tool calls that don't reason are left honestly blank rather than given a made-up reason.)
+
+**The last control gap is closed.** The "permitted external destinations" control that previously only applied in our most secure mode is now **enforced in the everyday mode too** — a capability reaching for an undeclared system is blocked and the attempt is recorded.
+
+**What's still ahead (and deliberately so).** Two items remain, with their foundations already in place: a **cross-process audit console** for organization-wide questions ("show me every four-eyes approval by this person last quarter") and one-click auditor exports; and **proactive alerting** that pushes a notification the moment something like a spike in blocked-destination attempts occurs. Both build directly on the audit store now in place. We also don't yet publish a separately authored, versioned "policy rulebook" — controls today are expressed through roles, separation-of-duties, and each capability's declared contract, now fully recorded.
+
+### Where we stand at a glance — updated
+
+| Question | Business capability | Maturity (updated) |
+|---|---|---|
+| Can we control what it does? | Governance — four-eyes, roles, permitted-destination controls | **Strong** — enforcement gap closed (now enforced in every running mode) |
+| Can we trace the data? | Lineage — versioned records, full input-to-outcome chain | **Strong — now shown** as a lineage diagram in the process view |
+| Can we explain decisions? | Explainability — proposed-vs-approved, who acted, **AI rationale** | **Strong — now readable**: a plain decision trail, timeline, and captured AI reasoning |
+| Can we prove it later? | Audit — durable, queryable, tamper-evident record | **Solid** — dedicated tamper-evident store with per-process query; org-wide console still ahead |
+
+### Bottom line — updated
+
+The reporting and the strongroom are built. Amendia can now **show** a reviewer, in plain view, what the AI did, what a human decided, why, and prove the record hasn't been tampered with — with a readable decision trail, a lineage diagram, captured AI reasoning, and a sealed, append-only audit store behind it. What remains is breadth, not foundations: an organization-wide audit console and proactive alerting, both standing on the store that now exists.

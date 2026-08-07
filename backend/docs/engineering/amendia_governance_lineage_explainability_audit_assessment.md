@@ -1,5 +1,8 @@
 # Amendia: Governance, Lineage, Explainability & Audit — Where We Stand
 
+> **STATUS: this is the BASELINE assessment (starting point). The gaps below were subsequently closed by ADR-058 (delivered 2026-08-05).** See **[Update — where we landed: GLEA gaps closed](#update--where-we-landed-glea-gaps-closed-adr-058-delivered-2026-08-05)** at the end for the as-built state, refreshed scorecard, and telemetry reference.
+
+
 _Investigation of the actual implementation across `agent-runtime`, `process-registry`, `platform/identity`, and `platform/notification-service`. Assessed against what is built, what is partial, and what is missing — not inferred from ADR titles._
 
 ## TL;DR
@@ -90,3 +93,68 @@ Overall maturity: **Governance — strong. Lineage — strong substrate, no surf
 5. **Audit query + export surface.** Cross-instance queries and an export/report endpoint on top of (1), plus a retention policy and optional hash-chaining for tamper-evidence.
 
 Items 1 and 2 are the highest leverage: most of the hard modeling work (typed pinned artifacts, `input_map`, `actor_log`, proposed-vs-approved) is already done — what's missing is a durable projection and a view over it.
+
+---
+
+## Update — where we landed: GLEA gaps closed (ADR-058, delivered 2026-08-05)
+
+_The assessment above is the **baseline** (the starting point that justified the work). Everything below is the **as-built** result. ADR-058 ("GLEA observability on OpenTelemetry + ClickHouse") is **Accepted**; Phases A–E plus a fast-follow bundle landed and were validated end-to-end on live wire-repair and restaurant dine-in runs. Read the two together as before → after._
+
+**The architecture that closed the gaps.** One shared `libs/amendia_telemetry` bootstrap makes every service an OTel producer. **Traces** flow OTLP/HTTP → OTel Collector → ClickHouse `otel_traces` (one coherent trace per instance; the root `SpanContext` is persisted in `state.trace["otel"]` and restored across HITL waits and resumes). **Audit** travels the existing `amendia.events` RabbitMQ exchange to a new read-only **`glea-service`**, the **sole writer** of the append-only ClickHouse **`audit_events`** table; traces and audit rows join on `correlation_id` + `trace_id`. **Metrics are derived by SQL** over those two tables — there is no metrics pipeline and no Prometheus/Grafana/Loki.
+
+### Pillar-by-pillar closure
+
+**Governance — the one enforcement gap is closed.** Native-mode egress is now enforced: the in-process executor consults `derive_egress_policy` and blocks calls to undeclared hosts under `NATIVE_EGRESS_ENFORCE` (default on), recording `amendia.egress.decision`/`host` on the span and publishing an `EgressDecisionEvent` on deny. Egress governance is no longer a nemoclaw-only guarantee. Role grants/revokes and pack publish/deprecate/rollback now emit `RoleChangedEvent`/`PackLifecycleEvent` audit rows. _(Still open: a standalone authored **policy rulebook** object — governance is still expressed as roles + SoD + contract-derived egress, now fully audited but not a separately versioned policy document.)_
+
+**Lineage — now surfaced, not just reconstructable.** The `input_map` dataflow is emitted as **span links** on every node span (Phase A wraps every node factory, so there are no gaps and no dangling producers — including the MI-join fan-in). `glea-service` projects those links into an artifact **DAG** (`GET /audit/instances/{cid}/lineage`), and the instance view renders it as a graph. The chain from raw input to final outcome is now a feature, not a query we hadn't written.
+
+**Explainability — real product surface + agent rationale.** Deep-agent/LLM capabilities now capture a bounded `amendia.rationale` (~1.2 KB cap) onto the span **and** the actor-log entry meta — never fabricated for plain MCP tools. The **decision-trail** read-model returns the ordered gates with proposed→approved artifact refs, `decided_by`, `role`, `sod_satisfied`, and comment; the instance view renders it with the existing `CorrectionDiff` and a **"Four-eyes ✓" badge**, plus an in-view **trace waterfall**. Native mode now emits real spans too (parity), so explainability no longer depends on nemoclaw.
+
+**Audit — a first-class, immutable, queryable subsystem.** `audit_events` is an append-only ClickHouse table (ReplacingMergeTree, idempotent by `event_id`, multi-year TTL independent of the operational-trace TTL), fed only by `glea-service` off the durable RabbitMQ queue (no event loss; nack-on-ClickHouse-down). **Tamper-evidence shipped**: a per-`correlation_id` **hash-chain** (`prev_hash`/`seal`) maintained by a background sealer, with `GET /audit/instances/{cid}/seal` to verify the chain. Per-instance audit query (`GET /audit/instances/{cid}`) and a platform-wide window (`GET /audit/metrics`) exist. _(Still deferred: the full **cross-instance Governance & Audit console** — global search, SoD reports, auditor export — for which `/audit/metrics` is the foundation; and **push alerting**, still intended as a scheduled ClickHouse query → notification-service.)_
+
+### Refreshed scorecard (as-built)
+
+| Pillar | Substrate | Enforcement | Surfaced to users | Verdict |
+|---|---|---|---|---|
+| **Governance** | Strong (roles, SoD, contract-derived egress) | Strong for HITL/SoD; **egress now enforced in native + nemoclaw** | Roles admin UI; governed decisions audited; no authored policy object yet | **Strong; enforcement gap closed** |
+| **Lineage** | Strong (pinned `schema_ref` + `input_map` + span links) | N/A (structural) | **Rendered DAG** in the instance view | **Strong + surfaced** |
+| **Explainability** | Strong (`actor_log`, proposed-vs-approved, **agent rationale**) | N/A | **Decision trail + trace waterfall + rationale** in-view | **Strong + surfaced** |
+| **Audit** | **First-class `audit_events` SoR** (append-only, TTL, **hash-chained**) | Sole-writer, no-loss consumer | Per-instance audit + seal; cross-instance console still to come | **Solid; console deferred** |
+
+### Telemetry reference (as-built)
+
+**Signals.** Traces (OTLP/HTTP → Collector → `otel_traces`) and a fail-soft logs provider are configured by `amendia_telemetry.configure_telemetry`; endpoint absent ⇒ disabled cleanly, Collector down ⇒ no request impact. **No OTel metric instruments (meters) exist** — metrics are SQL aggregations exposed by `glea-service`. Audit is the RabbitMQ → `glea-service` → `audit_events` path (not the logs signal).
+
+**`amendia.*` semantic conventions** (all structural; domain-neutral review gate — no pack/domain term ever enters a span, log, event, or column):
+
+| Attribute | Meaning |
+|---|---|
+| `amendia.correlation_id` | Instance correlation key — spine of every trace/audit row |
+| `amendia.process_instance_id` | Instance id |
+| `amendia.pack_key` / `amendia.pack_version` | Which immutable pack version ran |
+| `amendia.element_id` | BPMN element |
+| `amendia.actor` / `amendia.actor_kind` | Capability id or user id; `capability` \| `human` \| `timer` |
+| `amendia.role` | Role that acted/approved |
+| `amendia.artifact_key` / `amendia.schema_ref` | Pinned artifact identity (lineage) |
+| `amendia.execution_mode` / `amendia.simulation` | `native` \| `nemoclaw`; sim flag |
+| `amendia.exec_meta.otlp_trace_id` | Sandbox (nemoclaw) trace correlation |
+| `amendia.decision` / `amendia.decided_by` | HITL outcome + approver |
+| `amendia.sod_satisfied` | Four-eyes check result |
+| `amendia.egress.decision` / `amendia.egress.host` | Egress allow/deny + target |
+| `amendia.rationale` | Bounded agent reasoning (deep-agent/LLM only; ~1.2 KB cap) |
+
+**Derived metrics catalog** (SQL over `audit_events` + `otel_traces`; per-instance `GET /audit/instances/{cid}/metrics`, platform-wide `GET /audit/metrics`):
+
+| Figure | Field | Derived from | Pillar |
+|---|---|---|---|
+| Approval latency p50/p95 | `approval_latency_ms{p50,p95,count}` | `HitlTaskDecided.decided_at − HitlTaskCreated` | governance/SLA |
+| Capability exec duration p50/p95 | `capability_duration_ms{p50,p95,count}` | capability span `Duration` in `otel_traces` | ops |
+| HITL decisions by decision + role | `hitl_decisions[{decision,role,count}]` | decided audit rows | governance |
+| Four-eyes enforced | `four_eyes_enforced` | `sod_satisfied` rows | governance |
+| Egress denied | `egress_denied` | `egress_decision='deny'` rows | governance |
+| SLA breaches | `sla_breaches` | expiry / SLA-timer rows | SLA |
+| Instances by outcome (platform-wide only) | `instances_by_outcome{completed,failed}` | lifecycle rows | audit/ops |
+
+### Original "recommended next moves" — status
+
+1. First-class audit store → **Done** (`audit_events` SoR). 2. Lineage & explanation projection API → **Done** (`/lineage`, `/decision-trail`). 3. Close native-mode egress gap → **Done** (`NATIVE_EGRESS_ENFORCE`). 4. Capture agent rationale → **Done** (`amendia.rationale`, native-mode too). 5. Audit query + export + retention + tamper-evidence → **Partial**: per-instance query + TTL + hash-chain sealing **done**; cross-instance query/export (the console) **deferred**.
