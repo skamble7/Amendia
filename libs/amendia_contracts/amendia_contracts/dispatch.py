@@ -15,7 +15,7 @@ from pydantic import Field
 from amendia_common.events import (
     DISPATCH_ACCEPTED,
     DISPATCH_REJECTED,
-    EXCEPTION_DISPATCHED,
+    TRIGGER_DISPATCHED,
     Service,
 )
 from amendia_contracts.common import ContractModel, EventBase
@@ -30,7 +30,7 @@ class DispatchResolution(ContractModel):
 
 class Trace(ContractModel):
     correlation_id: str = Field(
-        ..., description="Stable across the exception journey; set to exception_id unless overridden"
+        ..., description="Stable across the trigger journey; set to trigger_id unless overridden"
     )
     causation_id: Optional[str] = None
     # ADR-058: the instance's OTel trace id (32-hex), stamped from state.trace["otel"] at emit time, so
@@ -39,14 +39,14 @@ class Trace(ContractModel):
     trace_id: Optional[str] = None
 
 
-class ExceptionDispatchedEvent(EventBase):
+class TriggerDispatchedEvent(EventBase):
     _service: ClassVar[Service] = Service.INGESTOR
-    _event_name: ClassVar[str] = EXCEPTION_DISPATCHED
+    _event_name: ClassVar[str] = TRIGGER_DISPATCHED
 
-    schema_version: Literal["pin.platform.exception_dispatched/1.0"] = "pin.platform.exception_dispatched/1.0"
-    exception_id: str
-    exception_type: str
-    exception_schema_version: Optional[str] = None
+    schema_version: Literal["pin.platform.trigger_dispatched/1.0"] = "pin.platform.trigger_dispatched/1.0"
+    trigger_id: str
+    trigger_type: str
+    trigger_schema_version: Optional[str] = None
     fetch_url: str
     resolution: DispatchResolution
     trace: Trace
@@ -57,7 +57,7 @@ class DispatchAcceptedEvent(EventBase):
     _event_name: ClassVar[str] = DISPATCH_ACCEPTED
 
     schema_version: Literal["pin.platform.dispatch_accepted/1.0"] = "pin.platform.dispatch_accepted/1.0"
-    exception_id: str
+    trigger_id: str
     process_instance_id: str
     pack_key: str
     pack_version: str
@@ -80,7 +80,7 @@ class DispatchRejectedEvent(EventBase):
     _event_name: ClassVar[str] = DISPATCH_REJECTED
 
     schema_version: Literal["pin.platform.dispatch_rejected/1.0"] = "pin.platform.dispatch_rejected/1.0"
-    exception_id: str
+    trigger_id: str
     reason: DispatchRejectionReason
     detail: str
     trace: Trace

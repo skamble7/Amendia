@@ -16,18 +16,18 @@ from typing import Any, Dict, Optional
 from amendia_common.events import (
     DISPATCH_ACCEPTED,
     DISPATCH_REJECTED,
-    EXCEPTION_DISPATCHED,
-    EXCEPTION_RAISED,
     HITL_TASK_CREATED,
     HITL_TASK_DECIDED,
     PROCESS_COMPLETED,
     PROCESS_FAILED,
+    TRIGGER_DISPATCHED,
+    TRIGGER_RAISED,
 )
 
 # Events we relay to the UI. Anything else on the exchange is ignored.
 KNOWN_EVENTS = frozenset({
-    EXCEPTION_RAISED,
-    EXCEPTION_DISPATCHED,
+    TRIGGER_RAISED,
+    TRIGGER_DISPATCHED,
     DISPATCH_ACCEPTED,
     DISPATCH_REJECTED,
     HITL_TASK_CREATED,
@@ -38,7 +38,7 @@ KNOWN_EVENTS = frozenset({
 
 # The ONLY fields ever copied into a signal (ids + non-sensitive labels).
 _ALLOWED_FIELDS = (
-    "exception_id",
+    "trigger_id",
     "process_instance_id",
     "task_id",
     "element_id",

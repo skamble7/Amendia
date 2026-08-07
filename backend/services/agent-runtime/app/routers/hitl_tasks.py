@@ -34,14 +34,14 @@ async def list_hitl_tasks(
     status: Optional[str] = Query(None),
     role: Optional[str] = Query(None),
     process_instance_id: Optional[str] = Query(None),
-    exception_id: Optional[str] = Query(None),
+    trigger_id: Optional[str] = Query(None),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     repo: HitlTaskRepository = Depends(get_hitl_task_repo),
 ):
     return await repo.list(
         status=status, role=role,
-        process_instance_id=process_instance_id, exception_id=exception_id,
+        process_instance_id=process_instance_id, trigger_id=trigger_id,
         limit=limit, offset=offset,
     )
 

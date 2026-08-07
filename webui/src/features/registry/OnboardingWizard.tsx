@@ -1832,7 +1832,7 @@ function ArtifactSchemaEditor({
 }
 
 // ADR-049: declare the pack's trigger artifact schema — registers art.<domain>.<name> as ProcessPack.trigger and
-// (backend-flattened) drives the Triage field picker below. No SEED_DIR sample-exception dependency.
+// (backend-flattened) drives the Triage field picker below. No SEED_DIR sample-trigger dependency.
 function TriggerDeclareCard({ session, onSession }: { session: OnboardingSession; onSession: (s: OnboardingSession) => void }) {
   const declared = session.trigger_artifact ?? null;
   const domain = session.basics.default_domain;
@@ -1910,7 +1910,7 @@ export function TriageStep({ session, onDone, onSession }: { session: Onboarding
     <div className="space-y-4">
       <p className="flex items-start gap-1.5 rounded-md border border-border bg-surface/40 p-3 text-xs text-muted-foreground">
         <Info className="mt-0.5 size-3.5 shrink-0" />
-        Triage rules describe which exceptions this pack handles — they match the incoming trigger <span className="font-medium">payload</span>, not the diagram, so they are not derivable from the BPMN. Author at least one below.
+        Triage rules describe which triggers this pack handles — they match the incoming trigger <span className="font-medium">payload</span>, not the diagram, so they are not derivable from the BPMN. Author at least one below.
       </p>
       <TriggerDeclareCard session={session} onSession={onSession} />
       <Card>

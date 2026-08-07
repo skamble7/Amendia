@@ -19,7 +19,7 @@ from amendia_auth import AuthContext, current_principal
 from amendia_telemetry import configure_telemetry
 
 from app.clients.registry_client import RegistryClient
-from app.clients.stub_client import StubClient
+from app.clients.stub_client import TriggerStoreClient
 from app.config import auth_settings, settings
 from app.dal.ingestion_repo import IngestionRepository
 from app.db.mongo import MongoClient
@@ -51,14 +51,14 @@ async def lifespan(app: FastAPI):
     mongo = MongoClient(settings.MONGO_URI, settings.MONGO_DB, settings.MONGO_COLLECTION)
     await mongo.connect()
 
-    # HTTP client → the exception store (stub) + process registry.
+    # HTTP client → the trigger store (stub) + process registry.
     http = httpx.AsyncClient(timeout=15)
-    stub_client = StubClient(settings.STUB_BASE_URL, http, internal_token=auth_settings.internal_token)
+    stub_client = TriggerStoreClient(settings.STUB_BASE_URL, http, internal_token=auth_settings.internal_token)
     registry_client = RegistryClient(
         settings.REGISTRY_BASE_URL, http, internal_token=auth_settings.internal_token
     )
 
-    # Outbound event publisher (exception_dispatched).
+    # Outbound event publisher (trigger_dispatched).
     publisher = RabbitPublisher(settings.RABBITMQ_URL)
     await publisher.connect()
 

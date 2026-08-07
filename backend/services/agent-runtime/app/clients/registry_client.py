@@ -1,5 +1,5 @@
 # app/clients/registry_client.py
-"""HTTP client for the process-registry read APIs + the exception store fetch-back.
+"""HTTP client for the process-registry read APIs + the trigger store fetch-back.
 
 The runtime loads packs from the registry (never local collections): manifest,
 pinned resolution, BPMN, capability descriptors, and artifact schemas.
@@ -73,8 +73,8 @@ class RegistryClient:
         return await self._get(f"/artifact-schemas/{artifact_key}/{version}")
 
 
-class ExceptionStoreClient:
-    """Fetches the full exception envelope from the store's fetch-back URL."""
+class TriggerStoreClient:
+    """Fetches the full trigger envelope from the store's fetch-back URL."""
 
     def __init__(self, http: httpx.AsyncClient, *, max_retries: int = 2, internal_token: str = "") -> None:
         self._http = http

@@ -1,7 +1,7 @@
 # app/models/events.py
-"""The thin ``exception_raised`` event consumed off RabbitMQ.
+"""The thin ``trigger_raised`` event consumed off RabbitMQ.
 
-Mirrors the shape published by the stub exception generator (ADR-007). The
+Mirrors the shape published by the trigger source (the stub, ADR-007/059). The
 ingestor validates the incoming JSON against this model, then fetches the full
 document from the store.
 """
@@ -12,10 +12,10 @@ from datetime import datetime
 from pydantic import BaseModel
 
 
-class IncomingExceptionRaisedEvent(BaseModel):
+class IncomingTriggerRaisedEvent(BaseModel):
     event_id: str
     occurred_at: datetime
     schema_version: str
-    exception_id: str
-    exception_type: str
+    trigger_id: str
+    trigger_type: str
     fetch_url: str

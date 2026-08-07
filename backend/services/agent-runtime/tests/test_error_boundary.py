@@ -209,7 +209,7 @@ async def _decide_all_gates(eng, hitl, pid):
 
 async def test_engine_business_error_completes_not_failed(engine_ctx):
     eng, instances, pub = engine_ctx["eng"], engine_ctx["instances"], engine_ctx["pub"]
-    inst = ProcessInstance.new(process_instance_id="pi-eb", exception_id="E-eb",
+    inst = ProcessInstance.new(process_instance_id="pi-eb", trigger_id="E-eb",
                                pack_key=PK, pack_version=PV)
     await instances.insert(inst)
     env = make_envelope("AC01")

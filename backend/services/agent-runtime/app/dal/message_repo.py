@@ -37,17 +37,17 @@ class MessageSubscriptionRepository:
         stored = await self._coll.find_one(key, projection=_PROJ)
         return MessageSubscription.model_validate(stored)
 
-    async def find_match(self, message_name: str, *, exception_id: Optional[str] = None,
+    async def find_match(self, message_name: str, *, trigger_id: Optional[str] = None,
                          correlation_id: Optional[str] = None,
                          status: SubscriptionStatus = SubscriptionStatus.PENDING) -> Optional[MessageSubscription]:
         """A subscription in ``status`` for this message + anchor (correlation_id preferred, else
-        exception_id). Defaults to pending (the delivery target); a consumed match lets the intake
+        trigger_id). Defaults to pending (the delivery target); a consumed match lets the intake
         distinguish a duplicate (409) from an unknown message (404). Returns None when none match."""
         anchor: dict = {}
         if correlation_id is not None:
             anchor["correlation_id"] = correlation_id
-        elif exception_id is not None:
-            anchor["exception_id"] = exception_id
+        elif trigger_id is not None:
+            anchor["trigger_id"] = trigger_id
         else:
             return None
         doc = await self._coll.find_one(
@@ -101,14 +101,14 @@ class PendingMessageRepository:
     async def buffer(self, msg: PendingMessage) -> None:
         await self._coll.insert_one(msg.to_doc())
 
-    async def pop_match(self, message_name: str, *, exception_id: Optional[str] = None,
+    async def pop_match(self, message_name: str, *, trigger_id: Optional[str] = None,
                         correlation_id: Optional[str] = None) -> Optional[PendingMessage]:
         """Atomically take one buffered message matching this subscription's message + anchor."""
         clauses = []
         if correlation_id is not None:
             clauses.append({"correlation_id": correlation_id})
-        if exception_id is not None:
-            clauses.append({"exception_id": exception_id})
+        if trigger_id is not None:
+            clauses.append({"trigger_id": trigger_id})
         if not clauses:
             return None
         doc = await self._coll.find_one_and_delete(

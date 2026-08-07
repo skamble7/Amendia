@@ -28,7 +28,7 @@ class IngestionStatus(str, Enum):
 
 
 class ResolutionRef(BaseModel):
-    """The pinned pack the registry resolved this exception to."""
+    """The pinned pack the registry resolved this trigger to."""
 
     pack_key: str
     pack_version: str
@@ -60,11 +60,11 @@ class StatusChange(BaseModel):
 
 
 class IngestionRecord(BaseModel):
-    exception_id: str
-    exception_type: str
+    trigger_id: str
+    trigger_type: str
     event: EventRef
     # Full envelope fetched from the store; None if the fetch failed.
-    exception_detail: Optional[Dict[str, Any]] = None
+    trigger_detail: Optional[Dict[str, Any]] = None
     fetch_error: Optional[str] = None
     status: IngestionStatus = IngestionStatus.RECEIVED
     status_history: List[StatusChange] = Field(default_factory=list)

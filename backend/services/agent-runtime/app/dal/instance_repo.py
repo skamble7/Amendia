@@ -39,14 +39,14 @@ class ProcessInstanceRepository:
     async def list(
         self,
         *,
-        exception_id: Optional[str] = None,
+        trigger_id: Optional[str] = None,
         status: Optional[str] = None,
         limit: int = 50,
         offset: int = 0,
     ) -> List[ProcessInstance]:
         query: dict = {}
-        if exception_id:
-            query["exception_id"] = exception_id
+        if trigger_id:
+            query["trigger_id"] = trigger_id
         if status:
             query["status"] = status
         cursor = (

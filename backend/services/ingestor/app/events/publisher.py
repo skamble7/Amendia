@@ -1,5 +1,5 @@
 # app/events/publisher.py
-"""aio-pika publisher for the ingestor's outbound events (exception_dispatched).
+"""aio-pika publisher for the ingestor's outbound events (trigger_dispatched).
 
 Owns a robust connection + confirming channel + the canonical ``amendia.events``
 topic exchange. Mirrors the stub generator's publisher.

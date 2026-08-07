@@ -3,7 +3,7 @@
 
 Minimal now because dispatch replies reference ``process_instance_id``. No graph/
 checkpoint fields yet — those arrive with the execution slice. The idempotency key
-is derived from (exception_id, pack_key, pack_version) so a duplicate dispatch maps
+is derived from (trigger_id, pack_key, pack_version) so a duplicate dispatch maps
 to the existing instance rather than starting a second one.
 """
 from __future__ import annotations
@@ -34,14 +34,14 @@ class InstanceStatus(str, Enum):
     CANCELLED = "cancelled"
 
 
-def compute_idempotency_key(exception_id: str, pack_key: str, pack_version: str) -> str:
+def compute_idempotency_key(trigger_id: str, pack_key: str, pack_version: str) -> str:
     """Deterministic key: a duplicate dispatch resolves to the same instance."""
-    return f"{exception_id}:{pack_key}:{pack_version}"
+    return f"{trigger_id}:{pack_key}:{pack_version}"
 
 
 class ProcessInstance(ContractModel):
     process_instance_id: str
-    exception_id: str
+    trigger_id: str
     pack_key: PackKey
     pack_version: SemVerStr
     status: InstanceStatus = InstanceStatus.CREATED
@@ -59,7 +59,7 @@ class ProcessInstance(ContractModel):
         cls,
         *,
         process_instance_id: str,
-        exception_id: str,
+        trigger_id: str,
         pack_key: str,
         pack_version: str,
         correlation_id: str | None = None,
@@ -67,10 +67,10 @@ class ProcessInstance(ContractModel):
     ) -> "ProcessInstance":
         return cls(
             process_instance_id=process_instance_id,
-            exception_id=exception_id,
+            trigger_id=trigger_id,
             pack_key=pack_key,
             pack_version=pack_version,
             status=status,
-            correlation_id=correlation_id or exception_id,
-            idempotency_key=compute_idempotency_key(exception_id, pack_key, pack_version),
+            correlation_id=correlation_id or trigger_id,
+            idempotency_key=compute_idempotency_key(trigger_id, pack_key, pack_version),
         )

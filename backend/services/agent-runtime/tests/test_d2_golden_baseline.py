@@ -100,7 +100,7 @@ async def _signature(seed_dir: Path, envelope: dict, *, executor=None, max_steps
                                           profile="common_executable")
 
     pid = f"pi-{pk}"
-    inst = ProcessInstance.new(process_instance_id=pid, exception_id="EXC-golden", pack_key=pk, pack_version=pv)
+    inst = ProcessInstance.new(process_instance_id=pid, trigger_id="EXC-golden", pack_key=pk, pack_version=pv)
     await instances.insert(inst)
     hitl_seq: list = []
     visits: dict = {}

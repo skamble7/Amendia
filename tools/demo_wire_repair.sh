@@ -89,18 +89,18 @@ poll() { # poll <token> <url> <jq-filter> <want> <label> [max]
   return 1
 }
 
-step "1. Generate a wire exception (reason_code=$REASON) at the stub — with riya's bearer"
-GEN="$(curl -sf -X POST "$STUB/exceptions/generate" \
+step "1. Generate a wire trigger (reason_code=$REASON) at the stub — with riya's bearer"
+GEN="$(curl -sf -X POST "$STUB/generators/wire/generate" \
         -H "Authorization: Bearer $TOKEN_RIYA" \
         -H 'content-type: application/json' \
         -d "{\"reason_code\":\"$REASON\",\"count\":1}")"
-EXC_ID="$(echo "$GEN" | jq -r '.created[0].exception.exception_id')"
+TRIG_ID="$(echo "$GEN" | jq -r '.created[0].trigger.trigger_id')"
 RK="$(echo "$GEN" | jq -r '.created[0].routing_key')"
-bold "  exception_id = $EXC_ID   (published on $RK)"
+bold "  trigger_id = $TRIG_ID   (published on $RK)"
 
 step "2. Wait for the ingestor to ingest → resolve → dispatch → accepted"
-poll "$TOKEN_RIYA" "$INGESTOR/ingestions/$EXC_ID" '.status' 'accepted' 'ingestion=accepted' 60 >/dev/null
-ING="$(rget "$TOKEN_RIYA" "$INGESTOR/ingestions/$EXC_ID")"
+poll "$TOKEN_RIYA" "$INGESTOR/ingestions/$TRIG_ID" '.status' 'accepted' 'ingestion=accepted' 60 >/dev/null
+ING="$(rget "$TOKEN_RIYA" "$INGESTOR/ingestions/$TRIG_ID")"
 PID="$(echo "$ING" | jq -r '.process_instance_id')"
 echo "  ingestion status : $(echo "$ING" | jq -r '.status')"
 echo "  resolved pack    : $(echo "$ING" | jq -r '.resolution.pack_key + "@" + .resolution.pack_version + " (rule " + .resolution.rule_id + ")"')"
@@ -156,7 +156,7 @@ rget "$TOKEN_RIYA" "$RUNTIME/instances/$PID/state" | jq '{status, outcome, artif
 
 echo
 if [ "$FINAL" = "completed" ]; then
-  bold "✅ DONE — exception $EXC_ID handled end-to-end with real bearers, instance $PID completed."
+  bold "✅ DONE — trigger $TRIG_ID handled end-to-end with real bearers, instance $PID completed."
 else
   bold "❌ instance $PID ended '$FINAL' — see logs."
   exit 1

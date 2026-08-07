@@ -19,7 +19,7 @@ from amendia_contracts.dispatch import Trace
 from amendia_contracts.hitl_task import Decision, HitlTaskDecidedEvent, TaskStatus
 
 from app.engine.engine import ProcessEngine
-from app.logging_conf import exception_id_ctx
+from app.logging_conf import trigger_id_ctx
 
 logger = logging.getLogger(__name__)
 
@@ -120,7 +120,7 @@ class HitlDecisionService:
         if updated is None:
             raise HitlError(409, "task was decided concurrently")
 
-        token = exception_id_ctx.set(task.exception_id)
+        token = trigger_id_ctx.set(task.trigger_id)
         try:
             await self._publish_decided(task, decision_enum, actor_id, comment)
             payload = {
@@ -131,7 +131,7 @@ class HitlDecisionService:
                         task_id, decision, actor_id, task.process_instance_id)
             await self._engine.resume(task.process_instance_id, payload, interrupt_id=task.interrupt_id)
         finally:
-            exception_id_ctx.reset(token)
+            trigger_id_ctx.reset(token)
         return updated
 
     # ------------------------------------------------------------------ #
@@ -177,11 +177,11 @@ class HitlDecisionService:
         sod_satisfied = True if (task.sod and task.sod.excluded_users) else None
         event = HitlTaskDecidedEvent(
             event_id=uuid.uuid4().hex, occurred_at=datetime.now(timezone.utc),
-            task_id=task.task_id, exception_id=task.exception_id,
+            task_id=task.task_id, trigger_id=task.trigger_id,
             process_instance_id=task.process_instance_id, element_id=task.element_id,
             role=task.role, decision=decision_enum, decided_by=user_id,
             sod_satisfied=sod_satisfied, comment=comment,
-            trace=Trace(correlation_id=task.exception_id,
+            trace=Trace(correlation_id=task.trigger_id,
                         trace_id=getattr(task, "trace_id", None)),
         )
         # Fail-soft: a broker hiccup must never fail a governed decision (mirrors engine._publish).

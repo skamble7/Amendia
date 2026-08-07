@@ -40,7 +40,7 @@ export type ResolutionRef = IngestorComponents["schemas"]["ResolutionRef"];
 export type StatusChange = IngestorComponents["schemas"]["StatusChange"];
 
 // --- stub (:8081) ---
-export type StoredException = StubComponents["schemas"]["StoredException"];
+export type StoredTrigger = StubComponents["schemas"]["StoredTrigger"];
 export type GenerateRequest = StubComponents["schemas"]["GenerateRequest"];
 export type GenerateResponse = StubComponents["schemas"]["GenerateResponse"];
 export type Attachment = StubComponents["schemas"]["Attachment"];

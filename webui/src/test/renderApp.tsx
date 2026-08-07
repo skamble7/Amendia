@@ -10,8 +10,8 @@ import { InboxPage } from "@/features/inbox/InboxPage";
 import { TaskDetailPage } from "@/features/task/TaskDetailPage";
 import { InstancesPage } from "@/features/instances/InstancesPage";
 import { InstanceDetailPage } from "@/features/instances/InstanceDetailPage";
-import { ExceptionsPage } from "@/features/exceptions/ExceptionsPage";
-import { ExceptionDetailPage } from "@/features/exceptions/ExceptionDetailPage";
+import { TriggersPage } from "@/features/triggers/TriggersPage";
+import { TriggerDetailPage } from "@/features/triggers/TriggerDetailPage";
 import { RegistryPage } from "@/features/registry/RegistryPage";
 import { PackDetailPage } from "@/features/registry/PackDetailPage";
 import { OnboardingWizard } from "@/features/registry/OnboardingWizard";
@@ -61,8 +61,8 @@ export function renderApp(initialPath: string, userId: string, extra?: ReactElem
               <Route path="/inbox/:taskId" element={<TaskDetailPage />} />
               <Route path="/instances" element={<InstancesPage />} />
               <Route path="/instances/:instanceId" element={<InstanceDetailPage />} />
-              <Route path="/exceptions" element={<ExceptionsPage />} />
-              <Route path="/exceptions/:exceptionId" element={<ExceptionDetailPage />} />
+              <Route path="/triggers" element={<TriggersPage />} />
+              <Route path="/triggers/:triggerId" element={<TriggerDetailPage />} />
               <Route path="/registry" element={<RegistryPage />} />
               <Route path="/registry/onboard" element={<OnboardingWizard />} />
               <Route path="/registry/onboard/:sessionId" element={<OnboardingWizard />} />

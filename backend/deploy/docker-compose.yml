@@ -1,5 +1,5 @@
 # backend/deploy/docker-compose.yml
-# Local dev stack for Amendia: mongo + rabbitmq + stub exception generator + ingestor +
+# Local dev stack for Amendia: mongo + rabbitmq + stub trigger generator + ingestor +
 # agent-runtime + process-registry. Run from the repo root:
 #   docker compose -f backend/deploy/docker-compose.yml up --build
 #
@@ -221,29 +221,29 @@ services:
       clickhouse:
         condition: service_healthy
 
-  stub-exception-generator:
+  stub-trigger-generator:
     build:
-      # Build context is the repo root so both `libs/` and `stub_exception_generator/` are visible.
+      # Build context is the repo root so both `libs/` and `stub_trigger_generator/` are visible.
       context: ../..
-      dockerfile: stub_exception_generator/Dockerfile
+      dockerfile: stub_trigger_generator/Dockerfile
     ports:
       - "18081:8081"
     environment:
-      STUBEXC_MONGO_URI: mongodb://mongodb:27017
-      STUBEXC_MONGO_DB: amendia
-      STUBEXC_MONGO_COLLECTION: exceptions
-      STUBEXC_RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+      STUBTRIG_MONGO_URI: mongodb://mongodb:27017
+      STUBTRIG_MONGO_DB: amendia
+      STUBTRIG_MONGO_COLLECTION: trigger_messages
+      STUBTRIG_RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
       # Service name (not localhost) so the fetch_url in events resolves from other containers.
-      STUBEXC_SERVICE_BASE_URL: http://stub-exception-generator:8081
-      STUBEXC_LOG_LEVEL: INFO
+      STUBTRIG_SERVICE_BASE_URL: http://stub-trigger-generator:8081
+      STUBTRIG_LOG_LEVEL: INFO
       # Dev-only permissive CORS so a separately-served webui can call directly.
-      STUBEXC_ENABLE_DEV_CORS: "true"
+      STUBTRIG_ENABLE_DEV_CORS: "true"
       # --- auth (amendia_auth) ---
-      STUBEXC_AUTH_ISSUER: http://localhost:8087/realms/amendia-dev
-      STUBEXC_AUTH_AUDIENCE: amendia-api
-      STUBEXC_AUTH_JWKS_URI: http://keycloak:8080/realms/amendia-dev/protocol/openid-connect/certs
-      STUBEXC_AUTH_IDENTITY_BASE_URL: http://identity:8086
-      STUBEXC_AUTH_INTERNAL_TOKEN: dev-internal-token
+      STUBTRIG_AUTH_ISSUER: http://localhost:8087/realms/amendia-dev
+      STUBTRIG_AUTH_AUDIENCE: amendia-api
+      STUBTRIG_AUTH_JWKS_URI: http://keycloak:8080/realms/amendia-dev/protocol/openid-connect/certs
+      STUBTRIG_AUTH_IDENTITY_BASE_URL: http://identity:8086
+      STUBTRIG_AUTH_INTERNAL_TOKEN: dev-internal-token
     depends_on:
       mongodb:
         condition: service_healthy
@@ -265,9 +265,9 @@ services:
       INGESTOR_MONGO_DB: amendia
       INGESTOR_MONGO_COLLECTION: ingestions
       INGESTOR_RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
-      INGESTOR_RABBITMQ_QUEUE: ingestor.exception_raised.v1
+      INGESTOR_RABBITMQ_QUEUE: ingestor.trigger_raised.v1
       INGESTOR_RABBITMQ_REPLY_QUEUE: ingestor.dispatch_replies.v1
-      INGESTOR_STUB_BASE_URL: http://stub-exception-generator:8081
+      INGESTOR_STUB_BASE_URL: http://stub-trigger-generator:8081
       INGESTOR_REGISTRY_BASE_URL: http://process-registry:8084
       INGESTOR_RESOLVE_RETRY_SECONDS: "60"
       INGESTOR_LOG_LEVEL: INFO
@@ -283,7 +283,7 @@ services:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
-      stub-exception-generator:
+      stub-trigger-generator:
         condition: service_started
       process-registry:
         condition: service_healthy
@@ -304,7 +304,7 @@ services:
       AGENTRT_OTLP_ENDPOINT: http://otel-collector:4318/v1/traces
       AGENTRT_MONGO_DB: amendia
       AGENTRT_RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
-      AGENTRT_RABBITMQ_DISPATCH_QUEUE: agent-runtime.exception_dispatched.v1
+      AGENTRT_RABBITMQ_DISPATCH_QUEUE: agent-runtime.trigger_dispatched.v1
       AGENTRT_REGISTRY_BASE_URL: http://process-registry:8084
       AGENTRT_SELF_BASE_URL: http://agent-runtime:8083
       # Real LLM capabilities via polyllm + ConfigForge (provider-agnostic). The
@@ -344,7 +344,7 @@ services:
         condition: service_healthy
       process-registry:
         condition: service_healthy
-      stub-exception-generator:
+      stub-trigger-generator:
         condition: service_started
       identity:
         condition: service_started
@@ -449,7 +449,7 @@ services:
     ports:
       - "18085:8085"
     depends_on:
-      stub-exception-generator:
+      stub-trigger-generator:
         condition: service_started
       ingestor:
         condition: service_started

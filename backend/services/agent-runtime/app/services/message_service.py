@@ -25,22 +25,22 @@ class MessageSubscriptionService:
 
     async def register(
         self, *, process_instance_id: str, element_id: str, message_name: str,
-        exception_id: str, correlation_id: str, kind: SubscriptionKind,
+        trigger_id: str, correlation_id: str, kind: SubscriptionKind,
         interrupt_id: Optional[str] = None, gateway_id: Optional[str] = None,
     ) -> MessageSubscription:
         sub = MessageSubscription(
             subscription_id=f"sub-{uuid.uuid4().hex[:12]}",
             process_instance_id=process_instance_id, element_id=element_id, message_name=message_name,
-            exception_id=exception_id, correlation_id=correlation_id, kind=kind,
+            trigger_id=trigger_id, correlation_id=correlation_id, kind=kind,
             interrupt_id=interrupt_id, gateway_id=gateway_id,
         )
         return await self._subs.register(sub)
 
-    async def find_match(self, message_name: str, *, exception_id: Optional[str] = None,
+    async def find_match(self, message_name: str, *, trigger_id: Optional[str] = None,
                          correlation_id: Optional[str] = None,
                          status: SubscriptionStatus = SubscriptionStatus.PENDING) -> Optional[MessageSubscription]:
         return await self._subs.find_match(
-            message_name, exception_id=exception_id, correlation_id=correlation_id, status=status)
+            message_name, trigger_id=trigger_id, correlation_id=correlation_id, status=status)
 
     async def mark_consumed(self, subscription_id: str) -> Optional[MessageSubscription]:
         return await self._subs.mark(subscription_id, SubscriptionStatus.CONSUMED)
@@ -55,13 +55,13 @@ class MessageSubscriptionService:
         return await self._subs.list_for_instance(process_instance_id)
 
     # ---- ordering buffer ----
-    async def buffer_message(self, *, message_name: str, exception_id: Optional[str],
+    async def buffer_message(self, *, message_name: str, trigger_id: Optional[str],
                              correlation_id: Optional[str], payload: Optional[dict]) -> None:
         await self._pending.buffer(PendingMessage(
             pending_id=f"pmsg-{uuid.uuid4().hex[:12]}", message_name=message_name,
-            exception_id=exception_id, correlation_id=correlation_id, payload=payload))
+            trigger_id=trigger_id, correlation_id=correlation_id, payload=payload))
 
-    async def pop_buffered(self, message_name: str, *, exception_id: Optional[str] = None,
+    async def pop_buffered(self, message_name: str, *, trigger_id: Optional[str] = None,
                            correlation_id: Optional[str] = None) -> Optional[PendingMessage]:
         return await self._pending.pop_match(
-            message_name, exception_id=exception_id, correlation_id=correlation_id)
+            message_name, trigger_id=trigger_id, correlation_id=correlation_id)

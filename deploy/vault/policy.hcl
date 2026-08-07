@@ -1,7 +1,7 @@
 # Amendia Vault policy (KV-v2 at mount "secret"). Least privilege: read-only, per-service paths.
 # Bound to the "amendia" Kubernetes-auth role (see README). No write/list of other services' paths.
 
-path "secret/data/amendia/stub-exception-generator" { capabilities = ["read"] }
+path "secret/data/amendia/stub-trigger-generator" { capabilities = ["read"] }
 path "secret/data/amendia/ingestor"                 { capabilities = ["read"] }
 path "secret/data/amendia/agent-runtime"            { capabilities = ["read"] }
 path "secret/data/amendia/process-registry"         { capabilities = ["read"] }

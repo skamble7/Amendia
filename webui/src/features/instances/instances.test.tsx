@@ -4,7 +4,7 @@ import { screen } from "@testing-library/react";
 import { renderApp } from "@/test/renderApp";
 import { server } from "@/test/server";
 import { SERVICE_BASE } from "@/api/config";
-import { synthInstanceDetail, synthException, synthPack, TEST_SCHEMA } from "@/test/fixtures";
+import { synthInstanceDetail, synthTrigger, synthPack, TEST_SCHEMA } from "@/test/fixtures";
 
 const R = SERVICE_BASE.runtime;
 const REG = SERVICE_BASE.registry;
@@ -42,15 +42,15 @@ describe("Instances", () => {
   });
 });
 
-describe("Exception detail", () => {
+describe("Trigger detail", () => {
   it("renders the payment parties and journey", async () => {
     server.use(
-      http.get(`${STUB}/exceptions/EXC-TEST-001`, () => HttpResponse.json(synthException())),
+      http.get(`${STUB}/triggers/EXC-TEST-001`, () => HttpResponse.json(synthTrigger())),
       http.get(`${ING}/ingestions/EXC-TEST-001`, () =>
-        HttpResponse.json({ exception_id: "EXC-TEST-001", status: "accepted", status_history: [{ status: "received", at: "2099-01-01T00:00:00Z", detail: null }], process_instance_id: "PI-TEST-1", resolution: null }),
+        HttpResponse.json({ trigger_id: "EXC-TEST-001", status: "accepted", status_history: [{ status: "received", at: "2099-01-01T00:00:00Z", detail: null }], process_instance_id: "PI-TEST-1", resolution: null }),
       ),
     );
-    renderApp("/exceptions/EXC-TEST-001", "analyst-1");
+    renderApp("/triggers/EXC-TEST-001", "analyst-1");
     expect(await screen.findByText(/Test Debtor Ltd/)).toBeInTheDocument();
     expect(await screen.findByText(/Test Creditor Ltd/)).toBeInTheDocument();
     expect(await screen.findByText(/Journey/)).toBeInTheDocument();

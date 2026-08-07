@@ -1829,7 +1829,7 @@ export interface components {
          * MessageExecutor
          * @description ADR-031 (Phase 2.4): the "executor" of a message catch / receive element is the external
          *     world. ``message_name`` is the business message this element awaits; correlation is by business
-         *     anchor (exception_id / correlation_id) + this name — no per-pack correlation expressions.
+         *     anchor (trigger_id / correlation_id) + this name — no per-pack correlation expressions.
          */
         MessageExecutor: {
             /** Message Name */

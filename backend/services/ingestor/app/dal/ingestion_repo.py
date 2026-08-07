@@ -30,8 +30,8 @@ class IngestionRepository:
     async def create_received(
         self,
         *,
-        exception_id: str,
-        exception_type: str,
+        trigger_id: str,
+        trigger_type: str,
         event: EventRef,
         detail: Optional[Dict[str, Any]],
         fetch_error: Optional[str] = None,
@@ -39,14 +39,14 @@ class IngestionRepository:
         """Insert a new record in the ``received`` state.
 
         Returns the created record, or ``None`` if one already exists for this
-        ``exception_id`` (idempotent no-op for redelivery).
+        ``trigger_id`` (idempotent no-op for redelivery).
         """
         now = _utcnow()
         record = IngestionRecord(
-            exception_id=exception_id,
-            exception_type=exception_type,
+            trigger_id=trigger_id,
+            trigger_type=trigger_type,
             event=event,
-            exception_detail=detail,
+            trigger_detail=detail,
             fetch_error=fetch_error,
             status=IngestionStatus.RECEIVED,
             status_history=[StatusChange(status=IngestionStatus.RECEIVED, at=now)],
@@ -59,21 +59,21 @@ class IngestionRepository:
             return None
         return record
 
-    async def get(self, exception_id: str) -> Optional[IngestionRecord]:
-        doc = await self._coll.find_one({"exception_id": exception_id}, projection={"_id": False})
+    async def get(self, trigger_id: str) -> Optional[IngestionRecord]:
+        doc = await self._coll.find_one({"trigger_id": trigger_id}, projection={"_id": False})
         return IngestionRecord.model_validate(doc) if doc else None
 
     async def list(
         self,
         *,
-        exception_type: Optional[str] = None,
+        trigger_type: Optional[str] = None,
         status: Optional[str] = None,
         limit: int = 50,
         offset: int = 0,
     ) -> List[IngestionRecord]:
         query: Dict[str, Any] = {}
-        if exception_type:
-            query["exception_type"] = exception_type
+        if trigger_type:
+            query["trigger_type"] = trigger_type
         if status:
             query["status"] = status
 
@@ -99,7 +99,7 @@ class IngestionRepository:
 
     async def _transition(
         self,
-        exception_id: str,
+        trigger_id: str,
         status: IngestionStatus,
         *,
         expected: set[IngestionStatus],
@@ -118,7 +118,7 @@ class IngestionRepository:
         if set_fields:
             updates.update(set_fields)
         doc = await self._coll.find_one_and_update(
-            {"exception_id": exception_id, "status": {"$in": [s.value for s in expected]}},
+            {"trigger_id": trigger_id, "status": {"$in": [s.value for s in expected]}},
             {"$set": updates, "$push": {"status_history": change}},
             projection={"_id": False},
             return_document=ReturnDocument.AFTER,
@@ -126,37 +126,37 @@ class IngestionRepository:
         return IngestionRecord.model_validate(doc) if doc else None
 
     async def mark_dispatched(
-        self, exception_id: str, *, resolution: Dict[str, Any], detail: Optional[str] = None
+        self, trigger_id: str, *, resolution: Dict[str, Any], detail: Optional[str] = None
     ) -> Optional[IngestionRecord]:
         return await self._transition(
-            exception_id, IngestionStatus.DISPATCHED,
+            trigger_id, IngestionStatus.DISPATCHED,
             expected={IngestionStatus.RECEIVED},
             detail=detail, set_fields={"resolution": resolution},
         )
 
     async def mark_no_process(
-        self, exception_id: str, *, no_match: Dict[str, Any], detail: Optional[str] = None
+        self, trigger_id: str, *, no_match: Dict[str, Any], detail: Optional[str] = None
     ) -> Optional[IngestionRecord]:
         return await self._transition(
-            exception_id, IngestionStatus.NO_PROCESS,
+            trigger_id, IngestionStatus.NO_PROCESS,
             expected={IngestionStatus.RECEIVED},
             detail=detail, set_fields={"no_match": no_match},
         )
 
     async def mark_accepted(
-        self, exception_id: str, *, process_instance_id: str, detail: Optional[str] = None
+        self, trigger_id: str, *, process_instance_id: str, detail: Optional[str] = None
     ) -> Optional[IngestionRecord]:
         return await self._transition(
-            exception_id, IngestionStatus.ACCEPTED,
+            trigger_id, IngestionStatus.ACCEPTED,
             expected={IngestionStatus.DISPATCHED},
             detail=detail, set_fields={"process_instance_id": process_instance_id},
         )
 
     async def mark_rejected(
-        self, exception_id: str, *, rejection: Dict[str, Any], detail: Optional[str] = None
+        self, trigger_id: str, *, rejection: Dict[str, Any], detail: Optional[str] = None
     ) -> Optional[IngestionRecord]:
         return await self._transition(
-            exception_id, IngestionStatus.REJECTED,
+            trigger_id, IngestionStatus.REJECTED,
             expected={IngestionStatus.DISPATCHED},
             detail=detail, set_fields={"rejection": rejection},
         )

@@ -150,7 +150,7 @@ async def harness():
 
 
 async def _start(engine, instances, pid, reason="AC01"):
-    inst = ProcessInstance.new(process_instance_id=pid, exception_id=f"EXC-{pid}",
+    inst = ProcessInstance.new(process_instance_id=pid, trigger_id=f"EXC-{pid}",
                                pack_key=PK, pack_version=PV)
     await instances.insert(inst)
     await engine.start(inst, make_envelope(reason, exception_id=f"EXC-{pid}"))
@@ -174,7 +174,7 @@ async def test_message_catch_parks_then_delivery_resumes(harness):
     subs = await messages.list_for_instance(pid)
     assert len(subs) == 1 and subs[0].message_name == "rfi_reply" and subs[0].status.value == "pending"
 
-    res = await eng.deliver_message("rfi_reply", exception_id=f"EXC-{pid}", payload={"answer": "yes"})
+    res = await eng.deliver_message("rfi_reply", trigger_id=f"EXC-{pid}", payload={"answer": "yes"})
     assert res["status"] == "delivered"
     # resumed past the catch → next gate (Assess); subscription consumed; event emitted; signal recorded
     assert (await instances.get(pid)).status == InstanceStatus.WAITING_HITL
@@ -185,15 +185,15 @@ async def test_message_catch_parks_then_delivery_resumes(harness):
 async def test_wrong_name_and_anchor_return_no_match(harness):
     eng = harness["build_engine"](_bundle(_catch_xml(), [("AwaitReply", "messageCatch", "rfi_reply", False)]))
     await _start(eng, harness["instances"], "pi-m2")
-    assert (await eng.deliver_message("WRONG", exception_id="EXC-pi-m2"))["status"] == "no_matching_subscription"
-    assert (await eng.deliver_message("rfi_reply", exception_id="EXC-none"))["status"] == "no_matching_subscription"
+    assert (await eng.deliver_message("WRONG", trigger_id="EXC-pi-m2"))["status"] == "no_matching_subscription"
+    assert (await eng.deliver_message("rfi_reply", trigger_id="EXC-none"))["status"] == "no_matching_subscription"
 
 
 async def test_duplicate_delivery_is_already_consumed(harness):
     eng = harness["build_engine"](_bundle(_catch_xml(), [("AwaitReply", "messageCatch", "rfi_reply", False)]))
     await _start(eng, harness["instances"], "pi-m3")
-    assert (await eng.deliver_message("rfi_reply", exception_id="EXC-pi-m3", payload={}))["status"] == "delivered"
-    assert (await eng.deliver_message("rfi_reply", exception_id="EXC-pi-m3", payload={}))["status"] == "already_consumed"
+    assert (await eng.deliver_message("rfi_reply", trigger_id="EXC-pi-m3", payload={}))["status"] == "delivered"
+    assert (await eng.deliver_message("rfi_reply", trigger_id="EXC-pi-m3", payload={}))["status"] == "already_consumed"
 
 
 # --------------------------------------------------------------------------- #
@@ -205,7 +205,7 @@ async def test_typed_payload_validates_and_commits(harness):
     instances = harness["instances"]
     pid = "pi-m4"
     await _start(eng, instances, pid)
-    res = await eng.deliver_message("rfi_reply", exception_id=f"EXC-{pid}", payload={"answer": "confirmed"})
+    res = await eng.deliver_message("rfi_reply", trigger_id=f"EXC-{pid}", payload={"answer": "confirmed"})
     assert res["status"] == "delivered"
     cfg = {"configurable": {"thread_id": pid}}
     state = eng._graphs[(PK, PV)].get_state(cfg).values
@@ -217,7 +217,7 @@ async def test_malformed_typed_payload_rejected_nothing_committed(harness):
     instances = harness["instances"]
     pid = "pi-m5"
     await _start(eng, instances, pid)
-    res = await eng.deliver_message("rfi_reply", exception_id=f"EXC-{pid}", payload={"wrong": 1})
+    res = await eng.deliver_message("rfi_reply", trigger_id=f"EXC-{pid}", payload={"wrong": 1})
     assert res["status"] == "invalid_payload"
     # instance stays parked; nothing committed
     assert (await instances.get(pid)).status == InstanceStatus.WAITING_MESSAGE
@@ -234,7 +234,7 @@ async def test_message_arriving_before_subscription_is_buffered(harness):
     instances = harness["instances"]
     pid = "pi-m6"
     # deliver BEFORE the instance starts/parks → buffered
-    res = await eng.deliver_message("rfi_reply", exception_id=f"EXC-{pid}", payload={"answer": "early"})
+    res = await eng.deliver_message("rfi_reply", trigger_id=f"EXC-{pid}", payload={"answer": "early"})
     assert res["status"] == "no_matching_subscription"
     # now start: parking pops the buffer and delivers immediately → runs past the catch
     await _start(eng, instances, pid)
@@ -247,7 +247,7 @@ async def test_receive_task_parks_and_resumes(harness):
     pid = "pi-m7"
     await _start(eng, instances, pid)
     assert (await instances.get(pid)).status == InstanceStatus.WAITING_MESSAGE
-    assert (await eng.deliver_message("rfi_reply", exception_id=f"EXC-{pid}", payload={}))["status"] == "delivered"
+    assert (await eng.deliver_message("rfi_reply", trigger_id=f"EXC-{pid}", payload={}))["status"] == "delivered"
     assert (await instances.get(pid)).status == InstanceStatus.WAITING_HITL
 
 
@@ -259,7 +259,7 @@ async def test_pending_subscription_survives_restart(harness):
     await _start(eng1, instances, pid)  # parked WAITING_MESSAGE, subscription pending
     # "restart": a fresh engine sharing the durable checkpointer + repos
     eng2 = harness["build_engine"](b)
-    assert (await eng2.deliver_message("rfi_reply", exception_id=f"EXC-{pid}", payload={}))["status"] == "delivered"
+    assert (await eng2.deliver_message("rfi_reply", trigger_id=f"EXC-{pid}", payload={}))["status"] == "delivered"
     assert (await instances.get(pid)).status == InstanceStatus.WAITING_HITL
 
 
@@ -277,7 +277,7 @@ async def test_event_gateway_message_arm_wins_cancels_timer(harness):
     assert len(await messages.list_for_instance(pid)) == 1
     assert len(await timers.list_for_instance(pid)) == 1
 
-    res = await eng.deliver_message("screening_result", exception_id=f"EXC-{pid}", payload={"hit": False})
+    res = await eng.deliver_message("screening_result", trigger_id=f"EXC-{pid}", payload={"hit": False})
     assert res["status"] == "delivered"
     # message arm won → routed to Assess (WAITING_HITL); the timer arm was cancelled
     assert (await instances.get(pid)).status == InstanceStatus.WAITING_HITL

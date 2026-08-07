@@ -1,5 +1,5 @@
 # app/services/dispatch_service.py
-"""Handle ``exception_dispatched``: idempotency, envelope fetch/validate, pack load,
+"""Handle ``trigger_dispatched``: idempotency, envelope fetch/validate, pack load,
 instance creation, accept/reject reply, and kicking off execution.
 """
 from __future__ import annotations
@@ -18,14 +18,14 @@ from amendia_contracts.dispatch import (
     DispatchAcceptedEvent,
     DispatchRejectedEvent,
     DispatchRejectionReason,
-    ExceptionDispatchedEvent,
+    TriggerDispatchedEvent,
     Trace,
 )
 
-from app.clients.registry_client import ExceptionStoreClient, RegistryError, RegistryNotFound
+from app.clients.registry_client import TriggerStoreClient, RegistryError, RegistryNotFound
 from app.dal.base import DuplicateError
 from app.engine.engine import PackNotActive, PackRequiresProfile, ProcessEngine
-from app.logging_conf import exception_id_ctx
+from app.logging_conf import trigger_id_ctx
 from app.models.process_instance import ProcessInstance, compute_idempotency_key
 
 logger = logging.getLogger(__name__)
@@ -53,7 +53,7 @@ class DispatchService:
         engine: ProcessEngine,
         instance_repo,
         dispatch_repo,
-        store_client: ExceptionStoreClient,
+        store_client: TriggerStoreClient,
         publisher,
     ) -> None:
         self._engine = engine
@@ -65,21 +65,21 @@ class DispatchService:
 
     async def handle(self, payload: Dict[str, Any], routing_key: str = "") -> None:
         try:
-            event = ExceptionDispatchedEvent.model_validate(payload)
+            event = TriggerDispatchedEvent.model_validate(payload)
         except ValidationError as exc:
-            logger.error("Dropping invalid exception_dispatched: %s", exc)
+            logger.error("Dropping invalid trigger_dispatched: %s", exc)
             return
 
-        token = exception_id_ctx.set(event.exception_id)
+        token = trigger_id_ctx.set(event.trigger_id)
         try:
             await self._handle(event)
         finally:
-            exception_id_ctx.reset(token)
+            trigger_id_ctx.reset(token)
 
-    async def _handle(self, event: ExceptionDispatchedEvent) -> None:
+    async def _handle(self, event: TriggerDispatchedEvent) -> None:
         pack_key = event.resolution.pack_key
         pack_version = event.resolution.pack_version
-        correlation_id = event.trace.correlation_id if event.trace else event.exception_id
+        correlation_id = event.trace.correlation_id if event.trace else event.trigger_id
 
         # Record the inbound event (idempotent log; duplicates are fine).
         try:
@@ -88,7 +88,7 @@ class DispatchService:
             logger.info("duplicate dispatch event_id=%s", event.event_id)
 
         # Idempotency: an existing instance → re-accept with the same instance id.
-        idem = compute_idempotency_key(event.exception_id, pack_key, pack_version)
+        idem = compute_idempotency_key(event.trigger_id, pack_key, pack_version)
         existing = await self._instances.get_by_idempotency_key(idem)
         if existing is not None:
             logger.info("dispatch idempotent: instance %s already exists", existing.process_instance_id)
@@ -133,7 +133,7 @@ class DispatchService:
         # Create the instance (created), then accept + start execution.
         pid = f"pi-{uuid.uuid4().hex[:16]}"
         instance = ProcessInstance.new(
-            process_instance_id=pid, exception_id=event.exception_id,
+            process_instance_id=pid, trigger_id=event.trigger_id,
             pack_key=pack_key, pack_version=pack_version, correlation_id=correlation_id,
         )
         try:
@@ -154,23 +154,23 @@ class DispatchService:
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
 
-    async def _accept(self, event: ExceptionDispatchedEvent, pid: str, correlation_id: str) -> None:
+    async def _accept(self, event: TriggerDispatchedEvent, pid: str, correlation_id: str) -> None:
         await self._publish(DispatchAcceptedEvent(
             event_id=uuid.uuid4().hex, occurred_at=datetime.now(timezone.utc),
-            exception_id=event.exception_id, process_instance_id=pid,
+            trigger_id=event.trigger_id, process_instance_id=pid,
             pack_key=event.resolution.pack_key, pack_version=event.resolution.pack_version,
             trace=Trace(correlation_id=correlation_id, causation_id=event.event_id),
         ))
-        logger.info("dispatch accepted: exception_id=%s instance=%s", event.exception_id, pid)
+        logger.info("dispatch accepted: trigger_id=%s instance=%s", event.trigger_id, pid)
 
-    async def _reject(self, event: ExceptionDispatchedEvent, reason: DispatchRejectionReason,
+    async def _reject(self, event: TriggerDispatchedEvent, reason: DispatchRejectionReason,
                       detail: str, correlation_id: str) -> None:
         await self._publish(DispatchRejectedEvent(
             event_id=uuid.uuid4().hex, occurred_at=datetime.now(timezone.utc),
-            exception_id=event.exception_id, reason=reason, detail=detail,
+            trigger_id=event.trigger_id, reason=reason, detail=detail,
             trace=Trace(correlation_id=correlation_id, causation_id=event.event_id),
         ))
-        logger.warning("dispatch rejected: exception_id=%s reason=%s", event.exception_id, reason.value)
+        logger.warning("dispatch rejected: trigger_id=%s reason=%s", event.trigger_id, reason.value)
 
     async def _publish(self, event) -> None:
         if self._publisher is None:

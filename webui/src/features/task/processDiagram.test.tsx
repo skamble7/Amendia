@@ -5,7 +5,7 @@ import userEvent from "@testing-library/user-event";
 import { renderApp } from "@/test/renderApp";
 import { server } from "@/test/server";
 import { SERVICE_BASE } from "@/api/config";
-import { synthTask, synthException, synthInstanceDetail, synthPack, TEST_SCHEMA } from "@/test/fixtures";
+import { synthTask, synthTrigger, synthInstanceDetail, synthPack, TEST_SCHEMA } from "@/test/fixtures";
 import type { BpmnMarker } from "@/features/registry/BpmnViewer";
 
 // bpmn-js needs real SVG rendering; stub the viewer so the test asserts the wiring
@@ -26,7 +26,7 @@ describe("Task detail — BPMN process diagram", () => {
   it("launches the actual BPMN diagram with process-state markers from the progress card", async () => {
     server.use(
       http.get(`${R}/hitl-tasks/diag1`, () => HttpResponse.json(synthTask({ task_id: "diag1" }))),
-      http.get(`${STUB}/exceptions/:id`, () => HttpResponse.json(synthException())),
+      http.get(`${STUB}/triggers/:id`, () => HttpResponse.json(synthTrigger())),
       http.get(`${REG}/packs/:key/:version`, () => HttpResponse.json(synthPack)),
       http.get(`${REG}/packs/:key/:version/bpmn`, () => HttpResponse.text("<definitions/>")),
       http.get(`${REG}/artifact-schemas/:key/:version`, () => HttpResponse.json({ json_schema: TEST_SCHEMA })),

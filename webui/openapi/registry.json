@@ -3061,7 +3061,7 @@
       },
       "MessageExecutor": {
         "additionalProperties": false,
-        "description": "ADR-031 (Phase 2.4): the \"executor\" of a message catch / receive element is the external\nworld. ``message_name`` is the business message this element awaits; correlation is by business\nanchor (exception_id / correlation_id) + this name \u2014 no per-pack correlation expressions.",
+        "description": "ADR-031 (Phase 2.4): the \"executor\" of a message catch / receive element is the external\nworld. ``message_name`` is the business message this element awaits; correlation is by business\nanchor (trigger_id / correlation_id) + this name \u2014 no per-pack correlation expressions.",
         "properties": {
           "message_name": {
             "title": "Message Name",

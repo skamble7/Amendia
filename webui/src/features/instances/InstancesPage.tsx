@@ -53,13 +53,13 @@ export function InstancesPage() {
         {isLoading ? (
           <div className="space-y-2 p-4">{Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-10 w-full" />)}</div>
         ) : rows.length === 0 ? (
-          <EmptyState icon={<Workflow className="size-6" />} title="No instances yet" description="Instances appear when an exception is dispatched to a process pack. Generate one from Exceptions." />
+          <EmptyState icon={<Workflow className="size-6" />} title="No instances yet" description="Instances appear when a trigger is dispatched to a process pack. Generate one from Triggers." />
         ) : (
           <Table>
             <TableHeader>
               <TableRow className="hover:bg-transparent">
                 <TableHead>Instance</TableHead>
-                <TableHead>Exception</TableHead>
+                <TableHead>Trigger</TableHead>
                 <TableHead>Pack</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>Outcome</TableHead>
@@ -76,7 +76,7 @@ export function InstancesPage() {
                   onKeyDown={(e) => (e.key === "Enter") && navigate(`/instances/${inst.process_instance_id}`)}
                 >
                   <TableCell><IdMono value={inst.process_instance_id} className="text-foreground" /></TableCell>
-                  <TableCell><IdMono value={inst.exception_id} /></TableCell>
+                  <TableCell><IdMono value={inst.trigger_id} /></TableCell>
                   <TableCell className="text-sm">
                     {inst.pack_key} <span className="text-muted-foreground">@{inst.pack_version}</span>
                   </TableCell>

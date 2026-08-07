@@ -20,7 +20,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/exceptions/generate": {
+    "/generators/{generator_id}/generate": {
         parameters: {
             query?: never;
             header?: never;
@@ -30,22 +30,22 @@ export interface paths {
         get?: never;
         put?: never;
         /** Generate */
-        post: operations["generate_exceptions_generate_post"];
+        post: operations["generate_generators__generator_id__generate_post"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/exceptions": {
+    "/triggers": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /** List Exceptions */
-        get: operations["list_exceptions_exceptions_get"];
+        /** List Triggers */
+        get: operations["list_triggers_triggers_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -54,15 +54,15 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/exceptions/{exception_id}": {
+    "/triggers/{trigger_id}": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /** Get Exception */
-        get: operations["get_exception_exceptions__exception_id__get"];
+        /** Get Trigger */
+        get: operations["get_trigger_triggers__trigger_id__get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -71,7 +71,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/exceptions/{exception_id}/attachments/{attachment_id}": {
+    "/triggers/{trigger_id}/attachments/{attachment_id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -79,7 +79,7 @@ export interface paths {
             cookie?: never;
         };
         /** Get Attachment */
-        get: operations["get_attachment_exceptions__exception_id__attachments__attachment_id__get"];
+        get: operations["get_attachment_triggers__trigger_id__attachments__attachment_id__get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -119,9 +119,9 @@ export interface components {
         };
         /**
          * GenerateRequest
-         * @description Body for ``POST /exceptions/generate`` — every field is optional.
+         * @description Body for a generator's ``POST /generators/{generator_id}/generate`` — every field is optional.
          *
-         *     Anything the caller pins is honored; the rest is randomized per exception.
+         *     Anything the caller pins is honored; the rest is randomized per trigger.
          */
         GenerateRequest: {
             /** Reason Code */
@@ -145,10 +145,10 @@ export interface components {
         };
         /**
          * GeneratedItem
-         * @description One generated exception plus how it was published.
+         * @description One generated trigger plus how it was published.
          */
         GeneratedItem: {
-            exception: components["schemas"]["StoredException"];
+            trigger: components["schemas"]["StoredTrigger"];
             /** Routing Key */
             routing_key: string;
             /** Published */
@@ -214,17 +214,17 @@ export interface components {
             channel: string;
         };
         /**
-         * StoredException
+         * StoredTrigger
          * @description Envelope wrapped with store-managed metadata (as persisted in Mongo).
          */
-        StoredException: {
-            /** Exception Id */
-            exception_id: string;
+        StoredTrigger: {
+            /** Trigger Id */
+            trigger_id: string;
             source: components["schemas"]["Source"];
             /** Received At */
             received_at: string;
-            /** Exception Type */
-            exception_type: string;
+            /** Trigger Type */
+            trigger_type: string;
             /** Reason Codes */
             reason_codes: string[];
             /** Reason Narrative */
@@ -294,11 +294,13 @@ export interface operations {
             };
         };
     };
-    generate_exceptions_generate_post: {
+    generate_generators__generator_id__generate_post: {
         parameters: {
             query?: never;
             header?: never;
-            path?: never;
+            path: {
+                generator_id: string;
+            };
             cookie?: never;
         };
         requestBody?: {
@@ -327,12 +329,11 @@ export interface operations {
             };
         };
     };
-    list_exceptions_exceptions_get: {
+    list_triggers_triggers_get: {
         parameters: {
             query?: {
-                exception_type?: string | null;
+                trigger_type?: string | null;
                 status?: string | null;
-                reason_code?: string | null;
                 limit?: number;
                 offset?: number;
             };
@@ -348,7 +349,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["StoredException"][];
+                    "application/json": components["schemas"]["StoredTrigger"][];
                 };
             };
             /** @description Validation Error */
@@ -362,12 +363,12 @@ export interface operations {
             };
         };
     };
-    get_exception_exceptions__exception_id__get: {
+    get_trigger_triggers__trigger_id__get: {
         parameters: {
             query?: never;
             header?: never;
             path: {
-                exception_id: string;
+                trigger_id: string;
             };
             cookie?: never;
         };
@@ -379,7 +380,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["StoredException"];
+                    "application/json": components["schemas"]["StoredTrigger"];
                 };
             };
             /** @description Validation Error */
@@ -393,12 +394,12 @@ export interface operations {
             };
         };
     };
-    get_attachment_exceptions__exception_id__attachments__attachment_id__get: {
+    get_attachment_triggers__trigger_id__attachments__attachment_id__get: {
         parameters: {
             query?: never;
             header?: never;
             path: {
-                exception_id: string;
+                trigger_id: string;
                 attachment_id: string;
             };
             cookie?: never;

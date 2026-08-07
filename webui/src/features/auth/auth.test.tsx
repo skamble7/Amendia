@@ -122,7 +122,7 @@ describe("role-aware navigation", () => {
     );
     await screen.findByText("Test User");
   }
-  const OPERATOR_SURFACES = [/Dashboard/i, /Task inbox/i, /Instances/i, /Exceptions/i];
+  const OPERATOR_SURFACES = [/Dashboard/i, /Task inbox/i, /Instances/i, /Triggers/i];
   const hasNav = (name: RegExp) => screen.queryAllByRole("link", { name }).length > 0;
 
   it("alex (role.platform.admin only) → Administration only, no operator surfaces", async () => {

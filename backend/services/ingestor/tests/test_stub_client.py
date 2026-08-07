@@ -1,11 +1,11 @@
 # tests/test_stub_client.py
 """The fetch-back client is domain-neutral: it keeps the configured authority (SSRF-safe, host-portable) but
 takes the PATH from the event's ``fetch_url`` so any pack's endpoint works (``/tickets/{id}`` as well as the
-legacy ``/exceptions/{id}``)."""
+canonical ``/triggers/{id}``)."""
 import httpx
 import pytest
 
-from app.clients.stub_client import StubClient
+from app.clients.stub_client import TriggerStoreClient
 
 pytestmark = pytest.mark.asyncio
 
@@ -13,7 +13,7 @@ _BASE = "http://stub:8085"
 
 
 async def _capture(fetch_url):
-    """GET via a StubClient over a mock transport; return the URL the client actually requested."""
+    """GET via a TriggerStoreClient over a mock transport; return the URL the client actually requested."""
     seen = {}
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -22,8 +22,8 @@ async def _capture(fetch_url):
         return httpx.Response(200, json={"ok": True})
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
-        client = StubClient(_BASE, http, internal_token="tok")
-        body = await client.fetch_exception("TKT-123", fetch_url)
+        client = TriggerStoreClient(_BASE, http, internal_token="tok")
+        body = await client.fetch_trigger("TKT-123", fetch_url)
     assert body == {"ok": True}
     return seen
 
@@ -40,7 +40,7 @@ async def test_fetch_preserves_query_string():
     assert seen["url"] == f"{_BASE}/tickets/TKT-123?view=full"
 
 
-async def test_fetch_falls_back_to_legacy_path_when_fetch_url_empty():
+async def test_fetch_falls_back_to_canonical_path_when_fetch_url_empty():
     for missing in (None, "", "http://producer"):   # None / empty / pathless
         seen = await _capture(missing)
-        assert seen["url"] == f"{_BASE}/exceptions/TKT-123"
+        assert seen["url"] == f"{_BASE}/triggers/TKT-123"

@@ -58,7 +58,7 @@ export function formatDurationShort(startIso: string | null | undefined, endIso?
   return `${h}h ${m % 60}m`;
 }
 
-/** Shorten a long id (UETR, exception id) for dense display, keeping head+tail. */
+/** Shorten a long id (UETR, trigger id) for dense display, keeping head+tail. */
 export function shortId(id: string | null | undefined, head = 8, tail = 4): string {
   if (!id) return "—";
   if (id.length <= head + tail + 1) return id;

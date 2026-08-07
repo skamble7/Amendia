@@ -29,7 +29,7 @@ class Settings(BaseSettings):
 
     # RabbitMQ
     RABBITMQ_URL: str = "amqp://guest:guest@localhost:5672/"
-    RABBITMQ_DISPATCH_QUEUE: str = "agent-runtime.exception_dispatched.v1"
+    RABBITMQ_DISPATCH_QUEUE: str = "agent-runtime.trigger_dispatched.v1"
 
     # Process registry — pack/capability/schema/resolution API.
     REGISTRY_BASE_URL: str = "http://localhost:8084"

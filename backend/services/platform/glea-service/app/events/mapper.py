@@ -51,8 +51,8 @@ def to_row(routing_key: str, payload: Dict[str, Any]) -> Dict[str, Any]:
         "event_id": str(payload["event_id"]),
         "occurred_at": _parse_dt(payload.get("occurred_at")),
         "kind": kind,
-        # correlation_id lives on the nested Trace; fall back to exception_id (its canonical value).
-        "correlation_id": str(trace.get("correlation_id") or payload.get("exception_id") or ""),
+        # correlation_id lives on the nested Trace; fall back to trigger_id (its canonical value).
+        "correlation_id": str(trace.get("correlation_id") or payload.get("trigger_id") or ""),
         "trace_id": str(trace.get("trace_id") or ""),
         "actor": str(payload.get("actor") or payload.get("decided_by") or ""),
         "actor_kind": str(payload.get("actor_kind") or ""),

@@ -7,15 +7,15 @@ import {
   formatDuration,
 } from "./compute";
 import { formatActivitySignal } from "./activity";
-import type { StoredException, IngestionRecord, ProcessInstance, HitlTask } from "@/api/types";
+import type { StoredTrigger, IngestionRecord, ProcessInstance, HitlTask } from "@/api/types";
 import type { Signal } from "@/api/notificationsStream";
 
 const NOW = new Date("2026-07-08T12:00:00Z");
 const today = (h = 9) => new Date(`2026-07-08T${String(h).padStart(2, "0")}:00:00Z`).toISOString();
 const yesterday = new Date("2026-07-07T09:00:00Z").toISOString();
 
-const ex = (over: Partial<StoredException>): StoredException =>
-  ({ reason_codes: [], created_at: today(), ...over }) as unknown as StoredException;
+const ex = (over: Partial<StoredTrigger>): StoredTrigger =>
+  ({ reason_codes: [], created_at: today(), ...over }) as unknown as StoredTrigger;
 const ing = (over: Partial<IngestionRecord>): IngestionRecord =>
   ({ status: "received", created_at: today(), ...over }) as unknown as IngestionRecord;
 const inst = (over: Partial<ProcessInstance>): ProcessInstance =>
@@ -32,7 +32,7 @@ describe("isSameDay", () => {
 
 describe("pipelineCounts", () => {
   it("tallies each stage from today's records only", () => {
-    const exceptions = [ex({}), ex({}), ex({ created_at: yesterday })];
+    const triggers = [ex({}), ex({}), ex({ created_at: yesterday })];
     const ingestions = [
       ing({ status: "received" }),
       ing({ status: "dispatched" }),
@@ -48,7 +48,7 @@ describe("pipelineCounts", () => {
       inst({ status: "failed" }),
       inst({ status: "completed", created_at: yesterday }),
     ];
-    const c = pipelineCounts(exceptions, ingestions, instances, NOW);
+    const c = pipelineCounts(triggers, ingestions, instances, NOW);
     expect(c.raised).toBe(2);
     expect(c.ingested).toBe(4);
     expect(c.dispatched).toBe(2); // dispatched + accepted, today only
@@ -85,13 +85,13 @@ describe("waitStats", () => {
 });
 
 describe("reasonTally", () => {
-  it("tallies reason codes across exceptions, sorted desc", () => {
-    const exceptions = [
+  it("tallies reason codes across triggers, sorted desc", () => {
+    const triggers = [
       ex({ reason_codes: ["AC01", "AC04"] }),
       ex({ reason_codes: ["AC01"] }),
       ex({ reason_codes: ["AC01", "BE04"] }),
     ];
-    expect(reasonTally(exceptions)).toEqual([
+    expect(reasonTally(triggers)).toEqual([
       { code: "AC01", count: 3 },
       { code: "AC04", count: 1 },
       { code: "BE04", count: 1 },
@@ -117,8 +117,8 @@ describe("formatActivitySignal", () => {
     [{ type: "process_completed", outcome: "End_Resolved" }, "Instance completed — End_Resolved"],
     [{ type: "process_failed" }, "Instance failed"],
     [{ type: "dispatch_accepted", process_instance_id: "PI-42" }, "Dispatched — PI-42"],
-    [{ type: "exception_raised", exception_id: "EXC-1" }, "Exception raised — EXC-1"],
-    [{ type: "exception_dispatched", exception_id: "EXC-1" }, "Exception dispatched — EXC-1"],
+    [{ type: "trigger_raised", trigger_id: "EXC-1" }, "Trigger raised — EXC-1"],
+    [{ type: "trigger_dispatched", trigger_id: "EXC-1" }, "Trigger dispatched — EXC-1"],
   ];
   it.each(cases)("maps %o", (signal, expected) => {
     expect(formatActivitySignal(signal)).toBe(expected);

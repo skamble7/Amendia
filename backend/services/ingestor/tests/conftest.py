@@ -27,35 +27,35 @@ class FakeRepository:
         self.store: dict[str, IngestionRecord] = {}
 
     async def create_received(
-        self, *, exception_id, exception_type, event: EventRef,
+        self, *, trigger_id, trigger_type, event: EventRef,
         detail, fetch_error=None,
     ) -> Optional[IngestionRecord]:
-        if exception_id in self.store:
+        if trigger_id in self.store:
             return None
         now = _utcnow()
         record = IngestionRecord(
-            exception_id=exception_id,
-            exception_type=exception_type,
+            trigger_id=trigger_id,
+            trigger_type=trigger_type,
             event=event,
-            exception_detail=detail,
+            trigger_detail=detail,
             fetch_error=fetch_error,
             status=IngestionStatus.RECEIVED,
             status_history=[StatusChange(status=IngestionStatus.RECEIVED, at=now)],
             created_at=now,
             updated_at=now,
         )
-        self.store[exception_id] = record
+        self.store[trigger_id] = record
         return record
 
-    async def get(self, exception_id: str) -> Optional[IngestionRecord]:
-        return self.store.get(exception_id)
+    async def get(self, trigger_id: str) -> Optional[IngestionRecord]:
+        return self.store.get(trigger_id)
 
     async def list(
-        self, *, exception_type=None, status=None, limit=50, offset=0,
+        self, *, trigger_type=None, status=None, limit=50, offset=0,
     ) -> List[IngestionRecord]:
         items = list(self.store.values())
-        if exception_type:
-            items = [i for i in items if i.exception_type == exception_type]
+        if trigger_type:
+            items = [i for i in items if i.trigger_type == trigger_type]
         if status:
             items = [i for i in items if i.status.value == status]
         items.sort(key=lambda i: i.created_at, reverse=True)
@@ -68,8 +68,8 @@ class FakeRepository:
 
     # --- guarded lifecycle transitions (mirror the real repo) ---
 
-    def _transition(self, exception_id, status, *, expected, detail=None, **fields):
-        rec = self.store.get(exception_id)
+    def _transition(self, trigger_id, status, *, expected, detail=None, **fields):
+        rec = self.store.get(trigger_id)
         if rec is None or rec.status not in expected:
             return None
         rec.status = status
@@ -79,31 +79,31 @@ class FakeRepository:
             setattr(rec, k, v)
         return rec
 
-    async def mark_dispatched(self, exception_id, *, resolution, detail=None):
+    async def mark_dispatched(self, trigger_id, *, resolution, detail=None):
         from app.models.ingestion import ResolutionRef
         return self._transition(
-            exception_id, IngestionStatus.DISPATCHED,
+            trigger_id, IngestionStatus.DISPATCHED,
             expected={IngestionStatus.RECEIVED}, detail=detail,
             resolution=ResolutionRef(**resolution),
         )
 
-    async def mark_no_process(self, exception_id, *, no_match, detail=None):
+    async def mark_no_process(self, trigger_id, *, no_match, detail=None):
         return self._transition(
-            exception_id, IngestionStatus.NO_PROCESS,
+            trigger_id, IngestionStatus.NO_PROCESS,
             expected={IngestionStatus.RECEIVED}, detail=detail, no_match=no_match,
         )
 
-    async def mark_accepted(self, exception_id, *, process_instance_id, detail=None):
+    async def mark_accepted(self, trigger_id, *, process_instance_id, detail=None):
         return self._transition(
-            exception_id, IngestionStatus.ACCEPTED,
+            trigger_id, IngestionStatus.ACCEPTED,
             expected={IngestionStatus.DISPATCHED}, detail=detail,
             process_instance_id=process_instance_id,
         )
 
-    async def mark_rejected(self, exception_id, *, rejection, detail=None):
+    async def mark_rejected(self, trigger_id, *, rejection, detail=None):
         from app.models.ingestion import RejectionRef
         return self._transition(
-            exception_id, IngestionStatus.REJECTED,
+            trigger_id, IngestionStatus.REJECTED,
             expected={IngestionStatus.DISPATCHED}, detail=detail,
             rejection=RejectionRef(**rejection),
         )
@@ -147,13 +147,14 @@ class FakeStubClient:
         self.calls: list[str] = []
         self.fetch_urls: list[str | None] = []
 
-    async def fetch_exception(self, exception_id: str, fetch_url: str | None = None) -> Dict[str, Any]:
-        self.calls.append(exception_id)
+    async def fetch_trigger(self, trigger_id: str, fetch_url: str | None = None) -> Dict[str, Any]:
+        self.calls.append(trigger_id)
         self.fetch_urls.append(fetch_url)
         if self.fail:
             raise RuntimeError("stub unreachable")
+        # The fetched document is the domain wire envelope (exception_id/type are domain fields).
         return {
-            "exception_id": exception_id,
+            "exception_id": trigger_id,
             "exception_type": "unable_to_apply",
             "status": "open",
             "payment": {"msg_type": "pacs.008.001.10"},

@@ -18,17 +18,17 @@ from app.services.dispatch_service import DispatchService
 from tests._wire import make_envelope
 
 
-def _event(*, exception_id="EXC-D1", fetch_url="http://stub/exceptions/EXC-D1",
+def _event(*, trigger_id="EXC-D1", fetch_url="http://stub/triggers/EXC-D1",
            pack_key="wire-repair-standard", pack_version="1.0.0", event_id=None):
     return {
         "event_id": event_id or uuid.uuid4().hex,
         "occurred_at": datetime.now(timezone.utc).isoformat(),
-        "schema_version": "pin.platform.exception_dispatched/1.0",
-        "exception_id": exception_id,
-        "exception_type": "unable_to_apply",
+        "schema_version": "pin.platform.trigger_dispatched/1.0",
+        "trigger_id": trigger_id,
+        "trigger_type": "unable_to_apply",
         "fetch_url": fetch_url,
         "resolution": {"pack_key": pack_key, "pack_version": pack_version, "rule_id": "r1"},
-        "trace": {"correlation_id": exception_id},
+        "trace": {"correlation_id": trigger_id},
     }
 
 
@@ -97,7 +97,7 @@ async def test_accept_creates_instance_and_starts(repos):
     await svc.handle(_event())
     await asyncio.sleep(0)  # let the spawned engine.start task run
     # instance created + accepted published + execution started
-    insts = await instance_repo.list(exception_id="EXC-D1")
+    insts = await instance_repo.list(trigger_id="EXC-D1")
     assert len(insts) == 1
     assert any("dispatch_accepted" in rk for rk in _routing_keys(pub))
     assert engine.started == [insts[0].process_instance_id]
@@ -109,10 +109,10 @@ async def test_duplicate_dispatch_is_idempotent(repos):
     svc, instance_repo = _svc(repos, engine=engine, publisher=pub)
     await svc.handle(_event(event_id="e1"))
     await asyncio.sleep(0)
-    first = (await instance_repo.list(exception_id="EXC-D1"))[0].process_instance_id
-    await svc.handle(_event(event_id="e2"))  # same (exception, pack) → same instance
+    first = (await instance_repo.list(trigger_id="EXC-D1"))[0].process_instance_id
+    await svc.handle(_event(event_id="e2"))  # same (trigger, pack) → same instance
     await asyncio.sleep(0)
-    insts = await instance_repo.list(exception_id="EXC-D1")
+    insts = await instance_repo.list(trigger_id="EXC-D1")
     assert len(insts) == 1
     # second accept references the existing instance; execution started once
     assert engine.started == [first]
@@ -152,7 +152,7 @@ async def test_opaque_envelope_accepts_any_object_but_rejects_non_object(repos):
 
     pub2 = FakePublisher()
     svc2, _ = _svc(repos, engine=FakeEngine(), store=FakeStore(envelope=["not", "an", "object"]), publisher=pub2)
-    await svc2.handle(_event(exception_id="EXC-NONOBJ"))
+    await svc2.handle(_event(trigger_id="EXC-NONOBJ"))
     rej = [e for rk, e in pub2.events if "dispatch_rejected" in rk]
     assert rej and rej[0]["reason"] == "envelope_invalid"
 
@@ -192,4 +192,4 @@ async def test_reject_pack_requires_profile(repos):
     assert rej and rej[0]["reason"] == "pack_requires_profile"
     assert "parallel" in rej[0]["detail"]
     # refused before any instance was created
-    assert await instance_repo.list(exception_id="EXC-D1") == []
+    assert await instance_repo.list(trigger_id="EXC-D1") == []

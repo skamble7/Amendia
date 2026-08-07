@@ -2,7 +2,7 @@
 """Message subscription + pending-message models (ADR-031 Phase 2.4).
 
 A ``MessageSubscription`` is the message-substrate sibling of a ``Timer``: one durable row per
-element a parked instance is waiting on. Correlation is by **business anchor** (exception_id /
+element a parked instance is waiting on. Correlation is by **business anchor** (trigger_id /
 correlation_id) + ``message_name`` — no internal-instance-id leakage, no per-pack expressions.
 A ``PendingMessage`` buffers an inbound message that arrived before its subscription registered
 (the ordering race), delivered on registration.
@@ -35,7 +35,7 @@ class MessageSubscription(ContractModel):
     process_instance_id: str
     element_id: str                 # the catch/receive element (or event-gateway arm) id
     message_name: str
-    exception_id: str
+    trigger_id: str
     correlation_id: str
     kind: SubscriptionKind
     status: SubscriptionStatus = SubscriptionStatus.PENDING
@@ -50,7 +50,7 @@ class MessageSubscription(ContractModel):
 class PendingMessage(ContractModel):
     pending_id: str
     message_name: str
-    exception_id: Optional[str] = None
+    trigger_id: Optional[str] = None
     correlation_id: Optional[str] = None
     payload: Optional[Dict[str, Any]] = None
     created_at: datetime = Field(default_factory=utcnow)

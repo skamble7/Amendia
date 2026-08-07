@@ -22,7 +22,7 @@ vault write auth/kubernetes/config \
 
 # One role bound to every Amendia ServiceAccount, scoped by the policy below.
 vault write auth/kubernetes/role/amendia \
-  bound_service_account_names="amendia-stub-exception-generator,amendia-ingestor,amendia-agent-runtime,amendia-process-registry,amendia-identity,amendia-notification-service,amendia-config-forge,amendia-capability-worker" \
+  bound_service_account_names="amendia-stub-trigger-generator,amendia-ingestor,amendia-agent-runtime,amendia-process-registry,amendia-identity,amendia-notification-service,amendia-config-forge,amendia-capability-worker" \
   bound_service_account_namespaces="amendia" \
   policy="amendia" \
   ttl="1h"

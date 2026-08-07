@@ -28,14 +28,14 @@ from aio_pika.abc import AbstractIncomingMessage
 
 from amendia_common.events import (
     DISPATCH_ACCEPTED,
-    EXCEPTION_DISPATCHED,
-    EXCEPTION_RAISED,
     EXCHANGE,
     HITL_TASK_CREATED,
     HITL_TASK_DECIDED,
     PROCESS_COMPLETED,
     PROCESS_FAILED,
     Service,
+    TRIGGER_DISPATCHED,
+    TRIGGER_RAISED,
     Version,
 )
 
@@ -48,8 +48,8 @@ BINDING_KEYS: List[str] = [
     f"{Service.AGENT_RUNTIME.value}.{PROCESS_COMPLETED}.{_V1}",
     f"{Service.AGENT_RUNTIME.value}.{PROCESS_FAILED}.{_V1}",
     f"{Service.AGENT_RUNTIME.value}.{DISPATCH_ACCEPTED}.{_V1}",
-    f"{Service.INGESTOR.value}.{EXCEPTION_DISPATCHED}.{_V1}",
-    f"{Service.STUBEXCEPTION.value}.{EXCEPTION_RAISED}.{_V1}",
+    f"{Service.INGESTOR.value}.{TRIGGER_DISPATCHED}.{_V1}",
+    f"{Service.TRIGGER_SOURCE.value}.{TRIGGER_RAISED}.{_V1}",
 ]
 
 Handler = Callable[[dict, str], Awaitable[None]]

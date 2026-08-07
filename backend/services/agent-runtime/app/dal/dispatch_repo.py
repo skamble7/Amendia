@@ -9,7 +9,7 @@ from motor.motor_asyncio import AsyncIOMotorCollection
 from pymongo.errors import DuplicateKeyError
 
 from app.dal.base import DuplicateError, stamp_new
-from app.models.dispatch import ExceptionDispatchedEvent
+from app.models.dispatch import TriggerDispatchedEvent
 
 _PROJECTION = {"_id": 0}
 
@@ -18,7 +18,7 @@ class DispatchLogRepository:
     def __init__(self, collection: AsyncIOMotorCollection) -> None:
         self._coll = collection
 
-    async def insert(self, event: ExceptionDispatchedEvent) -> Dict[str, Any]:
+    async def insert(self, event: TriggerDispatchedEvent) -> Dict[str, Any]:
         doc = stamp_new(event.to_doc())
         try:
             await self._coll.insert_one(doc)
@@ -33,13 +33,13 @@ class DispatchLogRepository:
     async def list(
         self,
         *,
-        exception_id: Optional[str] = None,
+        trigger_id: Optional[str] = None,
         limit: int = 50,
         offset: int = 0,
     ) -> List[Dict[str, Any]]:
         query: dict = {}
-        if exception_id:
-            query["exception_id"] = exception_id
+        if trigger_id:
+            query["trigger_id"] = trigger_id
         cursor = (
             self._coll.find(query, projection=_PROJECTION)
             .sort("created_at", -1)

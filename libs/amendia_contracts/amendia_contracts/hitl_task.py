@@ -112,7 +112,7 @@ class HitlTask(ContractModel, TimestampsMixin):
     pack_key: PackKey
     pack_version: SemVerStr
     element_id: str
-    exception_id: str
+    trigger_id: str
     hitl_mode: HitlTaskMode
     role: RoleId
     title: str
@@ -156,7 +156,7 @@ class HitlTaskCreatedEvent(EventBase):
 
     schema_version: Literal["pin.platform.hitl_task_created/1.0"] = "pin.platform.hitl_task_created/1.0"
     task_id: str
-    exception_id: str
+    trigger_id: str
     process_instance_id: str
     element_id: str
     role: RoleId
@@ -171,7 +171,7 @@ class HitlTaskDecidedEvent(EventBase):
 
     schema_version: Literal["pin.platform.hitl_task_decided/1.0"] = "pin.platform.hitl_task_decided/1.0"
     task_id: str
-    exception_id: str
+    trigger_id: str
     process_instance_id: str
     element_id: str
     role: RoleId
@@ -195,7 +195,7 @@ class HitlTaskExpiredEvent(EventBase):
 
     schema_version: Literal["pin.platform.hitl_task_expired/1.0"] = "pin.platform.hitl_task_expired/1.0"
     task_id: str
-    exception_id: str
+    trigger_id: str
     process_instance_id: str
     element_id: str
     role: RoleId

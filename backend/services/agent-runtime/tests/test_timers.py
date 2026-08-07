@@ -133,7 +133,7 @@ async def harness():
 
 
 async def _start(engine, instances, pid, reason="AC01"):
-    inst = ProcessInstance.new(process_instance_id=pid, exception_id=f"EXC-{pid}",
+    inst = ProcessInstance.new(process_instance_id=pid, trigger_id=f"EXC-{pid}",
                                pack_key=PK, pack_version=PV)
     await instances.insert(inst)
     await engine.start(inst, make_envelope(reason, exception_id=f"EXC-{pid}"))

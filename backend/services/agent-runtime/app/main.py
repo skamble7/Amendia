@@ -17,7 +17,7 @@ from fastapi import Depends, FastAPI
 from amendia_auth import AuthContext, current_principal
 from amendia_telemetry import configure_telemetry
 
-from app.clients.registry_client import ExceptionStoreClient, RegistryClient
+from app.clients.registry_client import TriggerStoreClient, RegistryClient
 from app.config import auth_settings, settings
 from app.dal.artifact_schema_repo import ArtifactSchemaRepository
 from app.dal.capability_repo import CapabilityRepository
@@ -102,7 +102,7 @@ async def lifespan(app: FastAPI):
     registry_client = RegistryClient(
         settings.REGISTRY_BASE_URL, http, internal_token=auth_settings.internal_token
     )
-    store_client = ExceptionStoreClient(http, internal_token=auth_settings.internal_token)
+    store_client = TriggerStoreClient(http, internal_token=auth_settings.internal_token)
     publisher = RabbitPublisher(settings.RABBITMQ_URL)
     await publisher.connect()
 

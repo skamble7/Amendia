@@ -7,7 +7,7 @@ export type StreamStatus = "connecting" | "up" | "down";
 /** A thin invalidation signal pushed from the notification-service. */
 export interface Signal {
   type: string;
-  exception_id?: string;
+  trigger_id?: string;
   process_instance_id?: string;
   task_id?: string;
   element_id?: string;

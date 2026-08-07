@@ -25,7 +25,7 @@ class ProcessCompletedEvent(EventBase):
 
     schema_version: Literal["pin.platform.process_completed/1.0"] = "pin.platform.process_completed/1.0"
     process_instance_id: str
-    exception_id: str
+    trigger_id: str
     pack_key: str
     pack_version: str
     outcome: str
@@ -38,7 +38,7 @@ class ProcessFailedEvent(EventBase):
 
     schema_version: Literal["pin.platform.process_failed/1.0"] = "pin.platform.process_failed/1.0"
     process_instance_id: str
-    exception_id: str
+    trigger_id: str
     pack_key: str
     pack_version: str
     reason: str
@@ -54,7 +54,7 @@ class TimerFiredEvent(EventBase):
 
     schema_version: Literal["pin.platform.timer_fired/1.0"] = "pin.platform.timer_fired/1.0"
     process_instance_id: str
-    exception_id: str
+    trigger_id: str
     element_id: str
     kind: str            # intermediate | boundary
     trace: Trace
@@ -69,7 +69,7 @@ class MessageReceivedEvent(EventBase):
 
     schema_version: Literal["pin.platform.message_received/1.0"] = "pin.platform.message_received/1.0"
     process_instance_id: str
-    exception_id: str
+    trigger_id: str
     element_id: str
     message_name: str
     trace: Trace

@@ -10,7 +10,7 @@ import { StatusChip, ModeBadge, IdMono, LiveDot, EmptyState } from "@/components
 import { Badge } from "@/components/ui/badge";
 import { ConnectivityState } from "@/components/ConnectivityState";
 import { isConnectivityError } from "@/api/client";
-import { GenerateExceptionButton } from "@/features/exceptions/GenerateExceptionButton";
+import { GenerateTriggerButton } from "@/features/triggers/GenerateTriggerButton";
 import { useCurrentIdentity } from "@/session/IdentityContext";
 import { useInboxTasks } from "./queries";
 import { useRolesInUse } from "@/features/registry/queries";
@@ -130,8 +130,8 @@ export function InboxPage() {
             <EmptyState
               icon={<InboxIcon className="size-6" />}
               title="No open tasks yet"
-              description="Generate an exception from the stub source and work its gates here."
-              action={<GenerateExceptionButton />}
+              description="Generate a trigger from the stub source and work its gates here."
+              action={<GenerateTriggerButton />}
             />
           ) : (
             <EmptyState icon={<InboxIcon className="size-6" />} title="No tasks match" description="Adjust the filters, or wait for new gates to open." />
@@ -140,7 +140,7 @@ export function InboxPage() {
           <Table>
             <TableHeader>
               <TableRow className="hover:bg-transparent">
-                <TableHead>Exception</TableHead>
+                <TableHead>Trigger</TableHead>
                 <TableHead>Gate</TableHead>
                 <TableHead>Mode</TableHead>
                 <TableHead>Role</TableHead>
@@ -192,10 +192,10 @@ function InboxRow({
       onClick={onOpen}
       tabIndex={0}
       onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), onOpen())}
-      aria-label={`Task ${task.title} for ${task.exception_id}`}
+      aria-label={`Task ${task.title} for ${task.trigger_id}`}
     >
       <TableCell>
-        <IdMono value={task.exception_id} />
+        <IdMono value={task.trigger_id} />
       </TableCell>
       <TableCell>
         <div className="flex items-center gap-2">

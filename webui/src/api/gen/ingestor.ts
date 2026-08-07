@@ -37,7 +37,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/ingestions/{exception_id}": {
+    "/ingestions/{trigger_id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -45,7 +45,7 @@ export interface paths {
             cookie?: never;
         };
         /** Get Ingestion */
-        get: operations["get_ingestion_ingestions__exception_id__get"];
+        get: operations["get_ingestion_ingestions__trigger_id__get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -84,13 +84,13 @@ export interface components {
         };
         /** IngestionRecord */
         IngestionRecord: {
-            /** Exception Id */
-            exception_id: string;
-            /** Exception Type */
-            exception_type: string;
+            /** Trigger Id */
+            trigger_id: string;
+            /** Trigger Type */
+            trigger_type: string;
             event: components["schemas"]["EventRef"];
-            /** Exception Detail */
-            exception_detail?: {
+            /** Trigger Detail */
+            trigger_detail?: {
                 [key: string]: unknown;
             } | null;
             /** Fetch Error */
@@ -135,7 +135,7 @@ export interface components {
         };
         /**
          * ResolutionRef
-         * @description The pinned pack the registry resolved this exception to.
+         * @description The pinned pack the registry resolved this trigger to.
          */
         ResolutionRef: {
             /** Pack Key */
@@ -203,7 +203,7 @@ export interface operations {
     list_ingestions_ingestions_get: {
         parameters: {
             query?: {
-                exception_type?: string | null;
+                trigger_type?: string | null;
                 status?: string | null;
                 limit?: number;
                 offset?: number;
@@ -234,12 +234,12 @@ export interface operations {
             };
         };
     };
-    get_ingestion_ingestions__exception_id__get: {
+    get_ingestion_ingestions__trigger_id__get: {
         parameters: {
             query?: never;
             header?: never;
             path: {
-                exception_id: string;
+                trigger_id: string;
             };
             cookie?: never;
         };

@@ -41,7 +41,7 @@ async def test_message_becomes_signal_in_hub():
 
     body = json.dumps({
         "task_id": "hitl-1", "process_instance_id": "pi-1",
-        "exception_id": "EXC-1", "element_id": "Task_Assess",
+        "trigger_id": "EXC-1", "element_id": "Task_Assess",
         "role": "role.payments.ops_analyst", "decision": "approve",  # must not leak
     }).encode()
     msg = FakeMessage(body, "agent_runtime.hitl_task_decided.v1")
@@ -69,7 +69,7 @@ async def test_irrelevant_event_produces_no_signal():
     q = hub.subscribe()
     consumer = _make_consumer(hub)
 
-    body = json.dumps({"exception_id": "EXC-1"}).encode()
+    body = json.dumps({"trigger_id": "EXC-1"}).encode()
     await consumer._on_message(FakeMessage(body, "agent_runtime.something_else.v1"))
 
     assert q.empty()

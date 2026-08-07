@@ -4,13 +4,13 @@ import { signalToKeys, LIVE_KEYS } from "@/api/signalToKeys";
 describe("signalToKeys", () => {
   it("hitl_task_created → task + instance + list keys", () => {
     const keys = signalToKeys({
-      type: "hitl_task_created", task_id: "t1", process_instance_id: "pi1", exception_id: "e1",
+      type: "hitl_task_created", task_id: "t1", process_instance_id: "pi1", trigger_id: "e1",
     });
     expect(keys).toContainEqual(["hitl-tasks"]);
     expect(keys).toContainEqual(["hitl-task", "t1"]);
     expect(keys).toContainEqual(["instances"]);
     expect(keys).toContainEqual(["instance", "pi1"]);
-    expect(keys).toContainEqual(["exception", "e1"]);
+    expect(keys).toContainEqual(["trigger", "e1"]);
   });
 
   it("hitl_task_decided behaves the same as created", () => {
@@ -27,11 +27,11 @@ describe("signalToKeys", () => {
     expect(keys.some((k) => k[0] === "hitl-task")).toBe(false);
   });
 
-  it("exception_dispatched → exception/ingestion pipeline keys", () => {
-    const keys = signalToKeys({ type: "exception_dispatched", exception_id: "EXC-1" });
+  it("trigger_dispatched → trigger/ingestion pipeline keys", () => {
+    const keys = signalToKeys({ type: "trigger_dispatched", trigger_id: "EXC-1" });
     expect(keys).toContainEqual(["ingestions"]);
     expect(keys).toContainEqual(["instances"]);
-    expect(keys).toContainEqual(["exception", "EXC-1"]);
+    expect(keys).toContainEqual(["trigger", "EXC-1"]);
   });
 
   it("resync → every live key", () => {

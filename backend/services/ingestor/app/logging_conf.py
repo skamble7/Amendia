@@ -2,7 +2,7 @@
 """Structured logging setup.
 
 Emits key=value lines to stdout and enriches every record with the current
-``request_id`` and ``exception_id`` when they have been bound to the ambient
+``request_id`` and ``trigger_id`` when they have been bound to the ambient
 context (see ``middleware.request_id`` and the ingestion service).
 """
 from __future__ import annotations
@@ -12,7 +12,7 @@ import logging
 import sys
 
 request_id_ctx: contextvars.ContextVar[str] = contextvars.ContextVar("request_id", default="-")
-exception_id_ctx: contextvars.ContextVar[str] = contextvars.ContextVar("exception_id", default="-")
+trigger_id_ctx: contextvars.ContextVar[str] = contextvars.ContextVar("trigger_id", default="-")
 
 
 class ContextFilter(logging.Filter):
@@ -20,13 +20,13 @@ class ContextFilter(logging.Filter):
 
     def filter(self, record: logging.LogRecord) -> bool:
         record.request_id = request_id_ctx.get()
-        record.exception_id = exception_id_ctx.get()
+        record.trigger_id = trigger_id_ctx.get()
         return True
 
 
 LOG_FORMAT = (
     "%(asctime)s level=%(levelname)s logger=%(name)s "
-    "request_id=%(request_id)s exception_id=%(exception_id)s msg=%(message)s"
+    "request_id=%(request_id)s trigger_id=%(trigger_id)s msg=%(message)s"
 )
 
 _configured = False

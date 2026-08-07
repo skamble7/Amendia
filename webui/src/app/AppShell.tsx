@@ -41,7 +41,7 @@ const NAV: NavItem[] = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard, operatorSurface: true },
   { to: "/inbox", label: "Task inbox", icon: Inbox, operatorSurface: true },
   { to: "/instances", label: "Instances", icon: Workflow, operatorSurface: true },
-  { to: "/exceptions", label: "Exceptions", icon: AlertTriangle, operatorSurface: true },
+  { to: "/triggers", label: "Triggers", icon: AlertTriangle, operatorSurface: true },
   // Registry (process authoring) is process-owner only — progressive disclosure.
   { to: "/registry", label: "Registry", icon: Boxes, requiresRole: ROLE.processOwner },
   // Administration (users & roles) is platform-admin only — same mechanism.

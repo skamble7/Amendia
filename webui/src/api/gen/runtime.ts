@@ -705,8 +705,8 @@ export interface components {
             pack_version: string;
             /** Element Id */
             element_id: string;
-            /** Exception Id */
-            exception_id: string;
+            /** Trigger Id */
+            trigger_id: string;
             hitl_mode: components["schemas"]["HitlTaskMode"];
             /** Role */
             role: string;
@@ -812,7 +812,7 @@ export interface components {
          * MessageExecutor
          * @description ADR-031 (Phase 2.4): the "executor" of a message catch / receive element is the external
          *     world. ``message_name`` is the business message this element awaits; correlation is by business
-         *     anchor (exception_id / correlation_id) + this name — no per-pack correlation expressions.
+         *     anchor (trigger_id / correlation_id) + this name — no per-pack correlation expressions.
          */
         MessageExecutor: {
             /**
@@ -827,8 +827,8 @@ export interface components {
         MessageIn: {
             /** Message Name */
             message_name: string;
-            /** Exception Id */
-            exception_id?: string | null;
+            /** Trigger Id */
+            trigger_id?: string | null;
             /** Correlation Id */
             correlation_id?: string | null;
             /** Payload */
@@ -866,8 +866,8 @@ export interface components {
         ProcessInstance: {
             /** Process Instance Id */
             process_instance_id: string;
-            /** Exception Id */
-            exception_id: string;
+            /** Trigger Id */
+            trigger_id: string;
             /** Pack Key */
             pack_key: string;
             /** Pack Version */
@@ -1460,7 +1460,7 @@ export interface operations {
     list_instances_instances_get: {
         parameters: {
             query?: {
-                exception_id?: string | null;
+                trigger_id?: string | null;
                 status?: string | null;
                 limit?: number;
                 offset?: number;
@@ -1559,7 +1559,7 @@ export interface operations {
                 status?: string | null;
                 role?: string | null;
                 process_instance_id?: string | null;
-                exception_id?: string | null;
+                trigger_id?: string | null;
                 limit?: number;
                 offset?: number;
             };

@@ -1,5 +1,5 @@
 /**
- * Pure client-side aggregations for the Exception Command Center. These are the
+ * Pure client-side aggregations for the Trigger Command Center. These are the
  * heart of the dashboard's "no new backend" contract — every counter is derived
  * from the existing list endpoints here, so a dedicated stats endpoint would only
  * ever be a performance optimisation, never a correctness requirement.
@@ -7,7 +7,7 @@
  * # backend-aggregation: a future GET /stats/pipeline could replace the N-list
  * fan-out these functions run over; the shapes below are what it would return.
  */
-import type { StoredException, IngestionRecord, ProcessInstance, HitlTask } from "@/api/types";
+import type { StoredTrigger, IngestionRecord, ProcessInstance, HitlTask } from "@/api/types";
 
 /** True when `iso` falls on the same calendar day as `ref` (local time). */
 export function isSameDay(iso: string | null | undefined, ref: Date): boolean {
@@ -34,19 +34,19 @@ export interface PipelineCounts {
 
 /**
  * "Today's pipeline" tile values, scoped to records created today:
- *   Raised     = #exceptions
+ *   Raised     = #triggers
  *   Ingested   = #ingestions
  *   Dispatched = ingestions status ∈ {dispatched, accepted}
  *   No process = ingestions status = no_process
  *   Running / Waiting / Completed / Failed = instances by status.
  */
 export function pipelineCounts(
-  exceptions: StoredException[],
+  triggers: StoredTrigger[],
   ingestions: IngestionRecord[],
   instances: ProcessInstance[],
   now: Date,
 ): PipelineCounts {
-  const exToday = exceptions.filter((e) => isSameDay(e.created_at, now));
+  const exToday = triggers.filter((e) => isSameDay(e.created_at, now));
   const ingToday = ingestions.filter((i) => isSameDay(i.created_at, now));
   const instToday = instances.filter((i) => isSameDay(i.created_at, now));
   const instBy = (status: string) => instToday.filter((i) => i.status === status).length;
@@ -78,10 +78,10 @@ export function waitStats(openTasks: HitlTask[], now: Date): WaitStats {
   return { count: openTasks.length, avgSeconds: avg, oldestSeconds: Math.max(...ages) };
 }
 
-/** Tally reason codes across exceptions, sorted by frequency (desc). */
-export function reasonTally(exceptions: StoredException[]): { code: string; count: number }[] {
+/** Tally reason codes across triggers, sorted by frequency (desc). */
+export function reasonTally(triggers: StoredTrigger[]): { code: string; count: number }[] {
   const counts = new Map<string, number>();
-  for (const ex of exceptions) {
+  for (const ex of triggers) {
     for (const code of ex.reason_codes ?? []) counts.set(code, (counts.get(code) ?? 0) + 1);
   }
   return [...counts.entries()]

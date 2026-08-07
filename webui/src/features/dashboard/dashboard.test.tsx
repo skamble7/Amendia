@@ -14,7 +14,7 @@ const ago = (mins: number) => new Date(Date.now() - mins * 60_000).toISOString()
 
 /** Stub all six dashboard endpoints; `status`-filtered variants branch on the query. */
 function stubDashboard(opts: {
-  exceptions?: unknown[];
+  triggers?: unknown[];
   ingestions?: unknown[];
   noProcess?: unknown[];
   instances?: unknown[];
@@ -22,7 +22,7 @@ function stubDashboard(opts: {
   openTasks?: unknown[];
 } = {}) {
   server.use(
-    http.get(`${STUB}/exceptions`, () => HttpResponse.json(opts.exceptions ?? [])),
+    http.get(`${STUB}/triggers`, () => HttpResponse.json(opts.triggers ?? [])),
     http.get(`${ING}/ingestions`, ({ request }) => {
       const status = new URL(request.url).searchParams.get("status");
       if (status === "no_process") return HttpResponse.json(opts.noProcess ?? []);
@@ -40,17 +40,17 @@ function stubDashboard(opts: {
 describe("Dashboard — Today's pipeline", () => {
   it("renders the stage counters from stubbed lists", async () => {
     stubDashboard({
-      exceptions: [
-        { exception_id: "E1", reason_codes: ["AC01"], created_at: now() },
-        { exception_id: "E2", reason_codes: ["AC01"], created_at: now() },
-        { exception_id: "E3", reason_codes: ["AC04"], created_at: now() },
+      triggers: [
+        { trigger_id: "E1", reason_codes: ["AC01"], created_at: now() },
+        { trigger_id: "E2", reason_codes: ["AC01"], created_at: now() },
+        { trigger_id: "E3", reason_codes: ["AC04"], created_at: now() },
       ],
       ingestions: [
-        { exception_id: "E1", status: "received", created_at: now() },
-        { exception_id: "E2", status: "dispatched", created_at: now() },
-        { exception_id: "E3", status: "dispatched", created_at: now() },
-        { exception_id: "E4", status: "accepted", created_at: now() },
-        { exception_id: "E5", status: "no_process", created_at: now() },
+        { trigger_id: "E1", status: "received", created_at: now() },
+        { trigger_id: "E2", status: "dispatched", created_at: now() },
+        { trigger_id: "E3", status: "dispatched", created_at: now() },
+        { trigger_id: "E4", status: "accepted", created_at: now() },
+        { trigger_id: "E5", status: "no_process", created_at: now() },
       ],
       instances: [
         { process_instance_id: "P1", status: "running", created_at: now() },
@@ -91,7 +91,7 @@ describe("Dashboard — Needs triage", () => {
   it("lists failed instances and no-process ingestions", async () => {
     stubDashboard({
       failed: [{ process_instance_id: "PI-BUST", status: "failed", last_error: "sanctions HIT" }],
-      noProcess: [{ exception_id: "EXC-ORPHAN", status: "no_process", created_at: now() }],
+      noProcess: [{ trigger_id: "EXC-ORPHAN", status: "no_process", created_at: now() }],
     });
     renderApp("/dashboard", "analyst-1");
     expect(await screen.findByText("PI-BUST")).toBeInTheDocument();
@@ -110,9 +110,9 @@ describe("Dashboard — Needs triage", () => {
 describe("Dashboard — By reason code", () => {
   it("tallies reason codes into bars", async () => {
     stubDashboard({
-      exceptions: [
-        { exception_id: "E1", reason_codes: ["AC01", "AC04"], created_at: now() },
-        { exception_id: "E2", reason_codes: ["AC01"], created_at: now() },
+      triggers: [
+        { trigger_id: "E1", reason_codes: ["AC01", "AC04"], created_at: now() },
+        { trigger_id: "E2", reason_codes: ["AC01"], created_at: now() },
       ],
     });
     renderApp("/dashboard", "analyst-1");
@@ -124,7 +124,7 @@ describe("Dashboard — By reason code", () => {
 describe("Dashboard — connectivity", () => {
   it("surfaces the unreachable banner when a service is down", async () => {
     server.use(
-      http.get(`${STUB}/exceptions`, () => HttpResponse.error()),
+      http.get(`${STUB}/triggers`, () => HttpResponse.error()),
       http.get(`${ING}/ingestions`, () => HttpResponse.json([])),
       http.get(`${R}/instances`, () => HttpResponse.json([])),
       http.get(`${R}/hitl-tasks`, () => HttpResponse.json([])),

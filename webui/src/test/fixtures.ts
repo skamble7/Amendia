@@ -3,7 +3,7 @@
  * product demo scenario — deliberately fake ids/names/amounts so tests read as
  * tests. Build only what a given test asserts on.
  */
-import type { HitlTask, InstanceDetail, StoredException } from "@/api/types";
+import type { HitlTask, InstanceDetail, StoredTrigger } from "@/api/types";
 
 export const TEST_SCHEMA = {
   type: "object",
@@ -22,7 +22,7 @@ export function synthTask(overrides: Partial<HitlTask> = {}): HitlTask {
     pack_key: "test-pack",
     pack_version: "1.0.0",
     element_id: "Task_Test",
-    exception_id: "EXC-TEST-001",
+    trigger_id: "EXC-TEST-001",
     hitl_mode: "review_after",
     role: "role.payments.ops_analyst",
     title: "Test gate",
@@ -49,7 +49,7 @@ export function synthInstanceDetail(overrides: Partial<InstanceDetail> = {}): In
   return {
     instance: {
       process_instance_id: "PI-TEST-1",
-      exception_id: "EXC-TEST-001",
+      trigger_id: "EXC-TEST-001",
       pack_key: "test-pack",
       pack_version: "1.0.0",
       status: "completed",
@@ -73,12 +73,12 @@ export function synthInstanceDetail(overrides: Partial<InstanceDetail> = {}): In
   };
 }
 
-export function synthException(overrides: Partial<StoredException> = {}): StoredException {
+export function synthTrigger(overrides: Partial<StoredTrigger> = {}): StoredTrigger {
   return {
-    exception_id: "EXC-TEST-001",
-    exception_type: "unable_to_apply",
+    trigger_id: "EXC-TEST-001",
+    trigger_type: "unable_to_apply",
     reason_codes: ["AC01"],
-    reason_narrative: "Synthetic test exception",
+    reason_narrative: "Synthetic test trigger",
     status: "open",
     payment: {
       msg_type: "pacs.008.001.10",
@@ -90,7 +90,7 @@ export function synthException(overrides: Partial<StoredException> = {}): Stored
     attachments: [],
     related_messages: [],
     ...overrides,
-  } as unknown as StoredException;
+  } as unknown as StoredTrigger;
 }
 
 export const synthPack = {

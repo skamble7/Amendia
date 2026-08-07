@@ -14,7 +14,7 @@ export type RoleId = string;
 
 /**
  * Domain-neutral operator predicate (ADR-026). The operator nav entries
- * (dashboard / inbox / instances / exceptions) are shown to anyone holding at least one
+ * (dashboard / inbox / instances / triggers) are shown to anyone holding at least one
  * role OTHER than the platform-admin role — i.e. ANY pack-contributed role, from any
  * domain, current or future. The platform legitimately special-cases only its own two
  * platform roles (`role.platform.admin` → Administration, `role.process.owner` → Registry);

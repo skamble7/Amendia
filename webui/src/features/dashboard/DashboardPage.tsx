@@ -27,7 +27,7 @@ import {
 import { formatActivitySignal } from "./activity";
 import {
   DASHBOARD_LIMIT,
-  useDashboardExceptions,
+  useDashboardTriggers,
   useDashboardIngestions,
   useDashboardInstances,
   useFailedInstances,
@@ -40,7 +40,7 @@ type Tone = "neutral" | "attention" | "success" | "danger";
 export function DashboardPage() {
   // The whole dashboard is client-side aggregation over the existing list
   // services — see ./compute. No dashboard-specific backend endpoint exists.
-  const exceptions = useDashboardExceptions();
+  const triggers = useDashboardTriggers();
   const ingestions = useDashboardIngestions();
   const instances = useDashboardInstances();
   const failed = useFailedInstances();
@@ -51,42 +51,42 @@ export function DashboardPage() {
   const activity = useRecentActivity();
   const eventsToday = useSessionEventCount();
 
-  const errors = [exceptions, ingestions, instances, failed, noProcess, openTasks].map((q) => q.error);
+  const errors = [triggers, ingestions, instances, failed, noProcess, openTasks].map((q) => q.error);
   const connError = errors.find(isConnectivityError);
 
   const now = new Date();
 
   const counts = useMemo<PipelineCounts>(
-    () => pipelineCounts(exceptions.data ?? [], ingestions.data ?? [], instances.data ?? [], now),
+    () => pipelineCounts(triggers.data ?? [], ingestions.data ?? [], instances.data ?? [], now),
     // recompute when any source list changes; `now` intentionally re-read each render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [exceptions.data, ingestions.data, instances.data],
+    [triggers.data, ingestions.data, instances.data],
   );
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const wait = useMemo(() => waitStats(openTasks.data ?? [], now), [openTasks.data]);
-  const reasons = useMemo(() => reasonTally(exceptions.data ?? []), [exceptions.data]);
+  const reasons = useMemo(() => reasonTally(triggers.data ?? []), [triggers.data]);
 
-  const pipelineLoading = exceptions.isLoading || ingestions.isLoading || instances.isLoading;
-  const truncated = [exceptions.data, ingestions.data, instances.data].some(
+  const pipelineLoading = triggers.isLoading || ingestions.isLoading || instances.isLoading;
+  const truncated = [triggers.data, ingestions.data, instances.data].some(
     (list) => (list?.length ?? 0) >= DASHBOARD_LIMIT,
   );
 
   const tiles: { key: keyof PipelineCounts; label: string; to: string; tone: Tone; sub?: string }[] = [
-    { key: "raised", label: "Raised", to: "/exceptions", tone: "neutral" },
-    { key: "ingested", label: "Ingested", to: "/exceptions", tone: "neutral" },
-    { key: "dispatched", label: "Dispatched", to: "/exceptions", tone: "neutral" },
+    { key: "raised", label: "Raised", to: "/triggers", tone: "neutral" },
+    { key: "ingested", label: "Ingested", to: "/triggers", tone: "neutral" },
+    { key: "dispatched", label: "Dispatched", to: "/triggers", tone: "neutral" },
     { key: "running", label: "Running", to: "/instances", tone: "neutral" },
     { key: "waiting", label: "Waiting", to: "/instances", tone: "attention", sub: "on human" },
     { key: "completed", label: "Completed", to: "/instances", tone: "success" },
     { key: "failed", label: "Failed", to: "/instances", tone: "danger" },
-    { key: "noProcess", label: "No process", to: "/exceptions", tone: "danger" },
+    { key: "noProcess", label: "No process", to: "/triggers", tone: "danger" },
   ];
 
   return (
     <>
       <PageHeader
-        title="Exception Command Center"
+        title="Trigger Command Center"
         description={formatDateTime(now.toISOString())}
         badge={<LivePill status={sseStatus} count={eventsToday} />}
       />
@@ -136,7 +136,7 @@ export function DashboardPage() {
       {/* ---- Live activity · By reason code ---- */}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_360px]">
         <LiveActivity activity={activity} status={sseStatus} />
-        <ReasonCodes reasons={reasons} loading={exceptions.isLoading} />
+        <ReasonCodes reasons={reasons} loading={triggers.isLoading} />
       </div>
     </>
   );
@@ -276,9 +276,9 @@ function NeedsTriage({
       detail: i.last_error ?? i.outcome ?? "Failed",
     })),
     ...noProcess.map((i) => ({
-      key: `n-${i.exception_id}`,
-      to: `/exceptions/${i.exception_id}`,
-      id: i.exception_id,
+      key: `n-${i.trigger_id}`,
+      to: `/triggers/${i.trigger_id}`,
+      id: i.trigger_id,
       detail: "No matching process",
     })),
   ];
@@ -303,7 +303,7 @@ function NeedsTriage({
           <EmptyState
             icon={<CheckCircle2 className="size-6 text-success" />}
             title="Nothing to triage"
-            description="No failed instances or unroutable exceptions."
+            description="No failed instances or unroutable triggers."
           />
         ) : (
           <ul className="divide-y divide-border">
@@ -407,7 +407,7 @@ function ReasonCodes({
             ))}
           </div>
         ) : reasons.length === 0 ? (
-          <EmptyState title="No reason codes" description="No exceptions to tally yet." />
+          <EmptyState title="No reason codes" description="No triggers to tally yet." />
         ) : (
           <ul className="space-y-2.5">
             {reasons.map((r) => (

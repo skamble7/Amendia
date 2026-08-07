@@ -72,7 +72,7 @@ class ResolveResponse(BaseModel):
 
 
 class NoMatchResponse(BaseModel):
-    detail: str = "no active pack matched the exception"
+    detail: str = "no active pack matched the trigger"
     considered_packs: int
 
 

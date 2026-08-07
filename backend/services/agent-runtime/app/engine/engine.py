@@ -354,7 +354,7 @@ class ProcessEngine:
         if intermediate and not gateway_arm:
             await self._publish(TimerFiredEvent(
                 event_id=uuid.uuid4().hex, occurred_at=datetime.now(timezone.utc),
-                process_instance_id=instance.process_instance_id, exception_id=instance.exception_id,
+                process_instance_id=instance.process_instance_id, trigger_id=instance.trigger_id,
                 element_id=timer.element_id, kind="intermediate",
                 trace=Trace(correlation_id=instance.correlation_id),
             ))
@@ -378,7 +378,7 @@ class ProcessEngine:
         boundary = (bundle.bpmn_model.boundary_timers.get(timer.element_id) if bundle else None)
         await self._publish(HitlTaskExpiredEvent(
             event_id=uuid.uuid4().hex, occurred_at=datetime.now(timezone.utc),
-            task_id=timer.task_id, exception_id=instance.exception_id,
+            task_id=timer.task_id, trigger_id=instance.trigger_id,
             process_instance_id=instance.process_instance_id, element_id=timer.element_id,
             role=expired.role, escalated_to=(boundary.target if boundary else None),
         ))
@@ -492,7 +492,7 @@ class ProcessEngine:
         if self._messages is not None and message_name:
             await self._messages.register(
                 process_instance_id=pid, element_id=element_id, message_name=message_name,
-                exception_id=instance.exception_id, correlation_id=instance.correlation_id,
+                trigger_id=instance.trigger_id, correlation_id=instance.correlation_id,
                 kind=sub_kind, interrupt_id=interrupt_id,
             )
         await self._instances.set_status(
@@ -502,10 +502,10 @@ class ProcessEngine:
         logger.info("instance %s waiting_message: element=%s message=%s", pid, element_id, message_name)
         if self._messages is not None and message_name:
             buffered = await self._messages.pop_buffered(
-                message_name, exception_id=instance.exception_id, correlation_id=instance.correlation_id)
+                message_name, trigger_id=instance.trigger_id, correlation_id=instance.correlation_id)
             if buffered is not None:
                 await self.deliver_message(
-                    message_name, exception_id=instance.exception_id,
+                    message_name, trigger_id=instance.trigger_id,
                     correlation_id=instance.correlation_id, payload=buffered.payload)
 
     async def _park_event_gateway(self, instance: ProcessInstance, payload: Dict[str, Any],
@@ -529,7 +529,7 @@ class ProcessEngine:
                 await self._messages.register(
                     process_instance_id=pid, element_id=arm,
                     message_name=self._arm_message_name(bundle, arm) or "",
-                    exception_id=instance.exception_id, correlation_id=instance.correlation_id,
+                    trigger_id=instance.trigger_id, correlation_id=instance.correlation_id,
                     kind=SubscriptionKind.EVENT_GATEWAY, interrupt_id=interrupt_id, gateway_id=gw,
                 )
         await self._instances.set_status(
@@ -542,9 +542,9 @@ class ProcessEngine:
             if model and arm in model.message_catch_events and self._messages is not None:
                 mn = self._arm_message_name(bundle, arm)
                 buffered = mn and await self._messages.pop_buffered(
-                    mn, exception_id=instance.exception_id, correlation_id=instance.correlation_id)
+                    mn, trigger_id=instance.trigger_id, correlation_id=instance.correlation_id)
                 if buffered is not None:
-                    await self.deliver_message(mn, exception_id=instance.exception_id,
+                    await self.deliver_message(mn, trigger_id=instance.trigger_id,
                                                correlation_id=instance.correlation_id, payload=buffered.payload)
                     return
 
@@ -567,7 +567,7 @@ class ProcessEngine:
             committed[spec.name] = data
         return committed, None
 
-    async def deliver_message(self, message_name: str, *, exception_id: Optional[str] = None,
+    async def deliver_message(self, message_name: str, *, trigger_id: Optional[str] = None,
                               correlation_id: Optional[str] = None, payload: Optional[dict] = None) -> Dict[str, Any]:
         """Correlate an inbound business message to a parked instance and resume it exactly once.
 
@@ -577,18 +577,18 @@ class ProcessEngine:
         if self._messages is None:
             return {"status": "no_matching_subscription"}
         sub = await self._messages.find_match(
-            message_name, exception_id=exception_id, correlation_id=correlation_id)
+            message_name, trigger_id=trigger_id, correlation_id=correlation_id)
         if sub is None:
             # A recently-consumed subscription for this message/anchor → a duplicate delivery (409),
             # distinct from an unknown message which is buffered for the ordering race (404).
             from app.models.message import SubscriptionStatus
             consumed = await self._messages.find_match(
-                message_name, exception_id=exception_id, correlation_id=correlation_id,
+                message_name, trigger_id=trigger_id, correlation_id=correlation_id,
                 status=SubscriptionStatus.CONSUMED)
             if consumed is not None:
                 return {"status": "already_consumed"}
             await self._messages.buffer_message(
-                message_name=message_name, exception_id=exception_id,
+                message_name=message_name, trigger_id=trigger_id,
                 correlation_id=correlation_id, payload=payload)
             return {"status": "no_matching_subscription"}
         instance = await self._instances.get(sub.process_instance_id)
@@ -618,7 +618,7 @@ class ProcessEngine:
         await self._run_segment(instance, graph, cmd)
         await self._publish(MessageReceivedEvent(
             event_id=uuid.uuid4().hex, occurred_at=datetime.now(timezone.utc),
-            process_instance_id=instance.process_instance_id, exception_id=instance.exception_id,
+            process_instance_id=instance.process_instance_id, trigger_id=instance.trigger_id,
             element_id=sub.element_id, message_name=message_name,
             trace=Trace(correlation_id=instance.correlation_id),
         ))
@@ -675,7 +675,7 @@ class ProcessEngine:
             "pack_key": instance.pack_key,
             "pack_version": instance.pack_version,
             "element_id": payload["element_id"],
-            "exception_id": instance.exception_id,
+            "trigger_id": instance.trigger_id,
             "hitl_mode": mode,
             "role": payload["role"],
             "title": payload.get("title") or payload["element_id"],
@@ -709,7 +709,7 @@ class ProcessEngine:
                     pid, task_id, element_id, mode, excluded, due_at_iso)
         await self._publish(HitlTaskCreatedEvent(
             event_id=uuid.uuid4().hex, occurred_at=datetime.now(timezone.utc),
-            task_id=task_id, exception_id=instance.exception_id, process_instance_id=pid,
+            task_id=task_id, trigger_id=instance.trigger_id, process_instance_id=pid,
             element_id=payload["element_id"], role=payload["role"],
             trace=Trace(correlation_id=instance.correlation_id, trace_id=trace_id),
         ))
@@ -731,7 +731,7 @@ class ProcessEngine:
                     instance.process_instance_id, outcome, artifact_names)
         await self._publish(ProcessCompletedEvent(
             event_id=uuid.uuid4().hex, occurred_at=datetime.now(timezone.utc),
-            process_instance_id=instance.process_instance_id, exception_id=instance.exception_id,
+            process_instance_id=instance.process_instance_id, trigger_id=instance.trigger_id,
             pack_key=instance.pack_key, pack_version=instance.pack_version,
             outcome=outcome or "unknown",
             trace=Trace(correlation_id=instance.correlation_id, trace_id=self._otel_trace_id(result)),
@@ -758,7 +758,7 @@ class ProcessEngine:
             logger.warning("audit drain on failure failed for %s: %s", instance.process_instance_id, exc)
         await self._publish(ProcessFailedEvent(
             event_id=uuid.uuid4().hex, occurred_at=datetime.now(timezone.utc),
-            process_instance_id=instance.process_instance_id, exception_id=instance.exception_id,
+            process_instance_id=instance.process_instance_id, trigger_id=instance.trigger_id,
             pack_key=instance.pack_key, pack_version=instance.pack_version,
             reason=reason, detail=detail,
             trace=Trace(correlation_id=instance.correlation_id, trace_id=self._otel_trace_id(state)),

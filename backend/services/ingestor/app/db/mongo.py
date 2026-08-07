@@ -27,8 +27,8 @@ class MongoClient:
 
     async def ensure_indexes(self) -> None:
         coll = self.collection
-        # One record per exception_id (idempotent ingestion).
-        await coll.create_index("exception_id", unique=True)
+        # One record per trigger_id (idempotent ingestion).
+        await coll.create_index("trigger_id", unique=True)
         # Listing is sorted by created_at desc.
         await coll.create_index([("created_at", -1)])
 

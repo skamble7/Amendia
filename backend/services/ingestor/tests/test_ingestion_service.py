@@ -2,27 +2,27 @@
 from datetime import datetime, timezone
 
 from app.events.rabbit import BINDING_KEY
-from app.models.events import IncomingExceptionRaisedEvent
+from app.models.events import IncomingTriggerRaisedEvent
 from app.models.ingestion import IngestionStatus
 from app.services.ingestion_service import IngestionService
 from tests.conftest import FakeRepository, FakeStubClient
 
-ROUTING_KEY = "stub_exception.exception_raised.v1"
+ROUTING_KEY = "trigger_source.trigger_raised.v1"
 
 
-def make_event(exception_id="EXC-2026-000123"):
-    return IncomingExceptionRaisedEvent(
+def make_event(trigger_id="EXC-2026-000123"):
+    return IncomingTriggerRaisedEvent(
         event_id="evt-1",
         occurred_at=datetime.now(timezone.utc),
         schema_version="pin.payments.wire_exception/1.0",
-        exception_id=exception_id,
-        exception_type="unable_to_apply",
-        fetch_url=f"http://localhost:8081/exceptions/{exception_id}",
+        trigger_id=trigger_id,
+        trigger_type="unable_to_apply",
+        fetch_url=f"http://localhost:8081/triggers/{trigger_id}",
     )
 
 
 def test_binding_key_shape():
-    assert BINDING_KEY == "stub_exception.exception_raised.v1"
+    assert BINDING_KEY == "trigger_source.trigger_raised.v1"
 
 
 async def test_handle_event_creates_received_record_with_detail():
@@ -35,7 +35,7 @@ async def test_handle_event_creates_received_record_with_detail():
     assert rec is not None
     assert rec.status is IngestionStatus.RECEIVED
     assert rec.fetch_error is None
-    assert rec.exception_detail["exception_id"] == "EXC-2026-000123"
+    assert rec.trigger_detail["exception_id"] == "EXC-2026-000123"
     assert rec.event.routing_key == ROUTING_KEY
     assert stub.calls == ["EXC-2026-000123"]
 
@@ -59,5 +59,5 @@ async def test_handle_event_records_fetch_error_but_still_logs():
     rec = await repo.get("EXC-2026-000123")
     assert rec is not None
     assert rec.status is IngestionStatus.RECEIVED
-    assert rec.exception_detail is None
+    assert rec.trigger_detail is None
     assert "failed to fetch" in rec.fetch_error

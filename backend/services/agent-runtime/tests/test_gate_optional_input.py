@@ -79,7 +79,7 @@ async def env():
 
 
 async def _instance(instance_repo, pid="pi-opt"):
-    inst = ProcessInstance.new(process_instance_id=pid, exception_id="E-1",
+    inst = ProcessInstance.new(process_instance_id=pid, trigger_id="E-1",
                                pack_key="p", pack_version="1.0.0", correlation_id="E-1")
     await instance_repo.insert(inst)
     return inst

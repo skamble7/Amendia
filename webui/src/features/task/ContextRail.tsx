@@ -3,15 +3,15 @@ import { Clock, ExternalLink, Maximize } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { StepTracker } from "@/components/StepTracker";
-import { ExceptionSummary } from "@/features/exceptions/ExceptionSummary";
+import { TriggerSummary } from "@/features/triggers/TriggerSummary";
 import { useApiQuery } from "@/api/live";
-import { getException } from "@/api/services/stub";
+import { getTrigger } from "@/api/services/stub";
 import { useProcessProgress } from "./useProcessProgress";
 import { formatCountdown } from "@/lib/format";
 import type { HitlTask } from "@/api/types";
 
 export function ContextRail({ task, onOpenDiagram }: { task: HitlTask; onOpenDiagram?: () => void }) {
-  const { data: exc } = useApiQuery(["exception", task.exception_id], (s) => getException(task.exception_id, s));
+  const { data: exc } = useApiQuery(["trigger", task.trigger_id], (s) => getTrigger(task.trigger_id, s));
   const { pack, steps } = useProcessProgress(task);
   const countdown = formatCountdown(task.due_at);
 
@@ -19,13 +19,13 @@ export function ContextRail({ task, onOpenDiagram }: { task: HitlTask; onOpenDia
     <div className="space-y-4">
       <Card>
         <CardHeader className="flex-row items-center justify-between">
-          <CardTitle>Exception</CardTitle>
-          <Link to={`/exceptions/${task.exception_id}`} className="text-muted-foreground hover:text-foreground" aria-label="Open exception">
+          <CardTitle>Trigger</CardTitle>
+          <Link to={`/triggers/${task.trigger_id}`} className="text-muted-foreground hover:text-foreground" aria-label="Open trigger">
             <ExternalLink className="size-4" />
           </Link>
         </CardHeader>
         <CardContent>
-          <ExceptionSummary exc={exc} />
+          <TriggerSummary exc={exc} />
         </CardContent>
       </Card>
 

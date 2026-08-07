@@ -30,14 +30,14 @@ async def create_indexes(db: AsyncIOMotorDatabase) -> None:
 
     await db[PROCESS_INSTANCES].create_index("process_instance_id", unique=True)
     await db[PROCESS_INSTANCES].create_index("idempotency_key", unique=True)
-    await db[PROCESS_INSTANCES].create_index("exception_id")
+    await db[PROCESS_INSTANCES].create_index("trigger_id")
 
     await db[HITL_TASKS].create_index("task_id", unique=True)
     await db[HITL_TASKS].create_index([("status", ASCENDING), ("role", ASCENDING)])
     await db[HITL_TASKS].create_index("process_instance_id")
 
     await db[DISPATCH_LOG].create_index("event_id", unique=True)
-    await db[DISPATCH_LOG].create_index("exception_id")
+    await db[DISPATCH_LOG].create_index("trigger_id")
 
     await db[SAMPLE_EXCEPTIONS].create_index("exception_id", unique=True)
 
@@ -54,7 +54,7 @@ async def create_indexes(db: AsyncIOMotorDatabase) -> None:
     # delivery lookup by (message_name, anchor). Pending buffer holds unmatched inbound messages (TTL).
     await db[MESSAGE_SUBSCRIPTIONS].create_index(
         [("process_instance_id", ASCENDING), ("element_id", ASCENDING)], unique=True)
-    await db[MESSAGE_SUBSCRIPTIONS].create_index([("message_name", ASCENDING), ("exception_id", ASCENDING)])
+    await db[MESSAGE_SUBSCRIPTIONS].create_index([("message_name", ASCENDING), ("trigger_id", ASCENDING)])
     await db[MESSAGE_SUBSCRIPTIONS].create_index([("message_name", ASCENDING), ("correlation_id", ASCENDING)])
     await db[PENDING_MESSAGES].create_index([("message_name", ASCENDING), ("correlation_id", ASCENDING)])
     await db[PENDING_MESSAGES].create_index("created_at", expireAfterSeconds=3600)  # TTL buffer

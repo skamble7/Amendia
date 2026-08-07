@@ -13,8 +13,8 @@ export const LIVE_KEYS: QueryKey[] = [
   ["instance"],
   ["ingestions"],
   ["ingestion"],
-  ["exceptions"],
-  ["exception"],
+  ["triggers"],
+  ["trigger"],
   ["me"],
 ];
 
@@ -25,7 +25,7 @@ export const LIVE_KEYS: QueryKey[] = [
  */
 export function signalToKeys(signal: Signal): QueryKey[] {
   const pid = signal.process_instance_id;
-  const eid = signal.exception_id;
+  const eid = signal.trigger_id;
   const tid = signal.task_id;
 
   switch (signal.type) {
@@ -37,7 +37,7 @@ export function signalToKeys(signal: Signal): QueryKey[] {
       const keys: QueryKey[] = [["hitl-tasks"], ["instances"]];
       if (tid) keys.push(["hitl-task", tid]);
       if (pid) keys.push(["instance", pid]);
-      if (eid) keys.push(["exception", eid], ["ingestion", eid]);
+      if (eid) keys.push(["trigger", eid], ["ingestion", eid]);
       return keys;
     }
 
@@ -45,7 +45,7 @@ export function signalToKeys(signal: Signal): QueryKey[] {
     case "process_failed": {
       const keys: QueryKey[] = [["hitl-tasks"], ["instances"]];
       if (pid) keys.push(["instance", pid]);
-      if (eid) keys.push(["exception", eid]);
+      if (eid) keys.push(["trigger", eid]);
       return keys;
     }
 
@@ -56,12 +56,12 @@ export function signalToKeys(signal: Signal): QueryKey[] {
       return keys;
     }
 
-    case "exception_raised":
-    case "exception_dispatched": {
-      // `["exceptions"]` (list) feeds the dashboard's Raised counter + reason-code
-      // tally; the id-scoped `["exception", eid]` refreshes the detail view.
-      const keys: QueryKey[] = [["exceptions"], ["ingestions"], ["instances"]];
-      if (eid) keys.push(["exception", eid], ["ingestion", eid]);
+    case "trigger_raised":
+    case "trigger_dispatched": {
+      // `["triggers"]` (list) feeds the dashboard's Raised counter + reason-code
+      // tally; the id-scoped `["trigger", eid]` refreshes the detail view.
+      const keys: QueryKey[] = [["triggers"], ["ingestions"], ["instances"]];
+      if (eid) keys.push(["trigger", eid], ["ingestion", eid]);
       return keys;
     }
 

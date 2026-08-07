@@ -6,7 +6,9 @@ from enum import Enum
 EXCHANGE = "amendia.events"
 
 class Service(str, Enum):
-    STUBEXCEPTION = "stub_exception"
+    # ADR-059: the inbound-trigger producer role (the stub is its dev implementation). A real trigger
+    # source reuses this segment — the routing key never names one domain.
+    TRIGGER_SOURCE = "trigger_source"
     INGESTOR = "ingestor"
     AGENT_RUNTIME = "agent_runtime"
     # ADR-058 Phase B: governed-event producers whose actions are audited (they had no events before).
@@ -20,8 +22,9 @@ class Version(str, Enum):
 # Canonical event names (the `<event>` segment of a routing key).
 # Additive constants shared across services so producers and consumers agree
 # on the wire vocabulary without hand-typing strings.
-EXCEPTION_RAISED = "exception_raised"
-EXCEPTION_DISPATCHED = "exception_dispatched"
+# ADR-059: the inbound trigger vocabulary (was exception_raised / exception_dispatched).
+TRIGGER_RAISED = "trigger_raised"
+TRIGGER_DISPATCHED = "trigger_dispatched"
 DISPATCH_ACCEPTED = "dispatch_accepted"
 DISPATCH_REJECTED = "dispatch_rejected"
 HITL_TASK_CREATED = "hitl_task_created"

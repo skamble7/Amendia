@@ -1,5 +1,5 @@
 import { usePollingQuery } from "@/api/live";
-import { listExceptions } from "@/api/services/stub";
+import { listTriggers } from "@/api/services/stub";
 import { listIngestions } from "@/api/services/ingestor";
 import { listInstances, listHitlTasks } from "@/api/services/runtime";
 
@@ -14,11 +14,11 @@ import { listInstances, listHitlTasks } from "@/api/services/runtime";
  */
 export const DASHBOARD_LIMIT = 200;
 
-/** Exceptions — Raised counter + reason-code tally. */
-export function useDashboardExceptions() {
+/** Triggers — Raised counter + reason-code tally. */
+export function useDashboardTriggers() {
   return usePollingQuery({
-    queryKey: ["exceptions", { limit: DASHBOARD_LIMIT }],
-    queryFn: (signal) => listExceptions({ limit: DASHBOARD_LIMIT }, signal),
+    queryKey: ["triggers", { limit: DASHBOARD_LIMIT }],
+    queryFn: (signal) => listTriggers({ limit: DASHBOARD_LIMIT }, signal),
   });
 }
 

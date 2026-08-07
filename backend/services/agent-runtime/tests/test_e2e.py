@@ -77,10 +77,10 @@ pytestmark = [
 
 
 def _generate(reason_code: str) -> str:
-    r = httpx.post(f"{STUB}/exceptions/generate",
+    r = httpx.post(f"{STUB}/generators/wire/generate",
                    json={"reason_code": reason_code, "count": 1}, headers=_auth("riya"), timeout=10)
     r.raise_for_status()
-    return r.json()["created"][0]["exception"]["exception_id"]
+    return r.json()["created"][0]["trigger"]["trigger_id"]
 
 
 def _poll(url: str, pred, *, timeout=90):

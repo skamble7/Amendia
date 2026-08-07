@@ -144,19 +144,19 @@ defaults:
 # ── The platform services (rendered generically). ──
 # common:true → the helper emits the prefixed auth+mongo+rabbit env block.
 services:
-  stub-exception-generator:
+  stub-trigger-generator:
     port: 8081
-    prefix: STUBEXC
-    image: stub-exception-generator
+    prefix: STUBTRIG
+    image: stub-trigger-generator
     health: /health
     common: true
     mongoDb: amendia
     rabbit: true
     egress: [mongodb, rabbitmq, identity]
-    secretEnv: [STUBEXC_AUTH_INTERNAL_TOKEN, RABBIT_USER, RABBIT_PASSWORD]
+    secretEnv: [STUBTRIG_AUTH_INTERNAL_TOKEN, RABBIT_USER, RABBIT_PASSWORD]
     extraEnv:
-      STUBEXC_MONGO_COLLECTION: exceptions
-      STUBEXC_SERVICE_BASE_URL: "http://amendia-stub-exception-generator:8081"
+      STUBTRIG_MONGO_COLLECTION: trigger_messages
+      STUBTRIG_SERVICE_BASE_URL: "http://amendia-stub-trigger-generator:8081"
 
   ingestor:
     port: 8082
@@ -167,13 +167,13 @@ services:
     mongoDb: amendia
     rabbit: true
     registry: true
-    egress: [mongodb, rabbitmq, process-registry, stub-exception-generator, identity]
+    egress: [mongodb, rabbitmq, process-registry, stub-trigger-generator, identity]
     secretEnv: [INGESTOR_AUTH_INTERNAL_TOKEN, RABBIT_USER, RABBIT_PASSWORD]
     extraEnv:
       INGESTOR_MONGO_COLLECTION: ingestions
-      INGESTOR_RABBITMQ_QUEUE: ingestor.exception_raised.v1
+      INGESTOR_RABBITMQ_QUEUE: ingestor.trigger_raised.v1
       INGESTOR_RABBITMQ_REPLY_QUEUE: ingestor.dispatch_replies.v1
-      INGESTOR_STUB_BASE_URL: "http://amendia-stub-exception-generator:8081"
+      INGESTOR_STUB_BASE_URL: "http://amendia-stub-trigger-generator:8081"
 
   agent-runtime:
     port: 8083
@@ -192,7 +192,7 @@ services:
     extraEnv:
       AGENTRT_SELF_BASE_URL: "http://amendia-agent-runtime:8083"
       AGENTRT_SIMULATION_MODE: "false"
-      AGENTRT_RABBITMQ_DISPATCH_QUEUE: agent-runtime.exception_dispatched.v1
+      AGENTRT_RABBITMQ_DISPATCH_QUEUE: agent-runtime.trigger_dispatched.v1
       AGENTRT_ENABLE_SEED_API: "false"
       AGENTRT_ENABLE_DEBUG_API: "false"
       AGENTRT_ENABLE_DEV_CORS: "false"
@@ -255,7 +255,7 @@ services:
     common: false
     static: true                        # nginx SPA, no app env
     secretEnv: []
-    egress: [stub-exception-generator, ingestor, agent-runtime, process-registry, notification-service]
+    egress: [stub-trigger-generator, ingestor, agent-runtime, process-registry, notification-service]
 
 # capability-worker is rendered specially (worker: no Service/port; consumes the broker).
 capabilityWorker:

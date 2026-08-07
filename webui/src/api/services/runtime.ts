@@ -13,7 +13,7 @@ export interface HitlTaskFilters {
   status?: string;
   role?: string;
   process_instance_id?: string;
-  exception_id?: string;
+  trigger_id?: string;
   limit?: number;
   offset?: number;
 }
@@ -42,7 +42,7 @@ export function decideTask(taskId: string, body: DecideRequest): Promise<HitlTas
 // ---------------- Instances ----------------
 
 export interface InstanceFilters {
-  exception_id?: string;
+  trigger_id?: string;
   status?: string;
   limit?: number;
   offset?: number;

@@ -33,12 +33,12 @@ async def test_get_and_latest_active(mongo, capability_repo):
 
 async def test_instance_idempotency_key_unique(mongo, instance_repo):
     inst = ProcessInstance.new(
-        process_instance_id="PI-1", exception_id="EXC-1",
+        process_instance_id="PI-1", trigger_id="EXC-1",
         pack_key="wire-repair-standard", pack_version="1.0.0",
     )
     await instance_repo.insert(inst)
     dup = ProcessInstance.new(
-        process_instance_id="PI-2", exception_id="EXC-1",
+        process_instance_id="PI-2", trigger_id="EXC-1",
         pack_key="wire-repair-standard", pack_version="1.0.0",
     )  # same idempotency key
     with pytest.raises(DuplicateError):

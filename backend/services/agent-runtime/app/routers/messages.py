@@ -2,7 +2,7 @@
 """Inbound business-message intake (ADR-031 Phase 2.4).
 
 Any source (external system, mcp_stub, operator, tests) POSTs a message; the runtime correlates it
-by business anchor (exception_id / correlation_id) + message_name to a parked instance and resumes
+by business anchor (trigger_id / correlation_id) + message_name to a parked instance and resumes
 it. Guarded by ``principal_or_internal`` — external callers use ``X-Amendia-Internal``; an operator
 may use a bearer.
 """
@@ -22,21 +22,21 @@ router = APIRouter(prefix="/messages", tags=["messages"])
 
 class MessageIn(BaseModel):
     message_name: str
-    exception_id: Optional[str] = None
+    trigger_id: Optional[str] = None
     correlation_id: Optional[str] = None
     payload: Optional[Dict[str, Any]] = None
 
 
 @router.post("", status_code=202)
 async def post_message(body: MessageIn, _principal=Depends(principal_or_internal), engine=Depends(get_engine)):
-    if body.exception_id is None and body.correlation_id is None:
+    if body.trigger_id is None and body.correlation_id is None:
         raise HTTPException(status_code=422, detail={
             "error": "anchor_required",
-            "message": "exactly one business anchor (exception_id or correlation_id) is required"})
+            "message": "exactly one business anchor (trigger_id or correlation_id) is required"})
     if engine is None:
         raise HTTPException(status_code=503, detail="execution engine not available")
     result = await engine.deliver_message(
-        body.message_name, exception_id=body.exception_id,
+        body.message_name, trigger_id=body.trigger_id,
         correlation_id=body.correlation_id, payload=body.payload)
     status = result.get("status")
     if status == "delivered":

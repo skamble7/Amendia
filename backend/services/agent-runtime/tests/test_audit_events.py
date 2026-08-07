@@ -56,7 +56,7 @@ async def env():
 async def _drive_to_completion(engine, hitl, instance_repo, hitl_repo, exception_id="EXC-AUDIT"):
     envelope = make_envelope("AC01", exception_id=exception_id, creditor_name="ACME LLC")
     inst = ProcessInstance.new(
-        process_instance_id=f"pi-{exception_id}", exception_id=exception_id,
+        process_instance_id=f"pi-{exception_id}", trigger_id=exception_id,
         pack_key="wire-repair-standard", pack_version="1.0.0", correlation_id=exception_id,
     )
     await instance_repo.insert(inst)

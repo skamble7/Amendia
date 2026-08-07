@@ -1,26 +1,20 @@
 import { request } from "../client";
 import { SERVICE_BASE } from "../config";
-import type { StoredException, GenerateRequest, GenerateResponse } from "../types";
+import type { StoredTrigger } from "../types";
 
-export interface ExceptionFilters {
-  exception_type?: string;
+export interface TriggerFilters {
+  trigger_type?: string;
   status?: string;
-  reason_code?: string;
   limit?: number;
   offset?: number;
 }
 
-export function listExceptions(filters: ExceptionFilters = {}, signal?: AbortSignal): Promise<StoredException[]> {
-  return request<StoredException[]>("stub", "/exceptions", { query: { ...filters }, signal });
+export function listTriggers(filters: TriggerFilters = {}, signal?: AbortSignal): Promise<StoredTrigger[]> {
+  return request<StoredTrigger[]>("stub", "/triggers", { query: { ...filters }, signal });
 }
 
-export function getException(exceptionId: string, signal?: AbortSignal): Promise<StoredException> {
-  return request<StoredException>("stub", `/exceptions/${exceptionId}`, { signal });
-}
-
-/** Dev-only generator (design's "Generate exception" button). reason_code ∈ AC01|AC04|RC01|BE04. */
-export function generateException(body: GenerateRequest): Promise<GenerateResponse> {
-  return request<GenerateResponse>("stub", "/exceptions/generate", { method: "POST", body });
+export function getTrigger(triggerId: string, signal?: AbortSignal): Promise<StoredTrigger> {
+  return request<StoredTrigger>("stub", `/triggers/${triggerId}`, { signal });
 }
 
 // ---- Domain-neutral trigger generators (discovery catalog) ------------------
@@ -34,18 +28,18 @@ export function listGenerators(signal?: AbortSignal): Promise<GeneratorCatalog> 
   return request<GeneratorCatalog>("stub", "/generators", { signal });
 }
 
-/** One generated trigger's shape is domain-specific; only the id fields differ (exception vs ticket). */
+/** A generated trigger — the stub returns the stored envelope keyed under `trigger`. */
 export interface GenerateTriggerResult {
-  created?: Array<{ exception?: { exception_id?: string }; ticket?: { ticket_id?: string } }>;
+  created?: Array<{ trigger?: { trigger_id?: string } }>;
 }
 
-/** POST a scenario body to a generator's advertised stub endpoint (e.g. /exceptions/generate, /tickets/generate). */
+/** POST a scenario body to a generator's advertised endpoint (e.g. /generators/wire/generate). */
 export function generateTrigger(endpoint: string, body: unknown): Promise<GenerateTriggerResult> {
   return request<GenerateTriggerResult>("stub", endpoint, { method: "POST", body });
 }
 
 /** Direct URL for an attachment (rendered as <a>/<img> src, not fetched as JSON). */
-export function attachmentUrl(exceptionId: string, attachmentId: string): string {
+export function attachmentUrl(triggerId: string, attachmentId: string): string {
   const base = SERVICE_BASE.stub.replace(/\/$/, "");
-  return `${base}/exceptions/${exceptionId}/attachments/${attachmentId}`;
+  return `${base}/triggers/${triggerId}/attachments/${attachmentId}`;
 }

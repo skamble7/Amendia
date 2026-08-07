@@ -110,7 +110,7 @@ class NodeContext:
     outputs: List[OutputSpec] = field(default_factory=list)
     title: str = ""
     # ADR-031 (Phase 2.4): the business message a message catch / receive element awaits (message
-    # executor only). Correlation anchor is the instance's exception_id/correlation_id + this name.
+    # executor only). Correlation anchor is the instance's trigger_id/correlation_id + this name.
     message_name: Optional[str] = None
     # ADR-035: the error boundary codes attached to this element (its wired errorRefs, catch-all
     # dropped). Threaded into the executor (extras["error_codes"]) so a real llm/mcp/deep_agent path

@@ -1,1 +1,1 @@
-"""HTTP clients for external services (process registry, exception store)."""
+"""HTTP clients for external services (process registry, trigger store)."""

@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 
 class RegistryNoMatch(Exception):
-    """The registry has no active pack for this exception (HTTP 404)."""
+    """The registry has no active pack for this trigger (HTTP 404)."""
 
     def __init__(self, body: Dict[str, Any]) -> None:
         self.body = body

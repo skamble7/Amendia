@@ -39,7 +39,7 @@ class HitlTaskRepository:
         status: Optional[str] = None,
         role: Optional[str] = None,
         process_instance_id: Optional[str] = None,
-        exception_id: Optional[str] = None,
+        trigger_id: Optional[str] = None,
         limit: int = 50,
         offset: int = 0,
     ) -> List[HitlTask]:
@@ -50,8 +50,8 @@ class HitlTaskRepository:
             query["role"] = role
         if process_instance_id:
             query["process_instance_id"] = process_instance_id
-        if exception_id:
-            query["exception_id"] = exception_id
+        if trigger_id:
+            query["trigger_id"] = trigger_id
         cursor = (
             self._coll.find(query, projection=_PROJECTION)
             .sort("created_at", -1)

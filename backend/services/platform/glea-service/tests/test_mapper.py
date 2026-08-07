@@ -23,7 +23,7 @@ def _envelope(**extra):
 
 def test_row_columns_are_exactly_the_structural_schema():
     payload = _envelope(
-        exception_id="EXC-1", element_id="Task_X", role="role.ops.analyst",
+        trigger_id="EXC-1", element_id="Task_X", role="role.ops.analyst",
         decision="approve", decided_by="u1", sod_satisfied=True,
         trace={"correlation_id": "EXC-1", "trace_id": "a" * 32},
     )
@@ -72,12 +72,12 @@ def test_artifact_committed_populates_artifact_key():
 
 
 def test_non_artifact_kinds_leave_artifact_key_empty():
-    payload = _envelope(exception_id="EXC-1", trace={"correlation_id": "EXC-1"})
+    payload = _envelope(trigger_id="EXC-1", trace={"correlation_id": "EXC-1"})
     assert to_row("agent_runtime.process_completed.v1", payload)["artifact_key"] == ""
 
 
 def test_payload_column_preserves_the_full_event():
-    payload = _envelope(exception_id="EXC-3", trace={"correlation_id": "EXC-3"})
+    payload = _envelope(trigger_id="EXC-3", trace={"correlation_id": "EXC-3"})
     row = to_row("agent_runtime.process_completed.v1", payload)
     assert orjson.loads(row["payload"])["event_id"] == payload["event_id"]
 

@@ -3,7 +3,7 @@
 
 Settings are read from the environment with the ``INGESTOR_`` prefix (or a local
 ``.env`` file). Defaults target standalone dev; docker-compose overrides the
-hosts to the ``mongodb`` / ``rabbitmq`` / ``stub-exception-generator`` services.
+hosts to the ``mongodb`` / ``rabbitmq`` / ``stub-trigger-generator`` services.
 """
 from __future__ import annotations
 
@@ -20,11 +20,11 @@ class Settings(BaseSettings):
 
     # RabbitMQ
     RABBITMQ_URL: str = "amqp://guest:guest@localhost:5672/"
-    RABBITMQ_QUEUE: str = "ingestor.exception_raised.v1"
+    RABBITMQ_QUEUE: str = "ingestor.trigger_raised.v1"
     # Durable queue for the agent-runtime's dispatch replies (accepted/rejected).
     RABBITMQ_REPLY_QUEUE: str = "ingestor.dispatch_replies.v1"
 
-    # Exception store (the stub) — fetch-back API base URL.
+    # Trigger store (the stub) — fetch-back API base URL.
     STUB_BASE_URL: str = "http://localhost:8081"
 
     # Process registry — triage resolve API base URL.

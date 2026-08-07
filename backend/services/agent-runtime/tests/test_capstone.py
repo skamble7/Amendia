@@ -148,7 +148,7 @@ def test_capstone_pins_common_executable_and_refuses_common_subset():
 async def test_capstone_composed_happy_path_runs_end_to_end(harness):
     eng, instances, hitl = harness["eng"], harness["instances"], harness["hitl"]
     pid = "pi-cap"
-    inst = ProcessInstance.new(process_instance_id=pid, exception_id="EXC-cap", pack_key=PK, pack_version=PV)
+    inst = ProcessInstance.new(process_instance_id=pid, trigger_id="EXC-cap", pack_key=PK, pack_version=PV)
     await instances.insert(inst)
     await eng.start(inst, make_envelope("AC01", exception_id="EXC-cap"))
 

@@ -24,10 +24,10 @@ export function formatActivitySignal(sig: Signal): string {
       return "Instance failed";
     case "dispatch_accepted":
       return `Dispatched — ${sig.process_instance_id ?? "instance"}`;
-    case "exception_raised":
-      return `Exception raised — ${sig.exception_id ?? "—"}`;
-    case "exception_dispatched":
-      return `Exception dispatched — ${sig.exception_id ?? "—"}`;
+    case "trigger_raised":
+      return `Trigger raised — ${sig.trigger_id ?? "—"}`;
+    case "trigger_dispatched":
+      return `Trigger dispatched — ${sig.trigger_id ?? "—"}`;
     default:
       return sig.type;
   }

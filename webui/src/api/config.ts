@@ -18,7 +18,7 @@ export const SERVICE_BASE: Record<ServiceKey, string> = {
 
 /** Human label per service, used in connectivity messaging. */
 export const SERVICE_LABEL: Record<ServiceKey, string> = {
-  stub: "stub-exception-generator",
+  stub: "stub-trigger-generator",
   ingestor: "ingestor",
   runtime: "agent-runtime",
   registry: "process-registry",

@@ -4,7 +4,7 @@
 Binds a durable queue to both ``agent_runtime.dispatch_accepted.v1`` and
 ``agent_runtime.dispatch_rejected.v1`` and hands each raw payload + routing key
 to the injected handler (the two reply shapes differ, so parsing is the handler's
-job). Same reconnect/ack discipline as the exception_raised consumer.
+job). Same reconnect/ack discipline as the trigger_raised consumer.
 """
 from __future__ import annotations
 

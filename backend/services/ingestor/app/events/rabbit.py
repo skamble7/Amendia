@@ -1,8 +1,8 @@
 # app/events/rabbit.py
-"""aio-pika consumer: subscribe to exception_raised events on amendia.events.
+"""aio-pika consumer: subscribe to trigger_raised events on amendia.events.
 
 Declares the canonical durable topic exchange, binds a durable queue with the
-``stub_exception.exception_raised.v1`` pattern (built from shared constants),
+``trigger_source.trigger_raised.v1`` pattern (built from shared constants),
 and dispatches each message to the injected handler. Reconnects with jittered
 backoff, mirroring the notification-service pattern.
 """
@@ -17,15 +17,15 @@ from typing import Awaitable, Callable, Optional
 import aio_pika
 from aio_pika.abc import AbstractIncomingMessage
 
-from amendia_common.events import EXCEPTION_RAISED, EXCHANGE, Service, Version
-from app.models.events import IncomingExceptionRaisedEvent
+from amendia_common.events import EXCHANGE, Service, TRIGGER_RAISED, Version
+from app.models.events import IncomingTriggerRaisedEvent
 
 logger = logging.getLogger(__name__)
 
-# Bind to service=stub_exception, event=exception_raised, version=v1.
-BINDING_KEY = f"{Service.STUBEXCEPTION.value}.{EXCEPTION_RAISED}.{Version.V1.value}"
+# Bind to service=trigger_source, event=trigger_raised, version=v1.
+BINDING_KEY = f"{Service.TRIGGER_SOURCE.value}.{TRIGGER_RAISED}.{Version.V1.value}"
 
-Handler = Callable[[IncomingExceptionRaisedEvent, str], Awaitable[None]]
+Handler = Callable[[IncomingTriggerRaisedEvent, str], Awaitable[None]]
 
 
 class RabbitConsumer:
@@ -71,14 +71,14 @@ class RabbitConsumer:
         async with message.process(ignore_processed=True):
             try:
                 payload = json.loads(message.body.decode("utf-8"))
-                event = IncomingExceptionRaisedEvent.model_validate(payload)
+                event = IncomingTriggerRaisedEvent.model_validate(payload)
             except Exception as exc:  # noqa: BLE001
                 logger.error("Dropping unparseable message (routing_key=%s): %s", message.routing_key, exc)
                 return
             try:
                 await self._handler(event, message.routing_key or "")
             except Exception as exc:  # noqa: BLE001
-                logger.exception("Handler error for exception_id=%s: %s", event.exception_id, exc)
+                logger.exception("Handler error for trigger_id=%s: %s", event.trigger_id, exc)
 
     async def run(self) -> None:
         """Consumer main loop; reconnects on failure until stopped."""
