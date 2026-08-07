@@ -1,356 +1,182 @@
-# ASTRA
+# Amendia
 
-**ASTRA** (Agentic System for Traceable Reasoning and Artifacts) is a composable framework for structured intelligence. Artifact kinds, capabilities, and capability packs come together to define, extend, and orchestrate what a platform can produce — enabling systems to dynamically evolve without changing platform code.
+**Amendia is a generic, domain-neutral, agentic process-execution platform.** You give it a
+**BPMN 2.0 process** (as data) and a set of **capabilities** (MCP tools / LLM steps that connect to
+your systems); it **executes the process faithfully**, step by step — pausing at the human approval
+gates you defined, validating every artifact against a pinned schema, and recording an immutable,
+observable audit trail.
+
+The platform does not know your domain. It is deployed **on the customer's infrastructure, typically
+one instance per department** (effectively single-tenant per deployment). Onboarding a new process is
+**data, not code**: you register BPMN definitions, capabilities, artifact schemas, and triage rules —
+you do not write new platform code.
+
+The **wire-transfer payment-exception** flow is the *reference example* shipped for local dev and
+testing (the `stub-exception-generator` + `ingestor` path). It is one worked domain on top of a
+generic engine — not the product's boundary. No `exception` / `wire` / `payment` term is hardcoded in
+platform code (ADR-047 domain neutrality); those appear only as configured data.
 
 ---
 
-## Core Concepts
-
-### Artifact Kind
-
-An artifact kind is a declarative template that defines what type of knowledge a platform can produce. It acts as the canonical contract describing the shape, semantics, and representations of an artifact.
-
-| Property | Purpose |
-|---|---|
-| `_id` | Globally unique identifier (`cam.<category>.<kind>`) |
-| `title`, `category`, `aliases`, `status` | Human-friendly metadata and lifecycle state |
-| `schema_versions.json_schema` | Exact structure and required fields of the artifact |
-| `schema_versions.prompt` | Canonical prompt contract for agents that generate this kind |
-| `schema_versions.depends_on` | Upstream kinds needed to generate this kind |
-| `schema_versions.diagram_recipes` | Embedded diagram definitions (Mermaid, etc.) |
-| `schema_versions.narratives_spec` | Human-readable narrative specifications |
-
-Naming: `cam.<category>.<name>` — e.g. `cam.agile.user_story`, `cam.architecture.service_contract`
-
-### Capability
-
-A capability is a declarative, globally addressable unit of execution. It defines what it produces, what inputs it accepts, and how it runs — either via an MCP tool or an LLM.
-
-| Property | Description |
-|---|---|
-| `id` | Stable identifier, e.g. `cap.cobol.copybook.parse` |
-| `execution` | `McpExecution` (HTTP/STDIO + tool name) or `LlmExecution` (ConfigForge LLM ref) |
-| `produces_kinds` | Artifact kind IDs this capability outputs |
-| `parameters_schema` | JSON Schema for dynamic user-supplied parameters |
-
-Naming: `cap.<group>.<action>` — e.g. `cap.data.fetch`, `cap.diagram.mermaid`
-
-### Capability Pack
-
-A capability pack is a versioned, goal-oriented bundle of capabilities. It declares which capabilities run, in what order, and with what inputs — transforming a raw capability library into a purpose-driven workflow.
+## Core model
 
 ```
-Artifact kinds  →  define what can be produced
-Capabilities    →  define how to produce them
-Capability Packs →  define why and when to produce them
+BPMN process   →  what happens, in what order, with which gates
+Capabilities   →  how each automated step is executed (MCP tool or LLM)
+Artifact schemas → the pinned shape of every value produced or consumed
+Triage rules   →  which process governs an incoming trigger (attribute-based predicate tree)
+ProcessPack    →  a versioned, validated, pinned bundle of the above, activated for real traffic
 ```
 
-Each pack contains one or more **playbooks** — ordered sequences of steps, each referencing a capability. The AI agent interprets this blueprint and handles execution, dependency resolution, enrichment, and persistence.
+The runtime **compiles** an annotation-free BPMN diagram + the pack manifest + the pinned capability
+resolution into a **LangGraph `StateGraph`** (native interpretation — no external BPMN engine, ADR-011
+/ ADR-027). A process instance is a **Mongo-checkpointed thread** (a checkpoint per node boundary =
+the audit trail). Human gates use LangGraph `interrupt`/`resume`.
+
+### Controls the platform enforces by construction
+
+A side-effectful capability cannot run without a human authorization gate (`≥ approve_actions`); the
+preparer cannot approve their own work (four-eyes / separation-of-duties, per-instance); a gateway may
+only branch on a `required`, upstream-produced field; every artifact write is validated against its
+pinned schema; packs are immutable and version-pinned at activation; the runtime refuses a pack whose
+profile it cannot run. These remove the "someone forgot a control" risk class. What the platform
+cannot know — that the *right* steps were automated, that a capability does exactly what it claims,
+that someone accountable accepted the risk — is the job of the **methodology** (see
+`backend/docs/methodology/amendia_operating_model.md`).
 
 ---
 
 ## Services
 
-### Artifact Service (port 9020)
+All custom services publish on host ports in the **`18xxx`** band (remapped +10000 out of the
+contended `80xx` band); the **container-internal** port is the historical `80xx`. Keycloak and all
+infra keep their standard ports.
 
-A pure kind-registry and schema service. Key features:
+| Service | Host port | Container | Role |
+|---|---|---|---|
+| **config-forge** | 18040 | 8040 | Platform config registry; serves provider-agnostic LLM `ModelProfile`s (polyllm) by canonical ref |
+| **stub-exception-generator** | 18081 | 8081 | Dev/test stub that *plays the bank's exception store*: fabricates a synthetic exception, persists it, publishes a thin `exception_raised` event, serves fetch-back + attachments |
+| **ingestor** | 18082 | 8082 | Consumes `exception_raised`, fetches the full payload, resolves it to a pack via the registry `POST /resolve`, dispatches to the runtime, tracks the ingestion lifecycle |
+| **agent-runtime** | 18083 | 8083 | The execution engine: compiles BPMN→LangGraph, runs capabilities, validates artifact writes, owns the HITL task/approval lifecycle (claim/decide with SoD) |
+| **process-registry** | 18084 | 8084 | Authoring / write side: registers capabilities, artifact schemas, and packs; runs the multi-stage cross-contract validator; drives the pack lifecycle; answers triage `/resolve`; hosts the onboarding **copilot** (ADR-052) |
+| **webui** | 18085 | 8085 | React SPA: exception queue, process/instance visualization, approval inbox, registry/onboarding, GLEA views (PKCE sign-in) |
+| **identity** | 18086 | 8086 | `(iss,sub)` → Amendia user + roles; JIT provisioning; role admin. Authorization lives here, not in IdP claims |
+| **keycloak** | 8087 | 8080 | Dev IdP; committed `amendia-dev` realm (PKCE public client, `amendia-api` audience). Stands in for the customer IdP |
+| **notification-service** | 18088 | 8088 | Consumes `amendia.events`, fans out thin invalidation signals to browsers over SSE (real-time HITL dashboard) |
+| **glea-service** | 18090 | 8090 | GLEA audit system-of-record: consumes governed events, persists append-only into ClickHouse, serves audit / explainability / lineage read-models (ADR-058) |
 
-- **Kind registry API** — list, retrieve, validate, and manage artifact kind definitions
-- **Category API** — manage high-level artifact categories
-- **Build envelope** — validate and compute natural key + fingerprint for an artifact payload (`POST /registry/build-envelope`)
-- Seeded at startup with built-in kind definitions; no RabbitMQ dependency
+### Infrastructure
 
-### Workspace Manager Service (port 9027)
-
-Owns all runtime workspace artifact storage and workspace lifecycle management. Key features:
-
-- **Create / upsert / batch upsert** artifacts with computed fingerprints and natural keys (delegates schema validation to artifact-service via `POST /registry/build-envelope`)
-- **List, retrieve, patch, replace** with ETag-based optimistic concurrency
-- **Version history** and soft-delete
-- **Workspace lifecycle** — consumes `platform.workspace.created/updated/deleted` events from RabbitMQ to maintain workspace parent documents
-- Publishes events on artifact creation and update
-
-### Capability Service (port 9021)
-
-Manages capabilities, pack inputs, and capability packs. Key features:
-
-- Full CRUD for `GlobalCapability` documents with tag/kind/mode search
-- Pack management including publish (makes pack immutable and available for runs)
-- Pack inputs CRUD and effective input contract resolution
-- Resolved pack view — capabilities expanded inline, used by conductor during orchestration
-
-### Conductor Service (port 9022) — Agent Runtime
-
-Orchestrates **runs** of a capability pack's playbook. It accepts a `StartRunRequest`, records the run, and executes it using a LangGraph agent built from **conductor-core** nodes.
-
-**LLM Architecture:**
-
-- **Agent LLM** (`CONDUCTOR_LLM_CONFIG_REF`) — used by `mcp_input_resolver` and `narrative_enrichment`
-- **Execution LLM** — per-capability `llm_config_ref` resolved from ConfigForge at runtime
-- Set `OVERRIDE_CAPABILITY_LLM=1` to force all capabilities to use the conductor's agent LLM
-
-**Run API:** `POST /runs/start` — returns immediately with `run_id`; execution runs as a background task.
-
-### Planner Service (port 9025) — Intent-Driven Planning and Execution
-
-The entry point for conversational, intent-driven capability runs. Accepts a natural-language user intent, selects capabilities, builds a plan, and executes it using the same conductor-core nodes.
-
-See [Planner Service](#planner-service-detail) below for full details.
-
-### Capability Onboarding Service (port 9026)
-
-A stateless wizard backend for registering new MCP servers as ASTRA capabilities. No database or message broker — the entire wizard state travels as a progressive JSON document.
-
-**4-step flow:**
-
-1. **Connect server** — discovers tools via `tools/list`
-2. **Select tool** — pick one tool (auto-selected for single-tool servers)
-3. **Review & edit** — LLM infers capability ID, name, tags, and artifact kind schema
-4. **Register** — creates the artifact kind and capability in the respective services
+| Component | Port(s) | Purpose |
+|---|---|---|
+| MongoDB 7 | 27017 | Exceptions, packs, capabilities, artifact schemas, instances, HITL tasks, config |
+| RabbitMQ 3 | 5672 / 15672 | `amendia.events` durable topic exchange (the seam between services); management UI (guest/guest) |
+| ClickHouse 24.8 | 8123 / 9001→9000 | Single store for OTel traces + logs **and** the GLEA audit system-of-record |
+| OpenTelemetry Collector | 4317 / 4318 | Single OTLP aggregation point; every service + sandbox exports here → ClickHouse (ADR-058) |
 
 ---
 
-## conductor-core (Shared Execution Library)
-
-`libs/conductor-core` contains all core execution logic shared between the conductor-service and planner-service. It is structured into six packages:
+## Shared libraries (`libs/`)
 
 | Package | Contents |
 |---|---|
-| `conductor_core.models` | Shared Pydantic models: `PlaybookRun`, `StepState`, `ArtifactEnvelope`, `StartRunRequest`, etc. |
-| `conductor_core.nodes` | Six reusable LangGraph execution nodes (see below) |
-| `conductor_core.llm` | polyllm-backed `AgentLLM` / `ExecLLM` protocols and factories |
-| `conductor_core.mcp` | MCP transport client (`MCPConnection`, `MCPTransportConfig`) |
-| `conductor_core.protocols` | Structural protocols for `RunRepository`, `ArtifactServiceClient` (registry reads), `WorkspaceManagerClient` (artifact writes), `EventPublisher` |
-| `conductor_core.artifacts` | `ArtifactAdapter` utilities for normalising staged artifacts |
-
-### Execution Nodes
-
-| Node | Description |
-|---|---|
-| `capability_executor_node` | Central router: manages step index, three-phase transitions, publishes lifecycle events |
-| `mcp_input_resolver_node` | Builds MCP tool arguments; discovers live input schema via `tools/list`; validates with LLM repair |
-| `mcp_execution_node` | Connects to MCP server, invokes tool, handles retries and pagination, stages artifacts |
-| `llm_execution_node` | Resolves `llm_config_ref`, builds prompt from kind schema + upstream artifacts, validates JSON output |
-| `diagram_enrichment_node` | Calls `cap.diagram.mermaid` after each step to attach Mermaid diagrams (non-fatal) |
-| `narrative_enrichment_node` | Calls agent LLM to generate Markdown narratives from artifact JSON (non-fatal) |
-| `persist_run_node` | Normalises staged artifacts and calls `workspace-manager-service /artifact/{workspace_id}/upsert-batch`; records final run status |
-
-### Three-Phase Step Execution
-
-Each playbook step runs across three phases:
-
-```
-discover  →  enrich (diagram)  →  narrative_enrich  →  advance
-```
-
-Enrichment failures are non-fatal; discovery failures terminate the run immediately.
+| `amendia_contracts` | The five platform contracts (ProcessPack, Capability, Artifact schema, Dispatch event, HITL task) + `VersionedRef` / semver matching. The exact models the runtime executes |
+| `amendia_bpmn` | BPMN 2.0 parsing / validation of the supported subset (shared by registry validation and runtime compilation) |
+| `amendia_auth` | OIDC resource-server library: `TokenValidator` → `Principal`; FastAPI deps (`current_principal`, `require_roles`, `principal_or_internal`) |
+| `amendia_common` | Shared vocabulary + event helpers (`events.rk(tenant, service, event)` builds canonical routing keys) |
+| `amendia_telemetry` | OTel conventions + setup (semantic-attribute constants, span/log helpers) — ADR-058 |
+| `polyllm` | Provider-agnostic LLM abstraction (ModelProfiles resolved via ConfigForge) |
 
 ---
 
-## Planner Service Detail
-
-### Session Lifecycle
+## Repository layout
 
 ```
-planning → awaiting_clarification → planning → awaiting_inputs
-  → ready_to_execute → executing → completed | failed
+Amendia/
+├── backend/
+│   ├── deploy/                 # docker-compose.yml (full local stack), keycloak realm, otel collector config
+│   ├── docs/                   # all documentation (see backend/docs/README.md)
+│   │   ├── adr/                #   architecture decision records (ADR-007 … current)
+│   │   ├── methodology/        #   the onboarding methodology (start: amendia_operating_model.md)
+│   │   ├── reference/          #   platform contracts, services reference, execution pipeline
+│   │   ├── operations/         #   user / admin / auth / operator guides
+│   │   ├── engineering/        #   build plans, backlogs, audits
+│   │   └── _build-prompts/     #   Claude Code build prompts kept for provenance
+│   └── services/               # agent-runtime, ingestor, process-registry, platform/{config-forge,glea,identity,notification}
+├── libs/                       # amendia_contracts, amendia_bpmn, amendia_auth, amendia_common, amendia_telemetry, polyllm
+├── webui/                      # React SPA (Vite dev server on 5173; nginx image on 18085)
+├── stub_exception_generator/   # the reference "bank exception store" stub
+├── mcp_stub/                   # MCP server stub(s) for capability transport testing
+├── tools/                      # demo + operator scripts (e.g. demo_wire_repair.sh)
+└── deploy/                     # helm chart + vault (portable k8s deployment, ADR-022)
 ```
-
-### Planner Agent (LangGraph)
-
-Runs per user message turn. Nodes:
-
-```
-session_init → intent_resolver → capability_selector → plan_builder
-                                                             ↓
-                                              confidence ≥ 0.65?
-                                            yes ↓           no ↓
-                                       plan_approved    clarification
-```
-
-- **`intent_resolver`** — extracts structured intent (type, entities, constraints, confidence)
-- **`capability_selector`** — matches capabilities from the manifest cache using LLM ranking
-- **`plan_builder`** — builds ordered steps with LLM-prefilled `run_inputs`
-- **`clarification`** — asks user a question when confidence is too low
-
-### Two-Step Execute Flow (ADR-006)
-
-1. **`POST /plan/approve`** — locks the plan; returns `input_form_type` (`"structured"` or `"freetext"`) and `prefilled_inputs` with the live MCP input schema. Does **not** start execution.
-2. **`POST /run`** — accepts user-confirmed `run_inputs` and starts the execution agent as a background task.
-
-### HTTP API
-
-| Method | Path | Description |
-|---|---|---|
-| `POST` | `/sessions` | Create a new session |
-| `GET` | `/sessions/{id}` | Fetch session state |
-| `POST` | `/sessions/{id}/messages` | Send a user message |
-| `GET` | `/sessions/{id}/plan` | Get current plan steps |
-| `PATCH` | `/sessions/{id}/plan` | Edit plan steps |
-| `POST` | `/sessions/{id}/plan/approve` | Lock plan; return input form metadata |
-| `POST` | `/sessions/{id}/run` | Submit confirmed inputs; start execution |
-| `GET` | `/sessions/{id}/runs/{run_id}` | Get run status |
-
-### WebSocket API
-
-`GET /ws/sessions/{session_id}` — per-session event stream with cursor-based replay.
-
-| Event | Trigger |
-|---|---|
-| `planner.response` | Planning turn complete |
-| `plan.approved` | Plan locked |
-| `execution.started` | Run accepted |
-| `execution.run_created` | PlaybookRun created |
-| `execution.completed` / `execution.failed` | Run finished |
-
-Step-level events (`step.started`, `step.completed`, etc.) travel via RabbitMQ → notification-service → workspace WebSocket.
 
 ---
 
-## MCP Server Authoring
+## Quickstart (local dev)
 
-To register an MCP server as an ASTRA capability, your server must follow these rules.
+Brings up Mongo, RabbitMQ, ClickHouse, the OTel Collector, Keycloak, and all Amendia services. The
+process-registry seeds and health-gates so downstream consumers start only once its state is ready.
 
-### Tool Design
+```bash
+docker compose -f backend/deploy/docker-compose.yml up --build
 
-Follow a **1:1:1** mapping:
+# Seed the default LLM profiles into ConfigForge (once)
+docker compose -f backend/deploy/docker-compose.yml run --rm config-forge \
+  python scripts/seed.py --mongo-uri mongodb://mongodb:27017 --db ConfigForge --env dev
 
-```
-one MCP tool  →  one ASTRA capability  →  one artifact kind
-```
+# Generate one reference exception (via the stub)
+curl -s -X POST localhost:18081/exceptions/generate \
+  -H 'content-type: application/json' -d '{"count":1}' | jq
 
-Each tool should do one well-scoped thing and return one type of structured output.
-
-### Return Types
-
-Always annotate your tool's return type with a typed Pydantic model. FastMCP generates the `outputSchema` from your return annotation — a generic `Dict[str, Any]` produces a useless schema.
-
-```python
-class RainaInputDoc(BaseModel):
-    inputs: InputsBlock
-
-@mcp.tool(name="raina.input.fetch")
-async def raina_input_fetch(stories_url: str) -> RainaInputDoc:
-    ...
+# Health checks
+curl -s localhost:18084/health   # process-registry (ready ⇒ seed onboarded)
+curl -s localhost:18083/health   # agent-runtime
+curl -s localhost:18090/health   # glea-service
 ```
 
-### Transport
+> Editing the seed (BPMN / manifest / capabilities / schemas) changes immutable, already-onboarded
+> versions — bring the stack down with a fresh volume first:
+> `docker compose -f backend/deploy/docker-compose.yml down -v`.
 
-ASTRA communicates over **streamable-http**. Configure your server to listen on HTTP:
+The webui dev server runs on **5173** (`cd webui && npm run dev`) and proxies `/api/<service>` to the
+`18xxx` backends. The composed nginx image is browsable at **18085**. Sign-in is Authorization Code +
+PKCE against Keycloak (8087); seeded dev users are **riya** (ops analyst), **marcus** (ops approver),
+and **priya** (process owner + platform admin). Authorization is resolved in Amendia's identity
+service, never parsed from IdP token claims.
 
-```python
-MCP_TRANSPORT=streamable-http
-MCP_HOST=0.0.0.0
-MCP_PORT=8003
-MCP_MOUNT_PATH=/mcp
-```
+### End-to-end reference flow
 
-### Authentication
-
-Use ASTRA's alias-based auth — store the env var **name**, not the value. Supported methods:
-
-| Method | Field | Example |
-|---|---|---|
-| Bearer token | `alias_token` | `MY_SERVICE_TOKEN` |
-| Basic auth | `alias_user` / `alias_password` | `MY_SVC_USER` / `MY_SVC_PASS` |
-| API key | `alias_key` | `MY_API_KEY` |
-
-### Schema Validation
-
-ASTRA validates every tool response at runtime against the JSON schema stored in the artifact kind registry. A response that fails validation is silently dropped — no artifact is persisted.
-
-### Pre-Registration Checklist
-
-- [ ] Return type is a typed Pydantic model (not `Dict[str, Any]`)
-- [ ] Tool returns the same shape on every call
-- [ ] Server is reachable at `<base_url>/mcp` via streamable-http
-- [ ] Output schema in the Inspect step matches your actual return structure
-- [ ] Artifact kind JSON schema in the Review step accurately describes your output
-- [ ] End-to-end tested before registering
-
-### Runtime Behaviour After Registration
-
-1. Conductor connects to your server at the URL in `execution.transport`
-2. The configured tool is called with resolved input arguments
-3. Response is validated against the registered artifact kind JSON schema
-4. On success: artifact is persisted and available to downstream capabilities
-5. On failure: step is marked failed; no artifact is written
+`tools/demo_wire_repair.sh` drives the full path: generate → ingest → resolve → dispatch → accept →
+run (through the human approval gates, with SoD blocking self-approval) → `completed`, then shows the
+produced artifacts via `GET /instances/{id}/state`.
 
 ---
 
-## Key Environment Variables
+## Execution modes
 
-### Conductor Service
-
-| Variable | Description |
-|---|---|
-| `CONDUCTOR_LLM_CONFIG_REF` | ConfigForge ref for the agent LLM |
-| `CONFIG_FORGE_URL` | ConfigForge service URL |
-| `OVERRIDE_CAPABILITY_LLM` | `1` to force all capabilities to use the conductor's LLM |
-| `OPENAI_API_KEY` / `GEMINI_API_KEY` | Provider keys for capability LLMs |
-| `ARTIFACT_SVC_BASE_URL` | `http://astra-artifact-service:9020` — kind registry reads |
-| `WORKSPACE_MGR_BASE_URL` | `http://astra-workspace-manager-service:9027` — workspace artifact writes |
-
-### Planner Service
-
-| Variable | Default | Description |
-|---|---|---|
-| `PLANNER_LLM_CONFIG_REF` | — | ConfigForge ref for planner + narrative LLM |
-| `CONFIG_FORGE_URL` | — | ConfigForge service URL |
-| `CAPABILITY_SVC_BASE_URL` | `http://astra-capability-service:9021` | Capability service |
-| `ARTIFACT_SVC_BASE_URL` | `http://astra-artifact-service:9020` | Artifact service (kind registry) |
-| `WORKSPACE_MGR_BASE_URL` | `http://astra-workspace-manager-service:9027` | Workspace manager service (artifact storage) |
-| `DIAGRAM_MCP_BASE_URL` | `http://host.docker.internal:8001` | Diagram MCP server |
-| `MONGO_URI` | — | MongoDB connection string |
-| `REDIS_URL` | `redis://localhost:6379/0` | Redis for manifest cache |
-| `RABBITMQ_URI` | — | RabbitMQ AMQP URI |
+- **`native`** (default) — capabilities run in the agent-runtime's in-process executor.
+- **`nemoclaw`** (ADR-017 / ADR-020, `--profile nemoclaw`) — capability execution routes to an
+  in-sandbox **capability-worker** that consumes jobs off RabbitMQ and publishes results (the host
+  never calls into the sandbox; egress-only). LLM capabilities go through **polyllm + ConfigForge**;
+  MCP capabilities are self-descriptive on `runtime.endpoint` (ADR-024).
 
 ---
 
-## Service Ports
+## Observability & audit (GLEA — ADR-058)
 
-| Service | Port |
-|---|---|
-| artifact-service | 9020 |
-| capability-service | 9021 |
-| conductor-service | 9022 |
-| planner-service | 9025 |
-| capability-onboarding-service | 9026 |
-| workspace-manager-service | 9027 |
+**G**overnance, **L**ineage, **E**xplainability, **A**udit run on OpenTelemetry + ClickHouse. Every
+service and sandbox exports traces + logs to a single OTel Collector; `glea-service` additionally
+consumes governed domain events and persists them append-only as the audit **system-of-record**,
+serving per-instance audit-trail, decision-trail explainability, and cross-instance lineage
+read-models to the webui instance view.
 
 ---
 
 ## Documentation
 
-- [ASTRA Framework Overview](docs/astra_wiki.md)
-- [Planner Service Reference](docs/planner_service.md)
-- [MCP Server Authoring Guide](docs/mcp-authoring-guide.md)
-
----
-
-## Amendia — Stub Exception Generator
-
-Amendia is a generic, agentic payment-exception-handling platform for banks. The
-[stub exception generator](stub_exception_generator/) is a dev/test stub that **plays the bank's
-exception store**: on demand it fabricates a synthetic wire-transfer "unable-to-apply" exception,
-persists it to MongoDB, and publishes a thin `exception_raised` event to the `amendia.events`
-RabbitMQ topic exchange (routing key e.g. `bank-alpha.stub_exception.exception_raised.v1`). It also
-serves the full exception document and attachment bytes back over HTTP, so downstream services can
-fetch details from the `fetch_url` in the event. See `backend/docs/amendia_project_brief.md` and
-`backend/docs/methodology/worked-examples/wire-transfer-exception-reference.md`.
-
-Bring up mongo + rabbitmq + the stub, generate an exception, and fetch it back:
-
-```bash
-docker compose -f backend/deploy/docker-compose.yml up --build
-
-# Generate one exception (all body fields optional; count max 20)
-curl -s -X POST localhost:8081/exceptions/generate \
-  -H 'content-type: application/json' -d '{"count":1}' | jq
-
-# Fetch the full stored document back (use the exception_id from the response)
-curl -s localhost:8081/exceptions/EXC-2026-XXXXXX | jq
-
-# Fetch one of its attachments
-curl -s localhost:8081/exceptions/EXC-2026-XXXXXX/attachments/att-1 --output screen.png
-```
+- **Front door:** `backend/docs/methodology/amendia_operating_model.md` — the lifecycle, roles, and gates.
+- **Pitch:** `backend/docs/amendia_project_brief.md`.
+- **Contracts & services:** `backend/docs/reference/` (five platform contracts, services reference, execution pipeline).
+- **Decisions:** `backend/docs/adr/` (numbered, chronological).
+- **Doc map:** `backend/docs/README.md`.
