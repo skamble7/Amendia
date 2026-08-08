@@ -187,7 +187,7 @@ export function InstanceDetailPage() {
         {/* --- Governance: decision trail + audit events --- */}
         <TabsContent value="governance">
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-            <DecisionTrail trail={trail} artifacts={state?.artifacts} artifactKeyToName={artifactKeyToName} />
+            <DecisionTrail trail={trail} artifacts={state?.artifacts} artifactKeyToName={artifactKeyToName} packKey={instance.instance.pack_key} packVersion={instance.instance.pack_version} />
             <AuditEvents audit={audit} />
           </div>
         </TabsContent>

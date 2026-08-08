@@ -11,6 +11,9 @@ interface Props {
   artifacts?: Record<string, unknown>;
   /** artifact_key -> artifact name, to resolve a glea ref to a concrete value. */
   artifactKeyToName: Map<string, string>;
+  /** ADR-060: the instance's owning pack — schema reads are pack-scoped. */
+  packKey?: string;
+  packVersion?: string;
 }
 
 /**
@@ -19,7 +22,7 @@ interface Props {
  * the repair-correction renderer / CorrectionDiff where the artifact carries corrections). Degrades to
  * a note when glea is unreachable, and to reference-only when the runtime debug API is off.
  */
-export function DecisionTrail({ trail, artifacts, artifactKeyToName }: Props) {
+export function DecisionTrail({ trail, artifacts, artifactKeyToName, packKey, packVersion }: Props) {
   return (
     <Card>
       <CardHeader className="flex-row items-center justify-between">
@@ -65,16 +68,16 @@ export function DecisionTrail({ trail, artifacts, artifactKeyToName }: Props) {
                   <div className="mt-2 grid grid-cols-1 gap-2 md:grid-cols-2">
                     <div>
                       <p className="mb-1 text-[11px] uppercase tracking-wide text-muted-foreground">Proposed</p>
-                      <ArtifactView data={proposedVal as Record<string, unknown>} schemaRef={g.proposed?.schema_ref} />
+                      <ArtifactView data={proposedVal as Record<string, unknown>} schemaRef={g.proposed?.schema_ref} packKey={packKey} packVersion={packVersion} />
                     </div>
                     <div>
                       <p className="mb-1 text-[11px] uppercase tracking-wide text-muted-foreground">Approved</p>
-                      <ArtifactView data={approvedVal as Record<string, unknown>} schemaRef={g.approved?.schema_ref} />
+                      <ArtifactView data={approvedVal as Record<string, unknown>} schemaRef={g.approved?.schema_ref} packKey={packKey} packVersion={packVersion} />
                     </div>
                   </div>
                 ) : approvedVal !== undefined ? (
                   <div className="mt-2">
-                    <ArtifactView data={approvedVal as Record<string, unknown>} schemaRef={g.approved?.schema_ref} />
+                    <ArtifactView data={approvedVal as Record<string, unknown>} schemaRef={g.approved?.schema_ref} packKey={packKey} packVersion={packVersion} />
                   </div>
                 ) : g.approved ? (
                   <p className="mt-2 text-xs text-muted-foreground">

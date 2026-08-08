@@ -55,7 +55,7 @@ export function DecidedRecord({ task }: { task: HitlTask }) {
             <CardTitle>Submitted edits</CardTitle>
           </CardHeader>
           <CardContent>
-            <ArtifactView name={art?.name} data={d.edits as Record<string, unknown>} schemaRef={art?.schema} />
+            <ArtifactView name={art?.name} data={d.edits as Record<string, unknown>} schemaRef={art?.schema} packKey={task.pack_key} packVersion={task.pack_version} />
           </CardContent>
         </Card>
       ) : art ? (
@@ -64,7 +64,7 @@ export function DecidedRecord({ task }: { task: HitlTask }) {
             <CardTitle>Reviewed artifact</CardTitle>
           </CardHeader>
           <CardContent>
-            <ArtifactView name={art.name} data={art.data as Record<string, unknown>} schemaRef={art.schema} />
+            <ArtifactView name={art.name} data={art.data as Record<string, unknown>} schemaRef={art.schema} packKey={task.pack_key} packVersion={task.pack_version} />
           </CardContent>
         </Card>
       ) : null}

@@ -155,12 +155,13 @@ async def test_authored_decision_pack_onboards_to_active(svc, pack_repo, cap_rep
     assert s.state == OnboardingState.COMPLETED
     pack = await pack_repo.get("dmn-e2e", "1.0.0")
     assert pack.status.value == "active"
-    # the authored decision capability was registered as a native `decision` (no pre-seeding)
-    dec = await cap_repo.get("cap.payment.classify", "1.0.0")
+    # the authored decision capability was registered as a native `decision` (no pre-seeding) — ADR-060:
+    # owned by the committed pack (dmn-e2e@1.0.0)
+    dec = await cap_repo.get("dmn-e2e", "1.0.0", "cap.payment.classify", "1.0.0")
     assert dec is not None and dec.kind.value == "decision"
     assert dec.runtime.table["outputs"][0]["name"] == "verdict"
     # its inferred verdict artifact is registered + the field is required (gateway-branchable)
-    verdict = await schema_repo.get("art.payment.classify_verdict", "1.0.0")
+    verdict = await schema_repo.get("dmn-e2e", "1.0.0", "art.payment.classify_verdict", "1.0.0")
     assert verdict.json_schema["required"] == ["verdict"]
     # re-commit is a no-op
     s2 = await svc.commit(s.session_id, owner=OWNER)

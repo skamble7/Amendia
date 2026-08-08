@@ -36,7 +36,8 @@ _TRIGGER_PROPS = {
 
 
 def _schema(key, props):
-    return {"artifact_key": key, "version": "1.0.0", "title": key,
+    return {"pack_key": "imap-tc", "pack_version": "1.0.0",
+            "artifact_key": key, "version": "1.0.0", "title": key,
             "json_schema": {"$schema": "https://json-schema.org/draft/2020-12/schema",
                             "$id": f"https://amendia.dev/schemas/artifacts/{key.split('.', 1)[1].replace('.', '/')}/1.0.0.json",
                             "type": "object", "additionalProperties": False, "properties": props},
@@ -55,7 +56,8 @@ _IN_PROPS = {
 
 def _mcp_cap(cid, in_key, out_key):
     return CapabilityDescriptor.model_validate({
-        "descriptor_version": "1.0", "capability_id": cid, "version": "1.0.0", "title": cid,
+        "descriptor_version": "1.0", "pack_key": "imap-tc", "pack_version": "1.0.0",
+        "capability_id": cid, "version": "1.0.0", "title": cid,
         "kind": "mcp", "side_effect": "read_only",
         "inputs": [{"name": "a_in", "schema": f"{in_key}@^1.0.0"}],
         "outputs": [{"name": "a_out", "schema": f"{out_key}@^1.0.0"}],

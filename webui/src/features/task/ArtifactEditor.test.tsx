@@ -27,7 +27,7 @@ const RES_SCHEMA = {
 };
 
 function schemaHandler() {
-  return http.get(`${REG}/artifact-schemas/:key/:version`, ({ params }) => {
+  return http.get(`${REG}/packs/:pack_key/:pack_version/artifact-schemas/:key/:version`, ({ params }) => {
     const key = String(params.key);
     const json_schema = key.includes("rfi_request")
       ? RFI_SCHEMA
@@ -60,7 +60,7 @@ describe("ArtifactEditor — multi-artifact tabs (Part B)", () => {
 
     renderEditor(
       <>
-        <ArtifactEditor id="ed" artifacts={ARTIFACTS} isEditable={(a) => Boolean((a as Record<string, unknown>).draft)} onSubmit={(e) => (submitted = e)} />
+        <ArtifactEditor id="ed" artifacts={ARTIFACTS} packKey="test-pack" packVersion="1.0.0" isEditable={(a) => Boolean((a as Record<string, unknown>).draft)} onSubmit={(e) => (submitted = e)} />
         <button type="submit" form="ed">go</button>
       </>,
     );
@@ -94,7 +94,7 @@ describe("ArtifactEditor — multi-artifact tabs (Part B)", () => {
     let submitted: Record<string, unknown> | undefined;
     renderEditor(
       <>
-        <ArtifactEditor id="ed3" artifacts={ARTIFACTS} isEditable={(a) => Boolean((a as Record<string, unknown>).draft)} onSubmit={(e) => (submitted = e)} />
+        <ArtifactEditor id="ed3" artifacts={ARTIFACTS} packKey="test-pack" packVersion="1.0.0" isEditable={(a) => Boolean((a as Record<string, unknown>).draft)} onSubmit={(e) => (submitted = e)} />
         <button type="submit" form="ed3">go</button>
       </>,
     );
@@ -131,7 +131,7 @@ describe("ArtifactEditor — multi-artifact tabs (Part B)", () => {
     let submitCount = 0;
     renderEditor(
       <>
-        <ArtifactEditor id="ed4" artifacts={validArtifacts} isEditable={(a) => Boolean((a as Record<string, unknown>).draft)} onSubmit={() => (submitCount += 1)} />
+        <ArtifactEditor id="ed4" artifacts={validArtifacts} packKey="test-pack" packVersion="1.0.0" isEditable={(a) => Boolean((a as Record<string, unknown>).draft)} onSubmit={() => (submitCount += 1)} />
         <button type="submit" form="ed4">go</button>
       </>,
     );
@@ -154,7 +154,7 @@ describe("ArtifactEditor — multi-artifact tabs (Part B)", () => {
 
     renderEditor(
       <>
-        <ArtifactEditor id="ed2" artifacts={ARTIFACTS} isEditable={(a) => Boolean((a as Record<string, unknown>).draft)} onSubmit={(e) => (submitted = e)} />
+        <ArtifactEditor id="ed2" artifacts={ARTIFACTS} packKey="test-pack" packVersion="1.0.0" isEditable={(a) => Boolean((a as Record<string, unknown>).draft)} onSubmit={(e) => (submitted = e)} />
         <button type="submit" form="ed2">go</button>
       </>,
     );
@@ -179,7 +179,7 @@ const ORDER_SCHEMA = {
 };
 
 function menuOrderSchemaHandler() {
-  return http.get(`${REG}/artifact-schemas/:key/:version`, ({ params }) => {
+  return http.get(`${REG}/packs/:pack_key/:pack_version/artifact-schemas/:key/:version`, ({ params }) => {
     const key = String(params.key);
     const json_schema = key.includes("order") ? ORDER_SCHEMA : MENU_SCHEMA;
     return HttpResponse.json({ json_schema });
@@ -200,7 +200,7 @@ describe("ArtifactEditor — read-only inputs & required-output blocking (Parts 
     let submitted: Record<string, unknown> | undefined;
     renderEditor(
       <>
-        <ArtifactEditor id="mi" artifacts={MENU_ORDER} isEditable={(a) => Boolean((a as Record<string, unknown>).draft)} onSubmit={(e) => (submitted = e)} />
+        <ArtifactEditor id="mi" artifacts={MENU_ORDER} packKey="test-pack" packVersion="1.0.0" isEditable={(a) => Boolean((a as Record<string, unknown>).draft)} onSubmit={(e) => (submitted = e)} />
         <button type="submit" form="mi">go</button>
       </>,
     );
@@ -226,7 +226,7 @@ describe("ArtifactEditor — read-only inputs & required-output blocking (Parts 
     let submitted: Record<string, unknown> | undefined;
     renderEditor(
       <>
-        <ArtifactEditor id="mi2" artifacts={MENU_ORDER} isEditable={(a) => Boolean((a as Record<string, unknown>).draft)} onSubmit={(e) => (submitted = e)} />
+        <ArtifactEditor id="mi2" artifacts={MENU_ORDER} packKey="test-pack" packVersion="1.0.0" isEditable={(a) => Boolean((a as Record<string, unknown>).draft)} onSubmit={(e) => (submitted = e)} />
         <button type="submit" form="mi2">go</button>
       </>,
     );
@@ -242,7 +242,7 @@ describe("ArtifactEditor — read-only inputs & required-output blocking (Parts 
     let submitted: Record<string, unknown> | undefined;
     renderEditor(
       <>
-        <ArtifactEditor id="mi3" artifacts={MENU_ORDER} isEditable={(a) => Boolean((a as Record<string, unknown>).draft)} onSubmit={(e) => (submitted = e)} />
+        <ArtifactEditor id="mi3" artifacts={MENU_ORDER} packKey="test-pack" packVersion="1.0.0" isEditable={(a) => Boolean((a as Record<string, unknown>).draft)} onSubmit={(e) => (submitted = e)} />
         <button type="submit" form="mi3">go</button>
       </>,
     );

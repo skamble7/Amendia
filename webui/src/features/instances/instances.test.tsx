@@ -33,7 +33,7 @@ describe("Instances", () => {
         HttpResponse.json({ process_instance_id: "PI-TEST-1", status: "completed", outcome: "End_Test", artifacts: { thing: { verdict: "ok", note: "synthetic" } }, actor_log: [], trace: {}, last_error: null }),
       ),
       http.get(`${REG}/packs/:key/:version`, () => HttpResponse.json(synthPack)),
-      http.get(`${REG}/artifact-schemas/:key/:version`, () => HttpResponse.json({ json_schema: TEST_SCHEMA })),
+      http.get(`${REG}/packs/:pack_key/:pack_version/artifact-schemas/:key/:version`, () => HttpResponse.json({ json_schema: TEST_SCHEMA })),
     );
     renderApp("/instances/PI-TEST-1", "analyst-1");
     expect(await screen.findByText("End_Test")).toBeInTheDocument();

@@ -49,8 +49,8 @@ describe("ArtifactEditor — agent-draft prefill", () => {
   afterEach(() => server.resetHandlers());
 
   it("pre-fills every field kind from the draft (scalar, field array, textarea, boolean)", async () => {
-    server.use(http.get(`${SERVICE_BASE.registry}/artifact-schemas/:key/:version`, () => HttpResponse.json({ json_schema: REPAIR_SCHEMA })));
-    renderEditor(<ArtifactEditor id="edit-repair" artifacts={ARTIFACTS} onSubmit={() => {}} />);
+    server.use(http.get(`${SERVICE_BASE.registry}/packs/:pack_key/:pack_version/artifact-schemas/:key/:version`, () => HttpResponse.json({ json_schema: REPAIR_SCHEMA })));
+    renderEditor(<ArtifactEditor id="edit-repair" artifacts={ARTIFACTS} packKey="test-pack" packVersion="1.0.0" onSubmit={() => {}} />);
 
     // scalar
     await waitFor(() => expect((screen.getByLabelText(/UETR/i) as HTMLInputElement).value).toBe("UETR-abc-123"));

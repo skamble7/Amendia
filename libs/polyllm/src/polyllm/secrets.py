@@ -4,7 +4,7 @@ import json
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional, Protocol, Tuple
+from typing import ClassVar, Optional, Protocol, Tuple
 
 
 class SecretProvider(Protocol):
@@ -36,6 +36,8 @@ class LiteralSecretProvider:
     """Resolves literal:<value> refs — the secret value is embedded directly in the ref.
     Intended for development / config-service stored secrets before Vault migration."""
 
+    scheme: ClassVar[str] = "literal"          # the ref scheme this provider handles (for Composite routing)
+
     def get(self, ref: str) -> Optional[str]:
         scheme, rest = _split_ref(ref)
         if scheme != "literal":
@@ -44,6 +46,8 @@ class LiteralSecretProvider:
 
 
 class EnvSecretProvider:
+    scheme: ClassVar[str] = "env"
+
     def get(self, ref: str) -> Optional[str]:
         scheme, rest = _split_ref(ref)
         if scheme != "env":
@@ -54,6 +58,7 @@ class EnvSecretProvider:
 
 @dataclass
 class FileSecretProvider:
+    scheme: ClassVar[str] = "file"
     default_path: Optional[str] = None
     _cache_path: Optional[str] = None
     _cache_data: Optional[dict] = None
@@ -106,17 +111,37 @@ class CompositeSecretProvider:
     providers: tuple[SecretProvider, ...]
 
     def get(self, ref: str) -> Optional[str]:
-        last_err: Optional[Exception] = None
-        for p in self.providers:
+        # Route by the ref's scheme to the provider(s) that actually handle it. A provider that
+        # structurally can't handle this scheme (e.g. FileSecretProvider given an ``env:`` ref) is SKIPPED —
+        # never treated as "the failure" — so its "only supports file:*" message can't mask the real cause
+        # (which is usually "the env var / file entry / config secret for this ref simply isn't set").
+        scheme, _ = _split_ref(ref)                    # clean ValueError on a malformed ref
+        handlers = [p for p in self.providers if getattr(p, "scheme", None) == scheme]
+        # Back-compat: a custom provider that doesn't declare a ``scheme`` is still attempted (it may handle
+        # any scheme). Built-in providers all declare one, so the default composite never reaches this.
+        candidates = handlers + [p for p in self.providers if getattr(p, "scheme", None) is None]
+        if not candidates:
+            known = sorted(s for s in {getattr(p, "scheme", None) for p in self.providers} if s)
+            raise ValueError(
+                f"unknown secret scheme '{scheme}:' for ref '{ref}'. "
+                f"Known schemes: {known or ['(none configured)']}."
+            )
+        errors: list[Exception] = []
+        for p in candidates:
             try:
                 v = p.get(ref)
-                if v is not None:
-                    return v
-            except Exception as e:
-                last_err = e
-        if last_err is not None:
-            raise last_err
-        return None
+            except Exception as e:                      # a matching provider that genuinely failed
+                errors.append(e)
+                continue
+            if v is not None:
+                return v
+        if errors:
+            raise errors[-1]
+        # A provider for this scheme ran but produced nothing → the ref is well-formed, its source is empty.
+        raise ValueError(
+            f"secret ref '{ref}' did not resolve: the '{scheme}' source has no value for it "
+            f"(is the environment variable / file entry / ConfigForge secret for it set?)."
+        )
 
 
 def default_secret_provider() -> SecretProvider:

@@ -31,7 +31,7 @@ function manualTask(artifacts: unknown[]): HitlTask {
 describe("ManualVariant — copy matches draft presence", () => {
   afterEach(() => server.resetHandlers());
   const schemaOk = () =>
-    server.use(http.get(`${SERVICE_BASE.registry}/artifact-schemas/:key/:version`, () => HttpResponse.json({ json_schema: {} })));
+    server.use(http.get(`${SERVICE_BASE.registry}/packs/:pack_key/:pack_version/artifact-schemas/:key/:version`, () => HttpResponse.json({ json_schema: {} })));
 
   it("(c) no editable output → approve-only copy + 'Approve'", () => {
     schemaOk();
@@ -91,7 +91,7 @@ describe("ReviewVariant — Edit & approve must not implicitly submit", () => {
   afterEach(() => server.resetHandlers());
 
   it("clicking 'Edit & approve' reveals the prefilled form and records NO decision; only 'Save edits & approve' submits", async () => {
-    server.use(http.get(`${SERVICE_BASE.registry}/artifact-schemas/:key/:version`, () => HttpResponse.json({ json_schema: REPAIR_SCHEMA })));
+    server.use(http.get(`${SERVICE_BASE.registry}/packs/:pack_key/:pack_version/artifact-schemas/:key/:version`, () => HttpResponse.json({ json_schema: REPAIR_SCHEMA })));
     const onDecide = vi.fn();
     const user = userEvent.setup();
     renderVariant(<ReviewVariant task={reviewTask()} onDecide={onDecide} pending={false} />);

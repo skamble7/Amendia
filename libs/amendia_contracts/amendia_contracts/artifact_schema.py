@@ -24,6 +24,11 @@ class ArtifactStatus(str, Enum):
 
 
 class ArtifactSchemaRegistration(ContractModel, TimestampsMixin):
+    # ADR-060: ownership — every schema row belongs to exactly one pack VERSION. Stamped at registration;
+    # reads are scoped by (pack_key, pack_version). The same artifact_key may exist under different pack
+    # versions as independent, owned copies.
+    pack_key: str
+    pack_version: SemVerStr
     artifact_key: ArtifactKey
     version: SemVerStr
     title: str

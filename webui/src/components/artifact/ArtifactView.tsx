@@ -116,6 +116,9 @@ export interface ArtifactViewProps {
   schemaRef?: string;
   /** artifact_key for custom-renderer lookup (derived from schemaRef when omitted) */
   artifactKey?: string;
+  /** ADR-060: owning pack coords — required to resolve the pinned schema (pack-scoped reads). */
+  packKey?: string;
+  packVersion?: string;
   className?: string;
 }
 
@@ -126,9 +129,9 @@ export interface ArtifactViewProps {
  * the custom-renderer registry). Unknown shapes degrade to a tidy field tree;
  * raw JSON is available behind a toggle.
  */
-export function ArtifactView({ name, data, schemaRef, artifactKey, className }: ArtifactViewProps) {
+export function ArtifactView({ name, data, schemaRef, artifactKey, packKey, packVersion, className }: ArtifactViewProps) {
   const [rawOpen, setRawOpen] = useState(false);
-  const { data: schema } = useArtifactSchema(schemaRef);
+  const { data: schema } = useArtifactSchema(schemaRef, packKey, packVersion);
 
   const key = artifactKey ?? (schemaRef ? schemaRef.split("@")[0] : undefined);
   const Custom = key ? CUSTOM_RENDERERS[key] : undefined;

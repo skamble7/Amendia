@@ -77,3 +77,13 @@ async def test_mutation_wrong_role_403(strict_client):
     )
     assert r.status_code == 403
     assert r.json()["detail"]["missing_role"] == "role.process.owner"
+
+
+async def test_delete_wrong_role_403(strict_client):
+    # ADR-061: force-delete is process-owner only — a non-owner is rejected at the role guard (before any row).
+    ac, holder = strict_client
+    holder.user = user_without_owner()
+    for path in ("/packs/wire-repair-standard/1.0.0", "/packs/wire-repair-standard"):
+        r = await ac.delete(path, headers={INTERNAL_HEADER: INTERNAL})
+        assert r.status_code == 403
+        assert r.json()["detail"]["missing_role"] == "role.process.owner"

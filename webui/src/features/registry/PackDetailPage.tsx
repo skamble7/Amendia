@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { ArrowLeft, Pencil, Loader2, RotateCcw } from "lucide-react";
+import { ArrowLeft, Pencil, Loader2, RotateCcw, ChevronDown, ChevronRight, Trash2 } from "lucide-react";
 import { PageHeader } from "@/app/AppShell";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -10,20 +10,29 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ModeBadge } from "@/components/primitives";
+import { ModeBadge, SideEffectBadge } from "@/components/primitives";
 import { EmptyState } from "@/components/primitives";
 import { ConnectivityState } from "@/components/ConnectivityState";
 import { ApiError, isConnectivityError } from "@/api/client";
-import { editPack, rollbackPack } from "@/api/services/registry";
+import { editPack, rollbackPack, deletePack, deletePackVersion } from "@/api/services/registry";
+import { useIdentity } from "@/session/IdentityContext";
+import { ROLE } from "@/lib/roles";
 import { StatusBadge } from "./RegistryPage";
+import { SchemaTree } from "./SchemaTree";
 import { BpmnViewer } from "./BpmnViewer";
-import { usePackDetail, usePackBpmn, usePackResolution, usePackVersions } from "./queries";
+import {
+  usePackDetail, usePackBpmn, usePackResolution, usePackVersions,
+  usePackCapabilities, usePackSchemas,
+} from "./queries";
 import { elementLabel } from "@/lib/steps";
-import type { Binding, ProcessPackManifest } from "@/api/types";
+import type { Binding, ProcessPackManifest, CapabilityDescriptor } from "@/api/types";
+import type { JsonSchema } from "@/components/artifact/schema";
 import type { HitlTaskMode } from "@/lib/hitl";
 
 export function PackDetailPage() {
   const { packKey, version } = useParams();
+  const { hasRole } = useIdentity();
+  const canDelete = hasRole(ROLE.processOwner);   // ADR-061: pack deletion is owner-gated (backend enforces too)
   const { data: pack, isLoading, error } = usePackDetail(packKey, version);
   const { data: bpmn } = usePackBpmn(packKey, version);
   const { data: resolution } = usePackResolution(packKey, version);
@@ -48,6 +57,7 @@ export function PackDetailPage() {
           <div className="flex items-center gap-2">
             <StatusBadge status={pack.status} />
             {pack.status === "active" && <EditPackControl packKey={pack.pack_key} />}
+            {canDelete && <DeleteVersionControl packKey={pack.pack_key} version={pack.version} status={pack.status} />}
           </div>
         }
       />
@@ -55,6 +65,8 @@ export function PackDetailPage() {
       <Tabs defaultValue="overview">
         <TabsList>
           <TabsTrigger value="overview">Overview</TabsTrigger>
+          <TabsTrigger value="capabilities">Capabilities</TabsTrigger>
+          <TabsTrigger value="schemas">Schemas</TabsTrigger>
           <TabsTrigger value="diagram">Diagram</TabsTrigger>
           <TabsTrigger value="bpmn">BPMN XML</TabsTrigger>
           <TabsTrigger value="versions">Versions</TabsTrigger>
@@ -142,6 +154,14 @@ export function PackDetailPage() {
           )}
         </TabsContent>
 
+        <TabsContent value="capabilities">
+          <PackCapabilities packKey={pack.pack_key} version={pack.version} />
+        </TabsContent>
+
+        <TabsContent value="schemas">
+          <PackSchemas packKey={pack.pack_key} version={pack.version} />
+        </TabsContent>
+
         <TabsContent value="diagram">
           <Card><CardContent className="p-4"><BpmnViewer xml={bpmn} /></CardContent></Card>
         </TabsContent>
@@ -155,7 +175,7 @@ export function PackDetailPage() {
         </TabsContent>
 
         <TabsContent value="versions">
-          <VersionsTab packKey={pack.pack_key} currentVersion={pack.version} />
+          <VersionsTab packKey={pack.pack_key} currentVersion={pack.version} canDelete={canDelete} />
         </TabsContent>
       </Tabs>
     </>
@@ -186,9 +206,119 @@ function EditPackControl({ packKey }: { packKey: string }) {
   );
 }
 
-// ADR-056: per-pack version history + rollback (make a deprecated version live again).
-function VersionsTab({ packKey, currentVersion }: { packKey: string; currentVersion: string }) {
+// ADR-061: delete THIS pack version. Owner-gated by the caller. A window.confirm names pack_key@version,
+// shows the status, and warns that force-deleting an active pack can strand in-flight instances on resume.
+function DeleteVersionControl({ packKey, version, status }: { packKey: string; version: string; status: string }) {
+  const navigate = useNavigate();
+  const qc = useQueryClient();
+  const del = useMutation({
+    mutationFn: () => deletePackVersion(packKey, version),
+    onSuccess: (s) => {
+      toast.success(`Deleted ${packKey}@${version} (${s.deleted_versions.length} version${s.deleted_versions.length === 1 ? "" : "s"}).`);
+      qc.invalidateQueries({ queryKey: ["packs"] });
+      qc.invalidateQueries({ queryKey: ["pack", packKey] });
+      qc.invalidateQueries({ queryKey: ["pack-versions", packKey] });
+      navigate("/registry");
+    },
+    onError: (e) => toast.error(e instanceof ApiError ? e.detailText : "Delete failed."),
+  });
+  const confirmMsg =
+    `Delete ${packKey}@${version}? Status: ${status}.\n\n` +
+    `This permanently purges the version and everything it owns. ` +
+    `Force-deleting an active pack can strand in-flight instances on resume. This cannot be undone.`;
+  return (
+    <Button
+      size="sm" variant="destructive" className="gap-1" disabled={del.isPending}
+      onClick={() => { if (window.confirm(confirmMsg)) del.mutate(); }}>
+      {del.isPending ? <Loader2 className="size-4 animate-spin" /> : <Trash2 className="size-3.5" />} Delete version
+    </Button>
+  );
+}
+
+// ADR-060: the pack version's OWNED capabilities (fetched pack-scoped — no shared catalog).
+function PackCapabilities({ packKey, version }: { packKey: string; version: string }) {
+  const { data: caps, isLoading, error } = usePackCapabilities(packKey, version);
+  if (isConnectivityError(error)) return <ConnectivityState error={error} />;
+  if (isLoading) return <CatalogSkeleton />;
+  if (!caps?.length) return <EmptyState title="No capabilities" description="This pack version owns no capabilities." />;
+  return (
+    <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+      {caps.map((c) => <CapabilityCard key={`${c.capability_id}@${c.version}`} cap={c} />)}
+    </div>
+  );
+}
+
+function CapabilityCard({ cap }: { cap: CapabilityDescriptor }) {
+  const minHitl = (cap as any).constraints?.min_hitl_mode as string | undefined;
+  return (
+    <Card>
+      <CardContent className="space-y-2 p-4">
+        <div className="flex items-start justify-between gap-2">
+          <div>
+            <p className="font-medium">{cap.title}</p>
+            <p className="font-mono text-xs text-muted-foreground">{cap.capability_id}@{cap.version}</p>
+          </div>
+          <Badge variant="agent">{cap.kind}</Badge>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <SideEffectBadge sideEffect={(cap as any).side_effect} />
+          {minHitl && minHitl !== "none" && <Badge variant="attention">min HITL: {minHitl.replace(/_/g, " ")}</Badge>}
+        </div>
+        <div className="flex flex-wrap gap-1 text-xs">
+          {((cap as any).inputs ?? []).map((io: any) => (
+            <Badge key={`in-${io.name}`} variant="outline" className="font-mono text-[10px]">↓ {io.schema}</Badge>
+          ))}
+          {((cap as any).outputs ?? []).map((io: any) => (
+            <Badge key={`out-${io.name}`} variant="artifact" className="font-mono text-[10px]">↑ {io.schema}</Badge>
+          ))}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+// ADR-060: the pack version's OWNED artifact schemas (fetched pack-scoped).
+function PackSchemas({ packKey, version }: { packKey: string; version: string }) {
+  const { data: schemas, isLoading, error } = usePackSchemas(packKey, version);
+  const [open, setOpen] = useState<string | null>(null);
+  if (isConnectivityError(error)) return <ConnectivityState error={error} />;
+  if (isLoading) return <CatalogSkeleton />;
+  if (!schemas?.length) return <EmptyState title="No artifact schemas" description="This pack version owns no artifact schemas." />;
+  return (
+    <div className="space-y-2">
+      {schemas.map((s) => {
+        const id = `${s.artifact_key}@${s.version}`;
+        const isOpen = open === id;
+        return (
+          <Card key={id}>
+            <button className="flex w-full items-center gap-3 p-4 text-left" onClick={() => setOpen(isOpen ? null : id)}>
+              {isOpen ? <ChevronDown className="size-4" /> : <ChevronRight className="size-4" />}
+              <div className="flex-1">
+                <p className="font-medium">{s.title}</p>
+                <p className="font-mono text-xs text-muted-foreground">{s.artifact_key}@{s.version}</p>
+              </div>
+              <StatusBadge status={(s as any).status ?? "active"} />
+            </button>
+            {isOpen && (
+              <CardContent className="border-t border-border pt-4">
+                <SchemaTree schema={(s.json_schema ?? {}) as JsonSchema} />
+              </CardContent>
+            )}
+          </Card>
+        );
+      })}
+    </div>
+  );
+}
+
+function CatalogSkeleton() {
+  return <div className="grid grid-cols-1 gap-3 md:grid-cols-2">{Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-28 w-full" />)}</div>;
+}
+
+// ADR-056/061: per-pack version history + rollback (make a deprecated version live again) + delete-whole-pack.
+function VersionsTab({ packKey, currentVersion, canDelete }: { packKey: string; currentVersion: string; canDelete: boolean }) {
   const { data: versions } = usePackVersions(packKey);
+  const navigate = useNavigate();
   const qc = useQueryClient();
   const rollback = useMutation({
     mutationFn: (to: string) => rollbackPack(packKey, to),
@@ -201,10 +331,36 @@ function VersionsTab({ packKey, currentVersion }: { packKey: string; currentVers
     onError: (e) => toast.error(e instanceof ApiError ? e.detailText : "Rollback failed."),
   });
   const sorted = [...(versions ?? [])].sort((a, b) => b.version.localeCompare(a.version, undefined, { numeric: true }));
+  const deleteWhole = useMutation({
+    mutationFn: () => deletePack(packKey),
+    onSuccess: (s) => {
+      toast.success(`Deleted ${packKey} (${s.deleted_versions.length} version${s.deleted_versions.length === 1 ? "" : "s"}).`);
+      qc.invalidateQueries({ queryKey: ["packs"] });
+      qc.invalidateQueries({ queryKey: ["pack", packKey] });
+      qc.invalidateQueries({ queryKey: ["pack-versions", packKey] });
+      navigate("/registry");
+    },
+    onError: (e) => toast.error(e instanceof ApiError ? e.detailText : "Delete failed."),
+  });
+  const wholeCount = sorted.length;
+  const wholeConfirm =
+    `Delete the ENTIRE pack ${packKey} — all ${wholeCount} version${wholeCount === 1 ? "" : "s"}?\n\n` +
+    `This permanently purges every version and everything they own. ` +
+    `Force-deleting an active pack can strand in-flight instances on resume. This cannot be undone.`;
 
   return (
     <Card>
-      <CardHeader><CardTitle>Version history</CardTitle></CardHeader>
+      <CardHeader className="flex-row items-center justify-between gap-2 space-y-0">
+        <CardTitle>Version history</CardTitle>
+        {canDelete && wholeCount > 0 && (
+          <Button
+            size="sm" variant="destructive" className="gap-1" disabled={deleteWhole.isPending}
+            onClick={() => { if (window.confirm(wholeConfirm)) deleteWhole.mutate(); }}>
+            {deleteWhole.isPending ? <Loader2 className="size-4 animate-spin" /> : <Trash2 className="size-3.5" />}
+            Delete entire pack (all {wholeCount} version{wholeCount === 1 ? "" : "s"})
+          </Button>
+        )}
+      </CardHeader>
       <CardContent className="p-0">
         <Table>
           <TableHeader>

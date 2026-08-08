@@ -137,6 +137,7 @@ async def test_rederived_changed_schema_bumps_the_version_and_references_it(copi
     # re-onboard adopts the improvement instead of silently reusing the stale (immutable) 1.0.0 registration.
     from amendia_contracts.artifact_schema import ArtifactSchemaRegistration, ArtifactStatus
     await schema_repo.insert(ArtifactSchemaRegistration(
+        pack_key="rest-stan", pack_version="1.0.0",
         artifact_key="art.rest_stan.order", version="1.0.0", title="Order",
         json_schema={"type": "object", "additionalProperties": False,
                      "properties": {"stale_field": {"type": "string"}}, "required": ["stale_field"]},
@@ -160,6 +161,7 @@ async def test_rederived_unchanged_schema_does_not_churn_the_version(copilot_svc
                "properties": {"items": {"type": "array", "items": {"type": "string"}}}, "required": ["items"],
                "$schema": "https://json-schema.org/draft/2020-12/schema"}
     await schema_repo.insert(ArtifactSchemaRegistration(
+        pack_key="rest-stan", pack_version="1.0.0",
         artifact_key="art.rest_stan.order", version="1.0.0", title="Order", json_schema=derived,
         status=ArtifactStatus.ACTIVE))
     _fake_llm(monkeypatch, restaurant_proposal_json())

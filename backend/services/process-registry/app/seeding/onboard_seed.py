@@ -39,10 +39,18 @@ async def onboard(
     seed = Path(seed_dir)
     report: Dict[str, Any] = {"schemas": [], "capabilities": [], "pack": None, "skipped": []}
 
+    # ADR-060: ownership is stamped at seed-LOAD time from THIS pack's coords. Read the manifest FIRST to learn
+    # (pack_key, version); the seed JSON files carry no ownership — we inject it before model_validate so each
+    # seed pack owns its own capability/schema copies (two packs sharing an id get two independent rows).
+    manifest = ProcessPackManifest.model_validate_json((seed / "manifest.json").read_text())
+    pack_key, version = manifest.pack_key, manifest.version
+
     # 1) artifact schemas
     for f in sorted((seed / "artifact-schemas").glob("*.json")):
-        reg = ArtifactSchemaRegistration.model_validate_json(f.read_text())
-        if await schema_repo.get(reg.artifact_key, reg.version):
+        doc = json.loads(f.read_text())
+        doc["pack_key"], doc["pack_version"] = pack_key, version
+        reg = ArtifactSchemaRegistration.model_validate(doc)
+        if await schema_repo.get(pack_key, version, reg.artifact_key, reg.version):
             report["skipped"].append(f"schema {reg.artifact_key}@{reg.version}")
             continue
         await register_schema(reg, schema_repo)
@@ -50,16 +58,16 @@ async def onboard(
 
     # 2) capabilities
     for f in sorted((seed / "capabilities").glob("*.json")):
-        cap = CapabilityDescriptor.model_validate_json(f.read_text())
-        if await cap_repo.get(cap.capability_id, cap.version):
+        doc = json.loads(f.read_text())
+        doc["pack_key"], doc["pack_version"] = pack_key, version
+        cap = CapabilityDescriptor.model_validate(doc)
+        if await cap_repo.get(pack_key, version, cap.capability_id, cap.version):
             report["skipped"].append(f"capability {cap.capability_id}@{cap.version}")
             continue
         await cap_repo.insert(cap)
         report["capabilities"].append(f"{cap.capability_id}@{cap.version}")
 
     # 3) pack manifest (draft)
-    manifest = ProcessPackManifest.model_validate_json((seed / "manifest.json").read_text())
-    pack_key, version = manifest.pack_key, manifest.version
     existing = await pack_repo.get(pack_key, version)
     if existing is not None and existing.status.value in ("active", "deprecated"):
         report["pack"] = f"{pack_key}@{version} already {existing.status.value} (no-op)"
@@ -99,7 +107,8 @@ async def onboard(
 async def _main() -> None:
     from app.config import settings
     from app.db.mongo import (
-        ARTIFACT_SCHEMAS, BPMN_DOCUMENTS, CAPABILITIES, PROCESS_PACKS, MongoClient,
+        ARTIFACT_SCHEMAS, BPMN_DOCUMENTS, CAPABILITIES, PACK_RESOLUTIONS, PACK_ROLES,
+        PROCESS_PACKS, VALIDATION_REPORTS, MongoClient,
     )
     from app.logging_conf import configure_logging
 
@@ -111,7 +120,14 @@ async def _main() -> None:
             settings.SEED_DIR,
             CapabilityRepository(mongo.collection(CAPABILITIES)),
             ArtifactSchemaRepository(mongo.collection(ARTIFACT_SCHEMAS)),
-            ProcessPackRepository(mongo.collection(PROCESS_PACKS)),
+            # Wire the full pack repo (validation/resolution/roles sidecars) so the activated pack stores
+            # its resolution — the runtime refuses a pack whose resolution it can't load (ADR-060 re-seed).
+            ProcessPackRepository(
+                mongo.collection(PROCESS_PACKS),
+                mongo.collection(VALIDATION_REPORTS),
+                mongo.collection(PACK_RESOLUTIONS),
+                mongo.collection(PACK_ROLES),
+            ),
             BpmnRepository(mongo.collection(BPMN_DOCUMENTS)),
         )
         print(json.dumps(result, indent=2))

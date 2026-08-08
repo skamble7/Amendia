@@ -44,11 +44,13 @@ export function ReviewVariant({ task, onDecide, pending }: VariantProps) {
   return (
     <div className="space-y-4">
       {!editing ? (
-        <ArtifactEditor id={`view-${task.task_id}`} artifacts={artifacts} />
+        <ArtifactEditor id={`view-${task.task_id}`} artifacts={artifacts} packKey={task.pack_key} packVersion={task.pack_version} />
       ) : (
         <ArtifactEditor
           id={formId}
           artifacts={artifacts}
+          packKey={task.pack_key}
+          packVersion={task.pack_version}
           onSubmit={(edits) => onDecide({ decision: "edit_and_approve", edits, comment })}
         />
       )}
@@ -95,7 +97,7 @@ export function ApproveResultVariant({ task, onDecide, pending }: VariantProps) 
 
   return (
     <div className="space-y-4">
-      <ArtifactEditor id={`view-${task.task_id}`} artifacts={artifactsOf(task)} />
+      <ArtifactEditor id={`view-${task.task_id}`} artifacts={artifactsOf(task)} packKey={task.pack_key} packVersion={task.pack_version} />
       <p className="text-xs text-muted-foreground">This result stands or falls as-is — it cannot be edited here.</p>
       <CommentField value={comment} onChange={setComment} />
       <DecisionRow>
@@ -185,7 +187,7 @@ export function AuthorizeActionsVariant({ task, onDecide, pending }: VariantProp
                   <span className="text-xs text-muted-foreground">{a.action_id}</span>
                 </div>
                 <p className="text-sm">{a.summary}</p>
-                <ArtifactView data={a.detail as Record<string, unknown>} />
+                <ArtifactView data={a.detail as Record<string, unknown>} packKey={task.pack_key} packVersion={task.pack_version} />
               </div>
             </CardContent>
           </Card>
@@ -243,6 +245,8 @@ export function ManualVariant({ task, onDecide, pending }: VariantProps) {
       <ArtifactEditor
         id={formId}
         artifacts={artifacts}
+        packKey={task.pack_key}
+        packVersion={task.pack_version}
         isEditable={isDraft}
         agentDrafted={artifacts.some(isAgentDraft)}
         onSubmit={(edits) => onDecide({ decision: "complete", edits, comment })}

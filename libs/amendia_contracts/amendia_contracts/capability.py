@@ -148,6 +148,11 @@ class CapabilityStatus(str, Enum):
 
 class CapabilityDescriptor(ContractModel, TimestampsMixin):
     descriptor_version: Literal["1.0"]
+    # ADR-060: ownership — every capability row belongs to exactly one pack VERSION. Stamped at
+    # registration (onboarding commit / seed load); reads are scoped by (pack_key, pack_version). The same
+    # capability_id may exist under different pack versions as independent, owned copies.
+    pack_key: str
+    pack_version: SemVerStr
     capability_id: CapabilityId
     version: SemVerStr
     title: str

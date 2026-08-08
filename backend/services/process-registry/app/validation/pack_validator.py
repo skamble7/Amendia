@@ -77,6 +77,9 @@ class PackValidator:
         trigger_schema: Optional[dict] = None,
     ) -> ValidationReport:
         report = ValidationReport(pack_key=manifest.pack_key, pack_version=manifest.version)
+        # ADR-060: every read is scoped to the pack being validated (a pack only ever sees its own owned rows).
+        self._pack_key = manifest.pack_key
+        self._pack_version = manifest.version
         # ADR-049: the DECLARED trigger schema drives schema-aware triage validation (Stage 7). A caller with
         # the schema in hand (onboarding — its staged trigger isn't registered yet at assemble) passes it; when
         # omitted we resolve the pack's declared `manifest.trigger` from the schema repo (packs.py — validating
@@ -137,7 +140,7 @@ class PackValidator:
         ref = manifest.trigger
         if ref is None:
             return None
-        regs = await self.schemas.list_by_key(ref.ref_id)
+        regs = await self.schemas.list_by_key(manifest.pack_key, manifest.version, ref.ref_id)
         regs = [r for r in regs if ref.matches(r.version)] or regs
         if not regs:
             return None
@@ -206,7 +209,7 @@ class PackValidator:
     # Stage 3 — capability resolution
     # ------------------------------------------------------------------ #
     async def _resolve_capability(self, ref) -> Tuple[str, Optional[CapabilityDescriptor]]:
-        versions = await self.caps.list_by_id(ref.ref_id)
+        versions = await self.caps.list_by_id(self._pack_key, self._pack_version, ref.ref_id)
         if not versions:
             return "unknown_id", None
         in_range = [v for v in versions if ref.matches(v.version)]
@@ -399,7 +402,7 @@ class PackValidator:
     # Stage 5 — artifacts & IO
     # ------------------------------------------------------------------ #
     async def _resolve_artifact(self, ref) -> Tuple[str, Optional[object]]:
-        versions = await self.schemas.list_by_key(ref.ref_id)
+        versions = await self.schemas.list_by_key(self._pack_key, self._pack_version, ref.ref_id)
         if not versions:
             return "unknown_id", None
         in_range = [v for v in versions if ref.matches(v.version)]
@@ -426,7 +429,7 @@ class PackValidator:
         return False
 
     async def _ranges_overlap(self, ref_a, ref_b) -> bool:
-        versions = await self.schemas.list_by_key(ref_a.ref_id)
+        versions = await self.schemas.list_by_key(self._pack_key, self._pack_version, ref_a.ref_id)
         return any(ref_a.matches(v.version) and ref_b.matches(v.version) for v in versions)
 
     async def _stage5_artifacts_io(
@@ -679,7 +682,8 @@ class PackValidator:
     # Stage 6 — gateway variables
     # ------------------------------------------------------------------ #
     async def _latest_active_schema(self, artifact_key: str):
-        versions = [v for v in await self.schemas.list_by_key(artifact_key) if v.status.value == "active"]
+        versions = [v for v in await self.schemas.list_by_key(self._pack_key, self._pack_version, artifact_key)
+                    if v.status.value == "active"]
         if not versions:
             return None
         return max(versions, key=lambda v: Version(v.version))

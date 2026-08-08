@@ -30,15 +30,22 @@ ONBOARDING_SESSIONS = "onboarding_sessions"
 
 
 async def create_indexes(db: AsyncIOMotorDatabase) -> None:
+    # ADR-060: capabilities/schemas are owned per pack VERSION — uniqueness includes the owner coordinates,
+    # so the same id/key exists as independent rows under different packs. `(pack_key, pack_version)` is the
+    # ownership query ADR-061 (clean deletion) uses.
     await db[CAPABILITIES].create_index(
-        [("capability_id", ASCENDING), ("version", ASCENDING)], unique=True
+        [("pack_key", ASCENDING), ("pack_version", ASCENDING),
+         ("capability_id", ASCENDING), ("version", ASCENDING)], unique=True
     )
+    await db[CAPABILITIES].create_index([("pack_key", ASCENDING), ("pack_version", ASCENDING)])
     await db[CAPABILITIES].create_index("status")
     await db[CAPABILITIES].create_index("kind")
 
     await db[ARTIFACT_SCHEMAS].create_index(
-        [("artifact_key", ASCENDING), ("version", ASCENDING)], unique=True
+        [("pack_key", ASCENDING), ("pack_version", ASCENDING),
+         ("artifact_key", ASCENDING), ("version", ASCENDING)], unique=True
     )
+    await db[ARTIFACT_SCHEMAS].create_index([("pack_key", ASCENDING), ("pack_version", ASCENDING)])
     await db[ARTIFACT_SCHEMAS].create_index("status")
 
     await db[PROCESS_PACKS].create_index(

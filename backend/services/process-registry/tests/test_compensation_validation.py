@@ -9,6 +9,7 @@ from amendia_contracts.capability import CapabilityDescriptor
 from amendia_contracts.process_pack import ProcessPackManifest
 
 _VAL = {
+    "pack_key": "comp-guard", "pack_version": "1.0.0",
     "artifact_key": "art.scope.val", "version": "1.0.0", "title": "v",
     "json_schema": {"$schema": "https://json-schema.org/draft/2020-12/schema",
                     "$id": "https://amendia.dev/schemas/artifacts/scope/val/1.0.0.json",
@@ -20,7 +21,8 @@ _VAL = {
 
 def _cap(cid, side_effect, *, outputs=None):
     return CapabilityDescriptor.model_validate({
-        "descriptor_version": "1.0", "capability_id": cid, "version": "1.0.0", "title": cid,
+        "descriptor_version": "1.0", "pack_key": "comp-guard", "pack_version": "1.0.0",
+        "capability_id": cid, "version": "1.0.0", "title": cid,
         "kind": "skill", "side_effect": side_effect, "inputs": [],
         "outputs": outputs if outputs is not None else [{"name": "out", "schema": "art.scope.val@^1.0.0"}],
         "runtime": {"kind": "skill", "entrypoint": "app.x:y"},

@@ -1,5 +1,11 @@
 # app/dal/capability_repo.py
-"""Capability descriptor repository (registry is the write owner)."""
+"""Capability descriptor repository (registry is the write owner).
+
+ADR-060: every row is OWNED by exactly one pack version. Reads/writes are scoped by
+``(pack_key, pack_version)`` — there is no global-by-id lookup. The same ``capability_id`` may exist under
+different packs as independent, owned copies. ``insert`` takes the owner from the descriptor (which now
+carries ``pack_key``/``pack_version``); all other methods take the pack coordinates explicitly.
+"""
 from __future__ import annotations
 
 import re
@@ -24,25 +30,55 @@ class CapabilityRepository:
         try:
             await self._coll.insert_one(doc)
         except DuplicateKeyError:
-            raise DuplicateError(f"capability {cap.capability_id}@{cap.version}")
+            raise DuplicateError(
+                f"capability {cap.capability_id}@{cap.version} for pack {cap.pack_key}@{cap.pack_version}"
+            )
         doc.pop("_id", None)
         return CapabilityDescriptor.model_validate(doc)
 
-    async def get(self, capability_id: str, version: str) -> Optional[CapabilityDescriptor]:
+    async def get(
+        self, pack_key: str, pack_version: str, capability_id: str, version: str
+    ) -> Optional[CapabilityDescriptor]:
         doc = await self._coll.find_one(
-            {"capability_id": capability_id, "version": version}, projection=_PROJECTION
+            {"pack_key": pack_key, "pack_version": pack_version,
+             "capability_id": capability_id, "version": version},
+            projection=_PROJECTION,
         )
         return CapabilityDescriptor.model_validate(doc) if doc else None
 
-    async def list_by_id(self, capability_id: str) -> List[CapabilityDescriptor]:
-        cursor = self._coll.find({"capability_id": capability_id}, projection=_PROJECTION)
+    async def list_by_id(
+        self, pack_key: str, pack_version: str, capability_id: str
+    ) -> List[CapabilityDescriptor]:
+        cursor = self._coll.find(
+            {"pack_key": pack_key, "pack_version": pack_version, "capability_id": capability_id},
+            projection=_PROJECTION,
+        )
         return [CapabilityDescriptor.model_validate(d) async for d in cursor]
 
+    async def list_owned(self, pack_key: str, pack_version: str) -> List[CapabilityDescriptor]:
+        """Every capability the given pack version owns (the ADR-060 ownership query)."""
+        cursor = self._coll.find(
+            {"pack_key": pack_key, "pack_version": pack_version}, projection=_PROJECTION
+        )
+        return [CapabilityDescriptor.model_validate(d) async for d in cursor]
+
+    async def delete_owned(self, pack_key: str, pack_version: str) -> int:
+        """ADR-061: physically remove every capability owned by ``(pack_key, pack_version)`` — a pure cascade
+        (ADR-060 ownership; nothing is shared, so no reference-counting). Idempotent."""
+        return (await self._coll.delete_many(
+            {"pack_key": pack_key, "pack_version": pack_version})).deleted_count
+
     async def list(
-        self, *, status: Optional[str] = None, kind: Optional[str] = None,
+        self, *, pack_key: Optional[str] = None, pack_version: Optional[str] = None,
+        status: Optional[str] = None, kind: Optional[str] = None,
         q: Optional[str] = None, limit: int = 50, offset: int = 0,
     ) -> List[CapabilityDescriptor]:
+        """Browse owned rows. ADR-060: with a pack given, scoped to that pack; otherwise all owned rows."""
         query: dict = {}
+        if pack_key:
+            query["pack_key"] = pack_key
+        if pack_version:
+            query["pack_version"] = pack_version
         if status:
             query["status"] = status
         if kind:
@@ -57,9 +93,12 @@ class CapabilityRepository:
         )
         return [CapabilityDescriptor.model_validate(d) async for d in cursor]
 
-    async def set_status(self, capability_id: str, version: str, status: str) -> Optional[CapabilityDescriptor]:
+    async def set_status(
+        self, pack_key: str, pack_version: str, capability_id: str, version: str, status: str
+    ) -> Optional[CapabilityDescriptor]:
         doc = await self._coll.find_one_and_update(
-            {"capability_id": capability_id, "version": version},
+            {"pack_key": pack_key, "pack_version": pack_version,
+             "capability_id": capability_id, "version": version},
             {"$set": {"status": status, "updated_at": utcnow_iso()}},
             projection=_PROJECTION, return_document=ReturnDocument.AFTER,
         )

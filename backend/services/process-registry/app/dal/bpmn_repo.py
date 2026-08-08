@@ -33,3 +33,11 @@ class BpmnRepository:
     async def get_xml(self, pack_key: str, version: str) -> Optional[str]:
         doc = await self.get(pack_key, version)
         return doc.get("xml") if doc else None
+
+    async def delete(self, pack_key: str, version: str) -> int:
+        """ADR-061: remove the BPMN document for one pack version. Idempotent."""
+        return (await self._coll.delete_many({"pack_key": pack_key, "version": version})).deleted_count
+
+    async def delete_pack(self, pack_key: str) -> int:
+        """ADR-061: remove every version's BPMN document for ``pack_key``. Idempotent."""
+        return (await self._coll.delete_many({"pack_key": pack_key})).deleted_count

@@ -11,8 +11,16 @@ from app.models.process_pack import ProcessPackManifest
 SEED = Path(settings.SEED_DIR)
 
 
+def _seed_coords():
+    raw = json.loads((SEED / "manifest.json").read_text())
+    return raw["pack_key"], raw["version"]
+
+
 def _roundtrip(model_cls, path: Path):
-    m = model_cls.model_validate_json(path.read_text())
+    # ADR-060: seed JSON carries no ownership — stamp the seed pack's coords, as the loader does at load time.
+    doc = json.loads(path.read_text())
+    doc["pack_key"], doc["pack_version"] = _seed_coords()
+    m = model_cls.model_validate(doc)
     again = model_cls.model_validate(m.to_doc())
     assert again.to_doc() == m.to_doc()
 

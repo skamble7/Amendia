@@ -11,6 +11,7 @@ from tests.conftest import SEED, load_capabilities, load_schemas
 def _authored_reg(json_schema):
     # an operator-authored artifact (art.dining.order) — neither tool I/O nor trigger (ADR-050).
     return ArtifactSchemaRegistration.model_validate({
+        "pack_key": "dining-pack", "pack_version": "1.0.0",
         "artifact_key": "art.dining.order", "version": "1.0.0", "title": "Order",
         "json_schema": json_schema, "compatibility": "backward", "status": "active"})
 
@@ -29,7 +30,7 @@ async def test_authored_artifact_id_is_derived_not_validated(schema_repo, suppli
         js["$id"] = supplied_id
     stored = await register_schema(_authored_reg(js), schema_repo)
     assert stored.json_schema["$id"] == _CANON_ORDER_ID
-    fetched = await schema_repo.get("art.dining.order", "1.0.0")
+    fetched = await schema_repo.get("dining-pack", "1.0.0", "art.dining.order", "1.0.0")
     assert fetched is not None and fetched.json_schema["$id"] == _CANON_ORDER_ID
 
 
@@ -70,8 +71,9 @@ async def test_register_schema_ok_and_convention_errors(client):
     resp = await client.post("/artifact-schemas", json=reg2)
     assert resp.status_code == 201, resp.text
     key, ver = reg2["artifact_key"], reg2["version"]
+    pk, pv = reg2["pack_key"], reg2["pack_version"]
     _, domain, name = key.split(".", 2)
-    stored = (await client.get(f"/artifact-schemas/{key}/{ver}")).json()
+    stored = (await client.get(f"/packs/{pk}/{pv}/artifact-schemas/{key}/{ver}")).json()
     assert stored["json_schema"]["$id"] == f"https://amendia.dev/schemas/artifacts/{domain}/{name}/{ver}.json"
 
     # other schema validation still applies — a non-object root is rejected.
@@ -87,7 +89,8 @@ async def test_capabilities_and_schemas_listed(client, registered):
     assert len(caps) == 10
     schemas = (await client.get("/artifact-schemas")).json()
     assert len(schemas) == 9  # ADR-047 D2: + art.payment.info_resolution (needs-info human exit)
-    one = await client.get("/capabilities/cap.payment.sanctions_screen/1.0.0")
+    one = await client.get(
+        "/packs/wire-repair-standard/1.0.0/capabilities/cap.payment.sanctions_screen/1.0.0")
     assert one.status_code == 200 and one.json()["kind"] == "mcp"
 
 
@@ -102,12 +105,14 @@ async def test_capabilities_free_text_search(client, registered):
 
 
 async def test_deprecate_capability(client, registered):
-    r = await client.post("/capabilities/cap.payment.sanctions_screen/1.0.0/deprecate")
+    r = await client.post(
+        "/packs/wire-repair-standard/1.0.0/capabilities/cap.payment.sanctions_screen/1.0.0/deprecate")
     assert r.status_code == 200 and r.json()["status"] == "deprecated"
 
 
 async def test_unknown_404s(client):
-    assert (await client.get("/capabilities/cap.x.y/1.0.0")).status_code == 404
+    assert (await client.get(
+        "/packs/wire-repair-standard/1.0.0/capabilities/cap.x.y/1.0.0")).status_code == 404
     assert (await client.get("/packs/nope/1.0.0")).status_code == 404
 
 

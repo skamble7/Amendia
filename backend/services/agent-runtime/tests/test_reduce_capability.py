@@ -65,7 +65,8 @@ def test_e2e_no_hit_routes_to_clean():
 # --------------------------------------------------------------------------- #
 def _reduce_descriptor(config) -> CapabilityDescriptor:
     return CapabilityDescriptor.model_validate({
-        "descriptor_version": "1.0", "capability_id": "cap.x.reduce", "version": "1.0.0",
+        "descriptor_version": "1.0", "pack_key": "pack-x", "pack_version": "1.0.0",
+        "capability_id": "cap.x.reduce", "version": "1.0.0",
         "title": "x", "kind": "reduce", "side_effect": "read_only",
         "inputs": [{"name": "s", "schema": "art.x.list@^1.0.0"}],
         "outputs": [{"name": "summary", "schema": "art.x.summary@^1.0.0"}],

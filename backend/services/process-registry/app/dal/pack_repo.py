@@ -86,6 +86,30 @@ class ProcessPackRepository:
             {"$set": {"status": status, "updated_at": utcnow_iso()}},
         )
 
+    async def delete_version(self, pack_key: str, version: str) -> Dict[str, int]:
+        """ADR-061: physically remove one pack version's manifest + the per-version sidecars this repo owns
+        (validation_reports, pack_resolutions, pack_roles). Deletes ``process_packs`` FIRST so the pack is
+        immediately un-loadable/un-resolvable, then the sidecars. Idempotent (``delete_many`` — no-op if gone)."""
+        q = {"pack_key": pack_key, "version": version}
+        counts: Dict[str, int] = {}
+        counts["process_packs"] = (await self._coll.delete_many(q)).deleted_count
+        for name, coll in (("validation_reports", self._reports),
+                           ("pack_resolutions", self._resolutions),
+                           ("pack_roles", self._pack_roles)):
+            counts[name] = (await coll.delete_many(q)).deleted_count if coll is not None else 0
+        return counts
+
+    async def delete_pack(self, pack_key: str) -> Dict[str, int]:
+        """ADR-061: remove EVERY version's manifest + owned sidecars for ``pack_key`` (whole-pack delete)."""
+        q = {"pack_key": pack_key}
+        counts: Dict[str, int] = {}
+        counts["process_packs"] = (await self._coll.delete_many(q)).deleted_count
+        for name, coll in (("validation_reports", self._reports),
+                           ("pack_resolutions", self._resolutions),
+                           ("pack_roles", self._pack_roles)):
+            counts[name] = (await coll.delete_many(q)).deleted_count if coll is not None else 0
+        return counts
+
     async def set_bpmn_sha(self, pack_key: str, version: str, sha256: str) -> None:
         await self._coll.update_one(
             {"pack_key": pack_key, "version": version},

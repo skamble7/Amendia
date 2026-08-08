@@ -30,7 +30,8 @@ def _good_table():
 
 def _decision_descriptor(table=None) -> CapabilityDescriptor:
     return CapabilityDescriptor.model_validate({
-        "descriptor_version": "1.0", "capability_id": _CAP, "version": "1.0.0",
+        "descriptor_version": "1.0", "pack_key": "wire-repair-standard", "pack_version": "1.0.0",
+        "capability_id": _CAP, "version": "1.0.0",
         "title": "Repair decision (DMN)", "kind": "decision", "side_effect": "read_only",
         "idempotent": True,
         "inputs": [{"name": "dossier", "schema": "art.payment.enrich_investigation_output@^1.0.0"}],

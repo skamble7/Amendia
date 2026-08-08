@@ -193,6 +193,15 @@
             "title": "Json Schema",
             "type": "object"
           },
+          "pack_key": {
+            "title": "Pack Key",
+            "type": "string"
+          },
+          "pack_version": {
+            "pattern": "^\\d+\\.\\d+\\.\\d+$",
+            "title": "Pack Version",
+            "type": "string"
+          },
           "status": {
             "$ref": "#/components/schemas/ArtifactStatus"
           },
@@ -233,6 +242,8 @@
           }
         },
         "required": [
+          "pack_key",
+          "pack_version",
           "artifact_key",
           "version",
           "title",
@@ -1106,6 +1117,15 @@
             ],
             "title": "Owner"
           },
+          "pack_key": {
+            "title": "Pack Key",
+            "type": "string"
+          },
+          "pack_version": {
+            "pattern": "^\\d+\\.\\d+\\.\\d+$",
+            "title": "Pack Version",
+            "type": "string"
+          },
           "runtime": {
             "discriminator": {
               "mapping": {
@@ -1170,6 +1190,8 @@
         },
         "required": [
           "descriptor_version",
+          "pack_key",
+          "pack_version",
           "capability_id",
           "version",
           "title",
@@ -4992,6 +5014,38 @@
         "parameters": [
           {
             "in": "query",
+            "name": "pack_key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Pack Key"
+            }
+          },
+          {
+            "in": "query",
+            "name": "pack_version",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Pack Version"
+            }
+          },
+          {
+            "in": "query",
             "name": "status",
             "required": false,
             "schema": {
@@ -5111,173 +5165,42 @@
         ]
       }
     },
-    "/artifact-schemas/{artifact_key}": {
-      "get": {
-        "operationId": "list_artifact_schema_versions_artifact_schemas__artifact_key__get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "artifact_key",
-            "required": true,
-            "schema": {
-              "title": "Artifact Key",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/ArtifactSchemaRegistration"
-                  },
-                  "title": "Response List Artifact Schema Versions Artifact Schemas  Artifact Key  Get",
-                  "type": "array"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "summary": "List Artifact Schema Versions",
-        "tags": [
-          "artifact-schemas"
-        ]
-      }
-    },
-    "/artifact-schemas/{artifact_key}/{version}": {
-      "get": {
-        "operationId": "get_artifact_schema_artifact_schemas__artifact_key___version__get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "artifact_key",
-            "required": true,
-            "schema": {
-              "title": "Artifact Key",
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "version",
-            "required": true,
-            "schema": {
-              "title": "Version",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ArtifactSchemaRegistration"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "summary": "Get Artifact Schema",
-        "tags": [
-          "artifact-schemas"
-        ]
-      }
-    },
-    "/artifact-schemas/{artifact_key}/{version}/deprecate": {
-      "post": {
-        "operationId": "deprecate_artifact_schema_artifact_schemas__artifact_key___version__deprecate_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "artifact_key",
-            "required": true,
-            "schema": {
-              "title": "Artifact Key",
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "version",
-            "required": true,
-            "schema": {
-              "title": "Version",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ArtifactSchemaRegistration"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "summary": "Deprecate Artifact Schema",
-        "tags": [
-          "artifact-schemas"
-        ]
-      }
-    },
     "/capabilities": {
       "get": {
         "operationId": "list_capabilities_capabilities_get",
         "parameters": [
+          {
+            "in": "query",
+            "name": "pack_key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Pack Key"
+            }
+          },
+          {
+            "in": "query",
+            "name": "pack_version",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Pack Version"
+            }
+          },
           {
             "in": "query",
             "name": "status",
@@ -5476,169 +5399,6 @@
         "summary": "Introspect Mcp",
         "tags": [
           "onboarding"
-        ]
-      }
-    },
-    "/capabilities/{capability_id}": {
-      "get": {
-        "operationId": "list_capability_versions_capabilities__capability_id__get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "capability_id",
-            "required": true,
-            "schema": {
-              "title": "Capability Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/CapabilityDescriptor"
-                  },
-                  "title": "Response List Capability Versions Capabilities  Capability Id  Get",
-                  "type": "array"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "summary": "List Capability Versions",
-        "tags": [
-          "capabilities"
-        ]
-      }
-    },
-    "/capabilities/{capability_id}/{version}": {
-      "get": {
-        "operationId": "get_capability_capabilities__capability_id___version__get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "capability_id",
-            "required": true,
-            "schema": {
-              "title": "Capability Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "version",
-            "required": true,
-            "schema": {
-              "title": "Version",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/CapabilityDescriptor"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "summary": "Get Capability",
-        "tags": [
-          "capabilities"
-        ]
-      }
-    },
-    "/capabilities/{capability_id}/{version}/deprecate": {
-      "post": {
-        "operationId": "deprecate_capability_capabilities__capability_id___version__deprecate_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "capability_id",
-            "required": true,
-            "schema": {
-              "title": "Capability Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "version",
-            "required": true,
-            "schema": {
-              "title": "Version",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/CapabilityDescriptor"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "summary": "Deprecate Capability",
-        "tags": [
-          "capabilities"
         ]
       }
     },
@@ -6662,6 +6422,50 @@
       }
     },
     "/packs/{pack_key}": {
+      "delete": {
+        "description": "ADR-061: physically remove EVERY version of ``pack_key`` (one ``delete`` audit event per version).",
+        "operationId": "delete_whole_pack_packs__pack_key__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pack_key",
+            "required": true,
+            "schema": {
+              "title": "Pack Key",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Delete Whole Pack",
+        "tags": [
+          "packs"
+        ]
+      },
       "get": {
         "operationId": "list_pack_versions_packs__pack_key__get",
         "parameters": [
@@ -6770,7 +6574,616 @@
         ]
       }
     },
+    "/packs/{pack_key}/{pack_version}/artifact-schemas": {
+      "get": {
+        "description": "ADR-060 D3 / ADR-061 Phase 4: every artifact schema THIS pack version owns, reached structurally.",
+        "operationId": "list_pack_artifact_schemas_packs__pack_key___pack_version__artifact_schemas_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pack_key",
+            "required": true,
+            "schema": {
+              "title": "Pack Key",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "pack_version",
+            "required": true,
+            "schema": {
+              "title": "Pack Version",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ArtifactSchemaRegistration"
+                  },
+                  "title": "Response List Pack Artifact Schemas Packs  Pack Key   Pack Version  Artifact Schemas Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Pack Artifact Schemas",
+        "tags": [
+          "artifact-schemas"
+        ]
+      }
+    },
+    "/packs/{pack_key}/{pack_version}/artifact-schemas/{artifact_key}": {
+      "get": {
+        "operationId": "list_artifact_schema_versions_packs__pack_key___pack_version__artifact_schemas__artifact_key__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pack_key",
+            "required": true,
+            "schema": {
+              "title": "Pack Key",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "pack_version",
+            "required": true,
+            "schema": {
+              "title": "Pack Version",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "artifact_key",
+            "required": true,
+            "schema": {
+              "title": "Artifact Key",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ArtifactSchemaRegistration"
+                  },
+                  "title": "Response List Artifact Schema Versions Packs  Pack Key   Pack Version  Artifact Schemas  Artifact Key  Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Artifact Schema Versions",
+        "tags": [
+          "artifact-schemas"
+        ]
+      }
+    },
+    "/packs/{pack_key}/{pack_version}/artifact-schemas/{artifact_key}/{version}": {
+      "get": {
+        "operationId": "get_artifact_schema_packs__pack_key___pack_version__artifact_schemas__artifact_key___version__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pack_key",
+            "required": true,
+            "schema": {
+              "title": "Pack Key",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "pack_version",
+            "required": true,
+            "schema": {
+              "title": "Pack Version",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "artifact_key",
+            "required": true,
+            "schema": {
+              "title": "Artifact Key",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "version",
+            "required": true,
+            "schema": {
+              "title": "Version",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArtifactSchemaRegistration"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Artifact Schema",
+        "tags": [
+          "artifact-schemas"
+        ]
+      }
+    },
+    "/packs/{pack_key}/{pack_version}/artifact-schemas/{artifact_key}/{version}/deprecate": {
+      "post": {
+        "operationId": "deprecate_artifact_schema_packs__pack_key___pack_version__artifact_schemas__artifact_key___version__deprecate_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pack_key",
+            "required": true,
+            "schema": {
+              "title": "Pack Key",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "pack_version",
+            "required": true,
+            "schema": {
+              "title": "Pack Version",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "artifact_key",
+            "required": true,
+            "schema": {
+              "title": "Artifact Key",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "version",
+            "required": true,
+            "schema": {
+              "title": "Version",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArtifactSchemaRegistration"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Deprecate Artifact Schema",
+        "tags": [
+          "artifact-schemas"
+        ]
+      }
+    },
+    "/packs/{pack_key}/{pack_version}/capabilities": {
+      "get": {
+        "description": "ADR-060 D3 / ADR-061 Phase 4: every capability THIS pack version owns, reached structurally (not a\nquery-param browse). The empty catalog is a valid 200 \u2014 an empty list.",
+        "operationId": "list_pack_capabilities_packs__pack_key___pack_version__capabilities_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pack_key",
+            "required": true,
+            "schema": {
+              "title": "Pack Key",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "pack_version",
+            "required": true,
+            "schema": {
+              "title": "Pack Version",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/CapabilityDescriptor"
+                  },
+                  "title": "Response List Pack Capabilities Packs  Pack Key   Pack Version  Capabilities Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Pack Capabilities",
+        "tags": [
+          "capabilities"
+        ]
+      }
+    },
+    "/packs/{pack_key}/{pack_version}/capabilities/{capability_id}": {
+      "get": {
+        "operationId": "list_capability_versions_packs__pack_key___pack_version__capabilities__capability_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pack_key",
+            "required": true,
+            "schema": {
+              "title": "Pack Key",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "pack_version",
+            "required": true,
+            "schema": {
+              "title": "Pack Version",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "capability_id",
+            "required": true,
+            "schema": {
+              "title": "Capability Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/CapabilityDescriptor"
+                  },
+                  "title": "Response List Capability Versions Packs  Pack Key   Pack Version  Capabilities  Capability Id  Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Capability Versions",
+        "tags": [
+          "capabilities"
+        ]
+      }
+    },
+    "/packs/{pack_key}/{pack_version}/capabilities/{capability_id}/{version}": {
+      "get": {
+        "operationId": "get_capability_packs__pack_key___pack_version__capabilities__capability_id___version__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pack_key",
+            "required": true,
+            "schema": {
+              "title": "Pack Key",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "pack_version",
+            "required": true,
+            "schema": {
+              "title": "Pack Version",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "capability_id",
+            "required": true,
+            "schema": {
+              "title": "Capability Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "version",
+            "required": true,
+            "schema": {
+              "title": "Version",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CapabilityDescriptor"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Capability",
+        "tags": [
+          "capabilities"
+        ]
+      }
+    },
+    "/packs/{pack_key}/{pack_version}/capabilities/{capability_id}/{version}/deprecate": {
+      "post": {
+        "operationId": "deprecate_capability_packs__pack_key___pack_version__capabilities__capability_id___version__deprecate_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pack_key",
+            "required": true,
+            "schema": {
+              "title": "Pack Key",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "pack_version",
+            "required": true,
+            "schema": {
+              "title": "Pack Version",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "capability_id",
+            "required": true,
+            "schema": {
+              "title": "Capability Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "version",
+            "required": true,
+            "schema": {
+              "title": "Version",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CapabilityDescriptor"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Deprecate Capability",
+        "tags": [
+          "capabilities"
+        ]
+      }
+    },
     "/packs/{pack_key}/{version}": {
+      "delete": {
+        "description": "ADR-061: physically remove ONE pack version and everything it owns (sidecars + ADR-060 caps/schemas +\ncommitted sessions). Force-delete at any status (no deprecate-first, no liveness gate). Audit-first.",
+        "operationId": "delete_pack_version_packs__pack_key___version__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pack_key",
+            "required": true,
+            "schema": {
+              "title": "Pack Key",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "version",
+            "required": true,
+            "schema": {
+              "title": "Version",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Delete Pack Version",
+        "tags": [
+          "packs"
+        ]
+      },
       "get": {
         "operationId": "get_pack_packs__pack_key___version__get",
         "parameters": [

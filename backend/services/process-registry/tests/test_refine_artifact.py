@@ -65,6 +65,7 @@ async def _seed(svc):
 async def test_refine_bumps_version_repoints_binding_and_pins_the_labeled_schema(svc, schema_repo):
     # a prior activation registered art.dining.order@1.0.0 with the ORIGINAL body globally.
     await schema_repo.insert(ArtifactSchemaRegistration(
+        pack_key="dinein-refine", pack_version="1.0.0",
         artifact_key="art.dining.order", version="1.0.0", title="Order",
         json_schema=_ORDER_SCHEMA, status=ArtifactStatus.ACTIVE))
     s = await _seed(svc)
@@ -97,6 +98,7 @@ async def test_refine_bumps_version_repoints_binding_and_pins_the_labeled_schema
 
 async def test_refine_to_an_identical_registered_body_does_not_churn(svc, schema_repo):
     await schema_repo.insert(ArtifactSchemaRegistration(
+        pack_key="dinein-refine", pack_version="1.0.0",
         artifact_key="art.dining.order", version="1.0.0", title="Order",
         json_schema=_ORDER_SCHEMA, status=ArtifactStatus.ACTIVE))
     s = await _seed(svc)

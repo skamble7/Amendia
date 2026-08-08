@@ -29,7 +29,7 @@ describe("Task detail — BPMN process diagram", () => {
       http.get(`${STUB}/triggers/:id`, () => HttpResponse.json(synthTrigger())),
       http.get(`${REG}/packs/:key/:version`, () => HttpResponse.json(synthPack)),
       http.get(`${REG}/packs/:key/:version/bpmn`, () => HttpResponse.text("<definitions/>")),
-      http.get(`${REG}/artifact-schemas/:key/:version`, () => HttpResponse.json({ json_schema: TEST_SCHEMA })),
+      http.get(`${REG}/packs/:pack_key/:pack_version/artifact-schemas/:key/:version`, () => HttpResponse.json({ json_schema: TEST_SCHEMA })),
       http.get(`${R}/instances/:id`, () => HttpResponse.json(synthInstanceDetail())),
     );
     const user = userEvent.setup();

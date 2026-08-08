@@ -31,13 +31,15 @@ def _schema(key, props, *, closed=True):
           "type": "object", "properties": props}
     if closed:
         js["additionalProperties"] = False
-    return {"artifact_key": key, "version": "1.0.0", "title": key, "json_schema": js,
+    return {"pack_key": "imap-of", "pack_version": "1.0.0",
+            "artifact_key": key, "version": "1.0.0", "title": key, "json_schema": js,
             "compatibility": "backward", "status": "active"}
 
 
 def _mcp_cap(cid, in_key, out_key):
     return CapabilityDescriptor.model_validate({
-        "descriptor_version": "1.0", "capability_id": cid, "version": "1.0.0", "title": cid,
+        "descriptor_version": "1.0", "pack_key": "imap-of", "pack_version": "1.0.0",
+        "capability_id": cid, "version": "1.0.0", "title": cid,
         "kind": "mcp", "side_effect": "read_only",
         "inputs": [{"name": "a_in", "schema": f"{in_key}@^1.0.0"}],
         "outputs": [{"name": "a_out", "schema": f"{out_key}@^1.0.0"}],

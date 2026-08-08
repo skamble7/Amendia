@@ -66,11 +66,19 @@ class RegistryClient:
     async def get_bpmn(self, pack_key: str, version: str) -> str:
         return await self._get(f"/packs/{pack_key}/{version}/bpmn", as_text=True)
 
-    async def get_capability(self, capability_id: str, version: str) -> Dict[str, Any]:
-        return await self._get(f"/capabilities/{capability_id}/{version}")
+    async def get_capability(
+        self, pack_key: str, pack_version: str, capability_id: str, version: str
+    ) -> Dict[str, Any]:
+        # ADR-060: capabilities are pack-owned — fetch the loading pack's OWN copy via the pack-scoped route.
+        return await self._get(
+            f"/packs/{pack_key}/{pack_version}/capabilities/{capability_id}/{version}")
 
-    async def get_artifact_schema(self, artifact_key: str, version: str) -> Dict[str, Any]:
-        return await self._get(f"/artifact-schemas/{artifact_key}/{version}")
+    async def get_artifact_schema(
+        self, pack_key: str, pack_version: str, artifact_key: str, version: str
+    ) -> Dict[str, Any]:
+        # ADR-060: schemas are pack-owned — fetch the loading pack's OWN copy via the pack-scoped route.
+        return await self._get(
+            f"/packs/{pack_key}/{pack_version}/artifact-schemas/{artifact_key}/{version}")
 
 
 class TriggerStoreClient:

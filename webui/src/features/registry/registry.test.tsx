@@ -16,6 +16,87 @@ describe("Registry catalog", () => {
     expect(await screen.findByText("Test Pack")).toBeInTheDocument();
     expect(await screen.findByText(/test-pack@1\.0\.0/)).toBeInTheDocument();
   });
+
+  // ADR-060: capabilities & schemas moved off the global page onto the pack detail, fetched pack-scoped.
+  it("a pack's detail page shows its OWNED capabilities and schemas (fetched pack-scoped)", async () => {
+    const cap = {
+      descriptor_version: "1.0", pack_key: "test-pack", pack_version: "1.0.0",
+      capability_id: "cap.test.do", version: "1.0.0", title: "Do The Thing", kind: "mcp",
+      side_effect: "read_only", inputs: [], outputs: [],
+      runtime: { kind: "mcp", endpoint: "http://x", tools: ["t"] }, status: "active",
+    };
+    const schema = {
+      pack_key: "test-pack", pack_version: "1.0.0", artifact_key: "art.test.out", version: "1.0.0",
+      title: "Out Schema", json_schema: { type: "object", properties: { ok: { type: "boolean" } } }, status: "active",
+    };
+    // ADR-061 Phase 4: the pack-detail catalog reads hit the NESTED collection routes (not ?pack_key=…).
+    let capNestedHit = false;
+    server.use(
+      http.get(`${REG}/packs/test-pack/1.0.0`, () => HttpResponse.json(synthPack)),
+      http.get(`${REG}/packs/test-pack/1.0.0/bpmn`, () => HttpResponse.text("<bpmn/>")),
+      http.get(`${REG}/packs/test-pack/1.0.0/resolution`, () => new HttpResponse(null, { status: 404 })),
+      http.get(`${REG}/packs/test-pack/1.0.0/versions`, () => HttpResponse.json([synthPack])),
+      http.get(`${REG}/packs/test-pack/1.0.0/capabilities`, () => { capNestedHit = true; return HttpResponse.json([cap]); }),
+      http.get(`${REG}/packs/test-pack/1.0.0/artifact-schemas`, () => HttpResponse.json([schema])),
+    );
+    const user = userEvent.setup();
+    renderApp("/registry/packs/test-pack/1.0.0", "owner-1");
+    await screen.findByText("Test Pack");
+
+    await user.click(await screen.findByRole("tab", { name: /capabilities/i }));
+    expect(await screen.findByText("Do The Thing")).toBeInTheDocument();
+    // the fetch used THIS pack version's nested route (no global/query-param catalog)
+    expect(capNestedHit).toBe(true);
+
+    await user.click(await screen.findByRole("tab", { name: /schemas/i }));
+    expect(await screen.findByText("Out Schema")).toBeInTheDocument();
+  });
+
+  // ADR-061: pack deletion is owner-gated + confirmed, then invalidates + navigates back to /registry.
+  it("an owner can delete a pack version — confirming hits DELETE and navigates away", async () => {
+    let deleteHit = false;
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    server.use(
+      http.get(`${REG}/packs/test-pack/1.0.0`, () => HttpResponse.json(synthPack)),
+      http.get(`${REG}/packs/test-pack/1.0.0/bpmn`, () => HttpResponse.text("<bpmn/>")),
+      http.get(`${REG}/packs/test-pack/1.0.0/resolution`, () => new HttpResponse(null, { status: 404 })),
+      http.get(`${REG}/packs`, () => HttpResponse.json([synthPack])),
+      http.delete(`${REG}/packs/test-pack/1.0.0`, () => {
+        deleteHit = true;
+        return HttpResponse.json({ pack_key: "test-pack", whole_pack: false, deleted_versions: ["1.0.0"], versions: [] });
+      }),
+    );
+    const user = userEvent.setup();
+    renderApp("/registry/packs/test-pack/1.0.0", "owner-1");
+    await screen.findByText("Test Pack");
+
+    await user.click(await screen.findByRole("button", { name: /delete version/i }));
+    expect(confirmSpy).toHaveBeenCalled();
+    await waitFor(() => expect(deleteHit).toBe(true));
+    // navigated back to /registry — the pack-detail-only Delete action is gone
+    await waitFor(() => expect(screen.queryByRole("button", { name: /delete version/i })).not.toBeInTheDocument());
+    confirmSpy.mockRestore();
+  });
+
+  it("a non-owner does not see the delete action on the pack detail", async () => {
+    server.use(
+      http.get(`${REG}/packs/test-pack/1.0.0`, () => HttpResponse.json(synthPack)),
+      http.get(`${REG}/packs/test-pack/1.0.0/bpmn`, () => HttpResponse.text("<bpmn/>")),
+      http.get(`${REG}/packs/test-pack/1.0.0/resolution`, () => new HttpResponse(null, { status: 404 })),
+    );
+    // analyst-1 holds role.payments.ops_analyst only — no role.process.owner.
+    renderApp("/registry/packs/test-pack/1.0.0", "analyst-1");
+    await screen.findByText("Test Pack");
+    expect(screen.queryByRole("button", { name: /delete version/i })).not.toBeInTheDocument();
+  });
+
+  it("the global Registry page no longer has Capabilities/Schemas tabs", async () => {
+    server.use(http.get(`${REG}/packs`, () => HttpResponse.json([synthPack])));
+    renderApp("/registry", "owner-1");
+    await screen.findByText("Test Pack");
+    expect(screen.queryByRole("tab", { name: /capabilities/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("tab", { name: /schemas/i })).not.toBeInTheDocument();
+  });
 });
 
 describe("Onboarding wizard", () => {

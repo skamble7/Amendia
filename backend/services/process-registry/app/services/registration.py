@@ -75,11 +75,12 @@ async def validate_schema(reg: ArtifactSchemaRegistration, repo: ArtifactSchemaR
             errors.append(f"$ref '{ref}' is not an amendia.dev registered-schema $id")
             continue
         domain, name, ver = m.groups()
-        if await repo.get(f"art.{domain}.{name}", ver) is None:
+        # ADR-060: a $ref must resolve within the SAME pack's owned schemas (a pack is self-contained).
+        if await repo.get(reg.pack_key, reg.pack_version, f"art.{domain}.{name}", ver) is None:
             errors.append(f"$ref '{ref}' points at an unregistered schema")
 
     if reg.compatibility.value == "backward":
-        prev = await repo.previous_version(reg.artifact_key, reg.version)
+        prev = await repo.previous_version(reg.pack_key, reg.pack_version, reg.artifact_key, reg.version)
         if prev is not None and Version(reg.version).major == Version(prev.version).major:
             for f in diff_schemas(prev.json_schema, js):
                 if f.breaking:

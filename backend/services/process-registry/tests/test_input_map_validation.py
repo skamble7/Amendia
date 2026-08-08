@@ -12,7 +12,8 @@ from amendia_contracts.process_pack import ProcessPackManifest
 
 
 def _schema(key):
-    return {"artifact_key": key, "version": "1.0.0", "title": key,
+    return {"pack_key": "imap", "pack_version": "1.0.0",
+            "artifact_key": key, "version": "1.0.0", "title": key,
             "json_schema": {"$schema": "https://json-schema.org/draft/2020-12/schema",
                             "$id": f"https://amendia.dev/schemas/artifacts/{key.split('.', 1)[1].replace('.', '/')}/1.0.0.json",
                             "type": "object", "additionalProperties": False,
@@ -22,7 +23,8 @@ def _schema(key):
 
 def _cap(cid, in_name, in_key, out_name, out_key):
     return CapabilityDescriptor.model_validate({
-        "descriptor_version": "1.0", "capability_id": cid, "version": "1.0.0", "title": cid,
+        "descriptor_version": "1.0", "pack_key": "imap", "pack_version": "1.0.0",
+        "capability_id": cid, "version": "1.0.0", "title": cid,
         "kind": "skill", "side_effect": "read_only",
         "inputs": [{"name": in_name, "schema": f"{in_key}@^1.0.0"}],
         "outputs": [{"name": out_name, "schema": f"{out_key}@^1.0.0"}],

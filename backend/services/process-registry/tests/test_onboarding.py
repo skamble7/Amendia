@@ -206,46 +206,9 @@ async def test_create_rejects_invalid_domain(onboarding_service):
     assert any(e["field"] == "default_domain" for e in ei.value.detail["errors"])
 
 
-async def test_introspect_flags_hard_id_collision_with_contract_diff(onboarding_service, cap_repo):
-    # Batch-4: a derived cap.payment.screen_party colliding with an ACTIVE catalog capability of a DIFFERENT
-    # contract (kind=skill) is flagged at introspect as a HARD collision (the class that later becomes
-    # binding_io_mismatch) — with a diff + the domain/reuse steer. Advisory, not a 422 block.
-    from app.models.onboarding import IntrospectMcpRequest
-    await cap_repo.insert(CapabilityDescriptor.model_validate({
-        "descriptor_version": "1.0", "capability_id": "cap.payment.screen_party", "version": "1.0.0",
-        "title": "existing", "kind": "skill", "side_effect": "read_only", "inputs": [], "outputs": [],
-        "runtime": {"kind": "skill", "entrypoint": "app.x:y"},
-        "constraints": {"timeout_seconds": 30, "max_retries": 0}, "status": "active"}))
-    resp = await onboarding_service.introspect_mcp(
-        IntrospectMcpRequest(endpoint="http://mcp.local/mcp", domain="payment"))
-    hit = {t.name: t for t in resp.tools}["screen_party"]
-    assert hit.id_collision is not None
-    assert hit.id_collision.severity == "hard"
-    assert hit.id_collision.active_kind == "skill" and hit.id_collision.active_version == "1.0.0"
-    assert "kind=skill" in hit.id_collision.diff and "kind=mcp" in hit.id_collision.diff
-    # a DISTINCT domain derives a different id → no collision (the operator's fix clears it)
-    resp2 = await onboarding_service.introspect_mcp(
-        IntrospectMcpRequest(endpoint="http://mcp.local/mcp", domain="beneficiary_screening"))
-    assert {t.name: t for t in resp2.tools}["screen_party"].id_collision is None
-
-
-async def test_introspect_benign_match_is_a_reuse_nudge_not_a_collision(onboarding_service, cap_repo):
-    # an active id whose contract is COMPATIBLE (same kind=mcp + same IO artifact keys) is a reuse
-    # opportunity, not a hard clash — surfaced as `benign`, no false alarm.
-    from app.models.onboarding import IntrospectMcpRequest
-    await cap_repo.insert(CapabilityDescriptor.model_validate({
-        "descriptor_version": "1.0", "capability_id": "cap.payment.screen_party", "version": "2.0.0",
-        "title": "existing mcp", "kind": "mcp", "side_effect": "read_only",
-        "inputs": [{"name": "in", "schema": "art.payment.screen_party_input@^1.0.0"}],
-        "outputs": [{"name": "out", "schema": "art.payment.screen_party_output@^1.0.0"}],
-        "runtime": {"kind": "mcp", "endpoint": "http://x/mcp", "tools": ["screen_party"]},
-        "constraints": {"timeout_seconds": 30, "max_retries": 0}, "status": "active"}))
-    resp = await onboarding_service.introspect_mcp(
-        IntrospectMcpRequest(endpoint="http://mcp.local/mcp", domain="payment"))
-    coll = {t.name: t for t in resp.tools}["screen_party"].id_collision
-    assert coll is not None and coll.severity == "benign" and coll.active_version == "2.0.0"
-
-
+# ADR-060: capabilities are pack-owned — a same-named cap.<domain>.<tool> id under a DIFFERENT pack is now
+# legal (each pack owns its own copy). The old cross-pack introspect clash-check is removed, so the two
+# introspect-collision tests it backed are gone. The pure classifier is kept as a unit (still importable).
 def test_classify_id_collision_unit():
     # the pure classifier: none (fresh), hard (kind differs), benign (compatible mcp contract).
     from app.services.mcp_introspect import classify_id_collision
@@ -563,9 +526,9 @@ async def test_commit_activates_pack_and_is_idempotent(onboarding_service, cap_r
     resolution = await pack_repo.get_resolution("mcp-screen", "1.0.0")
     assert resolution["capabilities"]["cap.payment.screen_party"] == "1.0.0"
 
-    # staged artifacts + capability actually registered
-    assert await cap_repo.get("cap.payment.screen_party", "1.0.0") is not None
-    assert await schema_repo.get("art.payment.screen_party_input", "1.0.0") is not None
+    # staged artifacts + capability actually registered — ADR-060: owned by the committed pack (mcp-screen@1.0.0)
+    assert await cap_repo.get("mcp-screen", "1.0.0", "cap.payment.screen_party", "1.0.0") is not None
+    assert await schema_repo.get("mcp-screen", "1.0.0", "art.payment.screen_party_input", "1.0.0") is not None
 
     # re-run commit → no-op, pack stays active
     s2 = await onboarding_service.commit(s.session_id, owner=OWNER)

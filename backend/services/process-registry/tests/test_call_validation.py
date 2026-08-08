@@ -24,14 +24,21 @@ async def _register(pack: str, cap_repo, schema_repo) -> ProcessPackManifest:
     from app.dal.base import DuplicateError
     from app.services.registration import register_schema
     d = COMPOSE / pack
+    # ADR-060: each pack owns its own capability/schema copies — stamp this pack's coords at load.
+    m = json.loads((d / "manifest.json").read_text())
+    pk, ver = m["pack_key"], m["version"]
     for f in sorted((d / "artifact-schemas").glob("*.json")):
         try:
-            await register_schema(ArtifactSchemaRegistration.model_validate_json(f.read_text()), schema_repo)
+            doc = json.loads(f.read_text())
+            doc["pack_key"], doc["pack_version"] = pk, ver
+            await register_schema(ArtifactSchemaRegistration.model_validate(doc), schema_repo)
         except DuplicateError:
             pass  # shared schema already registered by another compose pack
     for f in sorted((d / "capabilities").glob("*.json")):
         try:
-            await cap_repo.insert(CapabilityDescriptor.model_validate_json(f.read_text()))
+            doc = json.loads(f.read_text())
+            doc["pack_key"], doc["pack_version"] = pk, ver
+            await cap_repo.insert(CapabilityDescriptor.model_validate(doc))
         except DuplicateError:
             pass
     return ProcessPackManifest.model_validate_json((d / "manifest.json").read_text())

@@ -31,17 +31,18 @@ interface SchemaEntry {
   settled: boolean;
 }
 
-/** Fetch every artifact's pinned schema (react-query dedupes with useArtifactSchema's cache). */
-function useArtifactSchemas(refs: string[]): SchemaEntry[] {
+/** Fetch every artifact's pinned schema (react-query dedupes with useArtifactSchema's cache).
+ *  ADR-060: reads are pack-scoped, so each fetch needs the owning pack's coords (from the HITL task). */
+function useArtifactSchemas(refs: string[], packKey?: string, packVersion?: string): SchemaEntry[] {
   const results = useQueries({
     queries: refs.map((ref) => {
       const parsed = parsePinnedRef(ref);
       return {
-        queryKey: ["artifact-schema", ref],
-        enabled: !!parsed,
+        queryKey: ["artifact-schema", packKey, packVersion, ref],
+        enabled: !!parsed && !!packKey && !!packVersion,
         staleTime: Infinity,
         queryFn: async () =>
-          ((await getArtifactSchema(parsed!.key, parsed!.version)).json_schema ?? {}) as JsonSchema,
+          ((await getArtifactSchema(packKey!, packVersion!, parsed!.key, parsed!.version)).json_schema ?? {}) as JsonSchema,
       };
     }),
   });
@@ -62,6 +63,9 @@ export interface ArtifactEditorProps {
   /** form element id — the parent renders the submit button with form={id} */
   id: string;
   artifacts: PayloadArtifact[];
+  /** ADR-060: owning pack coords (from the HITL task) — required to resolve each artifact's pack-scoped schema. */
+  packKey?: string;
+  packVersion?: string;
   /** which artifacts the human authors/edits; the rest are read-only context. Default: all editable. */
   isEditable?: (a: PayloadArtifact) => boolean;
   /** called with edits keyed by artifact NAME once client validation passes. Omit for a read-only gate. */
@@ -111,18 +115,18 @@ export function ArtifactEditor(props: ArtifactEditorProps) {
 }
 
 /** Read-only gate: tabbed ArtifactViews, no form. Each view fetches its own schema. */
-function ReadOnlyArtifacts({ artifacts, className }: ArtifactEditorProps) {
+function ReadOnlyArtifacts({ artifacts, packKey, packVersion, className }: ArtifactEditorProps) {
   return (
     <div className={cn("space-y-3", className)}>
-      <TabbedArtifacts artifacts={artifacts} renderBody={(a) => <ArtifactView name={a.name} data={a.data} schemaRef={a.schema} />} />
+      <TabbedArtifacts artifacts={artifacts} renderBody={(a) => <ArtifactView name={a.name} data={a.data} schemaRef={a.schema} packKey={packKey} packVersion={packVersion} />} />
     </div>
   );
 }
 
 /** Waits for the editable artifacts' schemas to settle, THEN mounts the form once with complete defaults. */
 function EditableGate(props: ArtifactEditorProps) {
-  const { id, artifacts, isEditable, className } = props;
-  const entries = useArtifactSchemas(artifacts.map((a) => a.schema));
+  const { id, artifacts, isEditable, packKey, packVersion, className } = props;
+  const entries = useArtifactSchemas(artifacts.map((a) => a.schema), packKey, packVersion);
   const schemaByName = useMemo(() => {
     const m: Record<string, JsonSchema | undefined> = {};
     artifacts.forEach((a, i) => (m[a.name] = entries[i]?.schema));
@@ -141,7 +145,7 @@ function EditableGate(props: ArtifactEditorProps) {
 }
 
 function EditForm({
-  id, artifacts, onSubmit, agentDrafted, className, schemaByName, canEdit, editable,
+  id, artifacts, onSubmit, agentDrafted, className, packKey, packVersion, schemaByName, canEdit, editable,
 }: ArtifactEditorProps & {
   schemaByName: Record<string, JsonSchema | undefined>;
   canEdit: (a: PayloadArtifact) => boolean;
@@ -257,7 +261,7 @@ function EditForm({
   }
 
   const renderBody = (a: PayloadArtifact) => {
-    if (!canEdit(a)) return <ArtifactView name={a.name} data={a.data} schemaRef={a.schema} />;
+    if (!canEdit(a)) return <ArtifactView name={a.name} data={a.data} schemaRef={a.schema} packKey={packKey} packVersion={packVersion} />;
     const isRaw = raw[a.name] !== undefined;
     return (
       <div className="space-y-2">

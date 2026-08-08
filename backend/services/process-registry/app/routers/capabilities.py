@@ -1,5 +1,11 @@
 # app/routers/capabilities.py
-"""Capability registration + read + deprecate."""
+"""Capability registration + read + deprecate.
+
+ADR-060: capabilities are pack-owned. Reads and the deprecate mutation are PACK-SCOPED — a pack can only
+ever see (and act on) its own rows — so they live under ``/packs/{pack_key}/{pack_version}/capabilities/...``.
+Registration (POST) takes ownership from the descriptor body (which carries ``pack_key``/``pack_version``);
+the browse list (``GET /capabilities``) returns all owned rows across packs.
+"""
 from __future__ import annotations
 
 from typing import List, Optional
@@ -14,6 +20,8 @@ from app.dal.capability_repo import CapabilityRepository
 from app.deps import get_capability_repo
 
 router = APIRouter(prefix="/capabilities", tags=["capabilities"])
+# ADR-060: pack-scoped reads/mutations — the owning pack coordinates are structural, not a query bolt-on.
+pack_router = APIRouter(prefix="/packs/{pack_key}/{pack_version}/capabilities", tags=["capabilities"])
 
 _OWNER = Depends(require_roles("role.process.owner"))
 
@@ -22,7 +30,7 @@ _OWNER = Depends(require_roles("role.process.owner"))
 async def register_capability(
     cap: CapabilityDescriptor, repo: CapabilityRepository = Depends(get_capability_repo)
 ):
-    # runtime.kind == kind is enforced by the model; the model validation already ran.
+    # runtime.kind == kind is enforced by the model; ownership (pack_key/pack_version) travels on the body.
     try:
         return await repo.insert(cap)
     except DuplicateError as exc:
@@ -31,6 +39,8 @@ async def register_capability(
 
 @router.get("", response_model=List[CapabilityDescriptor])
 async def list_capabilities(
+    pack_key: Optional[str] = Query(None),
+    pack_version: Optional[str] = Query(None),
     status: Optional[str] = Query(None),
     kind: Optional[str] = Query(None),
     q: Optional[str] = Query(None, description="free-text substring over capability_id + title"),
@@ -38,34 +48,55 @@ async def list_capabilities(
     offset: int = Query(0, ge=0),
     repo: CapabilityRepository = Depends(get_capability_repo),
 ):
-    return await repo.list(status=status, kind=kind, q=q, limit=limit, offset=offset)
+    # ADR-060: all owned rows; optionally narrowed to one pack via the query params.
+    return await repo.list(pack_key=pack_key, pack_version=pack_version,
+                           status=status, kind=kind, q=q, limit=limit, offset=offset)
 
 
-@router.get("/{capability_id}", response_model=List[CapabilityDescriptor])
-async def list_capability_versions(
-    capability_id: str, repo: CapabilityRepository = Depends(get_capability_repo)
+@pack_router.get("", response_model=List[CapabilityDescriptor])
+async def list_pack_capabilities(
+    pack_key: str, pack_version: str,
+    repo: CapabilityRepository = Depends(get_capability_repo),
 ):
-    versions = await repo.list_by_id(capability_id)
+    """ADR-060 D3 / ADR-061 Phase 4: every capability THIS pack version owns, reached structurally (not a
+    query-param browse). The empty catalog is a valid 200 — an empty list."""
+    return await repo.list_owned(pack_key, pack_version)
+
+
+@pack_router.get("/{capability_id}", response_model=List[CapabilityDescriptor])
+async def list_capability_versions(
+    pack_key: str, pack_version: str, capability_id: str,
+    repo: CapabilityRepository = Depends(get_capability_repo),
+):
+    versions = await repo.list_by_id(pack_key, pack_version, capability_id)
     if not versions:
-        raise HTTPException(status_code=404, detail=f"Unknown capability: {capability_id}")
+        raise HTTPException(status_code=404,
+                            detail=f"Unknown capability {capability_id} for pack {pack_key}@{pack_version}")
     return versions
 
 
-@router.get("/{capability_id}/{version}", response_model=CapabilityDescriptor)
+@pack_router.get("/{capability_id}/{version}", response_model=CapabilityDescriptor)
 async def get_capability(
-    capability_id: str, version: str, repo: CapabilityRepository = Depends(get_capability_repo)
+    pack_key: str, pack_version: str, capability_id: str, version: str,
+    repo: CapabilityRepository = Depends(get_capability_repo),
 ):
-    cap = await repo.get(capability_id, version)
+    cap = await repo.get(pack_key, pack_version, capability_id, version)
     if cap is None:
-        raise HTTPException(status_code=404, detail=f"Unknown capability {capability_id}@{version}")
+        raise HTTPException(
+            status_code=404,
+            detail=f"Unknown capability {capability_id}@{version} for pack {pack_key}@{pack_version}")
     return cap
 
 
-@router.post("/{capability_id}/{version}/deprecate", response_model=CapabilityDescriptor, dependencies=[_OWNER])
+@pack_router.post("/{capability_id}/{version}/deprecate", response_model=CapabilityDescriptor,
+                  dependencies=[_OWNER])
 async def deprecate_capability(
-    capability_id: str, version: str, repo: CapabilityRepository = Depends(get_capability_repo)
+    pack_key: str, pack_version: str, capability_id: str, version: str,
+    repo: CapabilityRepository = Depends(get_capability_repo),
 ):
-    cap = await repo.set_status(capability_id, version, "deprecated")
+    cap = await repo.set_status(pack_key, pack_version, capability_id, version, "deprecated")
     if cap is None:
-        raise HTTPException(status_code=404, detail=f"Unknown capability {capability_id}@{version}")
+        raise HTTPException(
+            status_code=404,
+            detail=f"Unknown capability {capability_id}@{version} for pack {pack_key}@{pack_version}")
     return cap

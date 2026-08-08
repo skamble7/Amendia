@@ -180,14 +180,15 @@ class ProcessEngine:
         if errors:
             raise ValueError(f"pack BPMN did not parse: {[f.code for f in errors]}")
 
+        # ADR-060: this pack loads ONLY its own capabilities/schemas — pass its (pack_key, version) coords.
         descriptors: Dict[str, CapabilityDescriptor] = {}
         for cid, ver in resolution.get("capabilities", {}).items():
             descriptors[cid] = CapabilityDescriptor.model_validate(
-                await self._registry.get_capability(cid, ver)
+                await self._registry.get_capability(pack_key, version, cid, ver)
             )
         schemas: Dict[str, Dict[str, Any]] = {}
         for akey, ver in resolution.get("artifacts", {}).items():
-            reg = await self._registry.get_artifact_schema(akey, ver)
+            reg = await self._registry.get_artifact_schema(pack_key, version, akey, ver)
             schemas[f"{akey}@{ver}"] = reg["json_schema"]
 
         return PackBundle(

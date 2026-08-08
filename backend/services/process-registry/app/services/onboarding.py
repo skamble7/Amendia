@@ -80,7 +80,6 @@ from app.services.activation import resolve_pins
 from app.services.mcp_introspect import (
     McpConnectionError,
     McpIntrospector,
-    classify_id_collision,
     infer_capability,
     introspect_response_tool,
     normalize_artifact_schema,
@@ -175,8 +174,12 @@ class _CapOverlay:
         self._real = real
         self._staged = staged
 
-    async def list_by_id(self, capability_id: str) -> List[CapabilityDescriptor]:
-        base = await self._real.list_by_id(capability_id)
+    async def list_by_id(
+        self, pack_key: str, pack_version: str, capability_id: str
+    ) -> List[CapabilityDescriptor]:
+        # ADR-060: the validator now reads pack-scoped. The staged rows all belong to THIS onboarding pack, so
+        # they are the pack's own — include them regardless of the (pack_key, pack_version) coords passed in.
+        base = await self._real.list_by_id(pack_key, pack_version, capability_id)
         return base + [c for c in self._staged if c.capability_id == capability_id]
 
 
@@ -185,8 +188,11 @@ class _SchemaOverlay:
         self._real = real
         self._staged = staged
 
-    async def list_by_key(self, artifact_key: str) -> List[ArtifactSchemaRegistration]:
-        base = await self._real.list_by_key(artifact_key)
+    async def list_by_key(
+        self, pack_key: str, pack_version: str, artifact_key: str
+    ) -> List[ArtifactSchemaRegistration]:
+        # ADR-060: all staged rows belong to THIS onboarding pack (its own), so include them regardless of coords.
+        base = await self._real.list_by_key(pack_key, pack_version, artifact_key)
         return base + [s for s in self._staged if s.artifact_key == artifact_key]
 
 
@@ -257,16 +263,10 @@ class OnboardingService:
                             "the container itself, not your host. Use the deployment-facing URL (e.g. the "
                             "Docker service alias like http://<service>:<port>/mcp), not localhost.")
             raise TransitionError(502, {"error": "mcp_connection_failed", "message": message})
-        # Batch-4: for each compliant tool, classify its derived cap.<domain>.<tool> id against the ACTIVE
-        # catalog — a hard collision (contract differs) or a benign reuse opportunity. Advisory (non-blocking);
-        # the wizard surfaces the diff + a "distinct domain" / "reuse" fix at the Capabilities step, so the
-        # cap.<domain>.* clash that later becomes binding_io_mismatch is caught here, not at assemble.
+        # ADR-060: capabilities are pack-owned — a same-named cap.<domain>.<tool> id under a DIFFERENT pack is
+        # now legal and expected (each pack owns its own copy). The old cross-pack clash check against a shared
+        # "active catalog" is removed; id-namespacing-by-pack-slug stays (harmless) but is no longer load-bearing.
         resp_tools = [introspect_response_tool(t, domain=domain) for t in tools]
-        for rt in resp_tools:
-            if rt.compliance.compliant and rt.suggested_capability_id:
-                active = [v for v in await self.caps.list_by_id(rt.suggested_capability_id)
-                          if v.status.value == "active"]
-                rt.id_collision = classify_id_collision(active, domain=domain, tool=rt.name)
         return IntrospectMcpResponse(endpoint=req.endpoint, transport=req.transport, tools=resp_tools)
 
     # ------------------------------------------------------------------ #
@@ -362,7 +362,8 @@ class OnboardingService:
         for rc in raw.get("requires_capabilities", []):
             resolved = rc.get("resolved") or rc.get("ref") or ""
             cap_id, cap_ver = _ref_parts(resolved)
-            desc = await self.caps.get(cap_id, cap_ver)
+            # ADR-060: read the SOURCE pack's own owned capability (pack_key, source_version).
+            desc = await self.caps.get(pack_key, source_version, cap_id, cap_ver)
             if desc is None:
                 if rc.get("ref"):
                     reused_refs.append(rc["ref"])                    # can't rebuild → carry as a reused ref
@@ -371,7 +372,7 @@ class OnboardingService:
             staged_caps.append(sc)
             for key in (sc.input_artifact_key, sc.output_artifact_key):
                 if key and key not in staged_arts:
-                    art = await self._staged_artifact_from_key(key)
+                    art = await self._staged_artifact_from_key(pack_key, source_version, key)
                     if art is not None:
                         staged_arts[key] = art
 
@@ -382,13 +383,14 @@ class OnboardingService:
                 for io in b.get("outputs", []):
                     key, _v = _ref_parts(io.get("schema", ""))
                     if key and key not in authored and key not in staged_arts:
-                        art = await self._staged_artifact_from_key(key)
+                        art = await self._staged_artifact_from_key(pack_key, source_version, key)
                         if art is not None:
                             authored[key] = art
 
         trigger_artifact = None
         if raw.get("trigger"):
-            trigger_artifact = await self._staged_artifact_from_key(_ref_parts(raw["trigger"])[0])
+            trigger_artifact = await self._staged_artifact_from_key(
+                pack_key, source_version, _ref_parts(raw["trigger"])[0])
 
         bindings = [self._staged_binding_from_manifest(b) for b in raw.get("bindings", [])]
         triage = [StagedTriageRule(rule_id=r["rule_id"], priority=r.get("priority", 100),
@@ -489,10 +491,12 @@ class OnboardingService:
             sc.config = getattr(rt, "config", None)
         return sc
 
-    async def _staged_artifact_from_key(self, key: str) -> Optional[StagedArtifact]:
+    async def _staged_artifact_from_key(
+        self, pack_key: str, pack_version: str, key: str
+    ) -> Optional[StagedArtifact]:
         if not key:
             return None
-        regs = await self.schemas.list_by_key(key)
+        regs = await self.schemas.list_by_key(pack_key, pack_version, key)
         if not regs:
             return None
         reg = max(regs, key=lambda r: Version(r.version))           # the highest registered version at this key
@@ -591,7 +595,7 @@ class OnboardingService:
         # Reused capabilities must exist and be active *now* (re-checked again at commit).
         reused: List[str] = []
         for ref in req.reused_capability_refs:
-            ok, msg = await self._reused_ref_ok(ref)
+            ok, msg = await self._reused_ref_ok(ref, s.basics.pack_key, s.basics.version)
             if not ok:
                 errors.append({"ref": ref, "message": msg})
             else:
@@ -920,7 +924,8 @@ class OnboardingService:
         if errors:
             raise TransitionError(422, {"error": "artifact_invalid", "errors": errors})
 
-        version = await self._resolve_authored_version(req.artifact_key, req.json_schema)
+        version = await self._resolve_authored_version(
+            s.basics.pack_key, s.basics.version, req.artifact_key, req.json_schema)
         s.authored_artifacts = [a for a in s.authored_artifacts if a.artifact_key != req.artifact_key]
         s.authored_artifacts.append(StagedArtifact(
             artifact_key=req.artifact_key, version=version, title=(req.title or existing.title),
@@ -929,10 +934,12 @@ class OnboardingService:
         s.last_cleared = self._clear(s, {"dry_run"})
         return await self.sessions.save(s)
 
-    async def _resolve_authored_version(self, key: str, schema: Dict[str, Any]) -> str:
+    async def _resolve_authored_version(
+        self, pack_key: str, pack_version: str, key: str, schema: Dict[str, Any]
+    ) -> str:
         """The version to register a refined artifact schema at: reuse an identically-registered version (no churn),
         else bump the minor above the highest registered (a same-version body change is immutable at commit)."""
-        regs = await self.schemas.list_by_key(key)
+        regs = await self.schemas.list_by_key(pack_key, pack_version, key)
         if not regs:
             return "1.0.0"
         for r in regs:
@@ -1092,13 +1099,13 @@ class OnboardingService:
         # 2) capabilities
         _mark("capabilities", "running")
         for sc in s.staged_capabilities:
-            desc = self._capability_descriptor(sc, staged_arts)
+            desc = self._capability_descriptor(sc, staged_arts, s.basics.pack_key, s.basics.version)
             try:
                 await self.caps.insert(desc)
             except DuplicateError:
                 pass
         for ref in s.reused_capability_refs:  # re-check reuse at commit
-            ok, msg = await self._reused_ref_ok(ref)
+            ok, msg = await self._reused_ref_ok(ref, s.basics.pack_key, s.basics.version)
             if not ok:
                 _mark("capabilities", "failed", msg)
                 await self.sessions.save(s)
@@ -1312,11 +1319,11 @@ class OnboardingService:
         return sorted(out, key=lambda r: r["element_id"])
 
     # -- capability lookups (staged + reused) -- #
-    async def _reused_ref_ok(self, ref: str) -> Tuple[bool, str]:
+    async def _reused_ref_ok(self, ref: str, pack_key: str, pack_version: str) -> Tuple[bool, str]:
         if "@" not in ref:
             return False, f"'{ref}' must be '<cap-id>@<range>'"
         ref_id, spec = ref.split("@", 1)
-        versions = await self.caps.list_by_id(ref_id)
+        versions = await self.caps.list_by_id(pack_key, pack_version, ref_id)
         if not versions:
             return False, f"no capability '{ref_id}' in the catalog"
         from amendia_contracts.common import CapabilityRef
@@ -1350,7 +1357,7 @@ class OnboardingService:
             parsed = CapabilityRef.parse(ref)
         except ValueError:
             return None
-        versions = [v for v in await self.caps.list_by_id(ref_id)
+        versions = [v for v in await self.caps.list_by_id(s.basics.pack_key, s.basics.version, ref_id)
                     if v.status.value == "active" and parsed.matches(v.version)]
         if not versions:
             return None
@@ -1395,8 +1402,8 @@ class OnboardingService:
             if key in cache:
                 return cache[key]
             schema = staged_schema.get(key)
-            if schema is None:                                 # reused capability → catalog schema
-                regs = await self.schemas.list_by_key(key)
+            if schema is None:                                 # reused capability → the pack's own schema
+                regs = await self.schemas.list_by_key(s.basics.pack_key, s.basics.version, key)
                 if regs:
                     from packaging.version import Version
                     schema = max(regs, key=lambda r: Version(r.version)).json_schema
@@ -1434,8 +1441,12 @@ class OnboardingService:
             b.input_sources = merged
 
     # -- manifest composition -- #
-    def _staged_artifact_registration(self, sa: StagedArtifact) -> ArtifactSchemaRegistration:
+    def _staged_artifact_registration(
+        self, sa: StagedArtifact, pack_key: str, pack_version: str
+    ) -> ArtifactSchemaRegistration:
+        # ADR-060: STAMP the committing pack's ownership onto every schema registration.
         return ArtifactSchemaRegistration.model_validate({
+            "pack_key": pack_key, "pack_version": pack_version,
             "artifact_key": sa.artifact_key, "version": sa.version, "title": sa.title,
             "description": sa.description, "json_schema": sa.json_schema,
             "compatibility": sa.compatibility, "status": "active",
@@ -1522,7 +1533,8 @@ class OnboardingService:
         return art, cap
 
     def _capability_descriptor(
-        self, sc: StagedCapability, staged_arts: Dict[str, StagedArtifact]
+        self, sc: StagedCapability, staged_arts: Dict[str, StagedArtifact],
+        pack_key: str, pack_version: str,
     ) -> CapabilityDescriptor:
         in_ver = staged_arts[sc.input_artifact_key].version if sc.input_artifact_key in staged_arts else sc.version
         out_ver = staged_arts[sc.output_artifact_key].version if sc.output_artifact_key in staged_arts else sc.version
@@ -1539,7 +1551,10 @@ class OnboardingService:
             runtime = {"kind": "mcp", "endpoint": sc.endpoint, "tools": [sc.tool],
                        "transport": sc.transport, "headers": sc.headers}
         payload: Dict[str, Any] = {
-            "descriptor_version": "1.0", "capability_id": sc.capability_id, "version": sc.version,
+            "descriptor_version": "1.0",
+            # ADR-060: STAMP the committing pack's ownership onto every capability descriptor.
+            "pack_key": pack_key, "pack_version": pack_version,
+            "capability_id": sc.capability_id, "version": sc.version,
             "title": sc.title, "description": sc.description, "kind": sc.kind, "side_effect": sc.side_effect,
             "idempotent": sc.idempotent,
             "inputs": [{"name": sc.input_name, "schema": f"{sc.input_artifact_key}@^{in_ver}"}],
@@ -1575,22 +1590,24 @@ class OnboardingService:
         if compose_errors:
             raise TransitionError(422, {"error": "bindings_invalid", "errors": compose_errors})
 
+        # ADR-060: ownership is STAMPED from the session's target pack (the pack being committed).
+        pk, ver = s.basics.pack_key, s.basics.version
         staged_arts = {sa.artifact_key: sa for sa in s.staged_artifacts}
-        descs = [self._capability_descriptor(sc, staged_arts) for sc in s.staged_capabilities]
-        regs = [self._staged_artifact_registration(sa) for sa in s.staged_artifacts]
+        descs = [self._capability_descriptor(sc, staged_arts, pk, ver) for sc in s.staged_capabilities]
+        regs = [self._staged_artifact_registration(sa, pk, ver) for sa in s.staged_artifacts]
         reg_keys = {sa.artifact_key for sa in s.staged_artifacts}
         # ADR-050: operator-authored artifacts (human/message output shapes, etc.) are registered like any
         # staged schema and listed among the pack artifacts (their refs land via each binding's IO below).
         for sa in s.authored_artifacts:
             if sa.artifact_key not in reg_keys:
-                regs.append(self._staged_artifact_registration(sa))
+                regs.append(self._staged_artifact_registration(sa, pk, ver))
                 reg_keys.add(sa.artifact_key)
         # ADR-049: a declared trigger artifact is registered like any staged schema, listed among the pack
         # artifacts, and emitted as the pack's ProcessPack.trigger (a pinned ArtifactRef).
         trigger_ref: Optional[str] = None
         if s.trigger_artifact:
             if s.trigger_artifact.artifact_key not in reg_keys:
-                regs.append(self._staged_artifact_registration(s.trigger_artifact))
+                regs.append(self._staged_artifact_registration(s.trigger_artifact, pk, ver))
                 reg_keys.add(s.trigger_artifact.artifact_key)
             trigger_ref = f"{s.trigger_artifact.artifact_key}@^{s.trigger_artifact.version}"
 

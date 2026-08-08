@@ -80,16 +80,27 @@ class SeedLoader:
         manifest = ProcessPackManifest.model_validate(raw)
         return manifest, bpmn_path.read_text()
 
+    def _pack_coords(self) -> tuple[str, str]:
+        """ADR-060: seed JSON carries no ownership — stamp this pack's (pack_key, version) at load."""
+        raw = json.loads((self.seed_dir / "manifest.json").read_text())
+        return raw["pack_key"], raw["version"]
+
     def load_capabilities(self) -> List[CapabilityDescriptor]:
+        pk, ver = self._pack_coords()
         out = []
         for f in sorted((self.seed_dir / "capabilities").glob("*.json")):
-            out.append(CapabilityDescriptor.model_validate_json(f.read_text()))
+            doc = json.loads(f.read_text())
+            doc["pack_key"], doc["pack_version"] = pk, ver
+            out.append(CapabilityDescriptor.model_validate(doc))
         return out
 
     def load_artifact_schemas(self) -> List[ArtifactSchemaRegistration]:
+        pk, ver = self._pack_coords()
         out = []
         for f in sorted((self.seed_dir / "artifact-schemas").glob("*.json")):
-            reg = ArtifactSchemaRegistration.model_validate_json(f.read_text())
+            doc = json.loads(f.read_text())
+            doc["pack_key"], doc["pack_version"] = pk, ver
+            reg = ArtifactSchemaRegistration.model_validate(doc)
             # Meta-validate the embedded schema as a well-formed draft 2020-12 schema.
             Draft202012Validator.check_schema(reg.json_schema)
             if reg.json_schema.get("type") != "object":

@@ -44,10 +44,19 @@ def _load_samples(pack_dir: Path) -> list:
 
 
 async def _register(pack_dir: Path, cap_repo, schema_repo):
+    import json
+    # ADR-060: seed JSON carries no ownership — stamp this pack's (pack_key, version) at load so the
+    # pack-scoped validator finds the pack's own owned rows.
+    m = json.loads((pack_dir / "manifest.json").read_text())
+    pk, ver = m["pack_key"], m["version"]
     for f in sorted((pack_dir / "artifact-schemas").glob("*.json")):
-        await register_schema(ArtifactSchemaRegistration.model_validate_json(f.read_text()), schema_repo)
+        doc = json.loads(f.read_text())
+        doc["pack_key"], doc["pack_version"] = pk, ver
+        await register_schema(ArtifactSchemaRegistration.model_validate(doc), schema_repo)
     for f in sorted((pack_dir / "capabilities").glob("*.json")):
-        await cap_repo.insert(CapabilityDescriptor.model_validate_json(f.read_text()))
+        doc = json.loads(f.read_text())
+        doc["pack_key"], doc["pack_version"] = pk, ver
+        await cap_repo.insert(CapabilityDescriptor.model_validate(doc))
 
 
 @pytest.mark.parametrize("pack_dir", PACKS, ids=lambda p: p.name)

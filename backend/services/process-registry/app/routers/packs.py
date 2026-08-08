@@ -18,17 +18,20 @@ from app.dal.base import DuplicateError
 from app.dal.artifact_schema_repo import ArtifactSchemaRepository
 from app.dal.bpmn_repo import BpmnRepository
 from app.dal.capability_repo import CapabilityRepository
+from app.dal.onboarding_repo import OnboardingRepository
 from app.dal.pack_repo import ProcessPackRepository
 from app.deps import (
     get_artifact_schema_repo,
     get_bpmn_repo,
     get_capability_repo,
+    get_onboarding_repo,
     get_pack_repo,
     get_publisher,
     get_resolver,
     get_validator,
 )
 from app.services.activation import resolve_pins
+from app.services.deletion import delete_versions
 from app.services.resolver import ResolveService
 from app.validation.bpmn import compute_sha256
 from app.validation.pack_validator import PackValidator
@@ -185,6 +188,54 @@ async def rollback_pack(
     await emit_pack_lifecycle(publisher, pack_key=pack_key, version=req.to_version, op="rollback",
                               actor=getattr(actor, "amendia_user_id", "unknown"))
     return await repo.get(pack_key, req.to_version)
+
+
+# -- deletion (ADR-061): force-delete a version or the whole pack (process-owner only, audit-first) --
+@router.delete("/{pack_key}/{version}", dependencies=[_OWNER])
+async def delete_pack_version(
+    pack_key: str, version: str,
+    repo: ProcessPackRepository = Depends(get_pack_repo),
+    bpmn_repo: BpmnRepository = Depends(get_bpmn_repo),
+    cap_repo: CapabilityRepository = Depends(get_capability_repo),
+    schema_repo: ArtifactSchemaRepository = Depends(get_artifact_schema_repo),
+    onboarding_repo: OnboardingRepository = Depends(get_onboarding_repo),
+    resolver: ResolveService = Depends(get_resolver),
+    actor: AuthenticatedUser = _OWNER,
+    publisher=Depends(get_publisher),
+):
+    """ADR-061: physically remove ONE pack version and everything it owns (sidecars + ADR-060 caps/schemas +
+    committed sessions). Force-delete at any status (no deprecate-first, no liveness gate). Audit-first."""
+    manifest = await _require_pack(repo, pack_key, version)  # 404 if absent
+    return await delete_versions(
+        pack_key=pack_key, versions=[manifest],
+        actor=getattr(actor, "amendia_user_id", "unknown"), whole_pack=False,
+        pack_repo=repo, bpmn_repo=bpmn_repo, cap_repo=cap_repo, schema_repo=schema_repo,
+        onboarding_repo=onboarding_repo, publisher=publisher, resolver=resolver,
+    )
+
+
+@router.delete("/{pack_key}", dependencies=[_OWNER])
+async def delete_whole_pack(
+    pack_key: str,
+    repo: ProcessPackRepository = Depends(get_pack_repo),
+    bpmn_repo: BpmnRepository = Depends(get_bpmn_repo),
+    cap_repo: CapabilityRepository = Depends(get_capability_repo),
+    schema_repo: ArtifactSchemaRepository = Depends(get_artifact_schema_repo),
+    onboarding_repo: OnboardingRepository = Depends(get_onboarding_repo),
+    resolver: ResolveService = Depends(get_resolver),
+    actor: AuthenticatedUser = _OWNER,
+    publisher=Depends(get_publisher),
+):
+    """ADR-061: physically remove EVERY version of ``pack_key`` (one ``delete`` audit event per version)."""
+    versions = await repo.list_versions(pack_key)
+    if not versions:
+        raise HTTPException(status_code=404, detail=f"Unknown pack: {pack_key}")
+    return await delete_versions(
+        pack_key=pack_key, versions=versions,
+        actor=getattr(actor, "amendia_user_id", "unknown"), whole_pack=True,
+        pack_repo=repo, bpmn_repo=bpmn_repo, cap_repo=cap_repo, schema_repo=schema_repo,
+        onboarding_repo=onboarding_repo, publisher=publisher, resolver=resolver,
+    )
 
 
 # -- reads --

@@ -67,7 +67,8 @@ def test_e2e_manual_review_route_default_branch():
 # --------------------------------------------------------------------------- #
 def _decision_descriptor(table) -> CapabilityDescriptor:
     return CapabilityDescriptor.model_validate({
-        "descriptor_version": "1.0", "capability_id": "cap.dmn.x", "version": "1.0.0",
+        "descriptor_version": "1.0", "pack_key": "pack-dmn", "pack_version": "1.0.0",
+        "capability_id": "cap.dmn.x", "version": "1.0.0",
         "title": "x", "kind": "decision", "side_effect": "read_only",
         "inputs": [{"name": "f", "schema": "art.dmn.facts@^1.0.0"}],
         "outputs": [{"name": "decision", "schema": "art.dmn.verdict@^1.0.0"}],

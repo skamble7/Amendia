@@ -83,14 +83,30 @@ settings.SEED_DIR = settings.SEED_DIR or str(
 SEED = Path(settings.SEED_DIR)
 
 
+def _seed_coords() -> tuple[str, str]:
+    """ADR-060: the seed pack's (pack_key, version) — the ownership stamped onto its caps/schemas at load."""
+    m = json.loads((SEED / "manifest.json").read_text())
+    return m["pack_key"], m["version"]
+
+
 def load_schemas() -> List[ArtifactSchemaRegistration]:
-    return [ArtifactSchemaRegistration.model_validate_json(f.read_text())
-            for f in sorted((SEED / "artifact-schemas").glob("*.json"))]
+    pk, ver = _seed_coords()
+    regs = []
+    for f in sorted((SEED / "artifact-schemas").glob("*.json")):
+        doc = json.loads(f.read_text())
+        doc["pack_key"], doc["pack_version"] = pk, ver
+        regs.append(ArtifactSchemaRegistration.model_validate(doc))
+    return regs
 
 
 def load_capabilities() -> List[CapabilityDescriptor]:
-    return [CapabilityDescriptor.model_validate_json(f.read_text())
-            for f in sorted((SEED / "capabilities").glob("*.json"))]
+    pk, ver = _seed_coords()
+    caps = []
+    for f in sorted((SEED / "capabilities").glob("*.json")):
+        doc = json.loads(f.read_text())
+        doc["pack_key"], doc["pack_version"] = pk, ver
+        caps.append(CapabilityDescriptor.model_validate(doc))
+    return caps
 
 
 def load_manifest() -> ProcessPackManifest:
@@ -189,9 +205,10 @@ async def onboarded(cap_repo, schema_repo, pack_repo, bpmn_repo):
 
 
 @pytest_asyncio.fixture
-async def client(db, cap_repo, schema_repo, pack_repo, bpmn_repo, resolver, onboarding_service):
+async def client(db, cap_repo, schema_repo, pack_repo, bpmn_repo, resolver, onboarding_service, onboarding_repo):
     from amendia_auth import AuthContext
     from amendia_auth.settings import AuthSettings
+    from app.deps import get_onboarding_repo
 
     app = create_app()
     # Auth isn't the subject of these suites: a synthetic user with all seeded roles.
@@ -204,6 +221,7 @@ async def client(db, cap_repo, schema_repo, pack_repo, bpmn_repo, resolver, onbo
     app.dependency_overrides[get_resolver] = lambda: resolver
     app.dependency_overrides[get_validator] = lambda: PackValidator(cap_repo, schema_repo)
     app.dependency_overrides[get_onboarding_service] = lambda: onboarding_service
+    app.dependency_overrides[get_onboarding_repo] = lambda: onboarding_repo  # ADR-061 delete endpoints
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         yield ac

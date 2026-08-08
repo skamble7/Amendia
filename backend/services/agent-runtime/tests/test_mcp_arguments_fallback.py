@@ -12,7 +12,8 @@ from app.engine.executor.base import ExecutionContext
 from app.engine.executor.core import _execute_mcp_real
 
 _DESC = CapabilityDescriptor.model_validate({
-    "descriptor_version": "1.0", "capability_id": "cap.x.a", "version": "1.0.0", "title": "a",
+    "descriptor_version": "1.0", "pack_key": "pack-x", "pack_version": "1.0.0",
+    "capability_id": "cap.x.a", "version": "1.0.0", "title": "a",
     "kind": "mcp", "side_effect": "read_only",
     "inputs": [{"name": "a_in", "schema": "art.x.a_in@^1.0.0"}],
     "outputs": [{"name": "a_out", "schema": "art.x.a_out@^1.0.0"}],

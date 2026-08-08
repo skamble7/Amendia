@@ -18,8 +18,9 @@ from app.dal.capability_repo import CapabilityRepository
 from app.models.registry import ResolvedBinding, ResolvedCall, ResolvedIO, Resolution
 
 
-async def _pin_capability(repo: CapabilityRepository, ref) -> Optional[str]:
-    active = [v for v in await repo.list_by_id(ref.ref_id)
+async def _pin_capability(repo: CapabilityRepository, pack_key: str, pack_version: str, ref) -> Optional[str]:
+    # ADR-060: a pack resolves refs only against its OWN owned capabilities.
+    active = [v for v in await repo.list_by_id(pack_key, pack_version, ref.ref_id)
               if v.status.value == "active" and ref.matches(v.version)]
     if not active:
         return None
@@ -37,8 +38,9 @@ async def _pin_pack(pack_repo: Any, pack_key: str, spec: str) -> Optional[str]:
     return max(active, key=lambda m: Version(m.version)).version
 
 
-async def _pin_artifact(repo: ArtifactSchemaRepository, ref) -> Optional[str]:
-    active = [v for v in await repo.list_by_key(ref.ref_id)
+async def _pin_artifact(repo: ArtifactSchemaRepository, pack_key: str, pack_version: str, ref) -> Optional[str]:
+    # ADR-060: a pack resolves refs only against its OWN owned schemas.
+    active = [v for v in await repo.list_by_key(pack_key, pack_version, ref.ref_id)
               if v.status.value == "active" and ref.matches(v.version)]
     if not active:
         return None
@@ -55,17 +57,19 @@ async def resolve_pins(
 ) -> Tuple[Resolution, Dict[str, str]]:
     caps: Dict[str, str] = {}
     arts: Dict[str, str] = {}
+    # ADR-060: pins are computed only from the pack's OWN owned rows (its coords stamp every read).
+    pack_key, pack_version = manifest.pack_key, manifest.version
 
     async def pin_cap(ref) -> Optional[str]:
         if ref.ref_id not in caps:
-            v = await _pin_capability(cap_repo, ref)
+            v = await _pin_capability(cap_repo, pack_key, pack_version, ref)
             if v is not None:
                 caps[ref.ref_id] = v
         return caps.get(ref.ref_id)
 
     async def pin_art(ref) -> Optional[str]:
         if ref.ref_id not in arts:
-            v = await _pin_artifact(schema_repo, ref)
+            v = await _pin_artifact(schema_repo, pack_key, pack_version, ref)
             if v is not None:
                 arts[ref.ref_id] = v
         return arts.get(ref.ref_id)

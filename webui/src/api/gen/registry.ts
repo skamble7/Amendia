@@ -21,57 +21,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/artifact-schemas/{artifact_key}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List Artifact Schema Versions */
-        get: operations["list_artifact_schema_versions_artifact_schemas__artifact_key__get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/artifact-schemas/{artifact_key}/{version}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get Artifact Schema */
-        get: operations["get_artifact_schema_artifact_schemas__artifact_key___version__get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/artifact-schemas/{artifact_key}/{version}/deprecate": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Deprecate Artifact Schema */
-        post: operations["deprecate_artifact_schema_artifact_schemas__artifact_key___version__deprecate_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/capabilities": {
         parameters: {
             query?: never;
@@ -101,57 +50,6 @@ export interface paths {
         put?: never;
         /** Introspect Mcp */
         post: operations["introspect_mcp_capabilities_introspect_mcp_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/capabilities/{capability_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List Capability Versions */
-        get: operations["list_capability_versions_capabilities__capability_id__get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/capabilities/{capability_id}/{version}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get Capability */
-        get: operations["get_capability_capabilities__capability_id___version__get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/capabilities/{capability_id}/{version}/deprecate": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Deprecate Capability */
-        post: operations["deprecate_capability_capabilities__capability_id___version__deprecate_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -488,7 +386,11 @@ export interface paths {
         get: operations["list_pack_versions_packs__pack_key__get"];
         put?: never;
         post?: never;
-        delete?: never;
+        /**
+         * Delete Whole Pack
+         * @description ADR-061: physically remove EVERY version of ``pack_key`` (one ``delete`` audit event per version).
+         */
+        delete: operations["delete_whole_pack_packs__pack_key__delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -516,6 +418,149 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/packs/{pack_key}/{pack_version}/artifact-schemas": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Pack Artifact Schemas
+         * @description ADR-060 D3 / ADR-061 Phase 4: every artifact schema THIS pack version owns, reached structurally.
+         */
+        get: operations["list_pack_artifact_schemas_packs__pack_key___pack_version__artifact_schemas_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/packs/{pack_key}/{pack_version}/artifact-schemas/{artifact_key}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Artifact Schema Versions */
+        get: operations["list_artifact_schema_versions_packs__pack_key___pack_version__artifact_schemas__artifact_key__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/packs/{pack_key}/{pack_version}/artifact-schemas/{artifact_key}/{version}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Artifact Schema */
+        get: operations["get_artifact_schema_packs__pack_key___pack_version__artifact_schemas__artifact_key___version__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/packs/{pack_key}/{pack_version}/artifact-schemas/{artifact_key}/{version}/deprecate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Deprecate Artifact Schema */
+        post: operations["deprecate_artifact_schema_packs__pack_key___pack_version__artifact_schemas__artifact_key___version__deprecate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/packs/{pack_key}/{pack_version}/capabilities": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Pack Capabilities
+         * @description ADR-060 D3 / ADR-061 Phase 4: every capability THIS pack version owns, reached structurally (not a
+         *     query-param browse). The empty catalog is a valid 200 — an empty list.
+         */
+        get: operations["list_pack_capabilities_packs__pack_key___pack_version__capabilities_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/packs/{pack_key}/{pack_version}/capabilities/{capability_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Capability Versions */
+        get: operations["list_capability_versions_packs__pack_key___pack_version__capabilities__capability_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/packs/{pack_key}/{pack_version}/capabilities/{capability_id}/{version}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Capability */
+        get: operations["get_capability_packs__pack_key___pack_version__capabilities__capability_id___version__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/packs/{pack_key}/{pack_version}/capabilities/{capability_id}/{version}/deprecate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Deprecate Capability */
+        post: operations["deprecate_capability_packs__pack_key___pack_version__capabilities__capability_id___version__deprecate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/packs/{pack_key}/{version}": {
         parameters: {
             query?: never;
@@ -527,7 +572,12 @@ export interface paths {
         get: operations["get_pack_packs__pack_key___version__get"];
         put?: never;
         post?: never;
-        delete?: never;
+        /**
+         * Delete Pack Version
+         * @description ADR-061: physically remove ONE pack version and everything it owns (sidecars + ADR-060 caps/schemas +
+         *     committed sessions). Force-delete at any status (no deprecate-first, no liveness gate). Audit-first.
+         */
+        delete: operations["delete_pack_version_packs__pack_key___version__delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -724,6 +774,10 @@ export interface components {
             json_schema: {
                 [key: string]: unknown;
             };
+            /** Pack Key */
+            pack_key: string;
+            /** Pack Version */
+            pack_version: string;
             status: components["schemas"]["ArtifactStatus"];
             /** Tags */
             tags?: string[] | null;
@@ -1037,6 +1091,10 @@ export interface components {
             outputs: components["schemas"]["SchemaIO"][];
             /** Owner */
             owner?: string | null;
+            /** Pack Key */
+            pack_key: string;
+            /** Pack Version */
+            pack_version: string;
             /** Runtime */
             runtime: components["schemas"]["SkillRuntime"] | components["schemas"]["McpRuntime"] | components["schemas"]["LlmRuntime"] | components["schemas"]["DeepAgentRuntime"] | components["schemas"]["DecisionRuntime"] | components["schemas"]["ReduceRuntime"];
             side_effect: components["schemas"]["SideEffect"];
@@ -2537,6 +2595,8 @@ export interface operations {
     list_artifact_schemas_artifact_schemas_get: {
         parameters: {
             query?: {
+                pack_key?: string | null;
+                pack_version?: string | null;
                 status?: string | null;
                 limit?: number;
                 offset?: number;
@@ -2600,104 +2660,11 @@ export interface operations {
             };
         };
     };
-    list_artifact_schema_versions_artifact_schemas__artifact_key__get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                artifact_key: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ArtifactSchemaRegistration"][];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    get_artifact_schema_artifact_schemas__artifact_key___version__get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                artifact_key: string;
-                version: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ArtifactSchemaRegistration"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    deprecate_artifact_schema_artifact_schemas__artifact_key___version__deprecate_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                artifact_key: string;
-                version: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ArtifactSchemaRegistration"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
     list_capabilities_capabilities_get: {
         parameters: {
             query?: {
+                pack_key?: string | null;
+                pack_version?: string | null;
                 status?: string | null;
                 kind?: string | null;
                 /** @description free-text substring over capability_id + title */
@@ -2784,101 +2751,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["IntrospectMcpResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    list_capability_versions_capabilities__capability_id__get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                capability_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["CapabilityDescriptor"][];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    get_capability_capabilities__capability_id___version__get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                capability_id: string;
-                version: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["CapabilityDescriptor"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    deprecate_capability_capabilities__capability_id___version__deprecate_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                capability_id: string;
-                version: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["CapabilityDescriptor"];
                 };
             };
             /** @description Validation Error */
@@ -3567,6 +3439,37 @@ export interface operations {
             };
         };
     };
+    delete_whole_pack_packs__pack_key__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                pack_key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     rollback_pack_packs__pack_key__rollback_post: {
         parameters: {
             query?: never;
@@ -3602,6 +3505,272 @@ export interface operations {
             };
         };
     };
+    list_pack_artifact_schemas_packs__pack_key___pack_version__artifact_schemas_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                pack_key: string;
+                pack_version: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ArtifactSchemaRegistration"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_artifact_schema_versions_packs__pack_key___pack_version__artifact_schemas__artifact_key__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                pack_key: string;
+                pack_version: string;
+                artifact_key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ArtifactSchemaRegistration"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_artifact_schema_packs__pack_key___pack_version__artifact_schemas__artifact_key___version__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                pack_key: string;
+                pack_version: string;
+                artifact_key: string;
+                version: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ArtifactSchemaRegistration"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    deprecate_artifact_schema_packs__pack_key___pack_version__artifact_schemas__artifact_key___version__deprecate_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                pack_key: string;
+                pack_version: string;
+                artifact_key: string;
+                version: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ArtifactSchemaRegistration"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_pack_capabilities_packs__pack_key___pack_version__capabilities_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                pack_key: string;
+                pack_version: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CapabilityDescriptor"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_capability_versions_packs__pack_key___pack_version__capabilities__capability_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                pack_key: string;
+                pack_version: string;
+                capability_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CapabilityDescriptor"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_capability_packs__pack_key___pack_version__capabilities__capability_id___version__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                pack_key: string;
+                pack_version: string;
+                capability_id: string;
+                version: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CapabilityDescriptor"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    deprecate_capability_packs__pack_key___pack_version__capabilities__capability_id___version__deprecate_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                pack_key: string;
+                pack_version: string;
+                capability_id: string;
+                version: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CapabilityDescriptor"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_pack_packs__pack_key___version__get: {
         parameters: {
             query?: never;
@@ -3621,6 +3790,38 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ProcessPackManifest-Output"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_pack_version_packs__pack_key___version__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                pack_key: string;
+                version: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
             /** @description Validation Error */

@@ -20,6 +20,9 @@ interface Props {
  * Falls back to names + the debug-API note when the runtime debug API is off.
  */
 export function ArtifactAccordion({ instance, artifacts, schemaByArtifact, producerByArtifactName }: Props) {
+  // ADR-060: artifact schemas are read pack-scoped — the owning pack is the instance's pack.
+  const packKey = instance.instance.pack_key;
+  const packVersion = instance.instance.pack_version;
   const [open, setOpen] = useState<Set<string>>(new Set()); // collapsed by default
   const names = artifacts ? Object.keys(artifacts) : [];
 
@@ -98,6 +101,8 @@ export function ArtifactAccordion({ instance, artifacts, schemaByArtifact, produ
                     name={name}
                     data={artifacts[name] as Record<string, unknown>}
                     schemaRef={schemaRef}
+                    packKey={packKey}
+                    packVersion={packVersion}
                   />
                 </div>
               ) : null}

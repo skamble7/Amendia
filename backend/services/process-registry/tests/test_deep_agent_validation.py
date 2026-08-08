@@ -22,7 +22,8 @@ AGENTIC_SEED = Path(__file__).resolve().parents[2] / "agent-runtime" / "seed" / 
 
 def _agentic_descriptor(*, side_effect="read_only", tools=None) -> CapabilityDescriptor:
     return CapabilityDescriptor.model_validate({
-        "descriptor_version": "1.0", "capability_id": _CAP, "version": "1.0.0",
+        "descriptor_version": "1.0", "pack_key": "wire-repair-standard", "pack_version": "1.0.0",
+        "capability_id": _CAP, "version": "1.0.0",
         "title": "Assess (agentic)", "kind": "deep_agent", "side_effect": side_effect,
         "idempotent": True,
         "inputs": [{"name": "dossier", "schema": "art.payment.enrich_investigation_output@^1.0.0"}],
@@ -42,8 +43,14 @@ _TOOL_CAPS = ("cap.payment.name_match", "cap.payment.search_payment_history")
 
 
 def _tool_cap_descriptors() -> list:
-    return [CapabilityDescriptor.model_validate_json((AGENTIC_SEED / "capabilities" / f"{c}.json").read_text())
-            for c in _TOOL_CAPS]
+    # ADR-060: these tool caps are registered alongside the wire-repair-standard manifest under validation, so
+    # stamp them with THAT pack's coords (the validator reads scoped to the manifest's pack).
+    out = []
+    for c in _TOOL_CAPS:
+        doc = json.loads((AGENTIC_SEED / "capabilities" / f"{c}.json").read_text())
+        doc["pack_key"], doc["pack_version"] = "wire-repair-standard", "1.0.0"
+        out.append(CapabilityDescriptor.model_validate(doc))
+    return out
 
 
 def _manifest_binding_agentic(**over) -> dict:

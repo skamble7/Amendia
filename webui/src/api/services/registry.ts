@@ -121,6 +121,28 @@ export function rollbackPack(packKey: string, toVersion: string): Promise<Proces
   return request<ProcessPackManifest>("registry", `/packs/${packKey}/rollback`, { method: "POST", body: { to_version: toVersion } });
 }
 
+// ADR-061: clean pack deletion. The summary the backend returns for both the single-version and the
+// whole-pack DELETE (response schema is an untyped dict server-side, so it's hand-kept here).
+export interface PackVersionPurge {
+  version: string;
+  status_at_delete: string;
+  purged: Record<string, number>;
+}
+export interface PackDeleteSummary {
+  pack_key: string;
+  whole_pack: boolean;
+  deleted_versions: string[];
+  versions: PackVersionPurge[];
+}
+// Delete ONE pack version (404 if absent). Owner-gated server-side (role.process.owner).
+export function deletePackVersion(packKey: string, version: string): Promise<PackDeleteSummary> {
+  return request<PackDeleteSummary>("registry", `/packs/${packKey}/${version}`, { method: "DELETE" });
+}
+// Delete EVERY version of a pack (404 if no such pack). Owner-gated server-side.
+export function deletePack(packKey: string): Promise<PackDeleteSummary> {
+  return request<PackDeleteSummary>("registry", `/packs/${packKey}`, { method: "DELETE" });
+}
+
 // ---------------- Capabilities ----------------
 
 export interface CapabilityFilters {
@@ -129,18 +151,29 @@ export interface CapabilityFilters {
   q?: string;              // free-text substring over capability_id + title (on-demand reuse search)
   limit?: number;
   offset?: number;
+  // ADR-060: the browse list now returns all owned rows; these narrow it to one pack's owned capabilities.
+  pack_key?: string;
+  pack_version?: string;
 }
 
 export function listCapabilities(filters: CapabilityFilters = {}, signal?: AbortSignal): Promise<CapabilityDescriptor[]> {
   return request<CapabilityDescriptor[]>("registry", "/capabilities", { query: { ...filters }, signal });
 }
 
-export function getCapabilityVersions(id: string, signal?: AbortSignal): Promise<CapabilityDescriptor[]> {
-  return request<CapabilityDescriptor[]>("registry", `/capabilities/${id}`, { signal });
+// ADR-061 Phase 4: a pack version's OWNED capabilities via the NESTED collection route (not the
+// query-param browse). This is the pack-detail catalog read.
+export function listPackCapabilities(packKey: string, packVersion: string, signal?: AbortSignal): Promise<CapabilityDescriptor[]> {
+  return request<CapabilityDescriptor[]>("registry", `/packs/${packKey}/${packVersion}/capabilities`, { signal });
 }
 
-export function getCapability(id: string, version: string, signal?: AbortSignal): Promise<CapabilityDescriptor> {
-  return request<CapabilityDescriptor>("registry", `/capabilities/${id}/${version}`, { signal });
+// ADR-060: capability reads are PACK-SCOPED — a pack owns its capabilities, so the owning pack's
+// coordinates are part of the route.
+export function getCapabilityVersions(packKey: string, packVersion: string, id: string, signal?: AbortSignal): Promise<CapabilityDescriptor[]> {
+  return request<CapabilityDescriptor[]>("registry", `/packs/${packKey}/${packVersion}/capabilities/${id}`, { signal });
+}
+
+export function getCapability(packKey: string, packVersion: string, id: string, version: string, signal?: AbortSignal): Promise<CapabilityDescriptor> {
+  return request<CapabilityDescriptor>("registry", `/packs/${packKey}/${packVersion}/capabilities/${id}/${version}`, { signal });
 }
 
 // ---------------- Artifact schemas ----------------
@@ -149,18 +182,27 @@ export interface ArtifactSchemaFilters {
   status?: string;
   limit?: number;
   offset?: number;
+  // ADR-060: narrow the owned-rows browse to a single pack's owned artifact schemas.
+  pack_key?: string;
+  pack_version?: string;
 }
 
 export function listArtifactSchemas(filters: ArtifactSchemaFilters = {}, signal?: AbortSignal): Promise<ArtifactSchemaRegistration[]> {
   return request<ArtifactSchemaRegistration[]>("registry", "/artifact-schemas", { query: { ...filters }, signal });
 }
 
-export function getArtifactSchemaVersions(key: string, signal?: AbortSignal): Promise<ArtifactSchemaRegistration[]> {
-  return request<ArtifactSchemaRegistration[]>("registry", `/artifact-schemas/${key}`, { signal });
+// ADR-061 Phase 4: a pack version's OWNED artifact schemas via the NESTED collection route.
+export function listPackArtifactSchemas(packKey: string, packVersion: string, signal?: AbortSignal): Promise<ArtifactSchemaRegistration[]> {
+  return request<ArtifactSchemaRegistration[]>("registry", `/packs/${packKey}/${packVersion}/artifact-schemas`, { signal });
 }
 
-export function getArtifactSchema(key: string, version: string, signal?: AbortSignal): Promise<ArtifactSchemaRegistration> {
-  return request<ArtifactSchemaRegistration>("registry", `/artifact-schemas/${key}/${version}`, { signal });
+// ADR-060: artifact-schema reads are PACK-SCOPED — the owning pack's coordinates are part of the route.
+export function getArtifactSchemaVersions(packKey: string, packVersion: string, key: string, signal?: AbortSignal): Promise<ArtifactSchemaRegistration[]> {
+  return request<ArtifactSchemaRegistration[]>("registry", `/packs/${packKey}/${packVersion}/artifact-schemas/${key}`, { signal });
+}
+
+export function getArtifactSchema(packKey: string, packVersion: string, key: string, version: string, signal?: AbortSignal): Promise<ArtifactSchemaRegistration> {
+  return request<ArtifactSchemaRegistration>("registry", `/packs/${packKey}/${packVersion}/artifact-schemas/${key}/${version}`, { signal });
 }
 
 // ---------------- Resolve ----------------

@@ -42,6 +42,7 @@ class PackLifecycleOp(str, Enum):
     PUBLISH = "publish"
     DEPRECATE = "deprecate"
     ROLLBACK = "rollback"
+    DELETE = "delete"                              # ADR-061: force-delete a pack version / whole pack (audit-first)
 
 
 # --------------------------------------------------------------------------- #

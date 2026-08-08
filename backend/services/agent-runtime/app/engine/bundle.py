@@ -87,10 +87,16 @@ class PackBundle:
         if errors:
             raise ValueError(f"seed BPMN did not parse cleanly: {[f.code for f in errors]}")
 
+        # ADR-060: seed JSON carries no ownership — stamp this seed pack's (pack_key, version) coords at load,
+        # so a bundle built from the seed dir mirrors what the pack-owned registry produces.
+        pack_key, pack_version = manifest.pack_key, manifest.version
         descriptors: Dict[str, CapabilityDescriptor] = {}
         cap_versions: Dict[str, str] = {}
         for path in sorted((root / "capabilities").glob("*.json")):
-            d = CapabilityDescriptor.model_validate(json.loads(path.read_text()))
+            doc = json.loads(path.read_text())
+            doc.setdefault("pack_key", pack_key)
+            doc.setdefault("pack_version", pack_version)
+            d = CapabilityDescriptor.model_validate(doc)
             descriptors[d.capability_id] = d
             cap_versions[d.capability_id] = d.version
 

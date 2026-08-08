@@ -49,3 +49,11 @@ class OnboardingRepository:
     async def delete(self, session_id: str) -> bool:
         res = await self._coll.delete_one({"session_id": session_id})
         return res.deleted_count > 0
+
+    async def delete_for_pack(self, pack_key: str, version: Optional[str] = None) -> int:
+        """ADR-061: purge onboarding sessions authoring the deleted pack (matched on the target pack coords
+        stored under ``basics``). ``version`` None → every version of the pack. Idempotent."""
+        q: dict = {"basics.pack_key": pack_key}
+        if version is not None:
+            q["basics.version"] = version
+        return (await self._coll.delete_many(q)).deleted_count

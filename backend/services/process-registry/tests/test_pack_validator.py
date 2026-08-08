@@ -131,7 +131,7 @@ async def test_unknown_capability(registered, validator):
 
 
 async def test_only_deprecated_versions_in_range(registered, validator, cap_repo):
-    await cap_repo.set_status("cap.payment.sanctions_screen", "1.0.0", "deprecated")
+    await cap_repo.set_status("wire-repair-standard", "1.0.0", "cap.payment.sanctions_screen", "1.0.0", "deprecated")
     report = await _validate(validator, build(manifest_dict()))
     assert "capability_only_deprecated" in _errs(report)
 

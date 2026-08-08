@@ -104,7 +104,9 @@ def create_app() -> FastAPI:
     guarded = [Depends(principal_or_internal)]
     app.include_router(health.router)
     app.include_router(capabilities.router, dependencies=guarded)
+    app.include_router(capabilities.pack_router, dependencies=guarded)  # ADR-060 pack-scoped reads
     app.include_router(artifact_schemas.router, dependencies=guarded)
+    app.include_router(artifact_schemas.pack_router, dependencies=guarded)  # ADR-060 pack-scoped reads
     app.include_router(packs.router, dependencies=guarded)
     app.include_router(resolve.router, dependencies=guarded)
     app.include_router(roles.router, dependencies=guarded)

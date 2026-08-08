@@ -26,7 +26,8 @@ def _good_config():
 
 def _reduce_descriptor(config=None) -> CapabilityDescriptor:
     return CapabilityDescriptor.model_validate({
-        "descriptor_version": "1.0", "capability_id": _CAP, "version": "1.0.0",
+        "descriptor_version": "1.0", "pack_key": "wire-repair-screening", "pack_version": "1.0.0",
+        "capability_id": _CAP, "version": "1.0.0",
         "title": "reduce hits", "kind": "reduce", "side_effect": "read_only", "idempotent": True,
         "inputs": [{"name": "screening", "schema": "art.screening.screen_party_output@^1.0.0"}],
         "outputs": [{"name": "summary", "schema": "art.screening.summary@^1.0.0"}],
@@ -38,11 +39,16 @@ def _reduce_descriptor(config=None) -> CapabilityDescriptor:
 
 @pytest.fixture
 async def registered_screening(cap_repo, schema_repo):
+    import json
     from app.services.registration import register_schema
+    # ADR-060: stamp the screening pack's coords at load so the pack-scoped validator finds them.
     for f in sorted((SCREENING / "artifact-schemas").glob("*.json")):
-        await register_schema(ArtifactSchemaRegistration.model_validate_json(f.read_text()), schema_repo)
-    await cap_repo.insert(CapabilityDescriptor.model_validate_json(
-        (SCREENING / "capabilities" / "cap.screening.screen_party.json").read_text()))
+        doc = json.loads(f.read_text())
+        doc["pack_key"], doc["pack_version"] = "wire-repair-screening", "1.0.0"
+        await register_schema(ArtifactSchemaRegistration.model_validate(doc), schema_repo)
+    cdoc = json.loads((SCREENING / "capabilities" / "cap.screening.screen_party.json").read_text())
+    cdoc["pack_key"], cdoc["pack_version"] = "wire-repair-screening", "1.0.0"
+    await cap_repo.insert(CapabilityDescriptor.model_validate(cdoc))
 
     async def _register_reduce(config=None):
         await cap_repo.insert(_reduce_descriptor(config))

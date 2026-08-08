@@ -246,7 +246,8 @@ class Reconciler:
         human_arts = self._derive_human_artifacts(bindable)
         self._human_artifact_versions = {}
         for key, (title, schema) in human_arts.items():
-            version = await self._resolve_artifact_version(key, schema)
+            version = await self._resolve_artifact_version(
+                session.basics.pack_key, session.basics.version, key, schema)
             self._human_artifact_versions[key] = version
             session = await self.svc.declare_artifact(sid, DeclareArtifactRequest(
                 artifact_key=key, version=version, title=title, json_schema=schema), owner=self.owner)
@@ -656,12 +657,16 @@ class Reconciler:
                 "required": req,
                 "$schema": "https://json-schema.org/draft/2020-12/schema"}
 
-    async def _resolve_artifact_version(self, key: str, schema: Dict[str, Any]) -> str:
+    async def _resolve_artifact_version(
+        self, pack_key: str, pack_version: str, key: str, schema: Dict[str, Any]
+    ) -> str:
         """The version to register a re-derived artifact schema at. Nothing registered at this key yet → 1.0.0. An
         already-registered version carries an IDENTICAL schema → reuse it (unchanged schemas don't churn). Otherwise
         the schema changed → bump the minor above the highest registered version, so a same-domain re-onboard adopts
-        the improvement (the commit keeps same key+version immutable, so a differing body must go to a new version)."""
-        regs = await self.svc.schemas.list_by_key(key)
+        the improvement (the commit keeps same key+version immutable, so a differing body must go to a new version).
+
+        ADR-060: reads are scoped to the pack being built (a pack only sees its own owned schemas)."""
+        regs = await self.svc.schemas.list_by_key(pack_key, pack_version, key)
         if not regs:
             return _ARTIFACT_VERSION
         for r in regs:

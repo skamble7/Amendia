@@ -41,7 +41,7 @@ function stubCore() {
     http.get(`${R}/instances/PI-TEST-1`, () => HttpResponse.json(synthInstanceDetail())),
     http.get(`${R}/instances/PI-TEST-1/state`, () => HttpResponse.json(stateWithThing)),
     http.get(`${REG}/packs/:key/:version`, () => HttpResponse.json(packWithOutput)),
-    http.get(`${REG}/artifact-schemas/:key/:version`, () => HttpResponse.json({ json_schema: TEST_SCHEMA })),
+    http.get(`${REG}/packs/:pack_key/:pack_version/artifact-schemas/:key/:version`, () => HttpResponse.json({ json_schema: TEST_SCHEMA })),
   );
 }
 
