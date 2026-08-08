@@ -55,12 +55,16 @@ class DispatchService:
         dispatch_repo,
         store_client: TriggerStoreClient,
         publisher,
+        cohort_service=None,
     ) -> None:
         self._engine = engine
         self._instances = instance_repo
         self._dispatch_log = dispatch_repo
         self._store = store_client
         self._publisher = publisher
+        # ADR-063 Phase 1: optional — when absent (unit tests without the cohort substrate) join-on-spawn is
+        # simply skipped and every segment runs standalone, exactly as before.
+        self._cohorts = cohort_service
         self._tasks: Set[asyncio.Task] = set()
 
     async def handle(self, payload: Dict[str, Any], routing_key: str = "") -> None:
@@ -146,7 +150,36 @@ class DispatchService:
             return
 
         await self._accept(event, pid, correlation_id)
+        # ADR-063 Phase 1: join-on-spawn. Purely observational — a cohort failure must NEVER break the segment's
+        # dispatch/execution, so the whole block is fail-soft and always falls through to engine.start.
+        await self._maybe_join_cohort(instance, bundle, envelope_doc)
         self._spawn(self._engine.start(instance, envelope_doc))
+
+    async def _maybe_join_cohort(self, instance: ProcessInstance, bundle: Any, envelope_doc: Any) -> None:
+        """If the pack declares a ``cohort_membership``, resolve the correlation value from the trigger and
+        join (open) the cohort, stamping the cohort backlink onto the instance so engine.start can carry it
+        onto the root span. Absent membership / absent key → standalone segment. Never raises."""
+        if self._cohorts is None:
+            return
+        membership = getattr(getattr(bundle, "manifest", None), "cohort_membership", None)
+        if membership is None:
+            return
+        try:
+            cohort = await self._cohorts.join_on_spawn(instance, membership, envelope_doc)
+            if cohort is None:
+                return  # graceful non-membership (correlation_key absent) — runs standalone
+            instance.cohort_instance_id = cohort.cohort_instance_id
+            instance.cohort_def_id = cohort.cohort_def_id
+            instance.cohort_correlation_value = cohort.correlation_value
+            await self._instances.update_fields(
+                instance.process_instance_id,
+                cohort_instance_id=cohort.cohort_instance_id,
+                cohort_def_id=cohort.cohort_def_id,
+                cohort_correlation_value=cohort.correlation_value,
+            )
+        except Exception as exc:  # noqa: BLE001 — the segment is the product; the cohort is observation
+            logger.warning("cohort join failed for %s (segment continues standalone): %s",
+                           instance.process_instance_id, exc)
 
     # ------------------------------------------------------------------ #
     def _spawn(self, coro) -> None:

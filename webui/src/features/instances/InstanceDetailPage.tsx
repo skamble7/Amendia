@@ -20,6 +20,7 @@ import {
   usePack,
   useTraceTree,
 } from "./queries";
+import { CohortBacklink } from "@/features/cohorts/CohortBacklink";
 import { InstanceHeader } from "./components/InstanceHeader";
 import { KpiStrip } from "./components/KpiStrip";
 import { ActivityFeed } from "./components/ActivityFeed";
@@ -111,6 +112,9 @@ export function InstanceDetailPage() {
           <ArrowLeft className="size-4" /> Instances
         </Link>
       </div>
+
+      {/* ADR-063 Phase 3B: cohort backlink — renders only when this instance joined a cohort. */}
+      <CohortBacklink instance={instance} />
 
       <InstanceHeader
         instance={instance}

@@ -9,11 +9,16 @@ from __future__ import annotations
 
 import json
 import logging
+import uuid
+from datetime import datetime, timezone
+from typing import Optional
 
 import aio_pika
 from aio_pika import DeliveryMode, ExchangeType, Message
 
 from amendia_common.events import EXCHANGE
+from amendia_contracts.dispatch import Trace
+from amendia_contracts.governance_events import CohortLifecycleEvent, CohortLifecycleOp
 
 logger = logging.getLogger(__name__)
 
@@ -59,3 +64,26 @@ class RabbitPublisher:
         self._connection = None
         self._channel = None
         self._exchange = None
+
+
+async def emit_cohort_lifecycle(
+    publisher, *, op: str, cohort_def_id: str, cohort_instance_id: str, correlation_value: str,
+    process_instance_id: Optional[str] = None, pack_key: Optional[str] = None,
+    pack_version: Optional[str] = None, close_outcome: Optional[str] = None,
+    detail: Optional[str] = None, trace: Optional[Trace] = None,
+) -> None:
+    """ADR-063 — publish a CohortLifecycleEvent (opened / member_joined / late_join / closing / closed).
+    Fail-soft (mirrors process-registry's ``emit_pack_lifecycle``): a broker hiccup never breaks the segment's
+    dispatch/execution — the cohort is observation, the segment is the product."""
+    if publisher is None or not getattr(publisher, "is_ready", False):
+        return
+    try:
+        ev = CohortLifecycleEvent(
+            event_id=uuid.uuid4().hex, occurred_at=datetime.now(timezone.utc),
+            op=CohortLifecycleOp(op), cohort_def_id=cohort_def_id, cohort_instance_id=cohort_instance_id,
+            correlation_value=correlation_value, process_instance_id=process_instance_id, pack_key=pack_key,
+            pack_version=pack_version, close_outcome=close_outcome, detail=detail, trace=trace,
+        )
+        await publisher.publish(ev.to_doc(), ev.routing_key(), ev.event_id)
+    except Exception as exc:  # noqa: BLE001 — cohort observation must never break execution
+        logger.warning("failed to publish CohortLifecycleEvent (%s %s): %s", op, cohort_instance_id, exc)

@@ -71,6 +71,34 @@ Status legend: `open` · `investigating` · `fix-prompted` · `done` · `wontfix
   packs and cut against domain-neutrality. The CB-3 rename already neutralized the vocabulary, so the fallback is
   a clean, supported path — not residue. Not pursuing. Re-open only if the onboarding contract is revisited.
 
+## CB-5 — webui generated API types need re-sync (`npm run gen:api`) — **OPEN (operational)**
+
+- **Area:** webui · `src/api/gen/*` (OpenAPI-generated types).
+- **Context:** ADR-063 Phase 2 + Phase 3A/3B re-dumped several OpenAPI snapshots (registry cohort-definition +
+  membership routes, `/resolve` discriminated `kind`, `/packs/{key}/{ver}/trigger-fields`, the instance
+  cohort-backlink fields). CC regenerated `gen/registry.ts` **offline** so `tsc` is clean, but
+  `npm run gen:api:check` regenerates **all** services and needs the live compose stack — so the generated
+  types can drift from the running APIs until a full regen is run against the stack.
+- **Severity:** low (build/DX only; typecheck currently passes on the offline-regenerated registry types).
+- **Action (operator, needs the stack up):** `cd webui && npm run gen:api && git add src/api/gen`, then confirm
+  `npm run gen:api:check` is green. Not a code change. (Related, separate operator step: rebuild
+  `process-registry` after commit so the wire-screen type-compat guard — Fix 2, still uncommitted — goes live.)
+- **Status:** `open` (operational; clears once run against the stack).
+
+## CB-6 — Cohort membership stamped in-place vs version-gated — **OPEN (decision)**
+
+- **Area:** process-registry · `PUT/DELETE /packs/{pack_key}/{version}/cohort-membership` (ADR-063 Phase 2).
+- **Context:** assigning/clearing a pack's `cohort_membership` mutates that pack version's stored manifest
+  **in place** — no new pack version is cut. Rationale taken during Phase 2: membership is additive
+  **observational** metadata that does not change execution, so it doesn't warrant a version bump. The
+  trade-off is that it mutates the manifest of an already-active pack version.
+- **Decision needed (Sandeep's call):** keep **in-place** (current, simplest) OR make membership changes
+  **version-gated** (clone-to-new-version, à la ADR-056 pack-config editing) if pack manifests must be
+  immutable once active. Default = keep in-place unless manifest immutability is a hard requirement.
+- **Severity:** low (no functional problem today; a governance/immutability preference).
+- **Status:** `open` (decision; not blocking).
+
 ---
 
-*Started 2026-08-08 during ADR-061 review. CB-1/CB-2/CB-3 closed 2026-08-08. Owner: Sandeep.*
+*Started 2026-08-08 during ADR-061 review. CB-1/CB-2/CB-3 closed and CB-4 parked 2026-08-08.
+CB-5 (operational) + CB-6 (decision) opened 2026-08-08. Owner: Sandeep.*

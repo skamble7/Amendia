@@ -93,6 +93,12 @@ class FakeRepository:
             expected={IngestionStatus.RECEIVED}, detail=detail, no_match=no_match,
         )
 
+    async def mark_cohort_close(self, trigger_id, *, cohort_close, detail=None):
+        return self._transition(
+            trigger_id, IngestionStatus.COHORT_CLOSE,
+            expected={IngestionStatus.RECEIVED}, detail=detail, cohort_close=cohort_close,
+        )
+
     async def mark_accepted(self, trigger_id, *, process_instance_id, detail=None):
         return self._transition(
             trigger_id, IngestionStatus.ACCEPTED,

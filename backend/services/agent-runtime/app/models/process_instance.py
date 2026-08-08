@@ -51,6 +51,13 @@ class ProcessInstance(ContractModel):
     outcome: Optional[str] = None
     last_error: Optional[str] = None
     artifact_names: List[str] = Field(default_factory=list)
+    # ADR-063 Phase 1: cohort backlink (set on join-on-spawn; absent for a standalone segment). These are a
+    # DIFFERENT concept from ``correlation_id`` above — that is the OTel/trace handle; these tie this segment
+    # to the cross-system case's cohort. Persisted so engine.start can stamp the root span and Phase 3 can
+    # backlink the instance to its cohort.
+    cohort_instance_id: Optional[str] = None
+    cohort_def_id: Optional[str] = None
+    cohort_correlation_value: Optional[str] = None
     created_at: datetime = Field(default_factory=utcnow)
     updated_at: datetime = Field(default_factory=utcnow)
 

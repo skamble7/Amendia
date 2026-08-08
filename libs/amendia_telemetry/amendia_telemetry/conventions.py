@@ -17,6 +17,13 @@ PROCESS_INSTANCE_ID = "amendia.process_instance_id"
 PACK_KEY = "amendia.pack_key"
 PACK_VERSION = "amendia.pack_version"
 
+# --- cohort observation (ADR-063) — a DISTINCT namespace; never conflate with amendia.correlation_id.
+# Stamped on the instance root span (and thus every re-parented node span) when the segment joined a cohort,
+# so GLEA can group all of one case's segments by a single ClickHouse filter. correlation_value is opaque data.
+COHORT_DEF_ID = "amendia.cohort.def_id"
+COHORT_INSTANCE_ID = "amendia.cohort.instance_id"
+COHORT_CORRELATION_VALUE = "amendia.cohort.correlation_value"
+
 # --- element / actor (execution) ---
 ELEMENT_ID = "amendia.element_id"
 ACTOR = "amendia.actor"            # capability id or user id

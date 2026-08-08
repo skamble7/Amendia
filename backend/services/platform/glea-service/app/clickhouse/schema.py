@@ -60,6 +60,60 @@ def alter_add_columns_ddl(db: str, table: str) -> list[str]:
     ]
 
 
+# --------------------------------------------------------------------------- #
+# ADR-063 Phase 3A — the cohort read-model table (a SEPARATE table from audit_events, which is sorted by
+# correlation_id and has no cohort columns). Sourced from the CohortLifecycleEvent stream; cohort reads query
+# by cohort_instance_id. Idempotent on event_id via the sort tuple. audit_events is untouched.
+# --------------------------------------------------------------------------- #
+COHORT_INSERT_COLUMNS = [
+    "event_id",
+    "occurred_at",
+    "op",
+    "cohort_instance_id",
+    "cohort_def_id",
+    "correlation_value",
+    "member_process_instance_id",
+    "member_pack_key",
+    "member_pack_version",
+    "member_correlation_id",       # the member instance's correlation_id — join key into audit_events
+    "close_outcome",
+    "detail",
+    "trace_id",
+]
+COHORT_READ_COLUMNS = COHORT_INSERT_COLUMNS + ["ingested_at"]
+
+
+def cohort_alter_add_columns_ddl(db: str, table: str) -> list[str]:
+    """Idempotent column migrations for a pre-existing cohort_events table. Empty today (fresh table); the
+    sibling of ``alter_add_columns_ddl`` so future additive columns land without a drop."""
+    return []
+
+
+def create_cohort_table_ddl(db: str, table: str, ttl_days: int) -> str:
+    return f"""
+CREATE TABLE IF NOT EXISTS {db}.{table} (
+  event_id                    String,
+  occurred_at                 DateTime64(3, 'UTC'),
+  ingested_at                 DateTime64(3, 'UTC') DEFAULT now64(3),
+  op                          LowCardinality(String),
+  cohort_instance_id          String,
+  cohort_def_id               String,
+  correlation_value           String,
+  member_process_instance_id  String,
+  member_pack_key             String,
+  member_pack_version         String,
+  member_correlation_id       String,
+  close_outcome               String,
+  detail                      String,
+  trace_id                    String
+)
+ENGINE = ReplacingMergeTree(ingested_at)
+ORDER BY (cohort_instance_id, occurred_at, event_id)
+TTL toDateTime(occurred_at) + INTERVAL {int(ttl_days)} DAY
+SETTINGS index_granularity = 8192
+""".strip()
+
+
 def create_table_ddl(db: str, table: str, ttl_days: int) -> str:
     return f"""
 CREATE TABLE IF NOT EXISTS {db}.{table} (

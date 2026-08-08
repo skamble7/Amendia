@@ -7,6 +7,9 @@ import { InboxPage } from "@/features/inbox/InboxPage";
 import { TaskDetailPage } from "@/features/task/TaskDetailPage";
 import { InstancesPage } from "@/features/instances/InstancesPage";
 import { InstanceDetailPage } from "@/features/instances/InstanceDetailPage";
+import { CohortsPage } from "@/features/cohorts/CohortsPage";
+import { CohortDetailPage } from "@/features/cohorts/CohortDetailPage";
+import { NewCohortPage } from "@/features/cohorts/NewCohortPage";
 import { TriggersPage } from "@/features/triggers/TriggersPage";
 import { TriggerDetailPage } from "@/features/triggers/TriggerDetailPage";
 import { DashboardPage } from "@/features/dashboard/DashboardPage";
@@ -41,6 +44,11 @@ export const router = createBrowserRouter([
       { path: "inbox/:taskId", element: <TaskDetailPage /> },
       { path: "instances", element: <InstancesPage /> },
       { path: "instances/:instanceId", element: <InstanceDetailPage /> },
+      // ADR-063 Phase 3B: cohort observability views.
+      { path: "cohorts", element: <CohortsPage /> },
+      { path: "cohorts/new", element: <NewCohortPage /> },
+      { path: "cohorts/:cohortId", element: <CohortDetailPage /> },
+      { path: "cohorts/by-correlation/:correlationValue", element: <CohortDetailPage /> },
       { path: "triggers", element: <TriggersPage /> },
       { path: "triggers/:triggerId", element: <TriggerDetailPage /> },
       { path: "registry", element: <RegistryPage /> },

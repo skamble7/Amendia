@@ -1444,6 +1444,153 @@
         "title": "ChangeDiff",
         "type": "object"
       },
+      "CohortDefinition": {
+        "properties": {
+          "close_correlation_path": {
+            "title": "Close Correlation Path",
+            "type": "string"
+          },
+          "close_outcome_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Close Outcome Path"
+          },
+          "close_schema": {
+            "additionalProperties": true,
+            "title": "Close Schema",
+            "type": "object"
+          },
+          "cohort_def_id": {
+            "description": "Stable design-time id, e.g. 'wire_transfer_cohort'",
+            "title": "Cohort Def Id",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "display_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Name"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "cohort_def_id",
+          "close_schema",
+          "close_correlation_path"
+        ],
+        "title": "CohortDefinition",
+        "type": "object"
+      },
+      "CohortDefinitionCreate": {
+        "description": "Register-request body (no store timestamps).",
+        "properties": {
+          "close_correlation_path": {
+            "title": "Close Correlation Path",
+            "type": "string"
+          },
+          "close_outcome_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Close Outcome Path"
+          },
+          "close_schema": {
+            "additionalProperties": true,
+            "title": "Close Schema",
+            "type": "object"
+          },
+          "cohort_def_id": {
+            "description": "Stable design-time id, e.g. 'wire_transfer_cohort'",
+            "title": "Cohort Def Id",
+            "type": "string"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "display_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Name"
+          }
+        },
+        "required": [
+          "cohort_def_id",
+          "close_schema",
+          "close_correlation_path"
+        ],
+        "title": "CohortDefinitionCreate",
+        "type": "object"
+      },
+      "CohortMembership": {
+        "additionalProperties": false,
+        "description": "ADR-063 Phase 1 \u2014 an OPTIONAL, purely-observational declaration that this pack's instances are\nsegments of a larger cross-system case. ``cohort_def_id`` names the cohort this segment belongs to;\n``correlation_key`` is a dotpath into THIS pack's own trigger envelope naming the business key that ties\nsibling segments together (members triage to different packs with different trigger schemas \u2014 ADR-047/049\n\u2014 so each maps its own field to the cohort's correlation slot). No execution authority: a pack with a\nmembership still triages/compiles/gates/executes exactly like a standalone process. V1: at most one per\npack; a trigger whose ``correlation_key`` field is absent simply runs standalone (graceful non-membership).",
+        "properties": {
+          "cohort_def_id": {
+            "title": "Cohort Def Id",
+            "type": "string"
+          },
+          "correlation_key": {
+            "title": "Correlation Key",
+            "type": "string"
+          }
+        },
+        "required": [
+          "cohort_def_id",
+          "correlation_key"
+        ],
+        "title": "CohortMembership",
+        "type": "object"
+      },
       "CommitStep": {
         "properties": {
           "detail": {
@@ -3497,6 +3644,16 @@
             "title": "Bindings",
             "type": "array"
           },
+          "cohort_membership": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CohortMembership"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "created_at": {
             "anyOf": [
               {
@@ -3668,6 +3825,16 @@
             "minItems": 1,
             "title": "Bindings",
             "type": "array"
+          },
+          "cohort_membership": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CohortMembership"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "created_at": {
             "anyOf": [
@@ -4019,6 +4186,12 @@
       },
       "ResolveResponse": {
         "properties": {
+          "kind": {
+            "const": "trigger",
+            "default": "trigger",
+            "title": "Kind",
+            "type": "string"
+          },
           "pack_key": {
             "title": "Pack Key",
             "type": "string"
@@ -4228,6 +4401,25 @@
           }
         },
         "title": "SetCapabilitiesRequest",
+        "type": "object"
+      },
+      "SetCohortMembershipRequest": {
+        "description": "Assign a pack version to a cohort (ADR-063). ``correlation_key`` is a dotpath into THIS pack's trigger.",
+        "properties": {
+          "cohort_def_id": {
+            "title": "Cohort Def Id",
+            "type": "string"
+          },
+          "correlation_key": {
+            "title": "Correlation Key",
+            "type": "string"
+          }
+        },
+        "required": [
+          "cohort_def_id",
+          "correlation_key"
+        ],
+        "title": "SetCohortMembershipRequest",
         "type": "object"
       },
       "SetPoliciesRequest": {
@@ -5399,6 +5591,165 @@
         "summary": "Introspect Mcp",
         "tags": [
           "onboarding"
+        ]
+      }
+    },
+    "/cohort/definitions": {
+      "get": {
+        "operationId": "list_definitions_cohort_definitions_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/CohortDefinition"
+                  },
+                  "title": "Response List Definitions Cohort Definitions Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Definitions",
+        "tags": [
+          "cohort"
+        ]
+      },
+      "post": {
+        "operationId": "register_definition_cohort_definitions_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CohortDefinitionCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CohortDefinition"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Register Definition",
+        "tags": [
+          "cohort"
+        ]
+      }
+    },
+    "/cohort/definitions/{cohort_def_id}": {
+      "delete": {
+        "operationId": "delete_definition_cohort_definitions__cohort_def_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "cohort_def_id",
+            "required": true,
+            "schema": {
+              "title": "Cohort Def Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Delete Definition",
+        "tags": [
+          "cohort"
+        ]
+      },
+      "get": {
+        "operationId": "get_definition_cohort_definitions__cohort_def_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "cohort_def_id",
+            "required": true,
+            "schema": {
+              "title": "Cohort Def Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CohortDefinition"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Definition",
+        "tags": [
+          "cohort"
         ]
       }
     },
@@ -7401,6 +7752,126 @@
         ]
       }
     },
+    "/packs/{pack_key}/{version}/cohort-membership": {
+      "delete": {
+        "operationId": "clear_cohort_membership_packs__pack_key___version__cohort_membership_delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pack_key",
+            "required": true,
+            "schema": {
+              "title": "Pack Key",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "version",
+            "required": true,
+            "schema": {
+              "title": "Version",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProcessPackManifest-Output"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Clear Cohort Membership",
+        "tags": [
+          "packs"
+        ]
+      },
+      "put": {
+        "operationId": "set_cohort_membership_packs__pack_key___version__cohort_membership_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pack_key",
+            "required": true,
+            "schema": {
+              "title": "Pack Key",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "version",
+            "required": true,
+            "schema": {
+              "title": "Version",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetCohortMembershipRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProcessPackManifest-Output"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Set Cohort Membership",
+        "tags": [
+          "packs"
+        ]
+      }
+    },
     "/packs/{pack_key}/{version}/deprecate": {
       "post": {
         "operationId": "deprecate_pack_packs__pack_key___version__deprecate_post",
@@ -7506,6 +7977,61 @@
           }
         ],
         "summary": "Get Pack Resolution",
+        "tags": [
+          "packs"
+        ]
+      }
+    },
+    "/packs/{pack_key}/{version}/trigger-fields": {
+      "get": {
+        "description": "ADR-063 Phase 3A: the declared trigger schema's field dotpaths, for the cohort-membership picker's\nper-pack correlation-key dropdown. Empty list when the pack declares no trigger (the UI then lets the\noperator type a dotpath). Reuses the onboarding schema-flatten helper.",
+        "operationId": "get_trigger_fields_packs__pack_key___version__trigger_fields_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pack_key",
+            "required": true,
+            "schema": {
+              "title": "Pack Key",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "version",
+            "required": true,
+            "schema": {
+              "title": "Version",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Trigger Fields",
         "tags": [
           "packs"
         ]

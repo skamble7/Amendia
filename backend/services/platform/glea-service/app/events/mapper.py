@@ -12,7 +12,7 @@ from typing import Any, Dict, Optional
 
 import orjson
 
-from amendia_common.events import EGRESS_DECISION
+from amendia_common.events import COHORT_LIFECYCLE, EGRESS_DECISION
 
 
 class UnmappableEvent(ValueError):
@@ -24,6 +24,11 @@ def event_kind(routing_key: str) -> str:
     """The ``<kind>`` segment of ``<service>.<kind>.<version>`` (second-to-last dotted part)."""
     parts = (routing_key or "").split(".")
     return parts[-2] if len(parts) >= 2 else (routing_key or "unknown")
+
+
+def is_cohort_event(routing_key: str) -> bool:
+    """ADR-063 Phase 3A: a CohortLifecycleEvent (→ cohort_events, its own table)."""
+    return event_kind(routing_key) == COHORT_LIFECYCLE
 
 
 def _parse_dt(value: Any) -> datetime:
@@ -74,4 +79,31 @@ def to_row(routing_key: str, payload: Dict[str, Any]) -> Dict[str, Any]:
         "egress_host": str(payload.get("host") or "") if is_egress else "",
         "egress_decision": str(payload.get("decision") or "") if is_egress else "",
         "payload": orjson.dumps(payload).decode("utf-8"),
+    }
+
+
+def to_cohort_row(routing_key: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    """ADR-063 Phase 3A: project a ``CohortLifecycleEvent`` payload onto a ``cohort_events`` row. Structural
+    only. ``member_*`` come from the event's ``process_instance_id``/``pack_key``/``pack_version`` and its
+    ``trace.correlation_id`` (the member instance's correlation_id — the join key into ``audit_events`` for the
+    rollup; empty on ``opened``/``closing``/``closed``)."""
+    if not isinstance(payload, dict) or not payload.get("event_id"):
+        raise UnmappableEvent("event_id missing")
+    if not payload.get("cohort_instance_id"):
+        raise UnmappableEvent("cohort_instance_id missing")
+    trace = payload.get("trace") or {}
+    return {
+        "event_id": str(payload["event_id"]),
+        "occurred_at": _parse_dt(payload.get("occurred_at")),
+        "op": str(payload.get("op") or ""),
+        "cohort_instance_id": str(payload["cohort_instance_id"]),
+        "cohort_def_id": str(payload.get("cohort_def_id") or ""),
+        "correlation_value": str(payload.get("correlation_value") or ""),
+        "member_process_instance_id": str(payload.get("process_instance_id") or ""),
+        "member_pack_key": str(payload.get("pack_key") or ""),
+        "member_pack_version": str(payload.get("pack_version") or ""),
+        "member_correlation_id": str(trace.get("correlation_id") or ""),
+        "close_outcome": str(payload.get("close_outcome") or ""),
+        "detail": str(payload.get("detail") or ""),
+        "trace_id": str(trace.get("trace_id") or ""),
     }

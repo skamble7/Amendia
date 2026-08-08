@@ -25,6 +25,9 @@ class IngestionStatus(str, Enum):
     ACCEPTED = "accepted"
     REJECTED = "rejected"
     NO_PROCESS = "no_process"  # registry found no matching pack (terminal)
+    # ADR-063 Phase 2: the message was an external end-of-process (cohort close) signal, not a trigger — a
+    # CohortCloseRequested was published for agent-runtime and this record is terminal (no pack dispatch).
+    COHORT_CLOSE = "cohort_close"
 
 
 class ResolutionRef(BaseModel):
@@ -73,5 +76,7 @@ class IngestionRecord(BaseModel):
     process_instance_id: Optional[str] = None
     no_match: Optional[Dict[str, Any]] = None
     rejection: Optional[RejectionRef] = None
+    # ADR-063 Phase 2: set when the message was an external cohort-close signal (correlation_value + outcome).
+    cohort_close: Optional[Dict[str, Any]] = None
     created_at: datetime
     updated_at: datetime

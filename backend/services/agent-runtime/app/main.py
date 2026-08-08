@@ -21,6 +21,7 @@ from app.clients.registry_client import TriggerStoreClient, RegistryClient
 from app.config import auth_settings, settings
 from app.dal.artifact_schema_repo import ArtifactSchemaRepository
 from app.dal.capability_repo import CapabilityRepository
+from app.dal.cohort_repo import CohortInstanceRepository
 from app.dal.dispatch_repo import DispatchLogRepository
 from app.dal.hitl_task_repo import HitlTaskRepository
 from app.dal.instance_repo import ProcessInstanceRepository
@@ -30,6 +31,7 @@ from app.dal.timer_repo import TimerRepository
 from app.db.mongo import (
     ARTIFACT_SCHEMAS,
     CAPABILITIES,
+    COHORT_INSTANCES,
     DISPATCH_LOG,
     HITL_TASKS,
     MESSAGE_SUBSCRIPTIONS,
@@ -42,7 +44,7 @@ from app.db.mongo import (
 from app.engine.engine import ProcessEngine
 from app.engine.executor import build_executor
 from app.engine.executor.memo import build_mongo_memo_store
-from app.events.consumer import DispatchConsumer
+from app.events.consumer import COHORT_CLOSE_BINDING_KEY, DispatchConsumer
 from app.events.publisher import RabbitPublisher
 from app.events.rabbit import RabbitConnection
 from app.logging_conf import configure_logging
@@ -58,6 +60,7 @@ from app.routers import (
     packs,
 )
 from app.seeding.load import SeedLoader
+from app.services.cohort_service import CohortService
 from app.services.dispatch_service import DispatchService
 from app.services.hitl_service import HitlDecisionService
 from app.services.message_service import MessageSubscriptionService
@@ -121,14 +124,18 @@ async def lifespan(app: FastAPI):
         MessageSubscriptionRepository(mongo.collection(MESSAGE_SUBSCRIPTIONS)),
         PendingMessageRepository(mongo.collection(PENDING_MESSAGES)),
     )
+    # ADR-063 Phase 1: cohort SoR + service. Shares the publisher for the fail-soft lifecycle emit.
+    cohort_repo = CohortInstanceRepository(mongo.collection(COHORT_INSTANCES))
+    cohort_service = CohortService(repo=cohort_repo, publisher=publisher)
+    app.state.cohort_repo = cohort_repo
     engine = ProcessEngine(
         registry=registry_client, instance_repo=instance_repo, hitl_repo=hitl_task_repo,
         publisher=publisher, settings=settings, executor=build_executor(settings, memo=memo_store),
-        timer_service=timer_service, message_service=message_service,
+        timer_service=timer_service, message_service=message_service, cohort_service=cohort_service,
     )
     dispatch_service = DispatchService(
         engine=engine, instance_repo=instance_repo, dispatch_repo=dispatch_repo,
-        store_client=store_client, publisher=publisher,
+        store_client=store_client, publisher=publisher, cohort_service=cohort_service,
     )
     hitl_service = HitlDecisionService(
         hitl_repo=hitl_task_repo, instance_repo=instance_repo, engine=engine, publisher=publisher,
@@ -143,6 +150,25 @@ async def lifespan(app: FastAPI):
     )
     consumer_task = asyncio.create_task(consumer.run())
     app.state.dispatch_consumer = consumer
+
+    # ADR-063 Phase 2: cohort close-ingress consumer. Same reconnect/ack discipline; a bad message is
+    # logged + acked, never poison-requeued. Drives CohortService.close (open → closing → closed).
+    from amendia_contracts.cohort_events import CohortCloseRequested
+
+    async def _handle_cohort_close(payload: dict, routing_key: str) -> None:
+        try:
+            ev = CohortCloseRequested.model_validate(payload)
+        except Exception as exc:  # noqa: BLE001 - drop + ack an unparseable close (never poison-requeue)
+            logger.error("Dropping invalid cohort_close_requested (rk=%s): %s", routing_key, exc)
+            return
+        await cohort_service.close(ev.correlation_value, ev.close_outcome)
+
+    close_consumer = DispatchConsumer(
+        settings.RABBITMQ_URL, settings.RABBITMQ_COHORT_CLOSE_QUEUE, _handle_cohort_close,
+        binding_key=COHORT_CLOSE_BINDING_KEY,
+    )
+    close_consumer_task = asyncio.create_task(close_consumer.run())
+    app.state.cohort_close_consumer = close_consumer
 
     # Crash-recovery sweep for instances left ``running`` at a checkpoint.
     async def _recover():
@@ -176,7 +202,9 @@ async def lifespan(app: FastAPI):
         yield
     finally:
         await consumer.stop()
+        await close_consumer.stop()
         consumer_task.cancel()
+        close_consumer_task.cancel()
         recover_task.cancel()
         timer_task.cancel()
         await publisher.close()

@@ -143,6 +143,16 @@ class IngestionRepository:
             detail=detail, set_fields={"no_match": no_match},
         )
 
+    async def mark_cohort_close(
+        self, trigger_id: str, *, cohort_close: Dict[str, Any], detail: Optional[str] = None
+    ) -> Optional[IngestionRecord]:
+        """ADR-063 Phase 2: terminal — the message was recognised as a cohort close, not a trigger."""
+        return await self._transition(
+            trigger_id, IngestionStatus.COHORT_CLOSE,
+            expected={IngestionStatus.RECEIVED},
+            detail=detail, set_fields={"cohort_close": cohort_close},
+        )
+
     async def mark_accepted(
         self, trigger_id: str, *, process_instance_id: str, detail: Optional[str] = None
     ) -> Optional[IngestionRecord]:

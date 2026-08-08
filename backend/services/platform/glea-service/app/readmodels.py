@@ -239,3 +239,146 @@ def build_trace_tree(trace_id: str, span_rows: List[Dict[str, Any]]) -> Dict[str
         s["depth"] = depth(s["span_id"])
     # Root spans (no in-trace parent) sort first; children follow their start order (already sorted).
     return {"trace_id": trace_id, "spans": spans}
+
+
+# --------------------------------------------------------------------------- #
+# ADR-063 Phase 3A — cohort read-models (pure functions over cohort_events + member audit rows).
+#
+# The cohort view is OBSERVABILITY-GRADE: it is derived from the fail-soft CohortLifecycleEvent stream, not the
+# authoritative agent-runtime Mongo SoR. A dropped/late event only degrades this view; the runtime state stays
+# correct. Member status/duration are JOINED from audit_events (the members' own DISPATCH_ACCEPTED /
+# PROCESS_COMPLETED / PROCESS_FAILED), keyed by each member's correlation_id — one source of truth for outcomes.
+# --------------------------------------------------------------------------- #
+from datetime import datetime as _dt, timezone as _tz  # noqa: E402
+
+from amendia_common.events import (  # noqa: E402
+    DISPATCH_ACCEPTED, PROCESS_COMPLETED, PROCESS_FAILED,
+)
+
+_EPOCH = _dt(1970, 1, 1, tzinfo=_tz.utc)
+_STATE_BY_OP = {"opened": "open", "closing": "closing", "closed": "closed"}
+
+
+def _sort_key(r: Dict[str, Any]):
+    return (r.get("occurred_at") or _EPOCH, r.get("event_id") or "")
+
+
+def _index_member_outcomes(member_rows: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
+    """correlation_id → {started_at, ended_at, status, outcome} from the members' audit rows."""
+    idx: Dict[str, Dict[str, Any]] = {}
+    for r in member_rows:
+        cid = r.get("correlation_id") or ""
+        if not cid:
+            continue
+        e = idx.setdefault(cid, {"started_at": None, "ended_at": None, "status": "running", "outcome": None})
+        kind, when = r.get("kind") or "", r.get("occurred_at")
+        if kind == DISPATCH_ACCEPTED:
+            if when is not None and (e["started_at"] is None or when < e["started_at"]):
+                e["started_at"] = when
+        elif kind == PROCESS_COMPLETED:
+            e.update(status="done", ended_at=when, outcome=(r.get("outcome") or "completed"))
+        elif kind == PROCESS_FAILED:
+            e.update(status="failed", ended_at=when, outcome=(r.get("outcome") or "failed"))
+    return idx
+
+
+def _members_by_pid(rows_sorted: List[Dict[str, Any]], ops: set) -> Dict[str, Dict[str, Any]]:
+    """distinct member_process_instance_id → its first cohort row, for rows whose op ∈ ops."""
+    seen: Dict[str, Dict[str, Any]] = {}
+    for r in rows_sorted:
+        if r.get("op") in ops:
+            pid = r.get("member_process_instance_id") or ""
+            if pid and pid not in seen:
+                seen[pid] = r
+    return seen
+
+
+def _rollup(members_by_pid: Dict[str, Dict[str, Any]], outcome_idx: Dict[str, Dict[str, Any]]) -> Dict[str, int]:
+    roll = {"done": 0, "running": 0, "failed": 0}
+    for row in members_by_pid.values():
+        status = outcome_idx.get(row.get("member_correlation_id") or "", {}).get("status", "running")
+        roll[status] = roll.get(status, 0) + 1
+    return roll
+
+
+def _identity(cohort_instance_id: str, rows_sorted: List[Dict[str, Any]]) -> Dict[str, Any]:
+    ident = {"cohort_instance_id": cohort_instance_id, "cohort_def_id": "", "correlation_value": "",
+             "state": "open", "opened_at": None, "closed_at": None, "outcome": None}
+    for r in rows_sorted:                                   # ascending → last non-empty / latest state wins
+        if r.get("cohort_def_id"):
+            ident["cohort_def_id"] = r["cohort_def_id"]
+        if r.get("correlation_value"):
+            ident["correlation_value"] = r["correlation_value"]
+        op = r.get("op")
+        if op in _STATE_BY_OP:
+            ident["state"] = _STATE_BY_OP[op]
+        if op == "opened":
+            ident["opened_at"] = r.get("occurred_at")
+        if op == "closed":
+            ident["closed_at"] = r.get("occurred_at")
+        if op in ("closing", "closed") and r.get("close_outcome"):
+            ident["outcome"] = r["close_outcome"]
+    return ident
+
+
+def _summary(cohort_instance_id: str, rows_sorted: List[Dict[str, Any]],
+             outcome_idx: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
+    ident = _identity(cohort_instance_id, rows_sorted)
+    members = _members_by_pid(rows_sorted, {"member_joined"})
+    anomalies = sum(1 for r in rows_sorted if r.get("op") == "late_join")
+    return {**ident, "member_count": len(members), "rollup": _rollup(members, outcome_idx), "anomalies": anomalies}
+
+
+def build_cohort_list(cohort_rows: List[Dict[str, Any]],
+                      member_outcome_rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """One summary per cohort_instance_id (newest opened first): identity, state, member_count, the
+    done/running/failed rollup joined from member outcomes, opened/closed_at, close outcome, and anomaly count."""
+    outcome_idx = _index_member_outcomes(member_outcome_rows)
+    by_cohort: Dict[str, List[Dict[str, Any]]] = {}
+    for r in cohort_rows:
+        by_cohort.setdefault(r.get("cohort_instance_id") or "", []).append(r)
+    out = [_summary(cid, sorted(rows, key=_sort_key), outcome_idx) for cid, rows in by_cohort.items() if cid]
+    out.sort(key=lambda c: (c["opened_at"] or _EPOCH), reverse=True)
+    return out
+
+
+def build_cohort_detail(cohort_rows_for_one: List[Dict[str, Any]],
+                        member_outcome_rows: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """Identity + roster (each member with its joined status/duration/outcome) + the ordered lifecycle event
+    stream + a close summary. None when there are no rows for the cohort."""
+    if not cohort_rows_for_one:
+        return None
+    rows_sorted = sorted(cohort_rows_for_one, key=_sort_key)
+    cohort_instance_id = next((r.get("cohort_instance_id") for r in rows_sorted if r.get("cohort_instance_id")), "")
+    outcome_idx = _index_member_outcomes(member_outcome_rows)
+    summary = _summary(cohort_instance_id, rows_sorted, outcome_idx)
+
+    roster: List[Dict[str, Any]] = []
+    seen: set = set()
+    for r in rows_sorted:
+        op = r.get("op")
+        if op not in ("member_joined", "late_join"):
+            continue
+        pid = r.get("member_process_instance_id") or ""
+        if not pid or pid in seen:
+            continue
+        seen.add(pid)
+        o = outcome_idx.get(r.get("member_correlation_id") or "", {})
+        roster.append({
+            "process_instance_id": pid,
+            "pack_key": r.get("member_pack_key") or "",
+            "pack_version": r.get("member_pack_version") or "",
+            "correlation_id": r.get("member_correlation_id") or "",
+            "status": o.get("status", "running"),
+            "started_at": o.get("started_at"),
+            "ended_at": o.get("ended_at"),
+            "outcome": o.get("outcome"),
+            "late": op == "late_join",
+        })
+
+    events = [{"op": r.get("op") or "", "at": r.get("occurred_at"),
+               "process_instance_id": r.get("member_process_instance_id") or None,
+               "detail": r.get("detail") or None} for r in rows_sorted]
+    close = {"signalled": summary["state"] in ("closing", "closed"),
+             "outcome": summary["outcome"], "state": summary["state"], "late_joins": summary["anomalies"]}
+    return {**summary, "roster": roster, "events": events, "close": close}

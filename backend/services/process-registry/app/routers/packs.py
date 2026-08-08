@@ -20,21 +20,27 @@ from app.dal.bpmn_repo import BpmnRepository
 from app.dal.capability_repo import CapabilityRepository
 from app.dal.onboarding_repo import OnboardingRepository
 from app.dal.pack_repo import ProcessPackRepository
+from app.dal.cohort_def_repo import CohortDefinitionRepository
 from app.deps import (
     get_artifact_schema_repo,
     get_bpmn_repo,
     get_capability_repo,
+    get_cohort_def_repo,
     get_onboarding_repo,
     get_pack_repo,
     get_publisher,
     get_resolver,
     get_validator,
 )
+from app.models.cohort import SetCohortMembershipRequest
+from packaging.version import Version
+
 from app.services.activation import resolve_pins
 from app.services.deletion import delete_versions
 from app.services.resolver import ResolveService
 from app.validation.bpmn import compute_sha256
 from app.validation.pack_validator import PackValidator
+from app.validation.predicates import flatten_schema_fields
 
 router = APIRouter(prefix="/packs", tags=["packs"])
 
@@ -284,3 +290,58 @@ async def get_pack_resolution(pack_key: str, version: str, repo: ProcessPackRepo
     if resolution is None:
         raise HTTPException(status_code=404, detail=f"No resolution for {pack_key}@{version} (activate first)")
     return resolution
+
+
+# --------------------------------------------------------------------------- #
+# ADR-063 Phase 2 — cohort membership assignment (in-place; observational metadata, no new pack version)
+# --------------------------------------------------------------------------- #
+@router.put("/{pack_key}/{version}/cohort-membership", response_model=ProcessPackManifest, dependencies=[_OWNER])
+async def set_cohort_membership(
+    pack_key: str, version: str, body: SetCohortMembershipRequest,
+    repo: ProcessPackRepository = Depends(get_pack_repo),
+    cohort_repo: CohortDefinitionRepository = Depends(get_cohort_def_repo),
+    resolver: ResolveService = Depends(get_resolver),
+):
+    if not body.correlation_key.strip():
+        raise HTTPException(status_code=422, detail="correlation_key must be a non-empty dotpath")
+    if await cohort_repo.get(body.cohort_def_id) is None:
+        raise HTTPException(status_code=422, detail=f"unknown cohort definition '{body.cohort_def_id}'")
+    updated = await repo.set_cohort_membership(
+        pack_key, version, {"cohort_def_id": body.cohort_def_id, "correlation_key": body.correlation_key})
+    if updated is None:
+        raise HTTPException(status_code=404, detail=f"Unknown pack {pack_key}@{version}")
+    resolver.invalidate()  # membership doesn't affect triage, but keep the write→invalidate pattern consistent
+    return updated
+
+
+@router.delete("/{pack_key}/{version}/cohort-membership", response_model=ProcessPackManifest, dependencies=[_OWNER])
+async def clear_cohort_membership(
+    pack_key: str, version: str,
+    repo: ProcessPackRepository = Depends(get_pack_repo),
+    resolver: ResolveService = Depends(get_resolver),
+):
+    updated = await repo.set_cohort_membership(pack_key, version, None)
+    if updated is None:
+        raise HTTPException(status_code=404, detail=f"Unknown pack {pack_key}@{version}")
+    resolver.invalidate()
+    return updated
+
+
+@router.get("/{pack_key}/{version}/trigger-fields")
+async def get_trigger_fields(
+    pack_key: str, version: str,
+    repo: ProcessPackRepository = Depends(get_pack_repo),
+    schema_repo: ArtifactSchemaRepository = Depends(get_artifact_schema_repo),
+):
+    """ADR-063 Phase 3A: the declared trigger schema's field dotpaths, for the cohort-membership picker's
+    per-pack correlation-key dropdown. Empty list when the pack declares no trigger (the UI then lets the
+    operator type a dotpath). Reuses the onboarding schema-flatten helper."""
+    manifest = await _require_pack(repo, pack_key, version)
+    trig = manifest.trigger
+    if trig is None:
+        return {"fields": []}
+    regs = await schema_repo.list_by_key(pack_key, version, trig.ref_id)
+    if not regs:
+        return {"fields": []}
+    reg = max(regs, key=lambda r: Version(r.version))         # highest owned version of the trigger schema
+    return {"fields": sorted(flatten_schema_fields(reg.json_schema).keys())}

@@ -16,20 +16,27 @@ from typing import Awaitable, Callable, Optional
 import aio_pika
 from aio_pika.abc import AbstractIncomingMessage
 
-from amendia_common.events import EXCHANGE, Service, TRIGGER_DISPATCHED, Version
+from amendia_common.events import (
+    COHORT_CLOSE_REQUESTED, EXCHANGE, Service, TRIGGER_DISPATCHED, Version,
+)
 
 logger = logging.getLogger(__name__)
 
 BINDING_KEY = f"{Service.INGESTOR.value}.{TRIGGER_DISPATCHED}.{Version.V1.value}"
+# ADR-063 Phase 2: the cohort close-ingress key (a sibling consumer binds this, same discipline).
+COHORT_CLOSE_BINDING_KEY = f"{Service.INGESTOR.value}.{COHORT_CLOSE_REQUESTED}.{Version.V1.value}"
 
 Handler = Callable[[dict, str], Awaitable[None]]
 
 
 class DispatchConsumer:
-    def __init__(self, url: str, queue_name: str, handler: Handler) -> None:
+    def __init__(self, url: str, queue_name: str, handler: Handler, *, binding_key: str = BINDING_KEY) -> None:
         self._url = url
         self._queue_name = queue_name
         self._handler = handler
+        # ADR-063 Phase 2: the routing key this queue binds. Defaults to trigger_dispatched; the cohort-close
+        # consumer passes COHORT_CLOSE_BINDING_KEY. Same reconnect/ack discipline either way.
+        self._binding_key = binding_key
         self._stop = asyncio.Event()
         self._connection: Optional[aio_pika.abc.AbstractRobustConnection] = None
         self._channel: Optional[aio_pika.abc.AbstractChannel] = None
@@ -46,8 +53,8 @@ class DispatchConsumer:
                     EXCHANGE, aio_pika.ExchangeType.TOPIC, durable=True
                 )
                 self._queue = await self._channel.declare_queue(self._queue_name, durable=True)
-                await self._queue.bind(exchange, routing_key=BINDING_KEY)
-                logger.info("Dispatch queue '%s' bound to '%s'", self._queue_name, BINDING_KEY)
+                await self._queue.bind(exchange, routing_key=self._binding_key)
+                logger.info("Consumer queue '%s' bound to '%s'", self._queue_name, self._binding_key)
                 return
             except Exception as exc:  # noqa: BLE001
                 attempt += 1

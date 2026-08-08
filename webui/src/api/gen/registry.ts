@@ -56,6 +56,42 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/cohort/definitions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Definitions */
+        get: operations["list_definitions_cohort_definitions_get"];
+        put?: never;
+        /** Register Definition */
+        post: operations["register_definition_cohort_definitions_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/cohort/definitions/{cohort_def_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Definition */
+        get: operations["get_definition_cohort_definitions__cohort_def_id__get"];
+        put?: never;
+        post?: never;
+        /** Delete Definition */
+        delete: operations["delete_definition_cohort_definitions__cohort_def_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/health": {
         parameters: {
             query?: never;
@@ -618,6 +654,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/packs/{pack_key}/{version}/cohort-membership": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Set Cohort Membership */
+        put: operations["set_cohort_membership_packs__pack_key___version__cohort_membership_put"];
+        post?: never;
+        /** Clear Cohort Membership */
+        delete: operations["clear_cohort_membership_packs__pack_key___version__cohort_membership_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/packs/{pack_key}/{version}/deprecate": {
         parameters: {
             query?: never;
@@ -644,6 +698,28 @@ export interface paths {
         };
         /** Get Pack Resolution */
         get: operations["get_pack_resolution_packs__pack_key___version__resolution_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/packs/{pack_key}/{version}/trigger-fields": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Trigger Fields
+         * @description ADR-063 Phase 3A: the declared trigger schema's field dotpaths, for the cohort-membership picker's
+         *     per-pack correlation-key dropdown. Empty list when the pack declares no trigger (the UI then lets the
+         *     operator type a dotpath). Reuses the onboarding schema-flatten helper.
+         */
+        get: operations["get_trigger_fields_packs__pack_key___version__trigger_fields_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1201,6 +1277,75 @@ export interface components {
             element_id: string;
             /** Field */
             field: string;
+        };
+        /** CohortDefinition */
+        CohortDefinition: {
+            /** Close Correlation Path */
+            close_correlation_path: string;
+            /** Close Outcome Path */
+            close_outcome_path?: string | null;
+            /** Close Schema */
+            close_schema: {
+                [key: string]: unknown;
+            };
+            /**
+             * Cohort Def Id
+             * @description Stable design-time id, e.g. 'wire_transfer_cohort'
+             */
+            cohort_def_id: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at?: string;
+            /** Description */
+            description?: string | null;
+            /** Display Name */
+            display_name?: string | null;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at?: string;
+        };
+        /**
+         * CohortDefinitionCreate
+         * @description Register-request body (no store timestamps).
+         */
+        CohortDefinitionCreate: {
+            /** Close Correlation Path */
+            close_correlation_path: string;
+            /** Close Outcome Path */
+            close_outcome_path?: string | null;
+            /** Close Schema */
+            close_schema: {
+                [key: string]: unknown;
+            };
+            /**
+             * Cohort Def Id
+             * @description Stable design-time id, e.g. 'wire_transfer_cohort'
+             */
+            cohort_def_id: string;
+            /** Description */
+            description?: string | null;
+            /** Display Name */
+            display_name?: string | null;
+        };
+        /**
+         * CohortMembership
+         * @description ADR-063 Phase 1 — an OPTIONAL, purely-observational declaration that this pack's instances are
+         *     segments of a larger cross-system case. ``cohort_def_id`` names the cohort this segment belongs to;
+         *     ``correlation_key`` is a dotpath into THIS pack's own trigger envelope naming the business key that ties
+         *     sibling segments together (members triage to different packs with different trigger schemas — ADR-047/049
+         *     — so each maps its own field to the cohort's correlation slot). No execution authority: a pack with a
+         *     membership still triages/compiles/gates/executes exactly like a standalone process. V1: at most one per
+         *     pack; a trigger whose ``correlation_key`` field is absent simply runs standalone (graceful non-membership).
+         */
+        CohortMembership: {
+            /** Cohort Def Id */
+            cohort_def_id: string;
+            /** Correlation Key */
+            correlation_key: string;
         };
         /** CommitStep */
         CommitStep: {
@@ -2017,6 +2162,7 @@ export interface components {
             artifacts: string[];
             /** Bindings */
             bindings: components["schemas"]["Binding-Input"][];
+            cohort_membership?: components["schemas"]["CohortMembership"] | null;
             /** Created At */
             created_at?: string | null;
             /** Created By */
@@ -2058,6 +2204,7 @@ export interface components {
             artifacts: string[];
             /** Bindings */
             bindings: components["schemas"]["Binding-Output"][];
+            cohort_membership?: components["schemas"]["CohortMembership"] | null;
             /** Created At */
             created_at?: string | null;
             /** Created By */
@@ -2207,6 +2354,12 @@ export interface components {
         };
         /** ResolveResponse */
         ResolveResponse: {
+            /**
+             * Kind
+             * @default trigger
+             * @constant
+             */
+            kind: "trigger";
             /** Pack Key */
             pack_key: string;
             /** Pack Version */
@@ -2292,6 +2445,16 @@ export interface components {
             reused_capability_refs?: string[];
             /** Tools */
             tools?: components["schemas"]["CapabilityToolSelection"][];
+        };
+        /**
+         * SetCohortMembershipRequest
+         * @description Assign a pack version to a cohort (ADR-063). ``correlation_key`` is a dotpath into THIS pack's trigger.
+         */
+        SetCohortMembershipRequest: {
+            /** Cohort Def Id */
+            cohort_def_id: string;
+            /** Correlation Key */
+            correlation_key: string;
         };
         /** SetPoliciesRequest */
         SetPoliciesRequest: {
@@ -2752,6 +2915,119 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["IntrospectMcpResponse"];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_definitions_cohort_definitions_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CohortDefinition"][];
+                };
+            };
+        };
+    };
+    register_definition_cohort_definitions_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CohortDefinitionCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CohortDefinition"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_definition_cohort_definitions__cohort_def_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                cohort_def_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CohortDefinition"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_definition_cohort_definitions__cohort_def_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                cohort_def_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {
@@ -3931,6 +4207,74 @@ export interface operations {
             };
         };
     };
+    set_cohort_membership_packs__pack_key___version__cohort_membership_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                pack_key: string;
+                version: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetCohortMembershipRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProcessPackManifest-Output"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    clear_cohort_membership_packs__pack_key___version__cohort_membership_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                pack_key: string;
+                version: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProcessPackManifest-Output"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     deprecate_pack_packs__pack_key___version__deprecate_post: {
         parameters: {
             query?: never;
@@ -3964,6 +4308,38 @@ export interface operations {
         };
     };
     get_pack_resolution_packs__pack_key___version__resolution_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                pack_key: string;
+                version: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_trigger_fields_packs__pack_key___version__trigger_fields_get: {
         parameters: {
             query?: never;
             header?: never;

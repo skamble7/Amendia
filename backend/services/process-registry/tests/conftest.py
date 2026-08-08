@@ -21,14 +21,16 @@ from app.dal.bpmn_repo import BpmnRepository
 from app.dal.capability_repo import CapabilityRepository
 from app.dal.onboarding_repo import OnboardingRepository
 from app.dal.pack_repo import ProcessPackRepository
+from app.dal.cohort_def_repo import CohortDefinitionRepository
 from app.db.mongo import (
-    ARTIFACT_SCHEMAS, BPMN_DOCUMENTS, CAPABILITIES, ONBOARDING_SESSIONS,
+    ARTIFACT_SCHEMAS, BPMN_DOCUMENTS, CAPABILITIES, COHORT_DEFINITIONS, ONBOARDING_SESSIONS,
     PACK_RESOLUTIONS, PACK_ROLES, PROCESS_PACKS, VALIDATION_REPORTS, create_indexes,
 )
 from app.deps import (
-    get_artifact_schema_repo, get_bpmn_repo, get_capability_repo, get_mongo,
-    get_onboarding_service, get_pack_repo, get_resolver, get_validator,
+    get_artifact_schema_repo, get_bpmn_repo, get_capability_repo, get_cohort_classifier,
+    get_cohort_def_repo, get_mongo, get_onboarding_service, get_pack_repo, get_resolver, get_validator,
 )
+from app.services.cohort_classifier import CohortClassifier
 from app.main import create_app
 from app.services.mcp_introspect import RawMcpTool
 from app.services.onboarding import OnboardingService
@@ -204,8 +206,14 @@ async def onboarded(cap_repo, schema_repo, pack_repo, bpmn_repo):
     return await onboard(SEED, cap_repo, schema_repo, pack_repo, bpmn_repo)
 
 
+@pytest.fixture
+def cohort_def_repo(db):
+    return CohortDefinitionRepository(db[COHORT_DEFINITIONS])
+
+
 @pytest_asyncio.fixture
-async def client(db, cap_repo, schema_repo, pack_repo, bpmn_repo, resolver, onboarding_service, onboarding_repo):
+async def client(db, cap_repo, schema_repo, pack_repo, bpmn_repo, resolver, onboarding_service, onboarding_repo,
+                 cohort_def_repo):
     from amendia_auth import AuthContext
     from amendia_auth.settings import AuthSettings
     from app.deps import get_onboarding_repo
@@ -219,6 +227,8 @@ async def client(db, cap_repo, schema_repo, pack_repo, bpmn_repo, resolver, onbo
     app.dependency_overrides[get_pack_repo] = lambda: pack_repo
     app.dependency_overrides[get_bpmn_repo] = lambda: bpmn_repo
     app.dependency_overrides[get_resolver] = lambda: resolver
+    app.dependency_overrides[get_cohort_def_repo] = lambda: cohort_def_repo
+    app.dependency_overrides[get_cohort_classifier] = lambda: CohortClassifier(cohort_def_repo)
     app.dependency_overrides[get_validator] = lambda: PackValidator(cap_repo, schema_repo)
     app.dependency_overrides[get_onboarding_service] = lambda: onboarding_service
     app.dependency_overrides[get_onboarding_repo] = lambda: onboarding_repo  # ADR-061 delete endpoints

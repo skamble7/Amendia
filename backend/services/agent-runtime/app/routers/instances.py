@@ -53,6 +53,11 @@ async def get_instance(
         "status": inst.status.value,
         "outcome": inst.outcome,
         "artifact_names": inst.artifact_names,
+        # ADR-063 Phase 3A: cohort backlink (null for a standalone instance) — lets the UI render the
+        # "part of cohort …" banner. Persisted on the ProcessInstance since Phase 1.
+        "cohort_instance_id": inst.cohort_instance_id,
+        "cohort_def_id": inst.cohort_def_id,
+        "cohort_correlation_value": inst.cohort_correlation_value,
         "actor_log": actor_log,
         "hitl_tasks": [
             {"task_id": t.task_id, "element_id": t.element_id, "status": t.status.value,

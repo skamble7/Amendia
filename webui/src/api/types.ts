@@ -76,6 +76,10 @@ export interface InstanceDetail {
   artifact_names: string[];
   actor_log: ActorLogEntry[];
   hitl_tasks: InstanceHitlLink[];
+  // ADR-063 Phase 3A: cohort backlink (null for a standalone instance) — drives the cohort banner.
+  cohort_instance_id?: string | null;
+  cohort_def_id?: string | null;
+  cohort_correlation_value?: string | null;
 }
 
 /**
@@ -219,4 +223,89 @@ export interface TraceTreeOut {
   correlation_id: string;
   trace_id: string;
   spans: TraceSpan[];
+}
+
+/**
+ * ADR-063 Phase 3A cohort read-models (glea-service). Hand-written (mirroring the GLEA convention above);
+ * keep in sync with backend/services/platform/glea-service/app/models/cohort.py.
+ */
+export type CohortState = "open" | "closing" | "closed";
+export type MemberStatus = "done" | "running" | "failed";
+
+export interface CohortRollup {
+  done: number;
+  running: number;
+  failed: number;
+}
+
+export interface CohortListEntry {
+  cohort_instance_id: string;
+  cohort_def_id: string;
+  correlation_value: string;
+  state: CohortState;
+  member_count: number;
+  rollup: CohortRollup;
+  opened_at: string | null;
+  closed_at: string | null;
+  outcome: string | null;
+  anomalies: number;
+}
+
+export interface CohortListOut {
+  count: number;
+  cohorts: CohortListEntry[];
+}
+
+export interface CohortRosterMember {
+  process_instance_id: string;
+  pack_key: string;
+  pack_version: string;
+  correlation_id: string;
+  status: MemberStatus;
+  started_at: string | null;
+  ended_at: string | null;
+  outcome: string | null;
+  late: boolean;
+}
+
+export interface CohortEventOut {
+  op: string;
+  at: string | null;
+  process_instance_id: string | null;
+  detail: string | null;
+}
+
+export interface CohortCloseOut {
+  signalled: boolean;
+  outcome: string | null;
+  state: CohortState;
+  late_joins: number;
+}
+
+export interface CohortDetailOut {
+  cohort_instance_id: string;
+  cohort_def_id: string;
+  correlation_value: string;
+  state: CohortState;
+  member_count: number;
+  rollup: CohortRollup;
+  opened_at: string | null;
+  closed_at: string | null;
+  outcome: string | null;
+  anomalies: number;
+  roster: CohortRosterMember[];
+  events: CohortEventOut[];
+  close: CohortCloseOut;
+}
+
+/** Registry cohort-definition (design-time). Keep in sync with process-registry app/models/cohort.py. */
+export interface CohortDefinition {
+  cohort_def_id: string;
+  display_name?: string | null;
+  description?: string | null;
+  close_schema: Record<string, unknown>;
+  close_correlation_path: string;
+  close_outcome_path?: string | null;
+  created_at?: string;
+  updated_at?: string;
 }

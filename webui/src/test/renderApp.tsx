@@ -16,6 +16,9 @@ import { RegistryPage } from "@/features/registry/RegistryPage";
 import { PackDetailPage } from "@/features/registry/PackDetailPage";
 import { OnboardingWizard } from "@/features/registry/OnboardingWizard";
 import { DashboardPage } from "@/features/dashboard/DashboardPage";
+import { CohortsPage } from "@/features/cohorts/CohortsPage";
+import { CohortDetailPage } from "@/features/cohorts/CohortDetailPage";
+import { NewCohortPage } from "@/features/cohorts/NewCohortPage";
 
 /**
  * Test personas: the `amendia_user_id` a test passes doubles as the id SoD /
@@ -61,6 +64,9 @@ export function renderApp(initialPath: string, userId: string, extra?: ReactElem
               <Route path="/inbox/:taskId" element={<TaskDetailPage />} />
               <Route path="/instances" element={<InstancesPage />} />
               <Route path="/instances/:instanceId" element={<InstanceDetailPage />} />
+              <Route path="/cohorts" element={<CohortsPage />} />
+              <Route path="/cohorts/new" element={<NewCohortPage />} />
+              <Route path="/cohorts/:cohortId" element={<CohortDetailPage />} />
               <Route path="/triggers" element={<TriggersPage />} />
               <Route path="/triggers/:triggerId" element={<TriggerDetailPage />} />
               <Route path="/registry" element={<RegistryPage />} />

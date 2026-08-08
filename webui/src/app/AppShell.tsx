@@ -4,6 +4,7 @@ import {
   LayoutDashboard,
   Inbox,
   Workflow,
+  Network,
   AlertTriangle,
   Boxes,
   ShieldCheck,
@@ -41,6 +42,8 @@ const NAV: NavItem[] = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard, operatorSurface: true },
   { to: "/inbox", label: "Task inbox", icon: Inbox, operatorSurface: true },
   { to: "/instances", label: "Instances", icon: Workflow, operatorSurface: true },
+  // ADR-063 Phase 3B: cross-system cohort observability.
+  { to: "/cohorts", label: "Cohorts", icon: Network, operatorSurface: true },
   { to: "/triggers", label: "Triggers", icon: AlertTriangle, operatorSurface: true },
   // Registry (process authoring) is process-owner only — progressive disclosure.
   { to: "/registry", label: "Registry", icon: Boxes, requiresRole: ROLE.processOwner },
