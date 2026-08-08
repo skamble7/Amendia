@@ -23,7 +23,7 @@ from app.validation.pack_validator import PackValidator
 def load_sample_envelopes() -> List[dict]:
     if not settings.SEED_DIR:            # L2: no seed configured → no sample envelopes
         return []
-    d = Path(settings.SEED_DIR) / "sample-exception"
+    d = Path(settings.SEED_DIR) / "sample-trigger"
     if not d.exists():
         return []
     return [json.loads(f.read_text()) for f in sorted(d.glob("*.json"))]

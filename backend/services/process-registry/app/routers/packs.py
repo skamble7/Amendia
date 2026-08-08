@@ -43,7 +43,7 @@ _OWNER = Depends(require_roles("role.process.owner"))
 
 
 def _load_sample_envelopes() -> List[dict]:
-    d = Path(settings.SEED_DIR) / "sample-exception"
+    d = Path(settings.SEED_DIR) / "sample-trigger"
     if not d.exists():
         return []
     return [json.loads(f.read_text()) for f in sorted(d.glob("*.json"))]

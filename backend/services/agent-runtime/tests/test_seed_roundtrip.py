@@ -56,6 +56,6 @@ def test_manifest_roundtrip_and_bindings():
 
 
 def test_sample_exception_is_valid_json():
-    data = json.loads((SEED / "sample-exception" / "wire-exception-ac01.json").read_text())
+    data = json.loads((SEED / "sample-trigger" / "wire-exception-ac01.json").read_text())
     assert data["exception_id"] == "EXC-2026-000123"
     assert data["reason_codes"] == ["AC01"]

@@ -231,7 +231,7 @@ async def test_non_interrupting_esp_refused_at_assemble(ce_service):
 
 # --- end-to-end: onboard a message-bearing single-fidelity pack to active ------------------------
 
-async def test_e2e_message_pack_onboards_to_active(ce_service, pack_repo):
+async def test_e2e_message_pack_onboards_to_active(ce_service, pack_repo, bpmn_repo):
     # single fidelity: a serviceTask (capability) + a receiveTask (message) on the flow → active.
     xml = f"""<bpmn:definitions {_NS}>
       <bpmn:process id="P" isExecutable="true">
@@ -263,6 +263,9 @@ async def test_e2e_message_pack_onboards_to_active(ce_service, pack_repo):
     assert s.state == OnboardingState.COMPLETED
     pack = await pack_repo.get("msg-pack", "1.0.0")
     assert pack.status.value == "active"
+    # CB-1: commit re-keyed the draft BPMN to the real pack and dropped the per-session staging row.
+    assert await bpmn_repo.get_xml(f"__onb__{s.session_id}", "1.0.0") is None
+    assert await bpmn_repo.get_xml("msg-pack", "1.0.0") is not None    # the committed pack's BPMN is intact
     # the message binding survived into the committed manifest
     recv = next(b for b in pack.bindings if b.element_id == "Recv")
     assert recv.executor.type == "message" and recv.executor.message_name == "pay.reply"

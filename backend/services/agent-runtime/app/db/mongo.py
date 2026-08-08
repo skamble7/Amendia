@@ -39,7 +39,7 @@ async def create_indexes(db: AsyncIOMotorDatabase) -> None:
     await db[DISPATCH_LOG].create_index("event_id", unique=True)
     await db[DISPATCH_LOG].create_index("trigger_id")
 
-    await db[SAMPLE_EXCEPTIONS].create_index("exception_id", unique=True)
+    await db[SAMPLE_TRIGGERS].create_index("exception_id", unique=True)
 
     # ADR-027 Phase 2.2 timer substrate. Idempotent re-register: unique on (instance, element, kind)
     # so re-entering a node (crash replay) upserts rather than duplicating. The poller scans by
@@ -72,7 +72,7 @@ DISPATCH_LOG = "dispatch_log"
 TIMERS = "timers"                        # ADR-027 Phase 2.2 durable timer substrate
 MESSAGE_SUBSCRIPTIONS = "message_subscriptions"  # ADR-031 Phase 2.4 message substrate
 PENDING_MESSAGES = "pending_messages"    # ADR-031 Phase 2.4 ordering buffer (TTL'd)
-SAMPLE_EXCEPTIONS = "sample_exceptions"  # seed-only helper collection
+SAMPLE_TRIGGERS = "sample_triggers"  # seed-only helper collection (ADR-059: trigger, not exception)
 
 
 class MongoClient:

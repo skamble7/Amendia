@@ -118,7 +118,7 @@ def load_bpmn() -> str:
 
 
 def load_sample() -> dict:
-    return json.loads((SEED / "sample-exception" / "wire-exception-ac01.json").read_text())
+    return json.loads((SEED / "sample-trigger" / "wire-exception-ac01.json").read_text())
 
 
 class FakeMongo:

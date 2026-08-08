@@ -1,7 +1,7 @@
 # app/dal/sample_repo.py
-"""Sample-exception repository — seed-only storage of the reference envelope.
+"""Sample-trigger repository — seed-only storage of the reference trigger envelope.
 
-Stored as-is (no contract model in agent-runtime scope validates the wire envelope);
+Stored as-is (no contract model in agent-runtime scope validates the trigger envelope);
 kept so the execution slice has a fetch-back fixture available.
 """
 from __future__ import annotations
@@ -11,7 +11,7 @@ from typing import Any, Dict, Optional
 from motor.motor_asyncio import AsyncIOMotorCollection
 
 
-class SampleExceptionRepository:
+class SampleTriggerRepository:
     def __init__(self, collection: AsyncIOMotorCollection) -> None:
         self._coll = collection
 

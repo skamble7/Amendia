@@ -39,7 +39,7 @@ PACKS = sorted((p.parent for p in SEED_ROOT.glob("*/manifest.json")), key=lambda
 
 def _load_samples(pack_dir: Path) -> list:
     import json
-    d = pack_dir / "sample-exception"
+    d = pack_dir / "sample-trigger"
     return [json.loads(f.read_text()) for f in sorted(d.glob("*.json"))] if d.exists() else []
 
 

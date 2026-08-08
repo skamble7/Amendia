@@ -101,6 +101,26 @@ _DOMAIN_RE = re.compile(r"^[a-z0-9_]+$")
 _ART_ID_RE = re.compile(r"^art\.[a-z0-9_]+\.[a-z0-9_.]+$")
 _APPROVE_ACTIONS = HitlMode.APPROVE_ACTIONS
 
+# CB-1: per-session BPMN staging key prefix. Draft BPMN is upserted under `__onb__<session_id>` so it never
+# collides with a real pack's BPMN; commit re-keys it to the real pack and delete/commit now drop the staging
+# row. `purge_orphaned_staging_bpmn` (startup) sweeps any pre-existing orphans.
+_STAGING_BPMN_PREFIX = "__onb__"
+
+
+async def purge_orphaned_staging_bpmn(bpmn_coll, sessions_coll) -> int:
+    """CB-1 startup sweep: drop per-session onboarding-draft BPMN rows (``__onb__<session>``) whose session is
+    gone or already committed. An in-progress (non-``completed``) session keeps its draft — it's still in use.
+    Idempotent; returns the number of rows purged."""
+    keys = await bpmn_coll.distinct("pack_key", {"pack_key": {"$regex": f"^{_STAGING_BPMN_PREFIX}"}})
+    purged = 0
+    for key in keys:
+        session_id = key[len(_STAGING_BPMN_PREFIX):]
+        in_progress = await sessions_coll.count_documents(
+            {"session_id": session_id, "state": {"$ne": OnboardingState.COMPLETED.value}}, limit=1)
+        if in_progress == 0:                       # session absent or already committed → the draft is stale
+            purged += (await bpmn_coll.delete_many({"pack_key": key})).deleted_count
+    return purged
+
 # ADR-046 (Track 2): field types for the inferred verdict/summary artifact.
 _DMN_TYPE_JSON = {"number": "number", "integer": "integer", "boolean": "boolean", "string": "string"}
 _REDUCE_OP_TYPE = {
@@ -234,6 +254,9 @@ class OnboardingService:
     async def delete(self, session_id: str, *, owner: str) -> None:
         s = await self.get(session_id, owner=owner)  # ownership + existence
         await self.sessions.delete(s.session_id)
+        # CB-1: the session's draft BPMN lives under a per-session staging key; drop it so deleting the session
+        # leaves no `__onb__` orphan in bpmn_documents. Idempotent (delete_many).
+        await self.bpmn.delete_pack(self._staging_pk(s))
 
     # ------------------------------------------------------------------ #
     # MCP introspection (no session mutation)
@@ -1174,6 +1197,10 @@ class OnboardingService:
         s.state = OnboardingState.COMPLETED
         s.result_pack = f"{pk}@{ver}"
         s.last_cleared = []
+        # CB-1: the draft BPMN was re-keyed to the real pack (step 4) — drop the per-session staging row so a
+        # committed pack leaves no `__onb__` orphan. Only after a fully successful commit (a failed commit raises
+        # earlier and keeps the staging row for a retry). Idempotent.
+        await self.bpmn.delete_pack(self._staging_pk(s))
         return await self.sessions.save(s)
 
     # ================================================================== #
@@ -1188,7 +1215,7 @@ class OnboardingService:
     @staticmethod
     def _staging_pk(s: OnboardingSession) -> str:
         # Namespaced BPMN staging key so it never collides with a real pack's BPMN doc.
-        return f"__onb__{s.session_id}"
+        return f"{_STAGING_BPMN_PREFIX}{s.session_id}"
 
     @staticmethod
     def _advance(current: OnboardingState, target: OnboardingState) -> OnboardingState:

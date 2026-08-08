@@ -25,7 +25,7 @@ from app.validation.pack_validator import PackValidator
 
 
 def _load_samples(seed: Path) -> List[dict]:
-    d = seed / "sample-exception"
+    d = seed / "sample-trigger"
     return [json.loads(f.read_text()) for f in sorted(d.glob("*.json"))] if d.exists() else []
 
 

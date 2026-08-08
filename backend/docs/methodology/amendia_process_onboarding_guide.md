@@ -364,7 +364,7 @@ JSON-Schema, authored in the wizard's **Trigger schema** panel (in the Triage st
 schema like any staged artifact, emits it as the pack's `ProcessPack.trigger`, and — the point of declaring —
 **flattens it into `session.trigger_fields`** (`{dotpath: json_type}`), which drives the Triage field picker
 and its schema-aware validation. It replaces the previous behaviour of learning the trigger shape from the
-deployment's `SEED_DIR/sample-exception` samples, so **any** domain's pack gets a typed picker with no seed
+deployment's `SEED_DIR/sample-trigger` samples, so **any** domain's pack gets a typed picker with no seed
 dependency.
 
 Declaring is an **enrichment, not a state transition** (callable once BPMN is attached); it changes the field

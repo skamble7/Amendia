@@ -81,7 +81,7 @@ task sources `from: artifact` = the upstream task's output (e.g. `Assess.dossier
 the artifact id `art.wirefix.wire_exception` plus its JSON-Schema (the envelope shape your generator emits).
 The wizard registers it, emits it as the pack's `ProcessPack.trigger`, and flattens it into the Triage field
 picker — so Triage below authors against the **declared envelope fields** (`exception_type`, `payment.msg_type`,
-`reason_codes`, …) with no dependency on `SEED_DIR/sample-exception`. Skip it and the picker falls back to the
+`reason_codes`, …) with no dependency on `SEED_DIR/sample-trigger`. Skip it and the picker falls back to the
 deployment's sample envelopes (the seed path), which still works.
 
 **5 · Triage.** With the trigger declared, pick fields from the picker and add at least one rule (e.g.

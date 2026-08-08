@@ -50,6 +50,17 @@ async def lifespan(app: FastAPI):
     app.state.resolver = ResolveService(app.state.pack_repo, settings.RESOLVE_CACHE_TTL)
     app.state.auth = AuthContext(auth_settings)
 
+    # CB-1: one-time idempotent sweep of orphaned onboarding-draft BPMN (`__onb__<session>` rows whose session
+    # is gone or already committed). Going forward, commit/delete clean these; this clears pre-existing residue.
+    try:
+        from app.services.onboarding import purge_orphaned_staging_bpmn
+        purged = await purge_orphaned_staging_bpmn(
+            mongo.collection(BPMN_DOCUMENTS), mongo.collection(ONBOARDING_SESSIONS))
+        if purged:
+            logger.info("CB-1: purged %d orphaned onboarding-draft BPMN row(s) (__onb__*)", purged)
+    except Exception as exc:  # noqa: BLE001 - a cleanup hiccup must never block startup
+        logger.warning("CB-1 staging-BPMN sweep skipped: %s", exc)
+
     if not settings.SEED_REFERENCE_PACK:
         # ADR-052: the copilot onboards processes now; skip the reference pack so it doesn't compete on triage.
         logger.info("Reference pack seed skipped (SEED_REFERENCE_PACK=false).")

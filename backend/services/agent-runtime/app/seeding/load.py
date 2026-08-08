@@ -22,12 +22,12 @@ from jsonschema import Draft202012Validator
 from app.dal.artifact_schema_repo import ArtifactSchemaRepository
 from app.dal.capability_repo import CapabilityRepository
 from app.dal.pack_repo import ProcessPackRepository
-from app.dal.sample_repo import SampleExceptionRepository
+from app.dal.sample_repo import SampleTriggerRepository
 from app.db.mongo import (
     ARTIFACT_SCHEMAS,
     CAPABILITIES,
     PROCESS_PACKS,
-    SAMPLE_EXCEPTIONS,
+    SAMPLE_TRIGGERS,
     MongoClient,
 )
 from app.models.artifact_schema import ArtifactSchemaRegistration
@@ -112,8 +112,8 @@ class SeedLoader:
             out.append(reg)
         return out
 
-    def load_sample_exceptions(self) -> List[Dict[str, Any]]:
-        folder = self.seed_dir / "sample-exception"
+    def load_sample_triggers(self) -> List[Dict[str, Any]]:
+        folder = self.seed_dir / "sample-trigger"
         if not folder.exists():
             return []
         return [json.loads(f.read_text()) for f in sorted(folder.glob("*.json"))]
@@ -126,7 +126,7 @@ class SeedLoader:
         cap_repo = CapabilityRepository(mongo.collection(CAPABILITIES))
         schema_repo = ArtifactSchemaRepository(mongo.collection(ARTIFACT_SCHEMAS))
         pack_repo = ProcessPackRepository(mongo.collection(PROCESS_PACKS))
-        sample_repo = SampleExceptionRepository(mongo.collection(SAMPLE_EXCEPTIONS))
+        sample_repo = SampleTriggerRepository(mongo.collection(SAMPLE_TRIGGERS))
 
         # 1) artifact schemas
         for reg in self.load_artifact_schemas():
@@ -164,10 +164,10 @@ class SeedLoader:
         else:
             raise SeedConflictError(f"{label} changed but version is immutable")
 
-        # 4) sample exceptions (seed-only, upserted as-is)
-        for sample in self.load_sample_exceptions():
+        # 4) sample triggers (seed-only, upserted as-is)
+        for sample in self.load_sample_triggers():
             await sample_repo.upsert(sample)
-            report.inserted.append(f"sample-exception {sample['exception_id']}")
+            report.inserted.append(f"sample-trigger {sample['exception_id']}")
 
         logger.info("Seed complete: %s", report.as_dict())
         return report
