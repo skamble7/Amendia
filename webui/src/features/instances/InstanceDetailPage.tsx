@@ -62,7 +62,8 @@ export function InstanceDetailPage() {
   const terminal = ["completed", "failed", "cancelled"].includes(instance.status);
   const currentEl = instance.hitl_tasks.find((t) => t.status === "open" || t.status === "claimed")?.element_id;
   const failedEl = instance.status === "failed" ? instance.actor_log[instance.actor_log.length - 1]?.element_id : null;
-  const steps = deriveSteps(pack, instance.actor_log, { currentElementId: currentEl, failedElementId: failedEl, terminal });
+  // ADR-062: `terminal` still drives the duration display below, but NOT the diagram — `done` is actor_log-only.
+  const steps = deriveSteps(pack, instance.actor_log, { currentElementId: currentEl, failedElementId: failedEl });
   const durationText = formatDurationShort(
     instance.instance.created_at,
     terminal ? instance.instance.updated_at : undefined,

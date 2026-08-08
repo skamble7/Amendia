@@ -34,9 +34,35 @@ describe("ContextRail step derivation (from the live instance, not the viewed ta
   it("marks the last acted element failed on a failed instance", () => {
     const steps = deriveSteps(pack, [acted("Task_A"), acted("Task_B")], {
       failedElementId: "Task_B",
-      terminal: true,
     });
     expect(steps.find((s) => s.element_id === "Task_B")!.state).toBe("failed");
     expect(steps.find((s) => s.element_id === "Task_A")!.state).toBe("done");
+  });
+});
+
+// ADR-062: a terminal instance's diagram greens ONLY the executed path; un-taken branches stay `pending`.
+const branchingPack = {
+  bindings: [
+    { element_id: "Task_A", element_kind: "serviceTask", hitl: { mode: "none" } },
+    { element_id: "Task_B", element_kind: "serviceTask", hitl: { mode: "none" } },   // the branch actually taken
+    { element_id: "Task_C", element_kind: "serviceTask", hitl: { mode: "none" } },   // an un-taken branch
+  ],
+} as unknown as ProcessPackManifest;
+
+describe("ADR-062 — terminal instance highlights only the executed path", () => {
+  it("a COMPLETED instance greens executed bindings and leaves un-taken branches pending", () => {
+    // Instance ran A → B and completed; it never entered C (a different branch). No open gate, no failure.
+    const steps = deriveSteps(branchingPack, [acted("Task_A"), acted("Task_B")], {});
+    expect(steps.find((s) => s.element_id === "Task_A")!.state).toBe("done");
+    expect(steps.find((s) => s.element_id === "Task_B")!.state).toBe("done");
+    expect(steps.find((s) => s.element_id === "Task_C")!.state).toBe("pending"); // NOT greened just because terminal
+  });
+
+  it("a FAILED instance shows the failed node failed, the path to it done, and the rest pending", () => {
+    // Ran A, failed at B; never reached C.
+    const steps = deriveSteps(branchingPack, [acted("Task_A"), acted("Task_B")], { failedElementId: "Task_B" });
+    expect(steps.find((s) => s.element_id === "Task_A")!.state).toBe("done");
+    expect(steps.find((s) => s.element_id === "Task_B")!.state).toBe("failed");
+    expect(steps.find((s) => s.element_id === "Task_C")!.state).toBe("pending");
   });
 });

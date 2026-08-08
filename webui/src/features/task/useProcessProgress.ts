@@ -24,14 +24,14 @@ export function useProcessProgress(task: HitlTask): {
     getInstance(task.process_instance_id, s),
   );
 
-  const terminal = instance ? ["completed", "failed", "cancelled"].includes(instance.status) : false;
   const currentEl = instance?.hitl_tasks.find((t) => t.status === "open" || t.status === "claimed")?.element_id;
   const failedEl =
     instance?.status === "failed" ? instance.actor_log[instance.actor_log.length - 1]?.element_id : null;
+  // ADR-062: no `terminal` flag — `done` derives purely from actor_log, so a completed instance greens only
+  // its executed path (un-taken branches stay pending).
   const steps = deriveSteps(pack, instance?.actor_log, {
     currentElementId: currentEl,
     failedElementId: failedEl,
-    terminal,
   });
 
   return { pack, instance, steps };

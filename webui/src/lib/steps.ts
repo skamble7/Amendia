@@ -24,11 +24,11 @@ export function elementLabel(elementId: string): string {
 export function deriveSteps(
   pack: ProcessPackManifest | undefined,
   actorLog: ActorLogEntry[] | undefined,
-  opts: { currentElementId?: string | null; failedElementId?: string | null; terminal?: boolean } = {},
+  opts: { currentElementId?: string | null; failedElementId?: string | null } = {},
 ): Step[] {
   if (!pack?.bindings) return [];
   const acted = new Set((actorLog ?? []).map((e) => e.element_id));
-  const { currentElementId, failedElementId, terminal } = opts;
+  const { currentElementId, failedElementId } = opts;
 
   return pack.bindings.map((b) => {
     const element_id = b.element_id;
@@ -36,7 +36,9 @@ export function deriveSteps(
     if (failedElementId && element_id === failedElementId) state = "failed";
     else if (currentElementId && element_id === currentElementId) state = "current";
     else if (acted.has(element_id)) state = "done";
-    else if (terminal) state = "done"; // completed instance: everything reached is done
+    // ADR-062: "done" derives PURELY from actor_log membership — a terminal (completed/failed/cancelled)
+    // instance greens ONLY the elements it actually executed; un-taken branches stay `pending`. No blanket
+    // "terminal → all done" fallback (that misrepresented which path ran).
     return {
       element_id,
       label: elementLabel(element_id),
