@@ -24,6 +24,7 @@ class Settings(BaseSettings):
     CLICKHOUSE_USER: str = "default"
     CLICKHOUSE_PASSWORD: str = ""
     CLICKHOUSE_TABLE: str = "audit_events"
+    CLICKHOUSE_COHORT_TABLE: str = "cohort_events"   # ADR-063 Phase 3A cohort read-model (own table)
     # Max idle clients kept in the connection pool. Each concurrent operation borrows its OWN client
     # (clickhouse-connect clients are not safe to share across threads / concurrent queries), so a
     # backlog-drain burst reuses up to this many connections instead of churning them.

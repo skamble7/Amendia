@@ -110,6 +110,23 @@ class ProcessPackRepository:
             counts[name] = (await coll.delete_many(q)).deleted_count if coll is not None else 0
         return counts
 
+    async def set_cohort_membership(
+        self, pack_key: str, version: str, membership: Optional[Dict[str, str]]
+    ) -> Optional[ProcessPackManifest]:
+        """ADR-063 Phase 2: stamp (or clear, when ``membership`` is None) the pack version's
+        ``cohort_membership`` IN PLACE. Membership is additive *observational* metadata that does not change
+        execution, so it does not require a new pack version. Does NOT touch ``status``. Returns the updated
+        manifest, or None if the version is unknown."""
+        if membership is None:
+            update = {"$unset": {"cohort_membership": ""}, "$set": {"updated_at": utcnow_iso()}}
+        else:
+            update = {"$set": {"cohort_membership": membership, "updated_at": utcnow_iso()}}
+        doc = await self._coll.find_one_and_update(
+            {"pack_key": pack_key, "version": version}, update,
+            projection=_MANIFEST_PROJECTION, return_document=ReturnDocument.AFTER,
+        )
+        return _to_manifest(doc) if doc else None
+
     async def set_bpmn_sha(self, pack_key: str, version: str, sha256: str) -> None:
         await self._coll.update_one(
             {"pack_key": pack_key, "version": version},

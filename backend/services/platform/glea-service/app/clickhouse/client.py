@@ -58,7 +58,12 @@ def bootstrap(client: Any) -> None:
     # add a new column to an existing table). Adds artifact_key over an existing DB without a drop.
     for ddl in schema.alter_add_columns_ddl(db, table):
         client.command(ddl)
-    logger.info("audit_events schema ready: %s.%s (ttl=%dd)", db, table, ttl)
+    # ADR-063 Phase 3A: the cohort read-model table (separate from audit_events).
+    cohort_table = settings.CLICKHOUSE_COHORT_TABLE
+    client.command(schema.create_cohort_table_ddl(db, cohort_table, ttl))
+    for ddl in schema.cohort_alter_add_columns_ddl(db, cohort_table):
+        client.command(ddl)
+    logger.info("glea schema ready: %s.%s + %s.%s (ttl=%dd)", db, table, db, cohort_table, ttl)
 
 
 def ping(client: Optional[Any]) -> bool:

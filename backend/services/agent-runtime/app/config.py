@@ -30,6 +30,8 @@ class Settings(BaseSettings):
     # RabbitMQ
     RABBITMQ_URL: str = "amqp://guest:guest@localhost:5672/"
     RABBITMQ_DISPATCH_QUEUE: str = "agent-runtime.trigger_dispatched.v1"
+    # ADR-063 Phase 2: the cohort close-ingress queue (bound to ingestor.cohort_close_requested.v1).
+    RABBITMQ_COHORT_CLOSE_QUEUE: str = "agent-runtime.cohort_close_requested.v1"
 
     # Process registry — pack/capability/schema/resolution API.
     REGISTRY_BASE_URL: str = "http://localhost:8084"

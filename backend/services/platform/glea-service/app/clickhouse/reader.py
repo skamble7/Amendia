@@ -247,3 +247,55 @@ class AuditReader:
             return self._metrics_sync(client, correlation_id=correlation_id, since=since, until=until,
                                       trace_id=trace_id)
         return await self._pool.run(op)
+
+
+class CohortReader:
+    """ADR-063 Phase 3A — reads over the ``cohort_events`` read-model (its own table) + the member-outcome
+    join into ``audit_events``. Reads use ``FINAL`` so a redelivered ``event_id`` shows once."""
+
+    def __init__(self, pool: ClickHousePool) -> None:
+        self._pool = pool
+        self._table = f"{settings.CLICKHOUSE_DB}.{settings.CLICKHOUSE_COHORT_TABLE}"
+        self._audit = f"{settings.CLICKHOUSE_DB}.{settings.CLICKHOUSE_TABLE}"
+        self._cols = schema.COHORT_READ_COLUMNS
+
+    def _rows(self, client: Any, where: str, params: Dict[str, Any]) -> List[Dict[str, Any]]:
+        cols = ", ".join(self._cols)
+        sql = (f"SELECT {cols} FROM {self._table} FINAL "
+               f"{where} ORDER BY occurred_at ASC, event_id ASC")
+        try:
+            res = client.query(sql, parameters=params)
+        except Exception as exc:  # noqa: BLE001
+            raise StorageUnavailable(f"cohort query failed: {exc}") from exc
+        return [dict(zip(res.column_names, row)) for row in res.result_rows]
+
+    async def cohort_events_all(self) -> List[Dict[str, Any]]:
+        return await self._pool.run(lambda c: self._rows(c, "", {}))
+
+    async def cohort_events_for(self, cohort_instance_id: str) -> List[Dict[str, Any]]:
+        return await self._pool.run(
+            lambda c: self._rows(c, "WHERE cohort_instance_id = {cid:String}", {"cid": cohort_instance_id}))
+
+    async def cohort_events_by_correlation_value(self, correlation_value: str) -> List[Dict[str, Any]]:
+        return await self._pool.run(
+            lambda c: self._rows(c, "WHERE correlation_value = {v:String}", {"v": correlation_value}))
+
+    def _member_outcomes_sync(self, client: Any, correlation_ids: List[str]) -> List[Dict[str, Any]]:
+        if not correlation_ids:
+            return []
+        sql = (
+            "SELECT correlation_id, kind, occurred_at, "
+            "JSONExtractString(payload, 'outcome') AS outcome "
+            f"FROM {self._audit} FINAL "
+            "WHERE correlation_id IN {cids:Array(String)} "
+            "AND kind IN ('dispatch_accepted','process_completed','process_failed') "
+            "ORDER BY occurred_at ASC, event_id ASC"
+        )
+        try:
+            res = client.query(sql, parameters={"cids": correlation_ids})
+        except Exception as exc:  # noqa: BLE001
+            raise StorageUnavailable(f"member-outcome query failed: {exc}") from exc
+        return [dict(zip(res.column_names, row)) for row in res.result_rows]
+
+    async def member_outcomes(self, correlation_ids: List[str]) -> List[Dict[str, Any]]:
+        return await self._pool.run(lambda c: self._member_outcomes_sync(c, list(correlation_ids)))

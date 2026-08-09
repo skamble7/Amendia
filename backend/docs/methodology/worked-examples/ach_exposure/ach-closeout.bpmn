@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
+                  xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
+                  xmlns:dc="http://www.omg.org/spec/DD/20100524/DC"
+                  xmlns:di="http://www.omg.org/spec/DD/20100524/DI"
+                  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                  id="Definitions_AchCloseout"
+                  targetNamespace="http://amendia.example/processes/ach-closeout"
+                  exporter="Amendia" exporterVersion="0.1">
+  <bpmn:process id="Process_AchCloseout"
+                name="ACH Exposure - Closeout &amp; Purge (Segment C)"
+                isExecutable="true">
+    <bpmn:documentation>Amendia Segment C of the ACH exposure-limit-violation case orchestrated by Pega.
+    Triggered by Pega after FIS has released or purged the transaction. Verifies the disposition actually
+    applied, lets a human review the case updates and artifacts (a light audit gate), marks the case state
+    completed, purges the working data, and hands back to Pega. Cohort member of ach_exposure_cohort
+    (correlation key case_id). HITL mode + capability bindings live in the Amendia annotation manifest, not
+    this file.</bpmn:documentation>
+
+    <bpmn:startEvent id="Start_CloseoutRequested" name="Closeout requested">
+      <bpmn:outgoing>Flow_Start_Verify</bpmn:outgoing>
+    </bpmn:startEvent>
+
+    <bpmn:serviceTask id="Task_VerifyDisposition" name="Verify disposition applied (released/purged)">
+      <bpmn:incoming>Flow_Start_Verify</bpmn:incoming>
+      <bpmn:outgoing>Flow_Verify_Review</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <bpmn:userTask id="Task_ReviewArtifacts" name="Review case updates &amp; artifacts">
+      <bpmn:incoming>Flow_Verify_Review</bpmn:incoming>
+      <bpmn:outgoing>Flow_Review_Mark</bpmn:outgoing>
+    </bpmn:userTask>
+
+    <bpmn:serviceTask id="Task_MarkCompleted" name="Mark case state completed">
+      <bpmn:incoming>Flow_Review_Mark</bpmn:incoming>
+      <bpmn:outgoing>Flow_Mark_Purge</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <bpmn:serviceTask id="Task_PurgeWorkingData" name="Purge working data">
+      <bpmn:incoming>Flow_Mark_Purge</bpmn:incoming>
+      <bpmn:outgoing>Flow_Purge_Notify</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <bpmn:serviceTask id="Task_NotifyClosedOut" name="Notify Pega - case closed out">
+      <bpmn:incoming>Flow_Purge_Notify</bpmn:incoming>
+      <bpmn:outgoing>Flow_Notify_End</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <bpmn:endEvent id="End_CaseClosedOut" name="Case closed out">
+      <bpmn:incoming>Flow_Notify_End</bpmn:incoming>
+    </bpmn:endEvent>
+
+    <bpmn:sequenceFlow id="Flow_Start_Verify" sourceRef="Start_CloseoutRequested" targetRef="Task_VerifyDisposition"/>
+    <bpmn:sequenceFlow id="Flow_Verify_Review" sourceRef="Task_VerifyDisposition" targetRef="Task_ReviewArtifacts"/>
+    <bpmn:sequenceFlow id="Flow_Review_Mark" sourceRef="Task_ReviewArtifacts" targetRef="Task_MarkCompleted"/>
+    <bpmn:sequenceFlow id="Flow_Mark_Purge" sourceRef="Task_MarkCompleted" targetRef="Task_PurgeWorkingData"/>
+    <bpmn:sequenceFlow id="Flow_Purge_Notify" sourceRef="Task_PurgeWorkingData" targetRef="Task_NotifyClosedOut"/>
+    <bpmn:sequenceFlow id="Flow_Notify_End" sourceRef="Task_NotifyClosedOut" targetRef="End_CaseClosedOut"/>
+  </bpmn:process>
+
+  <bpmndi:BPMNDiagram id="Diagram_AchCloseout">
+    <bpmndi:BPMNPlane id="Plane_AchCloseout" bpmnElement="Process_AchCloseout">
+      <bpmndi:BPMNShape id="S_Start" bpmnElement="Start_CloseoutRequested"><dc:Bounds x="152" y="182" width="36" height="36"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S_Verify" bpmnElement="Task_VerifyDisposition"><dc:Bounds x="240" y="160" width="140" height="80"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S_Review" bpmnElement="Task_ReviewArtifacts"><dc:Bounds x="430" y="160" width="140" height="80"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S_Mark" bpmnElement="Task_MarkCompleted"><dc:Bounds x="620" y="160" width="140" height="80"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S_Purge" bpmnElement="Task_PurgeWorkingData"><dc:Bounds x="810" y="160" width="140" height="80"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S_Notify" bpmnElement="Task_NotifyClosedOut"><dc:Bounds x="1000" y="160" width="140" height="80"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S_End" bpmnElement="End_CaseClosedOut"><dc:Bounds x="1192" y="182" width="36" height="36"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="E_Start_Verify" bpmnElement="Flow_Start_Verify"><di:waypoint x="188" y="200"/><di:waypoint x="240" y="200"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="E_Verify_Review" bpmnElement="Flow_Verify_Review"><di:waypoint x="380" y="200"/><di:waypoint x="430" y="200"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="E_Review_Mark" bpmnElement="Flow_Review_Mark"><di:waypoint x="570" y="200"/><di:waypoint x="620" y="200"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="E_Mark_Purge" bpmnElement="Flow_Mark_Purge"><di:waypoint x="760" y="200"/><di:waypoint x="810" y="200"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="E_Purge_Notify" bpmnElement="Flow_Purge_Notify"><di:waypoint x="950" y="200"/><di:waypoint x="1000" y="200"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="E_Notify_End" bpmnElement="Flow_Notify_End"><di:waypoint x="1140" y="200"/><di:waypoint x="1192" y="200"/></bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>

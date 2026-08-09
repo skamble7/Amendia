@@ -54,3 +54,23 @@ class AuditWriter:
         if not rows:
             return
         await self._pool.run(lambda client: self._reinsert_sealed(client, rows))
+
+
+class CohortWriter:
+    """ADR-063 Phase 3A — the ``cohort_events`` writer (own table, separate from audit_events). Idempotent by
+    ``ReplacingMergeTree`` on ``event_id``; a ClickHouse failure raises ``StorageUnavailable`` so the consumer
+    requeues (cohort events must not be dropped on an outage either)."""
+
+    def __init__(self, pool: ClickHousePool) -> None:
+        self._pool = pool
+        self._table = f"{settings.CLICKHOUSE_DB}.{settings.CLICKHOUSE_COHORT_TABLE}"
+
+    def _insert(self, client: Any, row: Dict[str, Any]) -> None:
+        values = [row.get(col) for col in schema.COHORT_INSERT_COLUMNS]
+        try:
+            client.insert(self._table, [values], column_names=schema.COHORT_INSERT_COLUMNS)
+        except Exception as exc:  # noqa: BLE001 — any insert error → requeue, never drop
+            raise StorageUnavailable(f"cohort insert failed: {exc}") from exc
+
+    async def insert(self, row: Dict[str, Any]) -> None:
+        await self._pool.run(lambda client: self._insert(client, row))

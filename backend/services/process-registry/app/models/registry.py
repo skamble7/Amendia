@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -65,10 +65,22 @@ class ResolveRequest(BaseModel):
 
 
 class ResolveResponse(BaseModel):
+    # ADR-063 Phase 2: /resolve is now a discriminated result. ``kind`` defaults to "trigger" so every existing
+    # consumer/test that reads pack_key/pack_version/rule_id is unaffected (additive field).
+    kind: Literal["trigger"] = "trigger"
     pack_key: str
     pack_version: str
     rule_id: str
     resolved_at: datetime = Field(default_factory=utcnow)
+
+
+class CohortCloseResponse(BaseModel):
+    """ADR-063 Phase 2: /resolve recognised an external end-of-process message (close-schema match). No pack
+    is dispatched; ``correlation_value`` alone lets agent-runtime resolve+close the cohort."""
+    kind: Literal["cohort_close"] = "cohort_close"
+    cohort_def_id: str
+    correlation_value: str
+    close_outcome: Optional[str] = None
 
 
 class NoMatchResponse(BaseModel):

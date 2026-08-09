@@ -107,6 +107,7 @@ class ProcessEngine:
         checkpointer: Any = None,
         timer_service: Any = None,
         message_service: Any = None,
+        cohort_service: Any = None,
     ) -> None:
         self._registry = registry
         self._instances = instance_repo
@@ -114,6 +115,9 @@ class ProcessEngine:
         self._publisher = publisher
         self._settings = settings
         self._executor = executor or InProcessExecutor()
+        # ADR-063 Phase 1: cohort drain hook. Optional — absent in unit tests without the substrate; then the
+        # member-terminal hook is a no-op and execution is byte-for-byte unchanged.
+        self._cohorts = cohort_service
         # ADR-027 Phase 2.2: durable timers. Optional — when absent (unit tests without the substrate)
         # timer constructs simply aren't scheduled; packs needing them require the "timers" profile.
         self._timers = timer_service
@@ -248,21 +252,31 @@ class ProcessEngine:
     # ------------------------------------------------------------------ #
     # Execution
     # ------------------------------------------------------------------ #
+    @staticmethod
+    def _instance_span_attrs(instance: ProcessInstance) -> Dict[str, Any]:
+        """Structural attributes stamped on the instance ROOT span (and thus every re-parented node span).
+        ADR-063 Phase 1: when this segment joined a cohort, add the `amendia.cohort.*` tags so GLEA can group
+        a case's segments by a single ClickHouse filter. Additive + side-effect-free when there's no cohort
+        (keys omitted). `amendia.cohort.*` is a DISTINCT namespace from `amendia.correlation_id`."""
+        attrs = {
+            tconv.CORRELATION_ID: instance.correlation_id,
+            tconv.PROCESS_INSTANCE_ID: instance.process_instance_id,
+            tconv.PACK_KEY: instance.pack_key,
+            tconv.PACK_VERSION: instance.pack_version,
+        }
+        if getattr(instance, "cohort_instance_id", None):
+            attrs[tconv.COHORT_DEF_ID] = instance.cohort_def_id
+            attrs[tconv.COHORT_INSTANCE_ID] = instance.cohort_instance_id
+            attrs[tconv.COHORT_CORRELATION_VALUE] = instance.cohort_correlation_value
+        return attrs
+
     async def start(self, instance: ProcessInstance, envelope: Dict[str, Any]) -> None:
         graph = await self.get_graph(instance.pack_key, instance.pack_version)
         trace = {"correlation_id": instance.correlation_id, "causation_id": None}
         # ADR-058: open the instance ROOT span and persist its context into state.trace["otel"], so
         # every node span (this segment and every future resume/recovery segment) re-parents to it —
         # one coherent trace per instance. Empty when telemetry is off → nodes start a fresh trace.
-        otel = start_instance_trace(
-            instance.correlation_id,
-            attrs={
-                tconv.CORRELATION_ID: instance.correlation_id,
-                tconv.PROCESS_INSTANCE_ID: instance.process_instance_id,
-                tconv.PACK_KEY: instance.pack_key,
-                tconv.PACK_VERSION: instance.pack_version,
-            },
-        )
+        otel = start_instance_trace(instance.correlation_id, attrs=self._instance_span_attrs(instance))
         if otel:
             trace["otel"] = otel
         init = initial_state(
@@ -718,6 +732,18 @@ class ProcessEngine:
     # ------------------------------------------------------------------ #
     # Terminal states
     # ------------------------------------------------------------------ #
+    async def _on_member_terminal(self, instance: ProcessInstance) -> None:
+        """ADR-063 Phase 1: a member segment reached a terminal state → drain the cohort roster (mark the
+        member terminal, decrement the active count). Fail-soft — a cohort hiccup never masks the terminal
+        outcome. The closing → closed transition is exercised in Phase 2 (no close signal exists yet)."""
+        if self._cohorts is None:
+            return
+        try:
+            await self._cohorts.on_member_terminal(instance)
+        except Exception as exc:  # noqa: BLE001 — observation must never break the terminal path
+            logger.warning("cohort member-terminal drain failed for %s: %s",
+                           instance.process_instance_id, exc)
+
     async def _complete(self, instance: ProcessInstance, result: Dict[str, Any]) -> None:
         outcome = (result or {}).get("outcome")
         if outcome == FAILED_OUTCOME:
@@ -730,6 +756,7 @@ class ProcessEngine:
         )
         logger.info("instance %s completed outcome=%s artifacts=%s",
                     instance.process_instance_id, outcome, artifact_names)
+        await self._on_member_terminal(instance)
         await self._publish(ProcessCompletedEvent(
             event_id=uuid.uuid4().hex, occurred_at=datetime.now(timezone.utc),
             process_instance_id=instance.process_instance_id, trigger_id=instance.trigger_id,
@@ -745,6 +772,7 @@ class ProcessEngine:
         )
         logger.warning("instance %s failed reason=%s detail=%s",
                        instance.process_instance_id, reason, detail)
+        await self._on_member_terminal(instance)
         # ADR-058: fetch the checkpoint to stamp trace_id + drain any audit intents (e.g. an enforced
         # egress deny committed before the node failed). Best-effort — never let it mask the failure.
         state = {}

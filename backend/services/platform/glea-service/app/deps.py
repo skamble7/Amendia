@@ -4,12 +4,16 @@ from __future__ import annotations
 
 from fastapi import Request
 
-from app.clickhouse.reader import AuditReader
+from app.clickhouse.reader import AuditReader, CohortReader
 from app.events.consumer import AuditConsumer
 
 
 def get_reader(request: Request) -> AuditReader:
     return request.app.state.reader
+
+
+def get_cohort_reader(request: Request) -> CohortReader:
+    return request.app.state.cohort_reader
 
 
 def get_consumer(request: Request) -> AuditConsumer:

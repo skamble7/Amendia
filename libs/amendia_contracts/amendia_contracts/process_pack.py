@@ -259,6 +259,18 @@ class Policies(ContractModel):
     separation_of_duties: Optional[List[SeparationOfDuties]] = None
 
 
+class CohortMembership(ContractModel):
+    """ADR-063 Phase 1 — an OPTIONAL, purely-observational declaration that this pack's instances are
+    segments of a larger cross-system case. ``cohort_def_id`` names the cohort this segment belongs to;
+    ``correlation_key`` is a dotpath into THIS pack's own trigger envelope naming the business key that ties
+    sibling segments together (members triage to different packs with different trigger schemas — ADR-047/049
+    — so each maps its own field to the cohort's correlation slot). No execution authority: a pack with a
+    membership still triages/compiles/gates/executes exactly like a standalone process. V1: at most one per
+    pack; a trigger whose ``correlation_key`` field is absent simply runs standalone (graceful non-membership)."""
+    cohort_def_id: str
+    correlation_key: str
+
+
 class PackStatus(str, Enum):
     DRAFT = "draft"
     VALIDATED = "validated"
@@ -292,5 +304,7 @@ class ProcessPackManifest(ContractModel, TimestampsMixin):
     # (keyed by capability_id). The registry refuses a side-effectful autonomous loop unless
     # justified here. Additive; empty for every existing pack.
     deep_agent_justifications: Dict[str, str] = Field(default_factory=dict)
+    # ADR-063 Phase 1: optional cohort membership. Absent → ordinary standalone process (unchanged).
+    cohort_membership: Optional[CohortMembership] = None
     status: PackStatus
     created_by: Optional[str] = None

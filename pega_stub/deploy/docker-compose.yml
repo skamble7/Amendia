@@ -1,0 +1,45 @@
+# pega_stub/deploy/docker-compose.yml
+#
+# The mock Pega orchestrator for the ADR-063 cohort worked example (ACH exposure). Joins the SAME Docker
+# network as the backend stack so it can POST envelopes to the trigger store (stub-trigger-generator:8081),
+# and so the ACH MCP stub's `notify_pega` can reach it at the alias `pega-stub:9095`.
+#
+# Bring up AFTER the backend + MCP stubs:
+#   docker compose -f backend/deploy/docker-compose.yml up -d --build     # backend
+#   docker compose -f mcp_stub/deploy/docker-compose.yml up -d --build    # MCP stubs (ach-mcp etc.)
+#   docker compose -f pega_stub/deploy/docker-compose.yml up --build      # then this
+#
+# Shared network: mirror the mcp_stub compose — the backend's default network is `deploy_default`; set
+# AMENDIA_NETWORK to match if you used a different compose project name.
+name: amendia-pega-stub
+
+services:
+  pega-stub:
+    build:
+      context: ..
+    image: amendia/pega-stub:dev
+    ports:
+      - "9095:9095"
+    environment:
+      PORT: "9095"
+      PEGA_STUB_HOST: "0.0.0.0"
+      # The trigger store the ingestor fetch-backs from (in-network service name).
+      TRIGGER_STORE_URL: "${TRIGGER_STORE_URL:-http://stub-trigger-generator:8081}"
+      # Shared dev service token — matches the backend compose's STUBTRIG_AUTH_INTERNAL_TOKEN so POST /triggers
+      # passes without extra setup. Overridable via the env var. Dev scaffolding only.
+      TRIGGER_STORE_INTERNAL_TOKEN: "${TRIGGER_STORE_INTERNAL_TOKEN:-dev-internal-token}"
+      # Optional flagged cohort self-registration (needs a process-owner bearer; off by default).
+      REGISTER_COHORT_ON_START: "${REGISTER_COHORT_ON_START:-false}"
+      REGISTRY_URL: "${REGISTRY_URL:-http://process-registry:8084}"
+      REGISTRY_BEARER: "${REGISTRY_BEARER:-}"
+    networks:
+      amendia:
+        # The alias the ACH MCP stub's notify_pega targets: http://pega-stub:9095
+        aliases:
+          - pega-stub
+    restart: unless-stopped
+
+networks:
+  amendia:
+    external: true
+    name: ${AMENDIA_NETWORK:-deploy_default}

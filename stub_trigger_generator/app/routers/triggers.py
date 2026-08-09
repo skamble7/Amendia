@@ -5,18 +5,60 @@ bytes. Domain-blind — one collection, no per-domain routes. Generation lives i
 from __future__ import annotations
 
 import logging
+import uuid
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from pydantic import BaseModel, Field
 
-from app.dal.trigger_repo import TriggerRepository
-from app.deps import get_repo
+from app.dal.trigger_repo import DuplicateTriggerError, TriggerRepository
+from app.deps import get_publisher, get_repo
+from app.events.rabbit import RabbitPublisher
 from app.models.trigger import StoredTrigger
+from app.routers.generators import GeneratedTrigger, _persist_and_publish
 from app.sample_data import CATALOG, read_bytes
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/triggers", tags=["triggers"])
+
+
+# --------------------------------------------------------------------------- #
+# Generic envelope ingress (ADR-063 cohort worked example — enabling primitive).
+# Any external producer (e.g. the mock Pega orchestrator) can inject an already-built envelope without a
+# bespoke domain generator. DOMAIN-BLIND: the payload is opaque here — no ACH/wire/dine knowledge — exactly
+# like a domain generator's output, so it flows through the same store + TriggerRaisedEvent path.
+# --------------------------------------------------------------------------- #
+class SubmitTriggerRequest(BaseModel):
+    trigger_type: str = Field(..., description="Platform discriminator the registry triages on (opaque here)")
+    schema_version: str
+    source: str = "external"
+    payload: Dict[str, Any]
+
+
+@router.post("", response_model=GeneratedTrigger, status_code=201)
+async def submit_trigger(
+    body: SubmitTriggerRequest,
+    repo: TriggerRepository = Depends(get_repo),
+    publisher: RabbitPublisher = Depends(get_publisher),
+):
+    """Inject a pre-built envelope into the store and publish its ``TriggerRaisedEvent`` — the domain-neutral
+    counterpart of ``/generators/{id}/generate`` for external producers. The store never reads the payload."""
+    now = datetime.now(timezone.utc)
+    stored = StoredTrigger(
+        trigger_id=f"trg-{uuid.uuid4().hex[:20]}",
+        trigger_type=body.trigger_type,
+        schema_version=body.schema_version,
+        source=body.source,
+        payload=body.payload,
+        created_at=now,
+        updated_at=now,
+    )
+    try:
+        return await _persist_and_publish(stored, repo, publisher)
+    except DuplicateTriggerError as exc:  # pragma: no cover - fresh uuid, effectively unreachable
+        raise HTTPException(status_code=409, detail=str(exc))
 
 
 @router.get("", response_model=List[StoredTrigger])

@@ -1,0 +1,18 @@
+{
+  "note": "NOT a pack trigger schema — this is the cohort DEFINITION's end-of-process (close) schema. Register it on cohort_def_id 'ach_exposure_cohort' (New Cohort screen or POST /cohort/definitions). Amendia recognises Pega's process-completed message by matching this schema and closes the cohort by correlation_value. close_correlation_path: case_id; close_outcome_path: outcome. Matches the mock Pega orchestrator's close_payload / scenarios.COHORT_CLOSE_SCHEMA exactly.",
+  "cohort_def_id": "ach_exposure_cohort",
+  "close_correlation_path": "case_id",
+  "close_outcome_path": "outcome",
+  "close_schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://amendia.dev/schemas/cohort/ach_exposure/close/1.0.0.json",
+    "type": "object",
+    "required": ["event", "case_id"],
+    "additionalProperties": false,
+    "properties": {
+      "event": { "const": "process_completed", "description": "The discriminator the close ingress matches on." },
+      "case_id": { "type": "string", "description": "The correlation_value that resolves the cohort instance to close." },
+      "outcome": { "type": "string", "description": "The orchestrator-reported overall outcome (Released / Purged)." }
+    }
+  }
+}

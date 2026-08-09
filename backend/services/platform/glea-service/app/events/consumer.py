@@ -26,6 +26,7 @@ from aio_pika.abc import AbstractIncomingMessage
 
 from amendia_common.events import (
     ARTIFACT_COMMITTED,
+    COHORT_LIFECYCLE,
     CONFIG_REF_RESOLVED,
     DISPATCH_ACCEPTED,
     EGRESS_DECISION,
@@ -64,6 +65,7 @@ AUDIT_BINDING_KEYS: List[str] = [
     rk(Service.IDENTITY, ROLE_CHANGED),
     rk(Service.PROCESS_REGISTRY, PACK_LIFECYCLE),
     rk(Service.CONFIG_FORGE, CONFIG_REF_RESOLVED),
+    rk(Service.AGENT_RUNTIME, COHORT_LIFECYCLE),      # ADR-063 Phase 3A → cohort_events (not audit_events)
 ]
 
 # handler(routing_key, payload) — raises StorageUnavailable (→ requeue) or UnmappableEvent (→ drop).

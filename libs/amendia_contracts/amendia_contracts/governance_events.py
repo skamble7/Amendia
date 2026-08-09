@@ -18,6 +18,7 @@ from typing import ClassVar, Literal, Optional
 
 from amendia_common.events import (
     ARTIFACT_COMMITTED,
+    COHORT_LIFECYCLE,
     CONFIG_REF_RESOLVED,
     EGRESS_DECISION,
     PACK_LIFECYCLE,
@@ -43,6 +44,15 @@ class PackLifecycleOp(str, Enum):
     DEPRECATE = "deprecate"
     ROLLBACK = "rollback"
     DELETE = "delete"                              # ADR-061: force-delete a pack version / whole pack (audit-first)
+
+
+class CohortLifecycleOp(str, Enum):
+    """ADR-063 cohort-instance state/roster transitions (purely observational)."""
+    OPENED = "opened"                # first member spawned → cohort instance created
+    MEMBER_JOINED = "member_joined"  # a segment instance joined the cohort's roster
+    CLOSING = "closing"              # external close signal arrived while ≥1 member still running (Phase 2)
+    CLOSED = "closed"                # cohort terminal — no member in flight (Phase 2)
+    LATE_JOIN = "late_join"          # anomaly: joined a closed cohort, or a cohort_def_id-mismatch member
 
 
 # --------------------------------------------------------------------------- #
@@ -85,6 +95,34 @@ class ArtifactCommittedEvent(EventBase):
     # LLM). Absent for a plain MCP tool (no reasoning — never fabricated). Structural key; content value.
     rationale: Optional[str] = None
     trace: Trace
+
+
+class CohortLifecycleEvent(EventBase):
+    """ADR-063 Phase 1 — a cohort instance's own lifecycle/roster transition, emitted fail-soft by
+    agent-runtime (mirrors ``PackLifecycleEvent``). Thin on purpose: it carries only the cohort's OWN
+    transitions and never re-emits member terminal outcomes (member instances publish their own terminal
+    telemetry — one source of truth). Fields stay structural/domain-neutral: ``correlation_value`` is opaque
+    data, never a business-term key. Per-op detail: ``process_instance_id``/``pack_key`` on ``member_joined``/
+    ``late_join``; a short ``detail`` anomaly string on ``late_join``."""
+
+    _service: ClassVar[Service] = Service.AGENT_RUNTIME
+    _event_name: ClassVar[str] = COHORT_LIFECYCLE
+
+    schema_version: Literal["pin.platform.cohort_lifecycle/1.0"] = "pin.platform.cohort_lifecycle/1.0"
+    cohort_def_id: str
+    cohort_instance_id: str
+    correlation_value: str                          # opaque business key (structural — not a domain term)
+    op: CohortLifecycleOp
+    process_instance_id: Optional[str] = None       # the joining member (member_joined / late_join)
+    pack_key: Optional[str] = None                  # the joining member's pack (member_joined / late_join)
+    # ADR-063 Phase 3A: the joining member's pinned pack version (member_joined / late_join) — the roster read-
+    # model needs it to fetch the right BPMN. Set alongside pack_key.
+    pack_version: Optional[str] = None
+    # ADR-063 Phase 3A: the orchestrator-reported overall outcome (closing / closed) as a first-class field, so
+    # the read-model reads a clean column instead of parsing it out of `detail` (which is still set too).
+    close_outcome: Optional[str] = None
+    detail: Optional[str] = None                    # anomaly / close-outcome note (late_join, closing, closed)
+    trace: Optional[Trace] = None
 
 
 # --------------------------------------------------------------------------- #

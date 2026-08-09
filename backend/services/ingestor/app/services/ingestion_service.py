@@ -19,9 +19,10 @@ from __future__ import annotations
 import logging
 import uuid
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Any, Dict, Optional
 
 from amendia_common.events import DISPATCH_ACCEPTED, DISPATCH_REJECTED
+from amendia_contracts.cohort_events import CohortCloseRequested
 from amendia_contracts.dispatch import (
     DispatchResolution,
     Trace,
@@ -144,6 +145,13 @@ class IngestionService:
             )
             return False
 
+        # ADR-063 Phase 2: the registry may classify this message as an external end-of-process (cohort close)
+        # rather than a trigger. Publish CohortCloseRequested (correlation_value is the sole handle), mark the
+        # record terminal, and do NOT dispatch a pack.
+        if resolved.get("kind") == "cohort_close":
+            await self._publish_cohort_close(record, resolved)
+            return False
+
         resolution = {
             "pack_key": resolved["pack_key"],
             "pack_version": resolved["pack_version"],
@@ -174,6 +182,33 @@ class IngestionService:
             resolution["rule_id"],
         )
         return True
+
+    async def _publish_cohort_close(self, record: IngestionRecord, resolved: Dict[str, Any]) -> None:
+        """ADR-063 Phase 2: mark the record terminal (idempotent guard) and publish CohortCloseRequested for
+        agent-runtime. Only publish once we've won the transition, so a redelivery doesn't double-publish."""
+        correlation_value = resolved.get("correlation_value")
+        cohort_close = {
+            "cohort_def_id": resolved.get("cohort_def_id"),
+            "correlation_value": correlation_value,
+            "close_outcome": resolved.get("close_outcome"),
+        }
+        updated = await self._repo.mark_cohort_close(
+            record.trigger_id, cohort_close=cohort_close,
+            detail=f"cohort close for correlation_value={correlation_value}",
+        )
+        if updated is None:
+            return  # already terminal (concurrent handler / sweep race) — don't double-publish
+        event = CohortCloseRequested(
+            event_id=uuid.uuid4().hex,
+            occurred_at=_utcnow(),
+            correlation_value=correlation_value,
+            close_outcome=resolved.get("close_outcome"),
+            cohort_def_id=resolved.get("cohort_def_id"),
+            trace=Trace(correlation_id=record.trigger_id, causation_id=record.event.event_id),
+        )
+        await self._publisher.publish(event.to_doc(), event.routing_key(), event.event_id)
+        logger.info("trigger_id=%s → cohort_close correlation_value=%s outcome=%s",
+                    record.trigger_id, correlation_value, resolved.get("close_outcome"))
 
     async def handle_reply(self, payload: dict, routing_key: str) -> None:
         """Consume the runtime's dispatch replies (accepted/rejected). Idempotent."""

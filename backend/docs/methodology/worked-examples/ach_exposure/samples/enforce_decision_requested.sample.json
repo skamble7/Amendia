@@ -1,0 +1,6 @@
+{
+  "request_type": "EnforceDecisionRequested",
+  "case_id": "CASE-2026-001001",
+  "rbo_decision": "approve",
+  "underwriter": "rbo.underwriter@flagstar.com"
+}

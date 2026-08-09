@@ -18,14 +18,14 @@ from amendia_telemetry import configure_telemetry
 
 from app.clickhouse.client import StorageUnavailable
 from app.clickhouse.provider import ClickHousePool
-from app.clickhouse.reader import AuditReader
+from app.clickhouse.reader import AuditReader, CohortReader
 from app.clickhouse.sealer import AuditSealer
-from app.clickhouse.writer import AuditWriter
+from app.clickhouse.writer import AuditWriter, CohortWriter
 from app.config import settings
 from app.events.consumer import AuditConsumer
-from app.events.mapper import to_row
+from app.events.mapper import is_cohort_event, to_cohort_row, to_row
 from app.logging_conf import configure_logging
-from app.routers import audit, health
+from app.routers import audit, cohorts, health
 
 logger = logging.getLogger(__name__)
 
@@ -52,18 +52,25 @@ async def lifespan(app: FastAPI):
     pool = ClickHousePool()
     writer = AuditWriter(pool)
     reader = AuditReader(pool)
+    cohort_writer = CohortWriter(pool)          # ADR-063 Phase 3A
+    cohort_reader = CohortReader(pool)
 
     async def handle(routing_key: str, payload: dict) -> None:
-        # to_row → UnmappableEvent (poison, dropped by the consumer); insert → StorageUnavailable
-        # (requeued by the consumer). glea is the sole writer of audit_events.
-        row = to_row(routing_key, payload)
-        await writer.insert(row)
+        # Branch by routing key: cohort events → cohort_events (its own table); everything else → audit_events.
+        # to_(cohort_)row → UnmappableEvent (poison, dropped by the consumer); insert → StorageUnavailable
+        # (requeued — cohort events must not be dropped on a ClickHouse blip either).
+        if is_cohort_event(routing_key):
+            await cohort_writer.insert(to_cohort_row(routing_key, payload))
+        else:
+            await writer.insert(to_row(routing_key, payload))
 
     consumer = AuditConsumer(settings.RABBITMQ_URL, handle)
     sealer = AuditSealer(reader, writer)
     app.state.pool = pool
     app.state.writer = writer
     app.state.reader = reader
+    app.state.cohort_writer = cohort_writer
+    app.state.cohort_reader = cohort_reader
     app.state.consumer = consumer
     app.state.sealer = sealer
 
@@ -106,6 +113,7 @@ def create_app() -> FastAPI:
         app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
     app.include_router(health.router)
     app.include_router(audit.router)
+    app.include_router(cohorts.router)  # ADR-063 Phase 3A cohort read APIs
     return app
 
 

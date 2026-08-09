@@ -27,6 +27,9 @@ PACK_ROLES = "pack_roles"
 # Authoring scratch space for the form-driven onboarding wizard. NOT a contract
 # document — nothing here is written to the shared catalog collections until commit.
 ONBOARDING_SESSIONS = "onboarding_sessions"
+# ADR-063 Phase 2: cohort DEFINITIONS (design-time) — the correlation contract + the external close-message
+# schema a pack's cohort_membership points at. The cohort INSTANCE SoR lives in agent-runtime.
+COHORT_DEFINITIONS = "cohort_definitions"
 
 
 async def create_indexes(db: AsyncIOMotorDatabase) -> None:
@@ -60,6 +63,8 @@ async def create_indexes(db: AsyncIOMotorDatabase) -> None:
 
     await db[ONBOARDING_SESSIONS].create_index("session_id", unique=True)
     await db[ONBOARDING_SESSIONS].create_index([("created_by", ASCENDING), ("updated_at", DESCENDING)])
+
+    await db[COHORT_DEFINITIONS].create_index("cohort_def_id", unique=True)  # ADR-063 Phase 2
 
     for coll in (CAPABILITIES, ARTIFACT_SCHEMAS, PROCESS_PACKS):
         await db[coll].create_index([("created_at", DESCENDING)])

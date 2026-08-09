@@ -12,9 +12,11 @@ from app.config import settings
 from app.dal.artifact_schema_repo import ArtifactSchemaRepository
 from app.dal.bpmn_repo import BpmnRepository
 from app.dal.capability_repo import CapabilityRepository
+from app.dal.cohort_def_repo import CohortDefinitionRepository
 from app.dal.onboarding_repo import OnboardingRepository
 from app.dal.pack_repo import ProcessPackRepository
 from app.db.mongo import MongoClient
+from app.services.cohort_classifier import CohortClassifier
 from app.services.onboarding import OnboardingService
 from app.services.resolver import ResolveService
 from app.validation.pack_validator import PackValidator
@@ -56,6 +58,14 @@ def get_validator(request: Request) -> PackValidator:
 
 def get_resolver(request: Request) -> ResolveService:
     return request.app.state.resolver
+
+
+def get_cohort_def_repo(request: Request) -> CohortDefinitionRepository:
+    return request.app.state.cohort_def_repo
+
+
+def get_cohort_classifier(request: Request) -> CohortClassifier:
+    return CohortClassifier(request.app.state.cohort_def_repo)
 
 
 def get_onboarding_repo(request: Request) -> OnboardingRepository:

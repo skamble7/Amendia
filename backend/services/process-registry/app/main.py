@@ -15,15 +15,16 @@ from app.config import auth_settings, settings
 from app.dal.artifact_schema_repo import ArtifactSchemaRepository
 from app.dal.bpmn_repo import BpmnRepository
 from app.dal.capability_repo import CapabilityRepository
+from app.dal.cohort_def_repo import CohortDefinitionRepository
 from app.dal.onboarding_repo import OnboardingRepository
 from app.dal.pack_repo import ProcessPackRepository
 from app.db.mongo import (
-    ARTIFACT_SCHEMAS, BPMN_DOCUMENTS, CAPABILITIES, ONBOARDING_SESSIONS,
+    ARTIFACT_SCHEMAS, BPMN_DOCUMENTS, CAPABILITIES, COHORT_DEFINITIONS, ONBOARDING_SESSIONS,
     PACK_RESOLUTIONS, PACK_ROLES, PROCESS_PACKS, VALIDATION_REPORTS, MongoClient,
 )
 from app.logging_conf import configure_logging
 from app.middleware.request_id import RequestIDMiddleware
-from app.routers import artifact_schemas, capabilities, health, onboarding, packs, resolve, roles
+from app.routers import artifact_schemas, capabilities, cohort, health, onboarding, packs, resolve, roles
 from app.services.mcp_introspect import RealMcpIntrospector
 from app.services.resolver import ResolveService
 
@@ -46,6 +47,7 @@ async def lifespan(app: FastAPI):
     )
     app.state.bpmn_repo = BpmnRepository(mongo.collection(BPMN_DOCUMENTS))
     app.state.onboarding_repo = OnboardingRepository(mongo.collection(ONBOARDING_SESSIONS))
+    app.state.cohort_def_repo = CohortDefinitionRepository(mongo.collection(COHORT_DEFINITIONS))  # ADR-063 P2
     app.state.mcp_introspector = RealMcpIntrospector()
     app.state.resolver = ResolveService(app.state.pack_repo, settings.RESOLVE_CACHE_TTL)
     app.state.auth = AuthContext(auth_settings)
@@ -119,6 +121,7 @@ def create_app() -> FastAPI:
     app.include_router(artifact_schemas.router, dependencies=guarded)
     app.include_router(artifact_schemas.pack_router, dependencies=guarded)  # ADR-060 pack-scoped reads
     app.include_router(packs.router, dependencies=guarded)
+    app.include_router(cohort.router, dependencies=guarded)  # ADR-063 Phase 2 cohort definitions
     app.include_router(resolve.router, dependencies=guarded)
     app.include_router(roles.router, dependencies=guarded)
     app.include_router(onboarding.router, dependencies=guarded)

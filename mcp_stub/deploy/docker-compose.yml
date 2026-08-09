@@ -8,19 +8,17 @@
 #   docker compose -f mcp_stub/deploy/docker-compose.yml up --build            # then the MCP stub(s)
 #
 # The onboarding wizard then introspects each stub — http://wirefix-mcp:8060/mcp
-# (wire-transfer-exception) and http://dinein-mcp:8070/mcp (restaurant-dinein) — and drives
-# its pack (e.g. `wire-repair-agentic`) to `active`; the agent-runtime invokes the tools during a run.
+# (wire-transfer-exception), http://dinein-mcp:8070/mcp (restaurant-dinein), and the three ACH-exposure
+# segment servers http://ach-assess-mcp:8075/mcp, http://ach-enforce-mcp:8076/mcp,
+# http://ach-closeout-mcp:8077/mcp — and drives its pack to `active`; the agent-runtime invokes the tools.
 #
 # Shared network: the backend compose defines no explicit network, so its default is
-# `deploy_default` (Compose derives the project name from the compose file's directory,
-# `backend/deploy`). If you brought the backend up with a different project name (e.g.
-# `-p amendia` → `amendia_default`), set AMENDIA_NETWORK to match:
-#   AMENDIA_NETWORK=amendia_default docker compose -f mcp_stub/deploy/docker-compose.yml up --build
+# `deploy_default`. If you brought the backend up with a different project name, set
+# AMENDIA_NETWORK to match (e.g. AMENDIA_NETWORK=amendia_default).
 name: amendia-mcp-stub
 
 services:
-  # One service per authored server under ../servers. Add future servers as sibling blocks
-  # reusing the same network + streamable-HTTP pattern.
+  # One service per authored server under ../servers.
   wire-transfer-exception:
     build:
       context: ../servers/wire_transfer_exception
@@ -51,6 +49,60 @@ services:
         # The exact host the registry/runtime introspect: http://dinein-mcp:8070/mcp
         aliases:
           - dinein-mcp
+    restart: unless-stopped
+
+  # ADR-063 cohort worked example — the ACH exposure segments' capabilities, one server PER SEGMENT
+  # (each segment's pack points at its own MCP server at onboarding). notify_pega (the Pega handback) is in
+  # all three. The mock Pega orchestrator lives on this network at pega-stub:9095.
+  ach-exposure-assess:
+    build:
+      context: ../servers/ach_exposure_assess
+    image: amendia/ach-exposure-assess-mcp:dev
+    ports:
+      - "8075:8075"
+    environment:
+      PORT: "8075"
+      MCP_HOST: "0.0.0.0"
+      PEGA_STUB_URL: "${PEGA_STUB_URL:-http://pega-stub:9095}"
+    networks:
+      amendia:
+        # Onboard the Assess segment against: http://ach-assess-mcp:8075/mcp
+        aliases:
+          - ach-assess-mcp
+    restart: unless-stopped
+
+  ach-decision-enforce:
+    build:
+      context: ../servers/ach_decision_enforce
+    image: amendia/ach-decision-enforce-mcp:dev
+    ports:
+      - "8076:8076"
+    environment:
+      PORT: "8076"
+      MCP_HOST: "0.0.0.0"
+      PEGA_STUB_URL: "${PEGA_STUB_URL:-http://pega-stub:9095}"
+    networks:
+      amendia:
+        # Onboard the Enforce segment against: http://ach-enforce-mcp:8076/mcp
+        aliases:
+          - ach-enforce-mcp
+    restart: unless-stopped
+
+  ach-closeout:
+    build:
+      context: ../servers/ach_closeout
+    image: amendia/ach-closeout-mcp:dev
+    ports:
+      - "8077:8077"
+    environment:
+      PORT: "8077"
+      MCP_HOST: "0.0.0.0"
+      PEGA_STUB_URL: "${PEGA_STUB_URL:-http://pega-stub:9095}"
+    networks:
+      amendia:
+        # Onboard the Closeout segment against: http://ach-closeout-mcp:8077/mcp
+        aliases:
+          - ach-closeout-mcp
     restart: unless-stopped
 
 networks:
