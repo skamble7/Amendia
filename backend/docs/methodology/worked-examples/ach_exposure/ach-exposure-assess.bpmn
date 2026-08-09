@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
+                  xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
+                  xmlns:dc="http://www.omg.org/spec/DD/20100524/DC"
+                  xmlns:di="http://www.omg.org/spec/DD/20100524/DI"
+                  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                  id="Definitions_AchExposureAssess"
+                  targetNamespace="http://amendia.example/processes/ach-exposure-assess"
+                  exporter="Amendia" exporterVersion="0.1">
+  <bpmn:process id="Process_AchExposureAssess"
+                name="ACH Exposure - Assess &amp; Recommend (Segment A)"
+                isExecutable="true">
+    <bpmn:documentation>Amendia Segment A of the ACH exposure-limit-violation case orchestrated by Pega.
+    Triggered by Pega when a held exposure exception needs a disposition recommendation. Classifies the
+    exposure, pulls the client's risk profile, reasons a recommendation (APPROVE / REJECT / ROUTE-UW) with
+    confidence + rationale, drafts the underwriting message, and hands the assessment back to Pega. Advisory
+    only — no funds move here, so no human gate. Cohort member of ach_exposure_cohort (correlation key
+    case_id). Executor/capability bindings live in the Amendia annotation manifest, not this file.</bpmn:documentation>
+
+    <bpmn:startEvent id="Start_AssessRequested" name="Assess exposure requested">
+      <bpmn:outgoing>Flow_Start_Classify</bpmn:outgoing>
+    </bpmn:startEvent>
+
+    <bpmn:serviceTask id="Task_ClassifyExposure" name="Classify exposure (credit/debit, severity)">
+      <bpmn:incoming>Flow_Start_Classify</bpmn:incoming>
+      <bpmn:outgoing>Flow_Classify_Risk</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <bpmn:serviceTask id="Task_ClientRiskProfile" name="Pull client risk profile &amp; history">
+      <bpmn:incoming>Flow_Classify_Risk</bpmn:incoming>
+      <bpmn:outgoing>Flow_Risk_Recommend</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <bpmn:serviceTask id="Task_RecommendDisposition" name="Recommend disposition (+ confidence &amp; rationale)">
+      <bpmn:incoming>Flow_Risk_Recommend</bpmn:incoming>
+      <bpmn:outgoing>Flow_Recommend_Draft</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <bpmn:serviceTask id="Task_DraftUnderwriting" name="Draft underwriting message">
+      <bpmn:incoming>Flow_Recommend_Draft</bpmn:incoming>
+      <bpmn:outgoing>Flow_Draft_Notify</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <bpmn:serviceTask id="Task_NotifyAssessed" name="Notify Pega - exposure assessed">
+      <bpmn:incoming>Flow_Draft_Notify</bpmn:incoming>
+      <bpmn:outgoing>Flow_Notify_End</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <bpmn:endEvent id="End_ExposureAssessed" name="Exposure assessed">
+      <bpmn:incoming>Flow_Notify_End</bpmn:incoming>
+    </bpmn:endEvent>
+
+    <bpmn:sequenceFlow id="Flow_Start_Classify" sourceRef="Start_AssessRequested" targetRef="Task_ClassifyExposure"/>
+    <bpmn:sequenceFlow id="Flow_Classify_Risk" sourceRef="Task_ClassifyExposure" targetRef="Task_ClientRiskProfile"/>
+    <bpmn:sequenceFlow id="Flow_Risk_Recommend" sourceRef="Task_ClientRiskProfile" targetRef="Task_RecommendDisposition"/>
+    <bpmn:sequenceFlow id="Flow_Recommend_Draft" sourceRef="Task_RecommendDisposition" targetRef="Task_DraftUnderwriting"/>
+    <bpmn:sequenceFlow id="Flow_Draft_Notify" sourceRef="Task_DraftUnderwriting" targetRef="Task_NotifyAssessed"/>
+    <bpmn:sequenceFlow id="Flow_Notify_End" sourceRef="Task_NotifyAssessed" targetRef="End_ExposureAssessed"/>
+  </bpmn:process>
+
+  <bpmndi:BPMNDiagram id="Diagram_AchExposureAssess">
+    <bpmndi:BPMNPlane id="Plane_AchExposureAssess" bpmnElement="Process_AchExposureAssess">
+      <bpmndi:BPMNShape id="S_Start" bpmnElement="Start_AssessRequested"><dc:Bounds x="152" y="182" width="36" height="36"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S_Classify" bpmnElement="Task_ClassifyExposure"><dc:Bounds x="240" y="160" width="130" height="80"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S_Risk" bpmnElement="Task_ClientRiskProfile"><dc:Bounds x="420" y="160" width="130" height="80"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S_Recommend" bpmnElement="Task_RecommendDisposition"><dc:Bounds x="600" y="160" width="130" height="80"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S_Draft" bpmnElement="Task_DraftUnderwriting"><dc:Bounds x="780" y="160" width="130" height="80"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S_Notify" bpmnElement="Task_NotifyAssessed"><dc:Bounds x="960" y="160" width="130" height="80"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S_End" bpmnElement="End_ExposureAssessed"><dc:Bounds x="1142" y="182" width="36" height="36"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="E_Start_Classify" bpmnElement="Flow_Start_Classify"><di:waypoint x="188" y="200"/><di:waypoint x="240" y="200"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="E_Classify_Risk" bpmnElement="Flow_Classify_Risk"><di:waypoint x="370" y="200"/><di:waypoint x="420" y="200"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="E_Risk_Recommend" bpmnElement="Flow_Risk_Recommend"><di:waypoint x="550" y="200"/><di:waypoint x="600" y="200"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="E_Recommend_Draft" bpmnElement="Flow_Recommend_Draft"><di:waypoint x="730" y="200"/><di:waypoint x="780" y="200"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="E_Draft_Notify" bpmnElement="Flow_Draft_Notify"><di:waypoint x="910" y="200"/><di:waypoint x="960" y="200"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="E_Notify_End" bpmnElement="Flow_Notify_End"><di:waypoint x="1090" y="200"/><di:waypoint x="1142" y="200"/></bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>

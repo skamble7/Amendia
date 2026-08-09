@@ -1,0 +1,11 @@
+{
+  "request_type": "AssessExposureRequested",
+  "case_id": "CASE-2026-001001",
+  "company": "ACME-LOGISTICS",
+  "exposure_type": "credit",
+  "credit_amount": 330000.0,
+  "credit_limit": 300000.0,
+  "debit_amount": 0.0,
+  "debit_limit": 200000.0,
+  "overage": 30000.0
+}

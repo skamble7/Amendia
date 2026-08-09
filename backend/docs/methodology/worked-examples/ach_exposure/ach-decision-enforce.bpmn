@@ -1,0 +1,102 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
+                  xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
+                  xmlns:dc="http://www.omg.org/spec/DD/20100524/DC"
+                  xmlns:di="http://www.omg.org/spec/DD/20100524/DI"
+                  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                  id="Definitions_AchDecisionEnforce"
+                  targetNamespace="http://amendia.example/processes/ach-decision-enforce"
+                  exporter="Amendia" exporterVersion="0.1">
+  <bpmn:process id="Process_AchDecisionEnforce"
+                name="ACH Exposure - Enforce &amp; Execute (Segment B)"
+                isExecutable="true">
+    <bpmn:documentation>Amendia Segment B of the ACH exposure-limit-violation case orchestrated by Pega.
+    Triggered by Pega once the RBO underwriter has decided. Captures the labelled decision under
+    separation-of-duties, then branches: on APPROVE a human authorises the release and Amendia prepares the
+    release instruction; on REJECT a human authorises the purge and Amendia prepares the purge instruction.
+    Both branches move money, so each is behind an approve_actions human gate. Hands the execution
+    instruction back to Pega. Cohort member of ach_exposure_cohort (correlation key case_id). HITL modes +
+    capability bindings live in the Amendia annotation manifest, not this file.</bpmn:documentation>
+
+    <bpmn:startEvent id="Start_EnforceRequested" name="Enforce decision requested">
+      <bpmn:outgoing>Flow_Start_Capture</bpmn:outgoing>
+    </bpmn:startEvent>
+
+    <bpmn:serviceTask id="Task_CaptureDecision" name="Capture labelled RBO decision (SoD)">
+      <bpmn:incoming>Flow_Start_Capture</bpmn:incoming>
+      <bpmn:outgoing>Flow_Capture_Gateway</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <bpmn:exclusiveGateway id="Gateway_RboDecision" name="RBO decision?" default="Flow_Reject">
+      <bpmn:incoming>Flow_Capture_Gateway</bpmn:incoming>
+      <bpmn:outgoing>Flow_Approve</bpmn:outgoing>
+      <bpmn:outgoing>Flow_Reject</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+
+    <bpmn:userTask id="Task_AuthorizeRelease" name="Authorise release (approve actions)">
+      <bpmn:incoming>Flow_Approve</bpmn:incoming>
+      <bpmn:outgoing>Flow_AuthRelease_Prepare</bpmn:outgoing>
+    </bpmn:userTask>
+
+    <bpmn:serviceTask id="Task_PrepareRelease" name="Prepare release instruction (mark for release)">
+      <bpmn:incoming>Flow_AuthRelease_Prepare</bpmn:incoming>
+      <bpmn:outgoing>Flow_Release_Notify</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <bpmn:userTask id="Task_AuthorizePurge" name="Authorise purge (approve actions)">
+      <bpmn:incoming>Flow_Reject</bpmn:incoming>
+      <bpmn:outgoing>Flow_AuthPurge_Request</bpmn:outgoing>
+    </bpmn:userTask>
+
+    <bpmn:serviceTask id="Task_RequestPurge" name="Request purge for rejected transaction">
+      <bpmn:incoming>Flow_AuthPurge_Request</bpmn:incoming>
+      <bpmn:outgoing>Flow_Purge_Notify</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <bpmn:serviceTask id="Task_NotifyOrchestrated" name="Notify Pega - execution orchestrated">
+      <bpmn:incoming>Flow_Release_Notify</bpmn:incoming>
+      <bpmn:incoming>Flow_Purge_Notify</bpmn:incoming>
+      <bpmn:outgoing>Flow_Notify_End</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <bpmn:endEvent id="End_ExecutionOrchestrated" name="Execution orchestrated">
+      <bpmn:incoming>Flow_Notify_End</bpmn:incoming>
+    </bpmn:endEvent>
+
+    <bpmn:sequenceFlow id="Flow_Start_Capture" sourceRef="Start_EnforceRequested" targetRef="Task_CaptureDecision"/>
+    <bpmn:sequenceFlow id="Flow_Capture_Gateway" sourceRef="Task_CaptureDecision" targetRef="Gateway_RboDecision"/>
+    <bpmn:sequenceFlow id="Flow_Approve" name="approve" sourceRef="Gateway_RboDecision" targetRef="Task_AuthorizeRelease">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression"
+        language="https://www.omg.org/spec/DMN/20191111/FEEL/">decision.rbo_decision = "approve"</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_Reject" name="reject (default)" sourceRef="Gateway_RboDecision" targetRef="Task_AuthorizePurge"/>
+    <bpmn:sequenceFlow id="Flow_AuthRelease_Prepare" sourceRef="Task_AuthorizeRelease" targetRef="Task_PrepareRelease"/>
+    <bpmn:sequenceFlow id="Flow_Release_Notify" sourceRef="Task_PrepareRelease" targetRef="Task_NotifyOrchestrated"/>
+    <bpmn:sequenceFlow id="Flow_AuthPurge_Request" sourceRef="Task_AuthorizePurge" targetRef="Task_RequestPurge"/>
+    <bpmn:sequenceFlow id="Flow_Purge_Notify" sourceRef="Task_RequestPurge" targetRef="Task_NotifyOrchestrated"/>
+    <bpmn:sequenceFlow id="Flow_Notify_End" sourceRef="Task_NotifyOrchestrated" targetRef="End_ExecutionOrchestrated"/>
+  </bpmn:process>
+
+  <bpmndi:BPMNDiagram id="Diagram_AchDecisionEnforce">
+    <bpmndi:BPMNPlane id="Plane_AchDecisionEnforce" bpmnElement="Process_AchDecisionEnforce">
+      <bpmndi:BPMNShape id="S_Start" bpmnElement="Start_EnforceRequested"><dc:Bounds x="152" y="242" width="36" height="36"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S_Capture" bpmnElement="Task_CaptureDecision"><dc:Bounds x="240" y="220" width="140" height="80"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S_Gw" bpmnElement="Gateway_RboDecision" isMarkerVisible="true"><dc:Bounds x="430" y="235" width="50" height="50"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S_AuthRelease" bpmnElement="Task_AuthorizeRelease"><dc:Bounds x="540" y="90" width="150" height="80"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S_PrepareRelease" bpmnElement="Task_PrepareRelease"><dc:Bounds x="730" y="90" width="150" height="80"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S_AuthPurge" bpmnElement="Task_AuthorizePurge"><dc:Bounds x="540" y="360" width="150" height="80"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S_RequestPurge" bpmnElement="Task_RequestPurge"><dc:Bounds x="730" y="360" width="150" height="80"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S_NotifyOrch" bpmnElement="Task_NotifyOrchestrated"><dc:Bounds x="940" y="220" width="140" height="80"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S_End" bpmnElement="End_ExecutionOrchestrated"><dc:Bounds x="1132" y="242" width="36" height="36"/></bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="E_Start_Capture" bpmnElement="Flow_Start_Capture"><di:waypoint x="188" y="260"/><di:waypoint x="240" y="260"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="E_Capture_Gw" bpmnElement="Flow_Capture_Gateway"><di:waypoint x="380" y="260"/><di:waypoint x="430" y="260"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="E_Approve" bpmnElement="Flow_Approve"><di:waypoint x="455" y="235"/><di:waypoint x="455" y="130"/><di:waypoint x="540" y="130"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="E_AuthRelease_Prepare" bpmnElement="Flow_AuthRelease_Prepare"><di:waypoint x="690" y="130"/><di:waypoint x="730" y="130"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="E_Release_Notify" bpmnElement="Flow_Release_Notify"><di:waypoint x="880" y="130"/><di:waypoint x="1010" y="130"/><di:waypoint x="1010" y="220"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="E_Reject" bpmnElement="Flow_Reject"><di:waypoint x="455" y="285"/><di:waypoint x="455" y="400"/><di:waypoint x="540" y="400"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="E_AuthPurge_Request" bpmnElement="Flow_AuthPurge_Request"><di:waypoint x="690" y="400"/><di:waypoint x="730" y="400"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="E_Purge_Notify" bpmnElement="Flow_Purge_Notify"><di:waypoint x="880" y="400"/><di:waypoint x="1010" y="400"/><di:waypoint x="1010" y="300"/></bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="E_Notify_End" bpmnElement="Flow_Notify_End"><di:waypoint x="1080" y="260"/><di:waypoint x="1132" y="260"/></bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>

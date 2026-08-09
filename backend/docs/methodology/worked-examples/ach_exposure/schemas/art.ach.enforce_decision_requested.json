@@ -1,0 +1,21 @@
+{
+  "artifact_key": "art.ach.enforce_decision_requested",
+  "version": "1.0.0",
+  "title": "Enforce decision requested (Segment B trigger)",
+  "description": "The message Pega sends to start Amendia Segment B (ach-decision-enforce) once the RBO underwriter has decided. Author this schema in the onboarding wizard. The pack's triage rule matches on request_type == \"EnforceDecisionRequested\"; case_id is the cohort correlation key. rbo_decision is the labelled underwriter decision — capture_decision records it as the `decision` artifact and the pack's exclusive gateway branches on decision.rbo_decision. Field shapes match the mock Pega orchestrator's segment_b_payload.",
+  "json_schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://amendia.dev/schemas/artifacts/ach/enforce_decision_requested/1.0.0.json",
+    "type": "object",
+    "required": ["request_type", "case_id", "rbo_decision"],
+    "additionalProperties": false,
+    "properties": {
+      "request_type": { "type": "string", "enum": ["EnforceDecisionRequested"], "description": "Triage matches on this." },
+      "case_id": { "type": "string", "description": "Pega case id — the cohort correlation_value." },
+      "rbo_decision": { "type": "string", "enum": ["approve", "reject"], "description": "The RBO underwriter's labelled decision — drives the Segment-B gateway (approve → release, reject → purge)." },
+      "underwriter": { "type": "string", "description": "Who decided (for the audit/SoD record)." }
+    }
+  },
+  "compatibility": "backward",
+  "status": "active"
+}

@@ -1,0 +1,5 @@
+{
+  "request_type": "CloseoutRequested",
+  "case_id": "CASE-2026-001001",
+  "instruction": "release"
+}

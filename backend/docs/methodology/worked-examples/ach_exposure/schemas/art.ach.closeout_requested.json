@@ -1,0 +1,20 @@
+{
+  "artifact_key": "art.ach.closeout_requested",
+  "version": "1.0.0",
+  "title": "Closeout requested (Segment C trigger)",
+  "description": "The message Pega sends to start Amendia Segment C (ach-closeout) after FIS has released or purged the transaction. Author this schema in the onboarding wizard. The pack's triage rule matches on request_type == \"CloseoutRequested\"; case_id is the cohort correlation key. instruction is the disposition FIS applied. Field shapes match the mock Pega orchestrator's segment_c_payload.",
+  "json_schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://amendia.dev/schemas/artifacts/ach/closeout_requested/1.0.0.json",
+    "type": "object",
+    "required": ["request_type", "case_id"],
+    "additionalProperties": false,
+    "properties": {
+      "request_type": { "type": "string", "enum": ["CloseoutRequested"], "description": "Triage matches on this." },
+      "case_id": { "type": "string", "description": "Pega case id — the cohort correlation_value." },
+      "instruction": { "type": "string", "enum": ["release", "purge"], "description": "The disposition applied by FIS." }
+    }
+  },
+  "compatibility": "backward",
+  "status": "active"
+}

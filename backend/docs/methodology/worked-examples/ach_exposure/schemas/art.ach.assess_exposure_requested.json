@@ -1,0 +1,26 @@
+{
+  "artifact_key": "art.ach.assess_exposure_requested",
+  "version": "1.0.0",
+  "title": "Assess exposure requested (Segment A trigger)",
+  "description": "The message Pega sends to start Amendia Segment A (ach-exposure-assess): a held ACH exposure exception that needs a disposition recommendation. Author this schema in the onboarding wizard — it is the process trigger, not a tool output, so it cannot be introspected from the MCP server. The pack's triage rule matches on request_type == \"AssessExposureRequested\"; case_id is the cohort correlation key (cohort_membership.correlation_key). Field shapes match the mock Pega orchestrator's segment_a_payload.",
+  "json_schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://amendia.dev/schemas/artifacts/ach/assess_exposure_requested/1.0.0.json",
+    "type": "object",
+    "required": ["request_type", "case_id"],
+    "additionalProperties": false,
+    "properties": {
+      "request_type": { "type": "string", "enum": ["AssessExposureRequested"], "description": "Triage matches on this." },
+      "case_id": { "type": "string", "description": "Pega case id — the cohort correlation_value (one case per company per batch)." },
+      "company": { "type": "string", "description": "The exposed client." },
+      "exposure_type": { "type": "string", "enum": ["credit", "debit"], "description": "Which exposure breached." },
+      "credit_amount": { "type": "number", "minimum": 0 },
+      "credit_limit": { "type": "number", "minimum": 0 },
+      "debit_amount": { "type": "number", "minimum": 0 },
+      "debit_limit": { "type": "number", "minimum": 0 },
+      "overage": { "type": "number", "minimum": 0, "description": "Amount over the breached limit." }
+    }
+  },
+  "compatibility": "backward",
+  "status": "active"
+}

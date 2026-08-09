@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Amendia × Pega — ACH Exposure Cohort: use-case grounding</title>
+<style>
+  :root{
+    --bg:#0b0d0e; --surface:#15181a; --surface-2:#1b2023; --surface-3:#212729;
+    --border:#262c2f; --border-2:#313A3E;
+    --ink:#e7ebec; --ink-2:#aeb6ba; --muted:#79848a;
+    --teal:#2dd4bf; --teal-dim:#1b6f66; --violet:#7c5cff; --violet-dim:#3b2f6e;
+    --good:#34d399; --warn:#fbbf24; --crit:#f87171;
+    --radius:12px;
+    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:15px;line-height:1.62;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:1080px;margin:0 auto;padding:34px 30px 80px}
+  h1{font-size:25px;font-weight:650;letter-spacing:-.3px;margin:0 0 4px}
+  .sub{color:var(--muted);font-size:13.5px;margin-bottom:8px}
+  .tagrow{display:flex;gap:8px;flex-wrap:wrap;margin:14px 0 30px}
+  .tag{font-size:11.5px;padding:3px 10px;border-radius:999px;background:var(--surface-2);border:1px solid var(--border-2);color:var(--ink-2)}
+  .tag b{color:var(--teal);font-weight:600}
+  h2{font-size:18px;font-weight:620;letter-spacing:-.2px;margin:40px 0 4px;padding-top:20px;border-top:1px solid var(--border)}
+  h2 .n{color:var(--teal);font-variant-numeric:tabular-nums;margin-right:8px}
+  h3{font-size:14.5px;font-weight:600;margin:22px 0 6px}
+  p{margin:10px 0}
+  .lead{color:var(--ink-2)}
+  .muted{color:var(--muted)}
+  b.term{color:var(--ink);font-weight:600}
+  .mono{font-family:var(--mono);font-size:.92em}
+  .teal{color:var(--teal)} .violet{color:var(--violet)}
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:18px 20px;margin:16px 0}
+  .callout{background:var(--surface-2);border:1px solid var(--border-2);border-left:3px solid var(--teal);border-radius:8px;padding:12px 16px;margin:16px 0;font-size:14px;color:var(--ink-2)}
+  .callout b{color:var(--ink)}
+  ul{margin:10px 0;padding-left:20px} li{margin:5px 0;color:var(--ink-2)}
+  /* macro strip */
+  .macro{display:flex;align-items:stretch;gap:0;overflow-x:auto;padding:8px 2px 4px;margin-top:8px}
+  .mstep{flex:0 0 auto;min-width:120px;max-width:150px;border:1px solid var(--border-2);border-radius:9px;padding:9px 11px;background:var(--surface-2);font-size:11.5px}
+  .mstep.pega{border-color:#3a4654;background:#171b22}
+  .mstep.amendia{border-color:var(--teal-dim);background:var(--surface-3)}
+  .mstep.close{border-color:var(--good);background:rgba(52,211,153,.08)}
+  .mstep .who{font-size:9.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:3px}
+  .mstep.amendia .who{color:var(--teal)} .mstep.pega .who{color:#8fb0d8} .mstep.close .who{color:var(--good)}
+  .mstep .lab{color:var(--ink);font-weight:500}
+  .marr{flex:0 0 auto;display:flex;align-items:center;color:var(--border-2);padding:0 3px}
+  .macro-leg{display:flex;gap:16px;font-size:11.5px;color:var(--muted);margin-top:10px;flex-wrap:wrap}
+  .macro-leg span{display:inline-flex;align-items:center;gap:6px}
+  .macro-leg i{width:11px;height:11px;border-radius:3px;display:inline-block}
+  /* segment blocks */
+  .seg{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);margin:18px 0;overflow:hidden}
+  .seghead{display:flex;align-items:baseline;gap:12px;padding:14px 18px;border-bottom:1px solid var(--border);background:var(--surface-2);flex-wrap:wrap}
+  .seghead .sid{font-size:11px;font-family:var(--mono);color:var(--teal);border:1px solid var(--teal-dim);border-radius:5px;padding:1px 7px}
+  .seghead .snm{font-size:15px;font-weight:600}
+  .seghead .pk{font-size:11.5px;font-family:var(--mono);color:var(--muted)}
+  .segbody{padding:6px 8px 4px}
+  .bpmn-wrap{overflow-x:auto}
+  svg.bpmn text{font-family:var(--sans)}
+  .segmeta{padding:8px 18px 16px;font-size:13px;color:var(--ink-2)}
+  .segmeta .row{display:flex;gap:10px;padding:4px 0;flex-wrap:wrap}
+  .segmeta .k{color:var(--muted);min-width:112px;font-size:11.5px;text-transform:uppercase;letter-spacing:.04em;padding-top:2px}
+  .segmeta .v{flex:1;min-width:220px}
+  .chip{display:inline-block;font-family:var(--mono);font-size:11.5px;background:var(--surface-3);border:1px solid var(--border-2);border-radius:5px;padding:1px 7px;margin:2px 4px 2px 0;color:var(--ink-2)}
+  .chip.tool{color:var(--teal)}
+  .legend{display:flex;gap:18px;font-size:12px;color:var(--muted);flex-wrap:wrap;margin:6px 0 2px;padding:0 10px}
+  .legend span{display:inline-flex;align-items:center;gap:7px}
+  .lz{width:15px;height:12px;border-radius:3px;display:inline-block;border:1.5px solid}
+  .footer{margin-top:36px;padding-top:18px;border-top:1px solid var(--border);color:var(--muted);font-size:12.5px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>ACH Exposure Cohort — use-case grounding</h1>
+  <div class="sub">Grounding for the segmented cross-system test of Amendia Cohorts (ADR-063). Pega orchestrates; Amendia executes three agentic segments; one cohort ties them together by <span class="mono">case_id</span>.</div>
+  <div class="tagrow">
+    <span class="tag">Cohort <b>ach_exposure_cohort</b></span>
+    <span class="tag">Correlation key <b>case_id</b></span>
+    <span class="tag">Segments <b>3</b></span>
+    <span class="tag">Amendia lane = the "POP" lane in UC-02</span>
+  </div>
+
+  <!-- ============ 1. THE BUSINESS ============ -->
+  <h2><span class="n">1.</span>What an "ACH exposure limit violation" actually is</h2>
+  <p class="lead">In plain terms, so the rest makes sense.</p>
+
+  <p><b class="term">ACH</b> is the network US banks use to move money in bulk — payroll, supplier payments, tax
+  payments. A company hands its bank a <i>file</i> containing many payments, and the bank pushes them through
+  the ACH network on the company's behalf.</p>
+
+  <p>When the bank processes that file, there's a gap between sending/collecting the money and it actually
+  <i>settling</i>. During that gap the bank is on the hook if the company can't cover it. That risk is called
+  <b class="term">exposure</b>. To cap the risk, the bank gives each company an <b class="term">exposure limit</b>
+  — a ceiling on how much it will process before funds settle. There are two flavours:
+  <span class="teal">credit exposure</span> (money going <i>out</i> on the company's behalf) and
+  <span class="teal">debit exposure</span> (money being <i>pulled in</i> that could later bounce). Typical
+  ceilings in this use case: credit ≈ $300k, debit ≈ $200k.</p>
+
+  <p>When a company's total activity for the day goes <b class="term">over</b> its limit, that's an
+  <b class="term">exposure limit violation</b> — an "exception." The bank's core system (FIS) automatically
+  <b class="term">holds</b> the file (the payments do <i>not</i> go out) and flags it for a human to review.
+  Every exception has to be worked and cleared the same day (hard 8 PM cutoff; a 60-minute underwriter SLA).</p>
+
+  <p>Working an exception means deciding, per held item: <b class="term">is the company good for it or not?</b>
+  <span class="good" style="color:var(--good)">Approve</span> → release the payments despite the overage.
+  <span style="color:var(--crit)">Reject</span> → <b class="term">purge</b> (return/cancel) the transactions.
+  Making that call needs a few facts: how far over the limit it is (the <b class="term">overage</b>), whether
+  it's credit or debit, the company's balance/standing, and sign-off from an <b class="term">RBO underwriter</b>.</p>
+
+  <div class="callout">Today this is done by hand — consolidating spreadsheets, logging into ACHPS, capturing
+  balance screenshots, emailing the underwriter, filling purge forms. <b>UC-02 automates it:</b> Pega runs the
+  case, <b>Amendia (AI agents)</b> does the judgement work, and humans stay in the loop to approve the steps
+  that actually move money.</div>
+
+  <!-- ============ 2. PEGA MACRO ============ -->
+  <h2><span class="n">2.</span>How Pega orchestrates the whole thing</h2>
+  <p class="lead">The macro process. Pega owns the case end-to-end and calls Amendia three times; we don't need a
+  new BPMN for this — the flow in words:</p>
+
+  <ol style="color:var(--ink-2);padding-left:20px">
+    <li><b>FIS holds the file</b> and emails an "exposure exceeded" spreadsheet to the bank's ops inbox.</li>
+    <li><b>Pega's email bot ingests it</b>, creates a <b class="term">Case</b> (one per company per batch — this
+      case's id is our <span class="mono teal">case_id</span>), extracts the details, and computes the overage.</li>
+    <li><b>Pega checks whether the limit is really breached</b> (allowing for any temporary limit increase). If
+      not, it's handled/closed. If yes, Pega gathers the supporting facts from the systems (ACHPS transaction
+      type, the company's PCG relationship contact, balance) — with human help — and updates the case.</li>
+    <li><span class="teal">→ Pega triggers <b>Amendia Segment A</b></span> to assess the exposure and recommend a
+      disposition. Amendia returns a recommendation + rationale + a drafted underwriting message.</li>
+    <li>Pega drafts the email from Amendia's message; <b>a human reviews and sends</b> it to the RBO underwriter
+      + PCG, then waits for the underwriter's decision (60-min SLA).</li>
+    <li><span class="teal">→ When the decision returns, Pega triggers <b>Amendia Segment B</b></span> to enforce
+      that decision and orchestrate execution — prepare a <i>release</i> or a <i>purge</i> instruction. Amendia
+      returns the instruction.</li>
+    <li>Pega updates its records / fills the purge form + logs the FIS ticket (human review as needed); <b>FIS
+      removes the hold and releases</b>, or the purge is processed.</li>
+    <li><span class="teal">→ Pega triggers <b>Amendia Segment C</b></span> to close out — confirm the disposition
+      applied, mark the case complete, purge working data. Amendia returns done.</li>
+    <li><b>Pega closes the case</b> and emits a <b class="term">process-completed</b> message.</li>
+  </ol>
+
+  <div class="card">
+    <h3 style="margin-top:0">Where the cohort lives in all this</h3>
+    <p style="margin-bottom:10px">Every trigger Pega sends in steps 4, 6, 8 carries the same
+      <span class="mono teal">case_id</span>. Each spawns an ordinary Amendia process instance — and because
+      all three share that value, they <b>join one cohort</b>. The step-9 <span class="mono">process-completed</span>
+      message (also carrying <span class="mono">case_id</span>) is the <b>cohort close</b>. Amendia never
+      sequences these — Pega does; Amendia just observes its three segments as one case.</p>
+    <div class="macro">
+      <div class="mstep pega"><div class="who">Pega</div><div class="lab">Create case + extract + overage</div></div>
+      <div class="marr">→</div>
+      <div class="mstep amendia"><div class="who">Amendia · Seg A</div><div class="lab">Assess &amp; recommend</div></div>
+      <div class="marr">→</div>
+      <div class="mstep pega"><div class="who">Pega + human</div><div class="lab">Email underwriter · await decision</div></div>
+      <div class="marr">→</div>
+      <div class="mstep amendia"><div class="who">Amendia · Seg B</div><div class="lab">Enforce &amp; execute (release/purge)</div></div>
+      <div class="marr">→</div>
+      <div class="mstep pega"><div class="who">Pega + FIS</div><div class="lab">Release hold / process purge</div></div>
+      <div class="marr">→</div>
+      <div class="mstep amendia"><div class="who">Amendia · Seg C</div><div class="lab">Closeout &amp; purge data</div></div>
+      <div class="marr">→</div>
+      <div class="mstep close"><div class="who">Pega · close</div><div class="lab">process-completed → cohort closed</div></div>
+    </div>
+    <div class="macro-leg">
+      <span><i style="background:#171b22;border:1px solid #3a4654"></i> Pega / FIS (orchestrator + systems)</span>
+      <span><i style="background:var(--surface-3);border:1px solid var(--teal-dim)"></i> Amendia segment (one cohort member)</span>
+      <span><i style="background:rgba(52,211,153,.15);border:1px solid var(--good)"></i> cohort close</span>
+    </div>
+  </div>
+
+  <!-- ============ 3. SEGMENTS ============ -->
+  <h2><span class="n">3.</span>The three Amendia segments (BPMN)</h2>
+  <p class="lead">The FDE diagram doesn't expand what happens <i>inside</i> each agentic call, so these are
+  reasonable expansions grounded in the ACH use case — enough to actually execute and to exercise the cohort.
+  Each segment starts on a Pega trigger message and ends by messaging its result back. Money-moving steps sit
+  behind a human approve gate.</p>
+
+  <div class="legend">
+    <span><i class="lz" style="border-color:var(--teal-dim);background:var(--surface-3)"></i> capability task (MCP tool)</span>
+    <span><i class="lz" style="border-color:var(--teal);background:rgba(45,212,191,.12)"></i> agentic reasoning</span>
+    <span><i class="lz" style="border-color:var(--violet);background:var(--violet-dim)"></i> human gate (approve_actions)</span>
+    <span><i class="lz" style="border-color:var(--good);border-radius:50%"></i> message start / end</span>
+  </div>
+
+  <!-- SEG A -->
+  <div class="seg">
+    <div class="seghead"><span class="sid">Seg A</span><span class="snm">Exposure Assessment &amp; Recommendation</span><span class="pk">pack: ach-exposure-assess</span></div>
+    <div class="segbody"><div class="bpmn-wrap"><svg class="bpmn" id="segA" width="900" height="150" viewBox="0 0 900 150"></svg></div></div>
+    <div class="segmeta">
+      <div class="row"><span class="k">Trigger in</span><span class="v"><span class="chip">AssessExposureRequested</span> — <span class="mono">{ case_id, company, batch, exposure_type, amounts, credit_limit, debit_limit, overage, records[] }</span></span></div>
+      <div class="row"><span class="k">Does</span><span class="v">Classifies the exposure, pulls the client's risk/history, reasons a disposition (APPROVE / REJECT / ROUTE-UW) with confidence + rationale, and drafts the underwriting message. All advisory — no money moves here, so no gate.</span></div>
+      <div class="row"><span class="k">Handback</span><span class="v"><span class="chip">ExposureAssessed</span> → recommendation, confidence, rationale, draft message</span></div>
+      <div class="row"><span class="k">MCP tools</span><span class="v"><span class="chip tool">classify_exposure</span><span class="chip tool">get_client_risk_profile</span><span class="chip tool">recommend_disposition</span><span class="chip tool">draft_underwriting_message</span></span></div>
+      <div class="row"><span class="k">Membership</span><span class="v"><span class="mono">cohort_membership: { cohort_def_id: ach_exposure_cohort, correlation_key: case_id }</span></span></div>
+    </div>
+  </div>
+
+  <!-- SEG B -->
+  <div class="seg">
+    <div class="seghead"><span class="sid">Seg B</span><span class="snm">Decision Enforcement &amp; Execution</span><span class="pk">pack: ach-decision-enforce</span></div>
+    <div class="segbody"><div class="bpmn-wrap"><svg class="bpmn" id="segB" width="900" height="240" viewBox="0 0 900 240"></svg></div></div>
+    <div class="segmeta">
+      <div class="row"><span class="k">Trigger in</span><span class="v"><span class="chip">EnforceDecisionRequested</span> — <span class="mono">{ case_id, rbo_decision: approve|reject, underwriter, conditions }</span></span></div>
+      <div class="row"><span class="k">Does</span><span class="v">Records the underwriter's labelled decision under separation-of-duties, then branches: <b>approve</b> → a human authorises the release and Amendia prepares the release instruction (mark for release); <b>reject</b> → a human authorises the purge and Amendia prepares the purge instruction. Both money-moving → <b class="violet">approve_actions</b> gates.</span></div>
+      <div class="row"><span class="k">Handback</span><span class="v"><span class="chip">ExecutionOrchestrated</span> → release-or-purge instruction + marked items</span></div>
+      <div class="row"><span class="k">MCP tools</span><span class="v"><span class="chip tool">capture_decision</span><span class="chip tool">prepare_release</span><span class="chip tool">request_purge</span></span></div>
+      <div class="row"><span class="k">Membership</span><span class="v"><span class="mono">cohort_membership: { cohort_def_id: ach_exposure_cohort, correlation_key: case_id }</span></span></div>
+    </div>
+  </div>
+
+  <!-- SEG C -->
+  <div class="seg">
+    <div class="seghead"><span class="sid">Seg C</span><span class="snm">Closeout &amp; Purge</span><span class="pk">pack: ach-closeout</span></div>
+    <div class="segbody"><div class="bpmn-wrap"><svg class="bpmn" id="segC" width="900" height="150" viewBox="0 0 900 150"></svg></div></div>
+    <div class="segmeta">
+      <div class="row"><span class="k">Trigger in</span><span class="v"><span class="chip">CloseoutRequested</span> — <span class="mono">{ case_id, final_disposition }</span></span></div>
+      <div class="row"><span class="k">Does</span><span class="v">Verifies FIS actually applied the disposition, lets a human review the case updates + artifacts (a light audit gate), marks the case state completed, and purges the working data.</span></div>
+      <div class="row"><span class="k">Handback</span><span class="v"><span class="chip">CaseClosedOut</span> → completed</span></div>
+      <div class="row"><span class="k">MCP tools</span><span class="v"><span class="chip tool">verify_disposition</span><span class="chip tool">mark_completed</span><span class="chip tool">purge_working_data</span></span></div>
+      <div class="row"><span class="k">Membership</span><span class="v"><span class="mono">cohort_membership: { cohort_def_id: ach_exposure_cohort, correlation_key: case_id }</span></span></div>
+    </div>
+  </div>
+
+  <!-- ============ 4. BUILD BRIDGE ============ -->
+  <h2><span class="n">4.</span>What this sets up for the build</h2>
+  <p class="lead">Once you're happy with the shapes above, the two build steps become concrete:</p>
+
+  <div class="card">
+    <h3 style="margin-top:0">① Stub MCP server — <span class="mono">ach-exposure-stub</span></h3>
+    <p style="margin:6px 0">One MCP server exposing the 10 tools the three segments bind (following the existing
+      wire-stan / rest-stan stub pattern). Each returns plausible canned ACH data:</p>
+    <p class="muted" style="margin:4px 0"><b>Seg A:</b> <span class="chip tool">classify_exposure</span><span class="chip tool">get_client_risk_profile</span><span class="chip tool">recommend_disposition</span><span class="chip tool">draft_underwriting_message</span></p>
+    <p class="muted" style="margin:4px 0"><b>Seg B:</b> <span class="chip tool">capture_decision</span><span class="chip tool">prepare_release</span><span class="chip tool">request_purge</span></p>
+    <p class="muted" style="margin:4px 0"><b>Seg C:</b> <span class="chip tool">verify_disposition</span><span class="chip tool">mark_completed</span><span class="chip tool">purge_working_data</span> &nbsp;+&nbsp; a <span class="chip tool">notify_pega</span> send-message tool each segment uses to hand its result back.</p>
+  </div>
+
+  <div class="card">
+    <h3 style="margin-top:0">② Pega orchestrator stub — a small web app</h3>
+    <ul>
+      <li><b>Sends the three triggers</b> (<span class="mono">AssessExposureRequested</span>,
+        <span class="mono">EnforceDecisionRequested</span>, <span class="mono">CloseoutRequested</span>), each
+        stamped with the same <span class="mono teal">case_id</span> — driving Amendia's normal trigger front door.</li>
+      <li><b>Listens for each segment's handback</b> (the <span class="mono">notify_pega</span> message) and advances
+        to the next trigger — standing in for Pega's case orchestration and the human/underwriter waits.</li>
+      <li><b>Emits the final</b> <span class="mono">process-completed</span> message (carrying
+        <span class="mono">case_id</span>) — the registered cohort <b>close</b> that disposes the cohort instance.</li>
+      <li>A tiny UI: enter a <span class="mono">case_id</span> + a scenario (credit/approve, debit/reject), then
+        "Run case" to fire the sequence — so we can watch the cohort open, accumulate its 3 members, and drain to closed.</li>
+    </ul>
+  </div>
+
+  <div class="callout"><b>Next after your sign-off:</b> I'll turn these three sketches into onboarding-ready BPMN
+  2.0 XML (start/end message events, the capability + human tasks, and the Seg B gateway), then we build the MCP
+  stub and the Pega stub. Nothing here is committed — it's a design to react to.</div>
+
+  <div class="footer">Grounding doc for the ACH Exposure Cohort test · Amendia (ADR-063). Diagrams are design sketches, not running instances. Correlation key <span class="mono">case_id</span> · cohort <span class="mono">ach_exposure_cohort</span>.</div>
+</div>
+
+<script>
+// ---- minimal BPMN sketch renderer ----
+const C = {
+  svc:   {stroke:"#2f6f68", fill:"#212729", text:"#e7ebec"},
+  agent: {stroke:"#2dd4bf", fill:"rgba(45,212,191,.12)", text:"#d7fff7"},
+  user:  {stroke:"#7c5cff", fill:"#241d3d", text:"#e7deff"},
+  ev:    {stroke:"#34d399", fill:"#12241c"},
+  evEnd: {stroke:"#34d399", fill:"#12241c"},
+  gw:    {stroke:"#aeb6ba", fill:"#1b2023"},
+};
+function icon(type,x,y){
+  if(type==='svc')   return `<text x="${x}" y="${y}" font-size="11" fill="#79848a">&#9881;</text>`;      // gear
+  if(type==='agent') return `<text x="${x}" y="${y}" font-size="11" fill="#2dd4bf">&#10022;</text>`;      // spark
+  if(type==='user')  return `<text x="${x}" y="${y}" font-size="11" fill="#c4b5fd">&#128100;</text>`;     // person
+  return '';
+}
+function wrap(label){ // crude 2-line wrap for ~15 chars
+  if(label.length<=17) return [label];
+  const words=label.split(' '); let a='',b='';
+  for(const w of words){ if((a+' '+w).trim().length<=17 && !b) a=(a?a+' ':'')+w; else b=(b?b+' ':'')+w; }
+  return [a,b];
+}
+function anchor(n,side){
+  const x=n.x,y=n.y,w=n.w||150,h=n.h||44;
+  if(n.type==='ev'||n.type==='evEnd'||n.type==='gw'){const r=(n.type==='gw'?20:17);const cx=x+r,cy=y+r;
+    if(side==='r')return[cx+r,cy]; if(side==='l')return[cx-r,cy]; if(side==='t')return[cx,cy-r]; return[cx,cy+r];}
+  if(side==='r')return[x+w,y+h/2]; if(side==='l')return[x,y+h/2]; if(side==='t')return[x+w/2,y]; return[x+w/2,y+h];
+}
+function draw(id,nodes,edges){
+  const nb={}; nodes.forEach(n=>nb[n.id]=n);
+  let s='';
+  edges.forEach(e=>{
+    const A=nb[e.from],B=nb[e.to];
+    const sameRow=Math.abs((A.y)-(B.y))<24;
+    const p1=anchor(A, sameRow?'r':(B.y<A.y?'t':'b'));
+    const p2=anchor(B, sameRow?'l':(B.y<A.y?'b':'t'));
+    const mx=(p1[0]+p2[0])/2;
+    s+=`<path d="M${p1[0]},${p1[1]} C${mx},${p1[1]} ${mx},${p2[1]} ${p2[0]},${p2[1]}" fill="none" stroke="#39424a" stroke-width="1.5"/>`;
+    s+=`<circle cx="${p2[0]}" cy="${p2[1]}" r="2.4" fill="#39424a"/>`;
+    if(e.label){const lx=mx,ly=(p1[1]+p2[1])/2-4;
+      s+=`<rect x="${lx-24}" y="${ly-11}" width="48" height="15" rx="4" fill="#0b0d0e"/>`;
+      s+=`<text x="${lx}" y="${ly}" font-size="10" fill="#aeb6ba" text-anchor="middle">${e.label}</text>`;}
+  });
+  nodes.forEach(n=>{
+    if(n.type==='ev'||n.type==='evEnd'){const r=17,cx=n.x+r,cy=n.y+r;const sw=n.type==='evEnd'?3:1.8;
+      s+=`<circle cx="${cx}" cy="${cy}" r="${r}" fill="${C.ev.fill}" stroke="${C.ev.stroke}" stroke-width="${sw}"/>`;
+      s+=`<text x="${cx}" y="${cy+4}" font-size="12" fill="#34d399" text-anchor="middle">&#9993;</text>`;
+      if(n.label){const ls=wrap(n.label);s+=ls.map((t,i)=>`<text x="${cx}" y="${n.y+r*2+13+i*11}" font-size="9.5" fill="#79848a" text-anchor="middle">${t}</text>`).join('');}
+      return;
+    }
+    if(n.type==='gw'){const r=20,cx=n.x+r,cy=n.y+r;
+      s+=`<rect x="${n.x}" y="${n.y}" width="${r*2}" height="${r*2}" rx="4" transform="rotate(45 ${cx} ${cy})" fill="${C.gw.fill}" stroke="${C.gw.stroke}" stroke-width="1.6"/>`;
+      s+=`<text x="${cx}" y="${cy+5}" font-size="14" fill="#aeb6ba" text-anchor="middle">&#215;</text>`;
+      if(n.label){s+=`<text x="${cx}" y="${n.y+r*2+14}" font-size="10" fill="#aeb6ba" text-anchor="middle">${n.label}</text>`;}
+      return;
+    }
+    const c=C[n.type],w=n.w||150,h=n.h||44;
+    s+=`<rect x="${n.x}" y="${n.y}" width="${w}" height="${h}" rx="9" fill="${c.fill}" stroke="${c.stroke}" stroke-width="1.6"/>`;
+    s+=icon(n.type,n.x+9,n.y+16);
+    const ls=wrap(n.label);
+    const startY=n.tool?(ls.length>1?n.y+16:n.y+21):(ls.length>1?n.y+19:n.y+27);
+    s+=ls.map((t,i)=>`<text x="${n.x+w/2}" y="${startY+i*13}" font-size="11.5" fill="${c.text}" text-anchor="middle">${t}</text>`).join('');
+    if(n.tool)s+=`<text x="${n.x+w/2}" y="${n.y+h-7}" font-size="9.5" fill="#79848a" text-anchor="middle" font-family="var(--mono)">${n.tool}</text>`;
+  });
+  document.getElementById(id).innerHTML=s;
+}
+
+// Segment A — linear
+draw('segA',[
+  {id:'s',  type:'ev',   x:14, y:52, label:'Pega trigger'},
+  {id:'cl', type:'svc',  x:74, y:48, w:150, h:50, label:'Classify exposure', tool:'classify_exposure'},
+  {id:'rk', type:'svc',  x:244,y:48, w:150, h:50, label:'Client risk profile', tool:'get_client_risk_profile'},
+  {id:'rc', type:'agent',x:414,y:48, w:170, h:50, label:'Recommend disposition', tool:'recommend_disposition'},
+  {id:'dr', type:'svc',  x:604,y:48, w:160, h:50, label:'Draft underwriting msg', tool:'draft_underwriting_message'},
+  {id:'e',  type:'evEnd',x:784,y:52, label:'ExposureAssessed'},
+],[
+  {from:'s',to:'cl'},{from:'cl',to:'rk'},{from:'rk',to:'rc'},{from:'rc',to:'dr'},{from:'dr',to:'e'},
+]);
+
+// Segment B — branch with two HITL gates
+draw('segB',[
+  {id:'s',  type:'ev',   x:14, y:98,  label:'Pega trigger'},
+  {id:'cap',type:'svc',  x:74, y:94,  w:160, h:50, label:'Capture labelled decision', tool:'capture_decision'},
+  {id:'gw', type:'gw',   x:264,y:100, label:'RBO decision?'},
+  {id:'ar', type:'user', x:344,y:20,  w:160, h:50, label:'Authorise release', tool:'ops approver'},
+  {id:'pr', type:'svc',  x:534,y:20,  w:160, h:50, label:'Prepare release', tool:'prepare_release'},
+  {id:'ap', type:'user', x:344,y:168, w:160, h:50, label:'Authorise purge', tool:'ops approver'},
+  {id:'rp', type:'svc',  x:534,y:168, w:160, h:50, label:'Prepare purge', tool:'request_purge'},
+  {id:'mg', type:'gw',   x:724,y:100, label:''},
+  {id:'e',  type:'evEnd',x:800,y:98,  label:'ExecutionOrchestrated'},
+],[
+  {from:'s',to:'cap'},{from:'cap',to:'gw'},
+  {from:'gw',to:'ar',label:'approve'},{from:'ar',to:'pr'},{from:'pr',to:'mg'},
+  {from:'gw',to:'ap',label:'reject'},{from:'ap',to:'rp'},{from:'rp',to:'mg'},
+  {from:'mg',to:'e'},
+]);
+
+// Segment C — linear with one HITL
+draw('segC',[
+  {id:'s',  type:'ev',   x:14, y:52, label:'Pega trigger'},
+  {id:'vf', type:'svc',  x:74, y:48, w:150, h:50, label:'Verify disposition', tool:'verify_disposition'},
+  {id:'rv', type:'user', x:244,y:48, w:150, h:50, label:'Review artifacts', tool:'ops reviewer'},
+  {id:'mc', type:'svc',  x:414,y:48, w:150, h:50, label:'Mark completed', tool:'mark_completed'},
+  {id:'pg', type:'svc',  x:584,y:48, w:150, h:50, label:'Purge working data', tool:'purge_working_data'},
+  {id:'e',  type:'evEnd',x:754,y:52, label:'CaseClosedOut'},
+],[
+  {from:'s',to:'vf'},{from:'vf',to:'rv'},{from:'rv',to:'mc'},{from:'mc',to:'pg'},{from:'pg',to:'e'},
+]);
+</script>
+</body>
+</html>
