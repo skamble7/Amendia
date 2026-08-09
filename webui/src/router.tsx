@@ -9,6 +9,7 @@ import { InstancesPage } from "@/features/instances/InstancesPage";
 import { InstanceDetailPage } from "@/features/instances/InstanceDetailPage";
 import { CohortsPage } from "@/features/cohorts/CohortsPage";
 import { CohortDetailPage } from "@/features/cohorts/CohortDetailPage";
+import { CohortDefinitionPage } from "@/features/cohorts/CohortDefinitionPage";
 import { NewCohortPage } from "@/features/cohorts/NewCohortPage";
 import { TriggersPage } from "@/features/triggers/TriggersPage";
 import { TriggerDetailPage } from "@/features/triggers/TriggerDetailPage";
@@ -47,6 +48,7 @@ export const router = createBrowserRouter([
       // ADR-063 Phase 3B: cohort observability views.
       { path: "cohorts", element: <CohortsPage /> },
       { path: "cohorts/new", element: <NewCohortPage /> },
+      { path: "cohorts/definitions/:cohortDefId", element: <CohortDefinitionPage /> },
       { path: "cohorts/:cohortId", element: <CohortDetailPage /> },
       { path: "cohorts/by-correlation/:correlationValue", element: <CohortDetailPage /> },
       { path: "triggers", element: <TriggersPage /> },

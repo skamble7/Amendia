@@ -33,6 +33,16 @@ class CohortDefinitionCreate(CohortDefinitionBase):
     """Register-request body (no store timestamps)."""
 
 
+class CohortDefinitionUpdate(BaseModel):
+    """Inline-edit request body — the MUTABLE fields only. ``cohort_def_id`` is immutable (instances + pack
+    ``cohort_membership`` key on it), so it is never in the body; the path parameter identifies the target."""
+    display_name: Optional[str] = None
+    description: Optional[str] = None
+    close_schema: Dict[str, Any]
+    close_correlation_path: str
+    close_outcome_path: Optional[str] = None
+
+
 class CohortDefinition(CohortDefinitionBase):
     created_at: datetime = Field(default_factory=utcnow)
     updated_at: datetime = Field(default_factory=utcnow)

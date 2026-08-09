@@ -83,7 +83,12 @@ export interface paths {
         };
         /** Get Definition */
         get: operations["get_definition_cohort_definitions__cohort_def_id__get"];
-        put?: never;
+        /**
+         * Update Definition
+         * @description Inline-edit the MUTABLE fields of a definition (owner-only). ``cohort_def_id`` is immutable — the path
+         *     identifies the target and the body carries no id. 404 if the definition doesn't exist.
+         */
+        put: operations["update_definition_cohort_definitions__cohort_def_id__put"];
         post?: never;
         /** Delete Definition */
         delete: operations["delete_definition_cohort_definitions__cohort_def_id__delete"];
@@ -1326,6 +1331,25 @@ export interface components {
              * @description Stable design-time id, e.g. 'wire_transfer_cohort'
              */
             cohort_def_id: string;
+            /** Description */
+            description?: string | null;
+            /** Display Name */
+            display_name?: string | null;
+        };
+        /**
+         * CohortDefinitionUpdate
+         * @description Inline-edit request body — the MUTABLE fields only. ``cohort_def_id`` is immutable (instances + pack
+         *     ``cohort_membership`` key on it), so it is never in the body; the path parameter identifies the target.
+         */
+        CohortDefinitionUpdate: {
+            /** Close Correlation Path */
+            close_correlation_path: string;
+            /** Close Outcome Path */
+            close_outcome_path?: string | null;
+            /** Close Schema */
+            close_schema: {
+                [key: string]: unknown;
+            };
             /** Description */
             description?: string | null;
             /** Display Name */
@@ -2990,6 +3014,41 @@ export interface operations {
             cookie?: never;
         };
         requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CohortDefinition"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_definition_cohort_definitions__cohort_def_id__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                cohort_def_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CohortDefinitionUpdate"];
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {

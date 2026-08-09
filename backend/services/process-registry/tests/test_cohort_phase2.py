@@ -19,6 +19,17 @@ def _definition(cohort_def_id="wire_transfer_cohort"):
     }
 
 
+def _update(**over):
+    body = {
+        "display_name": "Renamed", "description": "updated desc",
+        "close_schema": {"type": "object", "required": ["event", "case_id"],
+                         "properties": {"event": {"const": "done"}, "case_id": {"type": "string"}}},
+        "close_correlation_path": "case_id", "close_outcome_path": "result",
+    }
+    body.update(over)
+    return body
+
+
 # --- definition CRUD -------------------------------------------------------------------------------
 
 async def test_cohort_definition_crud(client):
@@ -43,6 +54,64 @@ async def test_register_rejects_malformed_close_schema(client):
     bad["close_schema"] = {"type": "not-a-real-type"}      # fails JSON-Schema meta-validation
     r = await client.post("/cohort/definitions", json=bad)
     assert r.status_code == 422 and "close_schema" in r.json()["detail"]
+
+
+# --- definition inline update (PUT) -----------------------------------------------------------------
+
+async def test_update_definition_mutable_fields(client):
+    await client.post("/cohort/definitions", json=_definition())
+    before = (await client.get("/cohort/definitions/wire_transfer_cohort")).json()
+
+    r = await client.put("/cohort/definitions/wire_transfer_cohort", json=_update())
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["display_name"] == "Renamed" and body["description"] == "updated desc"
+    assert body["close_correlation_path"] == "case_id" and body["close_outcome_path"] == "result"
+    assert body["close_schema"]["properties"]["event"]["const"] == "done"
+    # cohort_def_id immutable; created_at preserved; updated_at advanced.
+    assert body["cohort_def_id"] == "wire_transfer_cohort"
+    assert body["created_at"] == before["created_at"]
+    assert body["updated_at"] > body["created_at"]
+
+
+async def test_update_definition_ignores_body_cohort_def_id(client):
+    await client.post("/cohort/definitions", json=_definition())
+    r = await client.put("/cohort/definitions/wire_transfer_cohort", json=_update(cohort_def_id="hacked"))
+    assert r.status_code == 200
+    assert r.json()["cohort_def_id"] == "wire_transfer_cohort"   # path wins; body id ignored
+    assert (await client.get("/cohort/definitions/hacked")).status_code == 404
+
+
+async def test_update_unknown_definition_404(client):
+    assert (await client.put("/cohort/definitions/ghost", json=_update())).status_code == 404
+
+
+async def test_update_rejects_malformed_close_schema_422(client):
+    await client.post("/cohort/definitions", json=_definition())
+    r = await client.put("/cohort/definitions/wire_transfer_cohort",
+                         json=_update(close_schema={"type": "not-a-real-type"}))
+    assert r.status_code == 422 and "close_schema" in r.json()["detail"]
+
+
+async def test_update_non_owner_403(cohort_def_repo):
+    # Strict auth (mirrors test_auth): a caller lacking role.process.owner is rejected at the gate.
+    from amendia_auth import AuthContext, AuthenticatedUser, Principal, current_user
+    from amendia_auth.resolver import INTERNAL_HEADER
+    from amendia_auth.settings import AuthSettings
+    from httpx import ASGITransport, AsyncClient
+    from app.deps import get_cohort_def_repo
+    from app.main import create_app
+
+    app = create_app()
+    app.state.auth = AuthContext(AuthSettings(issuer="t", internal_token="test-internal"))
+    app.dependency_overrides[get_cohort_def_repo] = lambda: cohort_def_repo
+    app.dependency_overrides[current_user] = lambda: AuthenticatedUser(
+        amendia_user_id="usr-riya", roles={"role.payments.ops_analyst"}, principal=Principal(iss="t", sub="riya"))
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        r = await ac.put("/cohort/definitions/wire_transfer_cohort", json=_update(),
+                         headers={INTERNAL_HEADER: "test-internal"})
+    assert r.status_code == 403 and r.json()["detail"]["missing_role"] == "role.process.owner"
 
 
 # --- membership assignment -------------------------------------------------------------------------

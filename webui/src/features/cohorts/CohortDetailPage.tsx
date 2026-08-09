@@ -1,7 +1,6 @@
-import { Link, useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft } from "lucide-react";
+import { Link, useParams } from "react-router-dom";
+import { ArrowLeft, ArrowUpRight } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState, LiveDot } from "@/components/primitives";
 import { ConnectivityState } from "@/components/ConnectivityState";
@@ -78,7 +77,6 @@ function EventStream({ events }: { events: CohortEventOut[] }) {
 }
 
 function CohortDetailContent({ cohort }: { cohort: CohortDetailOut }) {
-  const navigate = useNavigate();
   const inFlight = cohort.rollup.running;
 
   return (
@@ -99,7 +97,13 @@ function CohortDetailContent({ cohort }: { cohort: CohortDetailOut }) {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Button size="sm" variant="outline" onClick={() => navigate("/cohorts/new")}>Manage membership</Button>
+          {/* Read-only backlink to the design-time definition (membership is managed there, not here). */}
+          <Link
+            to={`/cohorts/definitions/${cohort.cohort_def_id}`}
+            className="inline-flex items-center gap-1 rounded-md border border-agent/40 px-2.5 py-1.5 text-xs text-agent hover:bg-agent-muted/30"
+          >
+            Definition: <span className="font-mono">{cohort.cohort_def_id}</span> <ArrowUpRight className="size-3.5" />
+          </Link>
           <CohortStateChip state={cohort.state} />
         </div>
       </div>

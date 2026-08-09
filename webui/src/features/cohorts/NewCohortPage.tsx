@@ -12,6 +12,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { ApiError } from "@/api/client";
 import { createCohortDefinition, assignMembership } from "@/api/services/cohorts";
 import { useActivePacks, useTriggerFields } from "./queries";
+import { CorrelationKeySelect } from "./membership";
 import type { ProcessPackManifest } from "@/api/types";
 
 const DEFAULT_SCHEMA = `{
@@ -53,22 +54,9 @@ function PackRow({
       <TableCell>
         {!assigned ? (
           <span className="text-xs text-muted-foreground">—</span>
-        ) : hasFields ? (
-          <select
-            value={member.correlation_key}
-            onChange={(e) => onKey(e.target.value)}
-            className="h-8 rounded-md border border-input bg-transparent px-2 font-mono text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          >
-            <option value="" disabled>select field…</option>
-            {fields!.map((f) => <option key={f} value={f}>{f}</option>)}
-          </select>
         ) : (
-          <Input
-            value={member.correlation_key}
-            onChange={(e) => onKey(e.target.value)}
-            placeholder="dotpath e.g. exception_id"
-            className="h-8 w-40 font-mono text-xs"
-          />
+          <CorrelationKeySelect packKey={pack.pack_key} version={pack.version}
+            value={member.correlation_key} onChange={onKey} />
         )}
       </TableCell>
       <TableCell className="text-right">

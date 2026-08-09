@@ -1571,6 +1571,59 @@
         "title": "CohortDefinitionCreate",
         "type": "object"
       },
+      "CohortDefinitionUpdate": {
+        "description": "Inline-edit request body \u2014 the MUTABLE fields only. ``cohort_def_id`` is immutable (instances + pack\n``cohort_membership`` key on it), so it is never in the body; the path parameter identifies the target.",
+        "properties": {
+          "close_correlation_path": {
+            "title": "Close Correlation Path",
+            "type": "string"
+          },
+          "close_outcome_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Close Outcome Path"
+          },
+          "close_schema": {
+            "additionalProperties": true,
+            "title": "Close Schema",
+            "type": "object"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "display_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Name"
+          }
+        },
+        "required": [
+          "close_schema",
+          "close_correlation_path"
+        ],
+        "title": "CohortDefinitionUpdate",
+        "type": "object"
+      },
       "CohortMembership": {
         "additionalProperties": false,
         "description": "ADR-063 Phase 1 \u2014 an OPTIONAL, purely-observational declaration that this pack's instances are\nsegments of a larger cross-system case. ``cohort_def_id`` names the cohort this segment belongs to;\n``correlation_key`` is a dotpath into THIS pack's own trigger envelope naming the business key that ties\nsibling segments together (members triage to different packs with different trigger schemas \u2014 ADR-047/049\n\u2014 so each maps its own field to the cohort's correlation slot). No execution authority: a pack with a\nmembership still triages/compiles/gates/executes exactly like a standalone process. V1: at most one per\npack; a trigger whose ``correlation_key`` field is absent simply runs standalone (graceful non-membership).",
@@ -5748,6 +5801,62 @@
           }
         ],
         "summary": "Get Definition",
+        "tags": [
+          "cohort"
+        ]
+      },
+      "put": {
+        "description": "Inline-edit the MUTABLE fields of a definition (owner-only). ``cohort_def_id`` is immutable \u2014 the path\nidentifies the target and the body carries no id. 404 if the definition doesn't exist.",
+        "operationId": "update_definition_cohort_definitions__cohort_def_id__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "cohort_def_id",
+            "required": true,
+            "schema": {
+              "title": "Cohort Def Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CohortDefinitionUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CohortDefinition"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Update Definition",
         "tags": [
           "cohort"
         ]

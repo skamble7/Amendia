@@ -18,6 +18,7 @@ import { OnboardingWizard } from "@/features/registry/OnboardingWizard";
 import { DashboardPage } from "@/features/dashboard/DashboardPage";
 import { CohortsPage } from "@/features/cohorts/CohortsPage";
 import { CohortDetailPage } from "@/features/cohorts/CohortDetailPage";
+import { CohortDefinitionPage } from "@/features/cohorts/CohortDefinitionPage";
 import { NewCohortPage } from "@/features/cohorts/NewCohortPage";
 
 /**
@@ -66,6 +67,7 @@ export function renderApp(initialPath: string, userId: string, extra?: ReactElem
               <Route path="/instances/:instanceId" element={<InstanceDetailPage />} />
               <Route path="/cohorts" element={<CohortsPage />} />
               <Route path="/cohorts/new" element={<NewCohortPage />} />
+              <Route path="/cohorts/definitions/:cohortDefId" element={<CohortDefinitionPage />} />
               <Route path="/cohorts/:cohortId" element={<CohortDetailPage />} />
               <Route path="/triggers" element={<TriggersPage />} />
               <Route path="/triggers/:triggerId" element={<TriggerDetailPage />} />

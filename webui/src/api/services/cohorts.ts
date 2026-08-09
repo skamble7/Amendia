@@ -50,6 +50,23 @@ export function createCohortDefinition(body: CohortDefinition): Promise<CohortDe
   return request<CohortDefinition>("registry", "/cohort/definitions", { method: "POST", body, silent: true });
 }
 
+/** Owner-gated (server-side) delete of a cohort definition. The backend DELETE is idempotent (204). */
+export function deleteCohortDefinition(cohortDefId: string): Promise<void> {
+  return request<void>("registry", `/cohort/definitions/${cohortDefId}`, { method: "DELETE", silent: true });
+}
+
+/** Owner-gated inline update of a definition's MUTABLE fields (cohort_def_id is immutable — path-only). */
+export type CohortDefinitionUpdate = {
+  display_name: string | null;
+  description: string | null;
+  close_schema: Record<string, unknown>;
+  close_correlation_path: string;
+  close_outcome_path: string | null;
+};
+export function updateCohortDefinition(cohortDefId: string, body: CohortDefinitionUpdate): Promise<CohortDefinition> {
+  return request<CohortDefinition>("registry", `/cohort/definitions/${cohortDefId}`, { method: "PUT", body, silent: true });
+}
+
 export function assignMembership(
   packKey: string,
   version: string,

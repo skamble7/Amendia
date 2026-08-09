@@ -169,6 +169,204 @@ describe("New cohort", () => {
   });
 });
 
+// --------------------------------------------------------------------------- #
+// ADR-063 definitions surface (instances vs definitions split)
+// --------------------------------------------------------------------------- #
+const DEFS = [{
+  cohort_def_id: "ach_exposure_cohort", display_name: "ACH exposure",
+  close_schema: { type: "object", properties: { event: { const: "process_completed" }, case_id: { type: "string" } } },
+  close_correlation_path: "case_id", close_outcome_path: "outcome",
+}];
+const member = (key: string) => ({ ...synthPack, pack_key: key, version: "1.0.0",
+  cohort_membership: { cohort_def_id: "ach_exposure_cohort", correlation_key: "case_id" } });
+const ACTIVE_PACKS = [member("ach-assess"), member("ach-enforce"), member("ach-closeout"),
+  { ...synthPack, pack_key: "wire-repair", version: "1.2.0" }]; // unassigned candidate
+const ACH_LIST: CohortListOut = { count: 1, cohorts: [{
+  cohort_instance_id: "coh-ach1", cohort_def_id: "ach_exposure_cohort", correlation_value: "CASE-1",
+  state: "closing", member_count: 3, rollup: { done: 1, running: 2, failed: 0 },
+  opened_at: "2026-08-09T09:00:00Z", closed_at: null, outcome: null, anomalies: 0 }] };
+
+describe("Cohort definitions surface", () => {
+  it("defaults to Instances and flips to Definitions (URL-persisted)", async () => {
+    server.use(
+      http.get(`${GLEA}/cohorts`, () => HttpResponse.json(ACH_LIST)),
+      http.get(`${REG}/cohort/definitions`, () => HttpResponse.json(DEFS)),
+      http.get(`${REG}/packs`, () => HttpResponse.json(ACTIVE_PACKS)),
+    );
+    const user = userEvent.setup();
+    renderApp("/cohorts", "owner-1");
+    // Instances tab is default → instance rows show
+    expect(await screen.findByText("CASE-1")).toBeInTheDocument();
+    // flip to Definitions
+    await user.click(screen.getByRole("tab", { name: /definitions/i }));
+    expect(await screen.findByText("ach_exposure_cohort")).toBeInTheDocument();
+    expect(screen.getByText(/event=process_completed → case_id/)).toBeInTheDocument();
+  });
+
+  it("opens directly on Definitions via ?tab and shows Members=3, Instances=1", async () => {
+    server.use(
+      http.get(`${GLEA}/cohorts`, () => HttpResponse.json(ACH_LIST)),
+      http.get(`${REG}/cohort/definitions`, () => HttpResponse.json(DEFS)),
+      http.get(`${REG}/packs`, () => HttpResponse.json(ACTIVE_PACKS)),
+    );
+    renderApp("/cohorts?tab=definitions", "owner-1");
+    const cell = await screen.findByText("ach_exposure_cohort");
+    const row = cell.closest("tr")!;
+    expect(within(row).getByText("3")).toBeInTheDocument();  // members
+    expect(within(row).getByText("1")).toBeInTheDocument();  // instances
+  });
+});
+
+describe("Cohort definition detail", () => {
+  it("renders members, close schema, forward-only warning, and instances panel", async () => {
+    server.use(
+      http.get(`${GLEA}/cohorts`, () => HttpResponse.json(ACH_LIST)),
+      http.get(`${REG}/cohort/definitions`, () => HttpResponse.json(DEFS)),
+      http.get(`${REG}/packs`, () => HttpResponse.json(ACTIVE_PACKS)),
+      http.get(`${REG}/packs/:key/:version/trigger-fields`, () => HttpResponse.json({ fields: ["case_id", "exception_id"] })),
+    );
+    renderApp("/cohorts/definitions/ach_exposure_cohort", "owner-1");
+    expect(await screen.findByText("ach-assess")).toBeInTheDocument();
+    expect(screen.getByText("ach-enforce")).toBeInTheDocument();
+    expect(screen.getByText("ach-closeout")).toBeInTheDocument();
+    // close schema pretty-printed + forward-only warning (1 instance) + instances panel row
+    expect(screen.getByText(/"process_completed"/)).toBeInTheDocument();
+    expect(screen.getByText(/forward-only/i)).toBeInTheDocument();
+    expect(screen.getByText("CASE-1")).toBeInTheDocument();
+  });
+
+  it("Remove then Add round-trips against the registry and the member list updates", async () => {
+    let packs = ACTIVE_PACKS.map((p) => ({ ...p }));
+    const calls: string[] = [];
+    server.use(
+      http.get(`${GLEA}/cohorts`, () => HttpResponse.json(ACH_LIST)),
+      http.get(`${REG}/cohort/definitions`, () => HttpResponse.json(DEFS)),
+      http.get(`${REG}/packs`, () => HttpResponse.json(packs)),
+      http.get(`${REG}/packs/:key/:version/trigger-fields`, () => HttpResponse.json({ fields: ["case_id", "exception_id"] })),
+      http.delete(`${REG}/packs/:key/:version/cohort-membership`, ({ params }) => {
+        calls.push(`DELETE ${params.key}`);
+        packs = packs.map((p) => (p.pack_key === params.key ? { ...p, cohort_membership: undefined } : p));
+        return HttpResponse.json({});
+      }),
+      http.put(`${REG}/packs/:key/:version/cohort-membership`, async ({ params, request }) => {
+        const body = (await request.json()) as { correlation_key: string };
+        calls.push(`PUT ${params.key}=${body.correlation_key}`);
+        packs = packs.map((p) => (p.pack_key === params.key
+          ? { ...p, cohort_membership: { cohort_def_id: "ach_exposure_cohort", correlation_key: body.correlation_key } } : p));
+        return HttpResponse.json({});
+      }),
+    );
+    const user = userEvent.setup();
+    renderApp("/cohorts/definitions/ach_exposure_cohort", "owner-1");
+
+    // Remove ach-assess → row disappears after refetch
+    const assessRow = (await screen.findByText("ach-assess")).closest("tr")!;
+    await user.click(within(assessRow).getByRole("button", { name: /Remove/i }));
+    await waitFor(() => expect(screen.queryByText("ach-assess")).not.toBeInTheDocument());
+    expect(calls).toContain("DELETE ach-assess");
+
+    // Add it back via the + Add pack control (now an unassigned candidate), key case_id
+    await user.selectOptions(screen.getByRole("combobox", { name: /Add pack/i }), "ach-assess@1.0.0");
+    await user.selectOptions(screen.getByRole("combobox", { name: /New member correlation key/i }), "case_id");
+    await user.click(screen.getByRole("button", { name: /^Add$/i }));
+    await waitFor(() => expect(screen.getByText("ach-assess")).toBeInTheDocument());
+    expect(calls).toContain("PUT ach-assess=case_id");
+  });
+});
+
+describe("Cohort definition inline edit", () => {
+  it("owner edits display_name + close_schema in place, Save PUTs and the card updates", async () => {
+    let defs: Array<Record<string, unknown>> = DEFS.map((d) => ({ ...d }));
+    const puts: Array<Record<string, unknown>> = [];
+    server.use(
+      http.get(`${GLEA}/cohorts`, () => HttpResponse.json(ACH_LIST)),
+      http.get(`${REG}/cohort/definitions`, () => HttpResponse.json(defs)),
+      http.get(`${REG}/packs`, () => HttpResponse.json(ACTIVE_PACKS)),
+      http.get(`${REG}/packs/:key/:version/trigger-fields`, () => HttpResponse.json({ fields: ["case_id"] })),
+      http.put(`${REG}/cohort/definitions/:id`, async ({ request }) => {
+        const body = (await request.json()) as Record<string, unknown>;
+        puts.push(body);
+        defs = [{ ...defs[0], ...body }]; // reflect the update on the next GET
+        return HttpResponse.json({ cohort_def_id: "ach_exposure_cohort", ...body, created_at: "x", updated_at: "y" });
+      }),
+    );
+    const user = userEvent.setup();
+    renderApp("/cohorts/definitions/ach_exposure_cohort", "owner-1");
+
+    // read-only header shows the current display name
+    expect(await screen.findByText("ACH exposure")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /Edit definition/i }));
+
+    const name = screen.getByLabelText(/Display name/i);
+    await user.clear(name);
+    await user.type(name, "ACH renamed");
+    const schema = screen.getByLabelText(/Close message schema/i);
+    await user.clear(schema);
+    await user.type(schema, '{{"type":"object"}'); // "{{" → literal "{" → valid JSON
+
+    await user.click(screen.getByRole("button", { name: /^Save$/i }));
+
+    await waitFor(() => expect(puts).toHaveLength(1));
+    expect(puts[0]?.display_name).toBe("ACH renamed");
+    expect(puts[0]?.close_schema).toEqual({ type: "object" });
+    // card refreshed (list invalidated) → new display name, back to read-only (Edit button returns)
+    expect(await screen.findByText("ACH renamed")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Edit definition/i })).toBeInTheDocument();
+  });
+
+  it("blocks Save on invalid JSON and Cancel restores without a request", async () => {
+    const puts: unknown[] = [];
+    server.use(
+      http.get(`${GLEA}/cohorts`, () => HttpResponse.json(ACH_LIST)),
+      http.get(`${REG}/cohort/definitions`, () => HttpResponse.json(DEFS)),
+      http.get(`${REG}/packs`, () => HttpResponse.json(ACTIVE_PACKS)),
+      http.get(`${REG}/packs/:key/:version/trigger-fields`, () => HttpResponse.json({ fields: ["case_id"] })),
+      http.put(`${REG}/cohort/definitions/:id`, async ({ request }) => { puts.push(await request.json()); return HttpResponse.json({}); }),
+    );
+    const user = userEvent.setup();
+    renderApp("/cohorts/definitions/ach_exposure_cohort", "owner-1");
+
+    await user.click(await screen.findByRole("button", { name: /Edit definition/i }));
+    const schema = screen.getByLabelText(/Close message schema/i);
+    await user.clear(schema);
+    await user.type(schema, "{{ not json");
+    await user.click(screen.getByRole("button", { name: /^Save$/i }));
+    expect(await screen.findByText(/not valid JSON/i)).toBeInTheDocument();
+    expect(puts).toHaveLength(0);
+
+    // Cancel exits edit mode with no request; read-only view returns
+    await user.click(screen.getByRole("button", { name: /Cancel/i }));
+    expect(screen.getByRole("button", { name: /Edit definition/i })).toBeInTheDocument();
+    expect(screen.queryByLabelText(/Close message schema/i)).not.toBeInTheDocument();
+    expect(puts).toHaveLength(0);
+  });
+
+  it("a non-owner sees no Edit control", async () => {
+    server.use(
+      http.get(`${GLEA}/cohorts`, () => HttpResponse.json(ACH_LIST)),
+      http.get(`${REG}/cohort/definitions`, () => HttpResponse.json(DEFS)),
+      http.get(`${REG}/packs`, () => HttpResponse.json(ACTIVE_PACKS)),
+      http.get(`${REG}/packs/:key/:version/trigger-fields`, () => HttpResponse.json({ fields: ["case_id"] })),
+    );
+    renderApp("/cohorts/definitions/ach_exposure_cohort", "analyst-1");
+    expect(await screen.findByText("ach_exposure_cohort")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Edit definition/i })).not.toBeInTheDocument();
+  });
+});
+
+describe("Instance detail — definition backlink (no membership mgmt)", () => {
+  it("shows a read-only Definition link and no Manage-membership button", async () => {
+    server.use(http.get(`${GLEA}/cohorts/coh-1`, () => HttpResponse.json(DETAIL)),
+      http.get(`${REG}/packs/:key/:version`, () => HttpResponse.json(synthPack)),
+      http.get(`${REG}/packs/:key/:version/bpmn`, () => HttpResponse.text("<definitions/>")),
+      http.get(`${R}/instances/:id`, () => HttpResponse.json(synthInstanceDetail())));
+    renderApp("/cohorts/coh-1", "owner-1");
+    const link = await screen.findByRole("link", { name: /Definition:/i });
+    expect(link).toHaveAttribute("href", "/cohorts/definitions/wire_transfer_cohort");
+    expect(screen.queryByRole("button", { name: /Manage membership/i })).not.toBeInTheDocument();
+  });
+});
+
 describe("Instance cohort backlink", () => {
   it("shows the backlink banner when the instance joined a cohort", async () => {
     server.use(

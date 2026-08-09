@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Amendia — Cohort Definitions UX (proposed)</title>
+<style>
+  :root{
+    --bg:#0b0b0d; --panel:#111114; --panel2:#141417; --card:#151518; --line:#232327;
+    --line2:#2c2c31; --txt:#f4f4f6; --muted:#8b8b93; --dim:#6b6b73; --dimmer:#55555c;
+    --accent:#7c5cff; --accent-soft:rgba(124,92,255,.14); --accent-line:rgba(124,92,255,.5);
+    --green:#34d399; --green-soft:rgba(52,211,153,.14); --green-txt:#4ade80;
+    --amber:#f5a623; --violet:#a78bfa; --red:#f87171;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{background:var(--bg);color:var(--txt);font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;-webkit-font-smoothing:antialiased}
+  code,.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+  .app{display:flex;min-height:100vh}
+  /* sidebar */
+  .side{width:236px;flex:0 0 236px;background:var(--panel);border-right:1px solid var(--line);padding:0;display:flex;flex-direction:column}
+  .brand{display:flex;align-items:center;gap:11px;padding:20px 20px;border-bottom:1px solid var(--line)}
+  .brand .logo{width:34px;height:34px;border-radius:9px;background:linear-gradient(150deg,#8b6cff,#6b48e0);display:flex;align-items:center;justify-content:center;font-weight:700;color:#fff}
+  .brand b{font-size:16px;letter-spacing:.2px}
+  .nav{padding:14px 12px;display:flex;flex-direction:column;gap:3px}
+  .nav a{display:flex;align-items:center;gap:12px;padding:9px 12px;border-radius:9px;color:var(--muted);text-decoration:none;font-weight:500;cursor:pointer}
+  .nav a .ic{width:18px;text-align:center;opacity:.85}
+  .nav a:hover{color:var(--txt);background:#17171b}
+  .nav a.on{background:#202027;color:var(--txt)}
+  /* main */
+  .main{flex:1;min-width:0;display:flex;flex-direction:column}
+  .top{display:flex;justify-content:flex-end;align-items:center;padding:16px 30px;border-bottom:1px solid var(--line)}
+  .user{display:flex;align-items:center;gap:11px}
+  .user .av{width:34px;height:34px;border-radius:50%;background:#3a2f66;color:#c9b8ff;display:flex;align-items:center;justify-content:center;font-weight:600;font-size:12px}
+  .user .nm{text-align:right;line-height:1.25}
+  .user .nm b{font-size:14px}
+  .user .nm span{display:block;color:var(--dim);font-size:11px}
+  .user .chev{color:var(--dim);margin-left:4px}
+  .content{padding:26px 34px;max-width:1500px;width:100%}
+  /* headings */
+  .crumb{color:var(--dim);font-size:12.5px;margin-bottom:10px}
+  .crumb a{color:var(--dim);cursor:pointer;text-decoration:none}
+  .h1row{display:flex;align-items:flex-start;justify-content:space-between;gap:20px}
+  h1{font-size:26px;margin:0 0 6px;letter-spacing:.2px}
+  .sub{color:var(--muted);font-size:13.5px;margin:0}
+  .btn{border:1px solid var(--line2);background:#17171b;color:var(--txt);padding:9px 15px;border-radius:9px;font-weight:600;font-size:13px;cursor:pointer;display:inline-flex;align-items:center;gap:7px}
+  .btn:hover{border-color:#3a3a42}
+  .btn.pri{background:var(--accent);border-color:var(--accent);color:#fff}
+  .btn.pri:hover{filter:brightness(1.08)}
+  .btn.sm{padding:6px 11px;font-size:12.5px;border-radius:8px}
+  .btn.ghost{background:transparent}
+  .btn.danger{color:var(--red);border-color:rgba(248,113,113,.35)}
+  /* segmented */
+  .seg{display:inline-flex;background:#141418;border:1px solid var(--line);border-radius:10px;padding:3px;margin:20px 0 18px}
+  .seg button{border:0;background:transparent;color:var(--muted);padding:7px 16px;border-radius:7px;font-weight:600;font-size:13px;cursor:pointer}
+  .seg button.on{background:#26262d;color:var(--txt)}
+  /* kpi cards */
+  .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin:4px 0 22px}
+  .kpis.five{grid-template-columns:repeat(5,1fr)}
+  .kpi{background:var(--card);border:1px solid var(--line);border-radius:13px;padding:18px 20px}
+  .kpi .k{color:var(--dim);font-size:11px;letter-spacing:.8px;text-transform:uppercase;font-weight:600}
+  .kpi .v{font-size:30px;font-weight:600;margin:8px 0 4px}
+  .kpi .v.green{color:var(--green-txt)}
+  .kpi .m{color:var(--dim);font-size:12px}
+  /* table */
+  .tbl{background:var(--card);border:1px solid var(--line);border-radius:13px;overflow:hidden}
+  .tbl table{width:100%;border-collapse:collapse}
+  .tbl th{ text-align:left;color:var(--dim);font-size:11px;letter-spacing:.7px;text-transform:uppercase;font-weight:600;padding:14px 18px;border-bottom:1px solid var(--line)}
+  .tbl td{padding:16px 18px;border-bottom:1px solid var(--line);vertical-align:middle}
+  .tbl tr:last-child td{border-bottom:0}
+  .tbl tr.click{cursor:pointer}
+  .tbl tr.click:hover td{background:#17171c}
+  .pill{display:inline-flex;align-items:center;gap:7px;padding:4px 11px;border-radius:20px;font-size:12px;font-weight:600}
+  .pill.closed{background:var(--green-soft);color:var(--green-txt)}
+  .pill.active{background:var(--accent-soft);color:var(--violet)}
+  .pill.dot::before{content:"";width:7px;height:7px;border-radius:50%;background:currentColor;display:inline-block}
+  .tag{display:inline-block;background:#202027;color:var(--muted);border-radius:6px;padding:2px 7px;font-size:11px;margin-left:6px;font-weight:600}
+  .out{color:var(--violet);font-weight:600}
+  .bar{height:8px;width:150px;border-radius:6px;background:#26262d;overflow:hidden;display:inline-block;vertical-align:middle}
+  .bar>i{display:block;height:100%;background:var(--green)}
+  .muted{color:var(--muted)}.dim{color:var(--dim)}
+  .legend{display:flex;gap:26px;margin-top:16px;color:var(--dim);font-size:12.5px;flex-wrap:wrap}
+  .legend span{display:inline-flex;align-items:center;gap:8px}
+  .legend i{width:9px;height:9px;border-radius:50%;display:inline-block}
+  /* panels / detail */
+  .panel{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:22px 24px;margin-bottom:18px}
+  .panel h3{margin:0 0 4px;font-size:15px}
+  .panel .ph{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px}
+  .panel .ph .hint{color:var(--dim);font-size:12px}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+  .field label{display:block;color:var(--dim);font-size:12px;margin-bottom:6px;font-weight:600}
+  .box{background:#0f0f12;border:1px solid var(--line);border-radius:9px;padding:10px 12px;font-size:13px}
+  .box.mono{white-space:pre;overflow:auto;color:#cdd3de;line-height:1.55}
+  .kv{color:var(--muted);font-size:12.5px}
+  .backlink{display:inline-flex;align-items:center;gap:8px;background:var(--accent-soft);border:1px solid var(--accent-line);color:var(--violet);padding:7px 13px;border-radius:9px;font-weight:600;font-size:12.5px;cursor:pointer}
+  /* diagram strip */
+  .diagram{background:#fff;border-radius:11px;padding:26px 22px;display:flex;align-items:center;gap:0;overflow:auto}
+  .node{flex:0 0 auto;border:2px solid #5bbf8a;background:#e9f8ef;border-radius:10px;padding:12px 14px;font-size:12px;color:#1c3b2b;text-align:center;min-width:120px;max-width:140px}
+  .node.ev{border-radius:50%;width:52px;height:52px;min-width:52px;padding:0;display:flex;align-items:center;justify-content:center;position:relative}
+  .node.ev span{position:absolute;top:56px;left:50%;transform:translateX(-50%);white-space:nowrap;font-size:11px;color:#3a5546}
+  .arrow{flex:0 0 auto;width:30px;height:2px;background:#3a4a41;position:relative;margin:0 2px}
+  .arrow::after{content:"";position:absolute;right:-1px;top:-3px;border:4px solid transparent;border-left-color:#3a4a41}
+  .memberbox{border:1px solid var(--line);border-radius:12px;padding:16px;margin-bottom:14px;background:var(--panel2)}
+  .memberbox .mh{display:flex;align-items:center;gap:10px;margin-bottom:14px}
+  .badge{font-size:11px;background:#202027;color:var(--muted);border-radius:6px;padding:2px 7px;font-weight:600}
+  /* annotation */
+  .note{border:1px dashed var(--accent-line);background:var(--accent-soft);border-radius:11px;padding:12px 15px;color:#d9d2ff;font-size:12.5px;margin:0 0 18px;display:flex;gap:10px}
+  .note b{color:#fff}
+  .note .n{flex:0 0 auto;background:var(--accent);color:#fff;width:20px;height:20px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700}
+  .hidden{display:none}
+  .rowend{display:flex;gap:8px;justify-content:flex-end}
+  .memtable td{padding:12px 14px}
+  .corr{color:var(--violet)}
+  .banner{background:linear-gradient(90deg,rgba(124,92,255,.16),rgba(124,92,255,.02));border:1px solid var(--accent-line);border-radius:11px;padding:11px 16px;font-size:12.5px;color:#d9d2ff;margin-bottom:20px;display:flex;align-items:center;gap:10px}
+  .banner .lab{background:var(--accent);color:#fff;font-size:10.5px;font-weight:700;letter-spacing:.6px;padding:3px 8px;border-radius:6px}
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="side">
+    <div class="brand"><div class="logo">A</div><b>Amendia</b></div>
+    <nav class="nav">
+      <a><span class="ic">▦</span> Dashboard</a>
+      <a><span class="ic">✉</span> Task inbox</a>
+      <a><span class="ic">⛓</span> Instances</a>
+      <a class="on"><span class="ic">🕸</span> Cohorts</a>
+      <a><span class="ic">△</span> Triggers</a>
+    </nav>
+  </aside>
+
+  <div class="main">
+    <div class="top">
+      <div class="user">
+        <div class="av">MB</div>
+        <div class="nm"><b>Marcus Bianchi</b><span>Reviewer · Approver · Ops Approver</span></div>
+        <div class="chev">⌄</div>
+      </div>
+    </div>
+
+    <div class="content">
+      <div class="banner"><span class="lab">PROPOSED</span> Definitions and Instances are now separate. Membership is edited on the <b>definition</b>; instances stay read-only. Toggle the tabs and click rows to explore.</div>
+
+      <!-- ============ COHORTS (LIST) ============ -->
+      <div id="v-list">
+        <div class="h1row">
+          <div>
+            <h1>Cohorts</h1>
+            <p class="sub">Cross-system cases Amendia participates in — manage the <b>definitions</b>, observe the <b>instances</b>.</p>
+          </div>
+          <button class="btn pri" id="newBtn" onclick="go('new')">+ New cohort</button>
+        </div>
+
+        <div class="seg">
+          <button id="tab-inst" class="on" onclick="tab('inst')">Instances</button>
+          <button id="tab-def" onclick="tab('def')">Definitions</button>
+        </div>
+
+        <!-- DEFINITIONS TAB (NEW) -->
+        <div id="pane-def" class="hidden">
+          <div class="note"><span class="n">1</span><div><b>New:</b> a dedicated list of every registered cohort <b>definition</b> — independent of whether any instance has run yet. This is the design-time surface (what you maintain); the Instances tab is the runtime surface (what happened).</div></div>
+          <div class="kpis">
+            <div class="kpi"><div class="k">Definitions</div><div class="v">1</div><div class="m">registered</div></div>
+            <div class="kpi"><div class="k">Members total</div><div class="v">3</div><div class="m">pack ↔ cohort links</div></div>
+            <div class="kpi"><div class="k">Instances</div><div class="v">1</div><div class="m">across all definitions</div></div>
+            <div class="kpi"><div class="k">Packs unassigned</div><div class="v">2</div><div class="m">stan-dine · wire-stan</div></div>
+          </div>
+          <div class="tbl">
+            <table>
+              <thead><tr><th>Cohort id</th><th>Display name</th><th>Members</th><th>Close match</th><th>Instances</th><th></th></tr></thead>
+              <tbody>
+                <tr class="click" onclick="go('defdetail')">
+                  <td><span class="mono">ach_exposure_cohort</span></td>
+                  <td>ACH exposure — cross-system case</td>
+                  <td>3 packs</td>
+                  <td class="kv"><span class="mono">event=process_completed</span> → <span class="corr mono">case_id</span></td>
+                  <td class="kv">1 <span class="dim">(1 closed)</span></td>
+                  <td class="rowend"><button class="btn sm" onclick="event.stopPropagation();go('defdetail')">Manage</button></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- INSTANCES TAB (existing, unchanged behaviour) -->
+        <div id="pane-inst">
+          <div class="note"><span class="n">2</span><div><b>Unchanged:</b> the observational list — one row per cohort instance, keyed by correlation value. Read-only. No membership editing here anymore.</div></div>
+          <div class="kpis">
+            <div class="kpi"><div class="k">Active cohorts</div><div class="v">0</div><div class="m">0 open · 0 closing</div></div>
+            <div class="kpi"><div class="k">Closed</div><div class="v green">1</div><div class="m">by orchestrator</div></div>
+            <div class="kpi"><div class="k">Members in flight</div><div class="v">0</div><div class="m">across open cohorts</div></div>
+            <div class="kpi"><div class="k">Anomalies</div><div class="v">0</div><div class="m">late-join flags</div></div>
+          </div>
+          <div class="tbl">
+            <table>
+              <thead><tr><th>Correlation</th><th>Cohort</th><th>State</th><th>Segments (Amendia)</th><th>Opened</th><th>Closed</th><th>Outcome</th></tr></thead>
+              <tbody>
+                <tr class="click" onclick="go('instdetail')">
+                  <td><span class="mono">case-93fc267702</span></td>
+                  <td class="mono">ach_exposure_cohort</td>
+                  <td><span class="pill closed dot">Closed</span></td>
+                  <td><span class="bar"><i style="width:100%"></i></span> &nbsp;<span class="muted">3 done</span></td>
+                  <td class="kv">9 Aug 2026, 22:04</td>
+                  <td class="kv">9 Aug 2026, 22:12</td>
+                  <td class="out">Released</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="legend">
+            <span><i style="background:#8b5cf6"></i> open — members accumulating</span>
+            <span><i style="background:#f5a623"></i> closing — orchestrator signalled end, a member still running</span>
+            <span><i style="background:#34d399"></i> closed — drained, outcome from orchestrator</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- ============ DEFINITION DETAIL (NEW — membership lives here) ============ -->
+      <div id="v-defdetail" class="hidden">
+        <div class="crumb"><a onclick="go('list')">Cohorts</a> / <a onclick="go('list')">Definitions</a> / ach_exposure_cohort</div>
+        <div class="h1row">
+          <div>
+            <h1 class="mono">ach_exposure_cohort</h1>
+            <p class="sub">ACH exposure — cross-system case · <span class="pill active dot" style="vertical-align:middle">Active</span></p>
+          </div>
+          <div class="rowend">
+            <button class="btn" onclick="go('new')">Edit definition</button>
+            <button class="btn danger">Delete</button>
+          </div>
+        </div>
+
+        <div class="note"><span class="n">3</span><div><b>The change:</b> everything you used to reach via an instance's <b>“Manage membership”</b> now lives here, on the definition. Editing membership from a runtime instance is gone — you can't retro-edit a case that already ran.</div></div>
+
+        <div class="kpis five" style="margin-top:18px">
+          <div class="kpi"><div class="k">Members</div><div class="v">3</div><div class="m">assigned packs</div></div>
+          <div class="kpi"><div class="k">Instances</div><div class="v">1</div><div class="m">1 closed · 0 active</div></div>
+          <div class="kpi"><div class="k">Close event</div><div class="v" style="font-size:16px;padding-top:10px">process_completed</div><div class="m">discriminator</div></div>
+          <div class="kpi"><div class="k">Correlation</div><div class="v mono" style="font-size:18px;padding-top:9px">case_id</div><div class="m">→ outcome</div></div>
+          <div class="kpi"><div class="k">Owner role</div><div class="v" style="font-size:15px;padding-top:11px">process.owner</div><div class="m">edit-gated</div></div>
+        </div>
+
+        <!-- Definition -->
+        <div class="panel">
+          <div class="ph"><h3>Definition</h3><button class="btn sm ghost">Edit</button></div>
+          <div class="grid2" style="margin-bottom:16px">
+            <div class="field"><label>Correlation path → cohort key</label><div class="box mono">case_id</div></div>
+            <div class="field"><label>Outcome path (optional)</label><div class="box mono">outcome</div></div>
+          </div>
+          <div class="field"><label>Close message schema (JSON Schema)</label>
+            <div class="box mono">{
+  "type": "object",
+  "required": ["event", "case_id"],
+  "properties": {
+    "event":   { "const": "process_completed" },
+    "case_id": { "type": "string" },
+    "outcome": { "type": "string" }
+  }
+}</div>
+          </div>
+        </div>
+
+        <!-- Members (relocated management) -->
+        <div class="panel">
+          <div class="ph"><h3>Members</h3><span class="hint">3 assigned · each pack maps its own trigger field to the correlation key</span></div>
+          <div class="tbl" style="border-radius:11px">
+            <table class="memtable">
+              <thead><tr><th>Process pack</th><th>Trigger match</th><th>Correlation key</th><th></th></tr></thead>
+              <tbody>
+                <tr><td class="mono">ach-exposure-assess <span class="badge">@1.0.0</span></td><td class="kv"><span class="mono">request_type = AssessExposureRequested</span></td><td class="corr mono">case_id</td><td class="rowend"><button class="btn sm ghost">Change key</button><button class="btn sm danger">Remove</button></td></tr>
+                <tr><td class="mono">ach-decision-enforce <span class="badge">@1.0.0</span></td><td class="kv"><span class="mono">request_type = EnforceDecisionRequested</span></td><td class="corr mono">case_id</td><td class="rowend"><button class="btn sm ghost">Change key</button><button class="btn sm danger">Remove</button></td></tr>
+                <tr><td class="mono">ach-closeout <span class="badge">@1.0.0</span></td><td class="kv"><span class="mono">request_type = CloseoutRequested</span></td><td class="corr mono">case_id</td><td class="rowend"><button class="btn sm ghost">Change key</button><button class="btn sm danger">Remove</button></td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div style="margin-top:14px"><button class="btn sm">+ Add pack</button> <span class="dim" style="font-size:12px;margin-left:8px">Only <b>active</b> packs not already assigned are selectable.</span></div>
+        </div>
+
+        <!-- Recent instances (read-only backlink to observability) -->
+        <div class="panel">
+          <div class="ph"><h3>Instances of this definition</h3><span class="hint">read-only · runtime observability</span></div>
+          <div class="tbl" style="border-radius:11px">
+            <table>
+              <thead><tr><th>Correlation</th><th>State</th><th>Members</th><th>Opened</th><th>Outcome</th><th></th></tr></thead>
+              <tbody>
+                <tr class="click" onclick="go('instdetail')">
+                  <td class="mono">case-93fc267702</td>
+                  <td><span class="pill closed dot">Closed</span></td>
+                  <td class="muted">3 done</td>
+                  <td class="kv">9 Aug 2026, 22:04</td>
+                  <td class="out">Released</td>
+                  <td class="rowend"><span class="backlink">Open instance ↗</span></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- ============ INSTANCE DETAIL (revised — backlink, no manage-membership) ============ -->
+      <div id="v-instdetail" class="hidden">
+        <div class="crumb"><a onclick="go('list');tab('inst')">Cohorts</a> / Instances / coh-ecce55e11597</div>
+        <div class="h1row">
+          <div>
+            <h1 class="mono">coh-ecce55e11597</h1>
+            <p class="sub"><span class="mono">ach_exposure_cohort</span> · correlation <span class="mono corr">case-93fc267702</span> · 3 Amendia segments</p>
+          </div>
+          <div class="rowend">
+            <span class="backlink" onclick="go('defdetail')">Definition: ach_exposure_cohort ↗</span>
+            <span class="pill closed dot" style="align-self:center">Closed</span>
+          </div>
+        </div>
+
+        <div class="note"><span class="n">4</span><div><b>Revised:</b> the old <b>“Manage membership”</b> button is replaced by a read-only <b>link to the definition</b>. From here you observe; to change who's a member you go to the definition.</div></div>
+
+        <div class="kpis five" style="margin-top:18px">
+          <div class="kpi"><div class="k">Members</div><div class="v">3</div><div class="m">Amendia segments</div></div>
+          <div class="kpi"><div class="k">Completed</div><div class="v green">3</div><div class="m">terminal</div></div>
+          <div class="kpi"><div class="k">Running</div><div class="v">0</div><div class="m">in flight</div></div>
+          <div class="kpi"><div class="k">Failed</div><div class="v">0</div><div class="m">none</div></div>
+          <div class="kpi"><div class="k">Anomalies</div><div class="v">0</div><div class="m">late-join</div></div>
+        </div>
+
+        <div class="panel">
+          <div class="ph"><h3>Member processes — live state</h3><span class="hint">3 segments · each highlighted to its own execution (ADR-062)</span></div>
+          <div class="memberbox">
+            <div class="mh"><b class="mono">ach-exposure-assess</b> <span class="badge">@1.0.0</span> <span class="mono dim">pi-ef5ac5400a394f71</span> <span class="pill closed dot" style="margin-left:auto">Completed</span></div>
+            <div class="diagram">
+              <div class="node ev">○<span>Assess requested</span></div>
+              <div class="arrow"></div><div class="node">Classify exposure</div>
+              <div class="arrow"></div><div class="node">Pull risk profile</div>
+              <div class="arrow"></div><div class="node">Recommend disposition</div>
+              <div class="arrow"></div><div class="node">Draft UW message</div>
+              <div class="arrow"></div><div class="node">Notify Pega</div>
+              <div class="arrow"></div><div class="node ev" style="border-width:3px">◉<span>Exposure assessed</span></div>
+            </div>
+          </div>
+          <div class="dim" style="font-size:12.5px">+ 2 more segments (ach-decision-enforce, ach-closeout) — collapsed in this mockup.</div>
+        </div>
+      </div>
+
+      <!-- ============ NEW / EDIT DEFINITION (reuse of existing form, reframed) ============ -->
+      <div id="v-new" class="hidden">
+        <div class="crumb"><a onclick="go('list')">Cohorts</a> / <a onclick="go('list')">Definitions</a> / New cohort</div>
+        <h1>New cohort definition</h1>
+        <p class="sub">Registered once · like onboarding a pack. Membership is assigned here and edited later from the definition — never from an instance.</p>
+
+        <div class="panel" style="margin-top:18px">
+          <div class="ph"><h3>Definition</h3><span class="hint">registered once</span></div>
+          <div class="grid2" style="margin-bottom:16px">
+            <div class="field"><label>Cohort id</label><div class="box mono">ach_exposure_cohort</div></div>
+            <div class="field"><label>Display name</label><div class="box">ACH exposure — cross-system case</div></div>
+          </div>
+          <div class="field" style="margin-bottom:16px"><label>Close message schema (JSON Schema)</label>
+            <div class="box mono">{
+  "type": "object",
+  "required": ["event", "case_id"],
+  "properties": {
+    "event":   { "const": "process_completed" },
+    "case_id": { "type": "string" },
+    "outcome": { "type": "string" }
+  }
+}</div></div>
+          <div class="grid2">
+            <div class="field"><label>Correlation path → cohort key</label><div class="box mono">case_id</div></div>
+            <div class="field"><label>Outcome path (optional)</label><div class="box mono">outcome</div></div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="ph"><h3>Members</h3><span class="hint">assign active process packs · 3 assigned</span></div>
+          <div class="tbl" style="border-radius:11px">
+            <table class="memtable">
+              <thead><tr><th>Process pack</th><th>Trigger fields</th><th>Correlation key</th><th></th></tr></thead>
+              <tbody>
+                <tr><td class="mono">ach-closeout <span class="badge">@1.0.0</span></td><td class="kv mono">case_id, instruction, request_type</td><td class="corr mono">case_id</td><td class="rowend"><button class="btn sm">Added ✓</button></td></tr>
+                <tr><td class="mono">ach-decision-enforce <span class="badge">@1.0.0</span></td><td class="kv mono">case_id, rbo_decision, request_type…</td><td class="corr mono">case_id</td><td class="rowend"><button class="btn sm">Added ✓</button></td></tr>
+                <tr><td class="mono">ach-exposure-assess <span class="badge">@1.0.0</span></td><td class="kv mono">case_id, company, credit_amount…</td><td class="corr mono">case_id</td><td class="rowend"><button class="btn sm">Added ✓</button></td></tr>
+                <tr><td class="mono">stan-dine <span class="badge">@1.0.0</span></td><td class="kv mono">dietary_flags, order_type, party_siz…</td><td class="dim">—</td><td class="rowend"><button class="btn sm">+ Add</button></td></tr>
+                <tr><td class="mono">wire-stan <span class="badge">@1.0.0</span></td><td class="kv mono">attachments, exception_id, exception…</td><td class="dim">—</td><td class="rowend"><button class="btn sm">+ Add</button></td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="rowend" style="margin-top:20px"><button class="btn" onclick="go('list')">Cancel</button><button class="btn pri" onclick="go('defdetail')">Register cohort</button></div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<script>
+  var views=['list','defdetail','instdetail','new'];
+  function go(v){
+    views.forEach(function(x){document.getElementById('v-'+x).classList.toggle('hidden', x!==v);});
+    document.getElementById('newBtn').style.display = (v==='list')?'':'none';
+    window.scrollTo(0,0);
+  }
+  function tab(t){
+    document.getElementById('tab-def').classList.toggle('on', t==='def');
+    document.getElementById('tab-inst').classList.toggle('on', t==='inst');
+    document.getElementById('pane-def').classList.toggle('hidden', t!=='def');
+    document.getElementById('pane-inst').classList.toggle('hidden', t!=='inst');
+  }
+  go('list');
+</script>
+</body>
+</html>
