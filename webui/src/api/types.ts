@@ -249,6 +249,9 @@ export interface CohortListEntry {
   closed_at: string | null;
   outcome: string | null;
   anomalies: number;
+  // ADR-064 P4: compact SLA badges (current-state counts from GLEA; absent → treat as 0).
+  sla_breaches?: number;
+  sla_at_risk?: number;
 }
 
 export interface CohortListOut {
@@ -296,6 +299,97 @@ export interface CohortDetailOut {
   roster: CohortRosterMember[];
   events: CohortEventOut[];
   close: CohortCloseOut;
+  // ADR-064 P4: observability-grade SLA view (problem-focused: transition-derived from GLEA). Optional +
+  // default-empty — a cohort with no SLA events returns an empty summary; render nothing.
+  sla?: CohortSlaSummary;
+}
+
+/**
+ * ADR-064 P4 — cohort SLA read-model (glea-service, P3). Problem-focused: only expectations that have
+ * transitioned are here (at_risk/breached/satisfied/voided); still-`pending` ones live only in the runtime SoR.
+ * Keep in sync with backend/services/platform/glea-service/app/models/cohort.py.
+ */
+export type SlaState = "at_risk" | "breached" | "satisfied" | "voided";
+export type SlaOwner = "external" | "amendia" | "shared";
+export type SlaClock = "wall" | "business";
+export type SlaKind = "edge" | "node" | "end_to_end";
+
+export interface CohortSlaEntry {
+  sla_id: string;
+  kind: SlaKind | string;
+  ref: string;
+  owner: SlaOwner | string;
+  clock: SlaClock | string;
+  state: SlaState | string;
+  due_at?: string | null;
+  at_risk_at?: string | null;
+  detected_at?: string | null;
+}
+
+export interface CohortSlaBreaches {
+  external: number;
+  amendia: number;
+  shared: number;
+  total: number;
+}
+
+export interface CohortSlaSummary {
+  states: CohortSlaEntry[];
+  breaches: CohortSlaBreaches;
+  at_risk: number;
+  satisfied: number;
+  voided: number;
+}
+
+/**
+ * ADR-064 P1 — the cohort expectation graph (DAG + SLA specs) carried on the definition. Optional/additive:
+ * a definition with no graph is a pure ADR-063 observer. Keep in sync with process-registry app/models/cohort.py.
+ */
+export type SlaMoment = "arrival" | "completion";
+
+export interface EdgeSla {
+  anchor_moment?: SlaMoment;   // default "completion"
+  satisfy_moment?: SlaMoment;  // default "arrival"
+  deadline_seconds: number;
+  at_risk_seconds?: number;
+  clock?: SlaClock;            // default "wall"
+  owner: SlaOwner;            // required (no default)
+}
+
+export interface NodeSla {
+  deadline_seconds: number;
+  at_risk_seconds?: number;
+  clock?: SlaClock;
+  owner?: SlaOwner;           // default "amendia"
+}
+
+export interface EndToEndSla {
+  deadline_seconds: number;
+  at_risk_seconds?: number;
+  clock?: SlaClock;
+  owner?: SlaOwner;           // default "shared"
+}
+
+export type CohortNodeType = "expected" | "conditional";
+export type CohortSplit = "and" | "xor";
+
+export interface CohortNode {
+  node_id: string;
+  node_type?: CohortNodeType;   // default "expected"
+  runtime_sla?: NodeSla | null;
+}
+
+export interface CohortEdge {
+  from_node: string;            // a node_id or "__start__"
+  to_node: string;              // a node_id or "__close__"
+  split: CohortSplit;
+  sla?: EdgeSla | null;
+}
+
+export interface ExpectationGraph {
+  nodes: CohortNode[];
+  edges: CohortEdge[];
+  end_to_end_sla?: EndToEndSla | null;
 }
 
 /** Registry cohort-definition (design-time). Keep in sync with process-registry app/models/cohort.py. */
@@ -306,6 +400,12 @@ export interface CohortDefinition {
   close_schema: Record<string, unknown>;
   close_correlation_path: string;
   close_outcome_path?: string | null;
+  // ADR-064 P1: optional timing-expectation DAG + SLA specs. null → pure observer (ADR-063).
+  expectation_graph?: ExpectationGraph | null;
   created_at?: string;
   updated_at?: string;
 }
+
+/** The two reserved synthetic node ids (mirror process-registry START_NODE/CLOSE_NODE). */
+export const START_NODE = "__start__";
+export const CLOSE_NODE = "__close__";

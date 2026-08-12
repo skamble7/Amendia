@@ -27,6 +27,7 @@ import aio_pika
 from aio_pika.abc import AbstractIncomingMessage
 
 from amendia_common.events import (
+    COHORT_SLA,
     DISPATCH_ACCEPTED,
     EXCHANGE,
     HITL_TASK_CREATED,
@@ -50,6 +51,7 @@ BINDING_KEYS: List[str] = [
     f"{Service.AGENT_RUNTIME.value}.{DISPATCH_ACCEPTED}.{_V1}",
     f"{Service.INGESTOR.value}.{TRIGGER_DISPATCHED}.{_V1}",
     f"{Service.TRIGGER_SOURCE.value}.{TRIGGER_RAISED}.{_V1}",
+    f"{Service.AGENT_RUNTIME.value}.{COHORT_SLA}.{_V1}",   # ADR-064 P4: cohort SLA transitions → thin SSE relay
 ]
 
 Handler = Callable[[dict, str], Awaitable[None]]

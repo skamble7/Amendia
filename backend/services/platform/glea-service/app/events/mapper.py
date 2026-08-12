@@ -12,7 +12,7 @@ from typing import Any, Dict, Optional
 
 import orjson
 
-from amendia_common.events import COHORT_LIFECYCLE, EGRESS_DECISION
+from amendia_common.events import COHORT_LIFECYCLE, COHORT_SLA, EGRESS_DECISION
 
 
 class UnmappableEvent(ValueError):
@@ -29,6 +29,11 @@ def event_kind(routing_key: str) -> str:
 def is_cohort_event(routing_key: str) -> bool:
     """ADR-063 Phase 3A: a CohortLifecycleEvent (→ cohort_events, its own table)."""
     return event_kind(routing_key) == COHORT_LIFECYCLE
+
+
+def is_cohort_sla_event(routing_key: str) -> bool:
+    """ADR-064 P3: a CohortSlaEvent (→ cohort_sla_events, its own table)."""
+    return event_kind(routing_key) == COHORT_SLA
 
 
 def _parse_dt(value: Any) -> datetime:
@@ -106,4 +111,32 @@ def to_cohort_row(routing_key: str, payload: Dict[str, Any]) -> Dict[str, Any]:
         "close_outcome": str(payload.get("close_outcome") or ""),
         "detail": str(payload.get("detail") or ""),
         "trace_id": str(trace.get("trace_id") or ""),
+    }
+
+
+def to_cohort_sla_row(routing_key: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    """ADR-064 P3: project a ``CohortSlaEvent`` payload onto a ``cohort_sla_events`` row. Structural only.
+    ``due_at``/``at_risk_at``/``detected_at`` are kept as the emitted ISO strings ("" when absent) — lossless
+    and parse-free for the observability view. Requires event_id + cohort_instance_id + sla_id (the row key)."""
+    if not isinstance(payload, dict) or not payload.get("event_id"):
+        raise UnmappableEvent("event_id missing")
+    if not payload.get("cohort_instance_id"):
+        raise UnmappableEvent("cohort_instance_id missing")
+    if not payload.get("sla_id"):
+        raise UnmappableEvent("sla_id missing")
+    return {
+        "event_id": str(payload["event_id"]),
+        "occurred_at": _parse_dt(payload.get("occurred_at")),
+        "state": str(payload.get("state") or ""),
+        "cohort_instance_id": str(payload["cohort_instance_id"]),
+        "cohort_def_id": str(payload.get("cohort_def_id") or ""),
+        "correlation_value": str(payload.get("correlation_value") or ""),
+        "sla_id": str(payload["sla_id"]),
+        "kind": str(payload.get("kind") or ""),
+        "ref": str(payload.get("ref") or ""),
+        "owner": str(payload.get("owner") or ""),
+        "clock": str(payload.get("clock") or ""),
+        "due_at": str(payload.get("due_at") or ""),
+        "at_risk_at": str(payload.get("at_risk_at") or ""),
+        "detected_at": str(payload.get("detected_at") or ""),
     }

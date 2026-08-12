@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import Enum
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 from pydantic import Field
 
@@ -45,3 +45,7 @@ class CohortInstance(ContractModel):
     updated_at: datetime = Field(default_factory=utcnow)
     closed_at: Optional[datetime] = None
     close_outcome: Optional[str] = None
+    # ADR-064 P2: the definition's ``expectation_graph`` snapshotted at OPEN (forward-only). All SLA
+    # scheduling for this instance reads THIS, never the live definition — so mid-flight definition edits
+    # never touch an in-flight cohort. None → the cohort opened under no SLA graph (pure ADR-063 observer).
+    expectation_graph_snapshot: Optional[Dict[str, Any]] = None

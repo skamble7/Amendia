@@ -1,16 +1,17 @@
 import { Link, useParams } from "react-router-dom";
 import { ArrowLeft, ArrowUpRight } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState, LiveDot } from "@/components/primitives";
 import { ConnectivityState } from "@/components/ConnectivityState";
 import { isConnectivityError } from "@/api/client";
-import { formatDateTime } from "@/lib/format";
+import { formatCountdown, formatDateTime, formatRelative } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { useCohort, useCohortByCorrelation } from "./queries";
-import { CohortStateChip } from "./cohortBits";
+import { CohortStateChip, SlaStateChip } from "./cohortBits";
 import { MemberDiagram } from "./MemberDiagram";
-import type { CohortDetailOut, CohortEventOut, CohortState } from "@/api/types";
+import type { CohortDetailOut, CohortEventOut, CohortSlaSummary, CohortState } from "@/api/types";
 
 function Kpi({ label, value, sub, tone }: { label: string; value: React.ReactNode; sub?: string; tone?: "ok" | "run" | "zero" | "warn" }) {
   const cls = tone === "ok" ? "text-success" : tone === "run" ? "text-agent" : tone === "warn" ? "text-attention" : tone === "zero" ? "text-muted-foreground" : "";
@@ -76,6 +77,75 @@ function EventStream({ events }: { events: CohortEventOut[] }) {
   );
 }
 
+/** ADR-064 P4 — the SLA timing cell: countdown for at-risk (from due_at), relative time for a fired breach
+ * (from detected_at), muted relative for satisfied/voided. */
+function SlaTiming({ entry }: { entry: CohortSlaSummary["states"][number] }) {
+  if (entry.state === "at_risk") {
+    const c = formatCountdown(entry.due_at);
+    return <span className={cn("font-mono text-xs", c.overdue ? "text-danger" : "text-attention")}>breaches {c.text}</span>;
+  }
+  if (entry.state === "breached") {
+    return <span className="font-mono text-xs text-danger">breached {formatRelative(entry.detected_at ?? entry.due_at)}</span>;
+  }
+  return <span className="font-mono text-xs text-muted-foreground">{formatRelative(entry.detected_at)}</span>;
+}
+
+/** The instance SLA panel: owner-attributed summary + per-SLA chips + countdowns. Rendered only when the
+ * cohort has SLA data (P3 is problem-focused; pending on-track expectations aren't surfaced). */
+function SlaPanel({ sla }: { sla: CohortSlaSummary }) {
+  if (!sla.states || sla.states.length === 0) return null;
+  const b = sla.breaches;
+  return (
+    <Card className="mb-4">
+      <CardHeader className="flex-row items-center justify-between">
+        <CardTitle>SLAs — timing &amp; accountability</CardTitle>
+        <span className="text-xs text-muted-foreground">observed transitions (GLEA) · who was late</span>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+          <Kpi label="Breaches" value={b.total} sub={b.total ? "SLA missed" : "none"} tone={b.total ? "warn" : "zero"} />
+          <Kpi label="At risk" value={sla.at_risk} sub="amber" tone={sla.at_risk ? "warn" : "zero"} />
+          <Kpi label="Satisfied" value={sla.satisfied} sub="met in time" tone={sla.satisfied ? "ok" : "zero"} />
+          <Kpi label="Voided" value={sla.voided} sub="excused" tone="zero" />
+        </div>
+        {b.total > 0 && (
+          <div className="flex flex-wrap gap-2 text-xs">
+            <span className="text-muted-foreground">Breaches by owner:</span>
+            <OwnerChip label="external" n={b.external} />
+            <OwnerChip label="amendia" n={b.amendia} />
+            <OwnerChip label="shared" n={b.shared} />
+          </div>
+        )}
+        <Table>
+          <TableHeader>
+            <TableRow className="hover:bg-transparent">
+              <TableHead>Expectation</TableHead><TableHead>Owner</TableHead><TableHead>State</TableHead><TableHead>Timing</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {sla.states.map((e) => (
+              <TableRow key={e.sla_id}>
+                <TableCell className="font-mono text-xs">{e.ref || e.sla_id}<span className="ml-1 text-[10px] text-muted-foreground">{e.kind}</span></TableCell>
+                <TableCell className="text-sm">{e.owner}</TableCell>
+                <TableCell><SlaStateChip state={e.state} /></TableCell>
+                <TableCell><SlaTiming entry={e} /></TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </CardContent>
+    </Card>
+  );
+}
+
+function OwnerChip({ label, n }: { label: string; n: number }) {
+  return (
+    <span className={cn("rounded border px-1.5 py-0.5 font-medium", n > 0 ? "border-danger/40 bg-danger-muted text-danger" : "border-border text-muted-foreground")}>
+      {label}: {n}
+    </span>
+  );
+}
+
 function CohortDetailContent({ cohort }: { cohort: CohortDetailOut }) {
   const inFlight = cohort.rollup.running;
 
@@ -115,6 +185,9 @@ function CohortDetailContent({ cohort }: { cohort: CohortDetailOut }) {
         <Kpi label="Failed" value={cohort.rollup.failed} sub={cohort.rollup.failed ? "terminal" : "none"} tone={cohort.rollup.failed ? "warn" : "zero"} />
         <Kpi label="Anomalies" value={cohort.anomalies} sub="late-join" tone={cohort.anomalies ? "warn" : "zero"} />
       </div>
+
+      {/* ADR-064 P4 — SLA panel (only when GLEA has observed SLA transitions for this cohort; degrades to nothing) */}
+      {cohort.sla && <SlaPanel sla={cohort.sla} />}
 
       {/* The hero: per-member BPMN diagrams with live highlighting */}
       <Card className="mb-4">

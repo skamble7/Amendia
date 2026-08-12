@@ -60,6 +60,26 @@ def test_process_failed_omits_reason_detail():
     assert "reason" not in sig and "detail" not in sig
 
 
+def test_cohort_sla_signal_carries_ids_labels_only():
+    # ADR-064 P4 — the CohortSlaEvent carries timing/business data (due_at, at_risk_at, detected_at, deadlines);
+    # the signal must relay ONLY the ids/labels the browser needs to invalidate query keys — never the timing.
+    payload = {
+        "event_id": "e1", "occurred_at": "x", "schema_version": "1",
+        "cohort_instance_id": "coh-1", "sla_id": "edge:a->b", "state": "breached", "owner": "external",
+        # timing/business content — MUST NOT leak (the browser re-fetches over role-guarded GLEA REST):
+        "cohort_def_id": "ach_cohort", "correlation_value": "CASE-1", "ref": "a->b", "clock": "wall",
+        "due_at": "2026-08-12T12:05:00+00:00", "at_risk_at": "2026-08-12T12:03:00+00:00",
+        "detected_at": "2026-08-12T12:05:01+00:00", "trace": {"correlation_id": "CASE-1"},
+    }
+    sig = to_signal(payload, _rk("agent_runtime", "cohort_sla"))
+    assert sig == {
+        "type": "cohort_sla", "cohort_instance_id": "coh-1",
+        "sla_id": "edge:a->b", "state": "breached", "owner": "external",
+    }
+    for leaked in ("due_at", "at_risk_at", "detected_at", "correlation_value", "cohort_def_id", "ref", "clock", "trace"):
+        assert leaked not in sig
+
+
 def test_unknown_event_is_ignored():
     assert to_signal({"trigger_id": "EXC-1"}, _rk("agent_runtime", "some_other_event")) is None
     assert to_signal({"trigger_id": "EXC-1"}, "malformed-key") is None

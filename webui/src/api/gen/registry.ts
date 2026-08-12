@@ -1307,6 +1307,7 @@ export interface components {
             description?: string | null;
             /** Display Name */
             display_name?: string | null;
+            expectation_graph?: components["schemas"]["ExpectationGraph"] | null;
             /**
              * Updated At
              * Format: date-time
@@ -1335,11 +1336,14 @@ export interface components {
             description?: string | null;
             /** Display Name */
             display_name?: string | null;
+            expectation_graph?: components["schemas"]["ExpectationGraph"] | null;
         };
         /**
          * CohortDefinitionUpdate
          * @description Inline-edit request body — the MUTABLE fields only. ``cohort_def_id`` is immutable (instances + pack
          *     ``cohort_membership`` key on it), so it is never in the body; the path parameter identifies the target.
+         *     Full-representation semantics (forward-only): omitting ``expectation_graph`` clears it, same as the other
+         *     optional fields.
          */
         CohortDefinitionUpdate: {
             /** Close Correlation Path */
@@ -1354,6 +1358,20 @@ export interface components {
             description?: string | null;
             /** Display Name */
             display_name?: string | null;
+            expectation_graph?: components["schemas"]["ExpectationGraph"] | null;
+        };
+        /** CohortEdge */
+        CohortEdge: {
+            /** From Node */
+            from_node: string;
+            sla?: components["schemas"]["EdgeSla"] | null;
+            /**
+             * Split
+             * @enum {string}
+             */
+            split: "and" | "xor";
+            /** To Node */
+            to_node: string;
         };
         /**
          * CohortMembership
@@ -1370,6 +1388,18 @@ export interface components {
             cohort_def_id: string;
             /** Correlation Key */
             correlation_key: string;
+        };
+        /** CohortNode */
+        CohortNode: {
+            /** Node Id */
+            node_id: string;
+            /**
+             * Node Type
+             * @default expected
+             * @enum {string}
+             */
+            node_type: "expected" | "conditional";
+            runtime_sla?: components["schemas"]["NodeSla"] | null;
         };
         /** CommitStep */
         CommitStep: {
@@ -1744,6 +1774,44 @@ export interface components {
             tier: string;
         };
         /**
+         * EdgeSla
+         * @description A time promise on an edge: after ``anchor_moment`` of the edge's ``from`` node (cohort-open when
+         *     from == __start__), expect ``satisfy_moment`` of the ``to`` node (close-received when to == __close__)
+         *     within ``deadline_seconds``. Numeric well-formedness is checked at register/update time.
+         */
+        EdgeSla: {
+            /**
+             * Anchor Moment
+             * @default completion
+             * @enum {string}
+             */
+            anchor_moment: "arrival" | "completion";
+            /**
+             * At Risk Seconds
+             * @default 0
+             */
+            at_risk_seconds: number;
+            /**
+             * Clock
+             * @default wall
+             * @enum {string}
+             */
+            clock: "wall" | "business";
+            /** Deadline Seconds */
+            deadline_seconds: number;
+            /**
+             * Owner
+             * @enum {string}
+             */
+            owner: "external" | "amendia" | "shared";
+            /**
+             * Satisfy Moment
+             * @default arrival
+             * @enum {string}
+             */
+            satisfy_moment: "arrival" | "completion";
+        };
+        /**
          * EditPackRequest
          * @description ADR-056: open an edit session over an activated pack's config at a bumped version (BPMN unchanged).
          */
@@ -1753,6 +1821,31 @@ export interface components {
              * @default minor
              */
             bump: string;
+        };
+        /**
+         * EndToEndSla
+         * @description The whole-case promise (cohort-open → cohort-close), conventionally ``shared``.
+         */
+        EndToEndSla: {
+            /**
+             * At Risk Seconds
+             * @default 0
+             */
+            at_risk_seconds: number;
+            /**
+             * Clock
+             * @default wall
+             * @enum {string}
+             */
+            clock: "wall" | "business";
+            /** Deadline Seconds */
+            deadline_seconds: number;
+            /**
+             * Owner
+             * @default shared
+             * @enum {string}
+             */
+            owner: "external" | "amendia" | "shared";
         };
         /** EventSummary */
         EventSummary: {
@@ -1764,6 +1857,14 @@ export interface components {
             name?: string | null;
             /** Subtype */
             subtype?: string | null;
+        };
+        /** ExpectationGraph */
+        ExpectationGraph: {
+            /** Edges */
+            edges?: components["schemas"]["CohortEdge"][];
+            end_to_end_sla?: components["schemas"]["EndToEndSla"] | null;
+            /** Nodes */
+            nodes?: components["schemas"]["CohortNode"][];
         };
         /**
          * FieldsSource
@@ -2077,6 +2178,31 @@ export interface components {
             source?: string | null;
             /** Target */
             target?: string | null;
+        };
+        /**
+         * NodeSla
+         * @description A segment's own runtime (arrival → completion) promise — conventionally owned by ``amendia``.
+         */
+        NodeSla: {
+            /**
+             * At Risk Seconds
+             * @default 0
+             */
+            at_risk_seconds: number;
+            /**
+             * Clock
+             * @default wall
+             * @enum {string}
+             */
+            clock: "wall" | "business";
+            /** Deadline Seconds */
+            deadline_seconds: number;
+            /**
+             * Owner
+             * @default amendia
+             * @enum {string}
+             */
+            owner: "external" | "amendia" | "shared";
         };
         /** NotPredicate */
         "NotPredicate-Input": {

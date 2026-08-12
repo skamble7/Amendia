@@ -329,23 +329,106 @@ def _summary(cohort_instance_id: str, rows_sorted: List[Dict[str, Any]],
     return {**ident, "member_count": len(members), "rollup": _rollup(members, outcome_idx), "anomalies": anomalies}
 
 
+# --------------------------------------------------------------------------- #
+# ADR-064 P3 — cohort SLA read-models (pure functions over cohort_sla_events rows).
+#
+# Observability-grade: derived from the emitted CohortSlaEvent transitions (at_risk/breached/satisfied/voided),
+# NOT the authoritative agent-runtime snapshot SoR — so still-`pending` expectations that never transitioned are
+# not here (that is correct for a who-was-late accountability view; a full pending-plan view is a P4 follow-up
+# that would need the runtime snapshot over REST). Current state of an expectation = the LATEST event by
+# (occurred_at, event_id): states are monotonic (pending→at_risk→breached/satisfied/voided), so latest wins;
+# owner/kind/ref/clock are stable per sla_id.
+# --------------------------------------------------------------------------- #
+_SLA_OWNERS = ("external", "amendia", "shared")
+
+
+def _s(v: Any) -> str:
+    return str(v) if v is not None else ""
+
+
+def current_sla_states(sla_rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """The current state per sla_id (latest event wins), sorted by sla_id. Empty ISO time strings → None."""
+    latest: Dict[str, tuple] = {}
+    for r in sla_rows:
+        sid = _s(r.get("sla_id"))
+        if not sid:
+            continue
+        key = (r.get("occurred_at") or _EPOCH, _s(r.get("event_id")))
+        if sid not in latest or key > latest[sid][0]:
+            latest[sid] = (key, r)
+    entries = [{
+        "sla_id": sid,
+        "kind": _s(r.get("kind")),
+        "ref": _s(r.get("ref")),
+        "owner": _s(r.get("owner")),
+        "clock": _s(r.get("clock")),
+        "state": _s(r.get("state")),
+        "due_at": _s(r.get("due_at")) or None,
+        "at_risk_at": _s(r.get("at_risk_at")) or None,
+        "detected_at": _s(r.get("detected_at")) or None,
+    } for sid, (_, r) in latest.items()]
+    entries.sort(key=lambda e: e["sla_id"])
+    return entries
+
+
+def sla_summary(entries: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Owner-attributed breach rollup + at_risk/satisfied/voided counts, over the CURRENT state per sla_id."""
+    breaches = {o: 0 for o in _SLA_OWNERS}
+    breaches["total"] = 0
+    at_risk = satisfied = voided = 0
+    for e in entries:
+        st = e["state"]
+        if st == "breached":
+            if e["owner"] in breaches:
+                breaches[e["owner"]] += 1
+            breaches["total"] += 1
+        elif st == "at_risk":
+            at_risk += 1
+        elif st == "satisfied":
+            satisfied += 1
+        elif st == "voided":
+            voided += 1
+    return {"states": entries, "breaches": breaches, "at_risk": at_risk,
+            "satisfied": satisfied, "voided": voided}
+
+
+def build_sla_section(sla_rows: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """The cohort-detail ``sla`` section for one cohort's SLA event rows (empty when there are none)."""
+    return sla_summary(current_sla_states(sla_rows))
+
+
 def build_cohort_list(cohort_rows: List[Dict[str, Any]],
-                      member_outcome_rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+                      member_outcome_rows: List[Dict[str, Any]],
+                      sla_rows: Optional[List[Dict[str, Any]]] = None) -> List[Dict[str, Any]]:
     """One summary per cohort_instance_id (newest opened first): identity, state, member_count, the
-    done/running/failed rollup joined from member outcomes, opened/closed_at, close outcome, and anomaly count."""
+    done/running/failed rollup joined from member outcomes, opened/closed_at, close outcome, anomaly count, and
+    (ADR-064 P3) the compact SLA badges ``sla_breaches``/``sla_at_risk`` (0 when the cohort has no SLA events)."""
     outcome_idx = _index_member_outcomes(member_outcome_rows)
     by_cohort: Dict[str, List[Dict[str, Any]]] = {}
     for r in cohort_rows:
         by_cohort.setdefault(r.get("cohort_instance_id") or "", []).append(r)
-    out = [_summary(cid, sorted(rows, key=_sort_key), outcome_idx) for cid, rows in by_cohort.items() if cid]
+    sla_by_cohort: Dict[str, List[Dict[str, Any]]] = {}
+    for r in (sla_rows or []):
+        sla_by_cohort.setdefault(r.get("cohort_instance_id") or "", []).append(r)
+    out = []
+    for cid, rows in by_cohort.items():
+        if not cid:
+            continue
+        summary = _summary(cid, sorted(rows, key=_sort_key), outcome_idx)
+        sla = build_sla_section(sla_by_cohort.get(cid, []))
+        summary["sla_breaches"] = sla["breaches"]["total"]
+        summary["sla_at_risk"] = sla["at_risk"]
+        out.append(summary)
     out.sort(key=lambda c: (c["opened_at"] or _EPOCH), reverse=True)
     return out
 
 
 def build_cohort_detail(cohort_rows_for_one: List[Dict[str, Any]],
-                        member_outcome_rows: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+                        member_outcome_rows: List[Dict[str, Any]],
+                        sla_rows: Optional[List[Dict[str, Any]]] = None) -> Optional[Dict[str, Any]]:
     """Identity + roster (each member with its joined status/duration/outcome) + the ordered lifecycle event
-    stream + a close summary. None when there are no rows for the cohort."""
+    stream + a close summary + (ADR-064 P3) the ``sla`` section (per-SLA current state + owner-attributed
+    counts; empty when the cohort has no SLA events). None when there are no rows for the cohort."""
     if not cohort_rows_for_one:
         return None
     rows_sorted = sorted(cohort_rows_for_one, key=_sort_key)
@@ -381,4 +464,5 @@ def build_cohort_detail(cohort_rows_for_one: List[Dict[str, Any]],
                "detail": r.get("detail") or None} for r in rows_sorted]
     close = {"signalled": summary["state"] in ("closing", "closed"),
              "outcome": summary["outcome"], "state": summary["state"], "late_joins": summary["anomalies"]}
-    return {**summary, "roster": roster, "events": events, "close": close}
+    sla = build_sla_section(sla_rows or [])
+    return {**summary, "roster": roster, "events": events, "close": close, "sla": sla}

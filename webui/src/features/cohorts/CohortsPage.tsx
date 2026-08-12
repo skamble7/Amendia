@@ -12,7 +12,7 @@ import { isConnectivityError } from "@/api/client";
 import { formatDateTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { useActivePacks, useCohorts, useCohortDefinitions } from "./queries";
-import { CohortStateChip, RollupBar } from "./cohortBits";
+import { CohortStateChip, RollupBar, SlaBadges } from "./cohortBits";
 import { closeMatch, membersOf, unassignedPacks } from "./membership";
 import type { CohortDefinition, CohortListEntry } from "@/api/types";
 
@@ -167,7 +167,9 @@ function InstancesTab({
                   onClick={() => navigate(`/cohorts/${c.cohort_instance_id}`)}
                   onKeyDown={(e) => e.key === "Enter" && navigate(`/cohorts/${c.cohort_instance_id}`)}
                 >
-                  <TableCell className="font-mono text-sm text-foreground">{c.correlation_value || "—"}</TableCell>
+                  <TableCell className="font-mono text-sm text-foreground">
+                    <span className="inline-flex items-center gap-2">{c.correlation_value || "—"}<SlaBadges breaches={c.sla_breaches} atRisk={c.sla_at_risk} /></span>
+                  </TableCell>
                   <TableCell className="text-sm text-muted-foreground">{c.cohort_def_id}</TableCell>
                   <TableCell><CohortStateChip state={c.state} /></TableCell>
                   <TableCell><RollupBar rollup={c.rollup} anomalies={c.anomalies} /></TableCell>

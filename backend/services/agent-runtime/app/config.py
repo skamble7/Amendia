@@ -72,6 +72,16 @@ class Settings(BaseSettings):
     # due timers, and resumes the parked instance. No delayed-message broker / external scheduler —
     # timers live in Mongo and the poller re-fires anything due on restart (crash-safe).
     TIMER_POLL_SECONDS: float = 15.0
+    # ADR-064 Phase 2: the cohort-SLA poller (sibling of the timer poller). Wakes every N seconds, fires any
+    # due at-risk/breach rows, evaluates cohort state, and flags. Durable + crash-safe (re-fires overdue rows).
+    SLA_POLL_SECONDS: float = 15.0
+    # ADR-064 Phase 2: the single deployment-configured business calendar for ``clock="business"`` SLAs (V1;
+    # per-cohort/timezone calendars are a later refinement). Working weekdays (0=Mon…6=Sun), a daily UTC
+    # working-hours window, and optional ISO holiday dates. Defaults: Mon–Fri, 09:00–17:00 UTC, no holidays.
+    SLA_BUSINESS_DAYS: str = "0,1,2,3,4"
+    SLA_BUSINESS_START_HOUR: int = 9
+    SLA_BUSINESS_END_HOUR: int = 17
+    SLA_BUSINESS_HOLIDAYS: str = ""
     # OpenShell gateway endpoint (sandbox dispatch, secret brokering, OTLP). When unset in
     # ``nemoclaw`` mode a deterministic in-process fake client is used, so the sandboxed path
     # is exercisable in dev/CI with no live gateway.

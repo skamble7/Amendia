@@ -18,8 +18,9 @@ import { ApiError } from "@/api/client";
 import { assignMembership, clearMembership, deleteCohortDefinition, updateCohortDefinition } from "@/api/services/cohorts";
 import { CohortStateChip } from "./cohortBits";
 import { CorrelationKeySelect, membersOf, unassignedPacks } from "./membership";
+import { EMPTY_GRAPH, SlaGraphEditor, SlaGraphView, isEmptyGraph } from "./SlaGraphEditor";
 import { useActivePacks, useCohortDefinitions, useCohorts } from "./queries";
-import type { ProcessPackManifest } from "@/api/types";
+import type { ExpectationGraph, ProcessPackManifest } from "@/api/types";
 import { Kpi } from "./CohortsPage";
 
 export function CohortDefinitionPage() {
@@ -51,8 +52,11 @@ export function CohortDefinitionPage() {
   type EditForm = { display_name: string; description: string; close_correlation_path: string; close_outcome_path: string; close_schema: string };
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState<EditForm | null>(null);
+  const [graph, setGraph] = useState<ExpectationGraph>(EMPTY_GRAPH);   // ADR-064 P4: DAG+SLA edit buffer
   const [editError, setEditError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+
+  const memberPackKeys = useMemo(() => members.map((p) => p.pack_key), [members]);
 
   function startEdit() {
     if (!def) return;
@@ -63,12 +67,15 @@ export function CohortDefinitionPage() {
       close_outcome_path: def.close_outcome_path ?? "",
       close_schema: JSON.stringify(def.close_schema, null, 2),
     });
+    // Deep-copy the current graph so edits are cancellable; empty when the definition declares none.
+    setGraph(def.expectation_graph ? structuredClone(def.expectation_graph) : { nodes: [], edges: [], end_to_end_sla: null });
     setEditError(null);
     setEditing(true);
   }
   function cancelEdit() {
     setEditing(false);
     setForm(null);
+    setGraph(EMPTY_GRAPH);
     setEditError(null);
   }
   const setField = (k: keyof EditForm, v: string) => setForm((f) => (f ? { ...f, [k]: v } : f));
@@ -94,6 +101,9 @@ export function CohortDefinitionPage() {
         close_schema: schema,
         close_correlation_path: form.close_correlation_path.trim(),
         close_outcome_path: form.close_outcome_path.trim() || null,
+        // ADR-064 P4: full-representation — ALWAYS send the graph (omitting clears it). Empty → null; server
+        // (P1) is the source of truth for validity (422 surfaced inline below).
+        expectation_graph: isEmptyGraph(graph) ? null : graph,
       });
       qc.invalidateQueries({ queryKey: ["cohort-definitions"] });
       toast.success(`Updated definition '${cohortDefId}'.`);
@@ -238,6 +248,32 @@ export function CohortDefinitionPage() {
                 </pre>
               </div>
             </>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Expectation graph + SLAs (ADR-064) — read view, or a tabular DAG+SLA editor in edit mode (owner-only) */}
+      <Card className="mb-4">
+        <CardHeader className="flex-row items-center justify-between">
+          <CardTitle>Expectation graph &amp; SLAs</CardTitle>
+          <span className="text-xs text-muted-foreground">timing expectations · at-risk / breach attribution</span>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {editing && form ? (
+            <>
+              {instances.length > 0 && (
+                <p className="flex items-start gap-2 rounded-md border border-attention/40 bg-attention-muted/30 p-3 text-xs text-attention">
+                  <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
+                  <span>Graph / SLA edits are <b>forward-only</b>: they apply to cohorts that open <b>after</b> the change. The {instances.length} existing instance{instances.length === 1 ? "" : "s"} keep the expectations they opened under.</span>
+                </p>
+              )}
+              <SlaGraphEditor graph={graph} memberPackKeys={memberPackKeys} onChange={setGraph} />
+              <p className="text-[11px] text-muted-foreground">
+                Well-formedness (acyclic, reachable, split ↔ node-type, SLA numerics) is validated on <b>Save</b> — the server rejects an invalid graph with a message shown above.
+              </p>
+            </>
+          ) : (
+            <SlaGraphView graph={def.expectation_graph} />
           )}
         </CardContent>
       </Card>

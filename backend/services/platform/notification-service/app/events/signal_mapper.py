@@ -14,6 +14,7 @@ from __future__ import annotations
 from typing import Any, Dict, Optional
 
 from amendia_common.events import (
+    COHORT_SLA,
     DISPATCH_ACCEPTED,
     DISPATCH_REJECTED,
     HITL_TASK_CREATED,
@@ -34,9 +35,13 @@ KNOWN_EVENTS = frozenset({
     HITL_TASK_DECIDED,
     PROCESS_COMPLETED,
     PROCESS_FAILED,
+    COHORT_SLA,        # ADR-064 P4: a cohort SLA transition → invalidate the cohort list + detail
 })
 
 # The ONLY fields ever copied into a signal (ids + non-sensitive labels).
+# ADR-064 P4: cohort_instance_id/sla_id/state/owner are ids/labels — NO timing/business content ever
+# (no due_at / at_risk_at / detected_at / deadlines / schema). The browser re-fetches the authorized SLA
+# data over the role-guarded GLEA REST endpoints; the signal only says WHICH keys to invalidate.
 _ALLOWED_FIELDS = (
     "trigger_id",
     "process_instance_id",
@@ -44,6 +49,10 @@ _ALLOWED_FIELDS = (
     "element_id",
     "role",
     "outcome",
+    "cohort_instance_id",
+    "sla_id",
+    "state",
+    "owner",
 )
 
 

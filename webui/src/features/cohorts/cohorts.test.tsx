@@ -395,3 +395,151 @@ describe("Instance cohort backlink", () => {
     expect(screen.queryByText(/Part of cohort/i)).not.toBeInTheDocument();
   });
 });
+
+// --------------------------------------------------------------------------- #
+// ADR-064 P4 — SLA editor (definition) + SLA panel/badges (instance/list)
+// --------------------------------------------------------------------------- #
+const DEF_WITH_GRAPH = {
+  ...DEFS[0],
+  expectation_graph: {
+    nodes: [{ node_id: "existing", node_type: "expected", runtime_sla: null }],
+    edges: [
+      { from_node: "__start__", to_node: "existing", split: "and", sla: null },
+      { from_node: "existing", to_node: "__close__", split: "and", sla: null },
+    ],
+    end_to_end_sla: { deadline_seconds: 86400, at_risk_seconds: 0, clock: "wall", owner: "shared" },
+  },
+};
+
+describe("Cohort SLA definition editor (ADR-064 P4)", () => {
+  it("owner builds a graph and Save PUTs expectation_graph", async () => {
+    let defs: Array<Record<string, unknown>> = [{ ...DEFS[0] }];
+    const puts: Array<Record<string, unknown>> = [];
+    server.use(
+      http.get(`${GLEA}/cohorts`, () => HttpResponse.json(ACH_LIST)),
+      http.get(`${REG}/cohort/definitions`, () => HttpResponse.json(defs)),
+      http.get(`${REG}/packs`, () => HttpResponse.json(ACTIVE_PACKS)),
+      http.get(`${REG}/packs/:key/:version/trigger-fields`, () => HttpResponse.json({ fields: ["case_id"] })),
+      http.put(`${REG}/cohort/definitions/:id`, async ({ request }) => {
+        const body = (await request.json()) as Record<string, unknown>;
+        puts.push(body);
+        defs = [{ ...defs[0], ...body }];
+        return HttpResponse.json({ cohort_def_id: "ach_exposure_cohort", ...body, created_at: "x", updated_at: "y" });
+      }),
+    );
+    const user = userEvent.setup();
+    renderApp("/cohorts/definitions/ach_exposure_cohort", "owner-1");
+
+    await user.click(await screen.findByRole("button", { name: /Edit definition/i }));
+    // add a node via free-text, then an edge
+    await user.type(screen.getByLabelText(/new node id/i), "A{Enter}");
+    await user.click(screen.getByRole("button", { name: /Add edge/i }));
+    await user.click(screen.getByRole("button", { name: /^Save$/i }));
+
+    await waitFor(() => expect(puts).toHaveLength(1));
+    const graph = puts[0]?.expectation_graph as { nodes: { node_id: string }[]; edges: unknown[] };
+    expect(graph.nodes.map((n) => n.node_id)).toContain("A");
+    expect(graph.edges).toHaveLength(1);
+  });
+
+  it("surfaces the server 422 for an invalid graph inline", async () => {
+    server.use(
+      http.get(`${GLEA}/cohorts`, () => HttpResponse.json(ACH_LIST)),
+      http.get(`${REG}/cohort/definitions`, () => HttpResponse.json([{ ...DEFS[0] }])),
+      http.get(`${REG}/packs`, () => HttpResponse.json(ACTIVE_PACKS)),
+      http.get(`${REG}/packs/:key/:version/trigger-fields`, () => HttpResponse.json({ fields: ["case_id"] })),
+      http.put(`${REG}/cohort/definitions/:id`, () =>
+        HttpResponse.json({ detail: "expectation_graph invalid: node 'A' cannot reach __close__ (dead-end)" }, { status: 422 })),
+    );
+    const user = userEvent.setup();
+    renderApp("/cohorts/definitions/ach_exposure_cohort", "owner-1");
+    await user.click(await screen.findByRole("button", { name: /Edit definition/i }));
+    await user.type(screen.getByLabelText(/new node id/i), "A{Enter}");
+    await user.click(screen.getByRole("button", { name: /^Save$/i }));
+    expect(await screen.findByText(/expectation_graph invalid/i)).toBeInTheDocument();
+  });
+
+  it("read view renders a declared graph; editing another field preserves it in the PUT (forward-only, no wipe)", async () => {
+    let defs: Array<Record<string, unknown>> = [{ ...DEF_WITH_GRAPH }];
+    const puts: Array<Record<string, unknown>> = [];
+    server.use(
+      http.get(`${GLEA}/cohorts`, () => HttpResponse.json(ACH_LIST)),
+      http.get(`${REG}/cohort/definitions`, () => HttpResponse.json(defs)),
+      http.get(`${REG}/packs`, () => HttpResponse.json(ACTIVE_PACKS)),
+      http.get(`${REG}/packs/:key/:version/trigger-fields`, () => HttpResponse.json({ fields: ["case_id"] })),
+      http.put(`${REG}/cohort/definitions/:id`, async ({ request }) => {
+        const body = (await request.json()) as Record<string, unknown>;
+        puts.push(body);
+        defs = [{ ...defs[0], ...body }];
+        return HttpResponse.json({ cohort_def_id: "ach_exposure_cohort", ...body, created_at: "x", updated_at: "y" });
+      }),
+    );
+    const user = userEvent.setup();
+    renderApp("/cohorts/definitions/ach_exposure_cohort", "owner-1");
+    // read view shows the declared node + end-to-end owner
+    expect(await screen.findByText("existing")).toBeInTheDocument();
+    // edit only the display name → the graph must ride along unchanged (not cleared)
+    await user.click(screen.getByRole("button", { name: /Edit definition/i }));
+    const name = screen.getByLabelText(/Display name/i);
+    await user.clear(name);
+    await user.type(name, "Renamed");
+    await user.click(screen.getByRole("button", { name: /^Save$/i }));
+    await waitFor(() => expect(puts).toHaveLength(1));
+    const graph = puts[0]?.expectation_graph as { nodes: { node_id: string }[] } | null;
+    expect(graph?.nodes.map((n) => n.node_id)).toEqual(["existing"]);   // preserved, not wiped
+  });
+});
+
+const DETAIL_WITH_SLA: CohortDetailOut = {
+  ...DETAIL,
+  sla: {
+    states: [
+      { sla_id: "edge:__start__->a", kind: "edge", ref: "__start__->a", owner: "external", clock: "wall",
+        state: "breached", due_at: "2026-08-08T09:20:00Z", at_risk_at: null, detected_at: "2026-08-08T09:20:01Z" },
+      { sla_id: "node:a", kind: "node", ref: "a", owner: "amendia", clock: "wall",
+        state: "at_risk", due_at: "2099-01-01T00:00:00Z", at_risk_at: "2026-08-08T09:19:00Z", detected_at: null },
+    ],
+    breaches: { external: 1, amendia: 0, shared: 0, total: 1 },
+    at_risk: 1, satisfied: 0, voided: 0,
+  },
+};
+
+describe("Cohort SLA instance panel + list badges (ADR-064 P4)", () => {
+  it("renders the SLA panel with owner-attributed summary + chips", async () => {
+    server.use(
+      http.get(`${GLEA}/cohorts/coh-1`, () => HttpResponse.json(DETAIL_WITH_SLA)),
+      http.get(`${REG}/packs/:key/:version`, () => HttpResponse.json(synthPack)),
+      http.get(`${REG}/packs/:key/:version/bpmn`, () => HttpResponse.text("<definitions/>")),
+      http.get(`${R}/instances/:id`, () => HttpResponse.json(synthInstanceDetail())),
+    );
+    renderApp("/cohorts/coh-1", "owner-1");
+    expect(await screen.findByText(/SLAs — timing & accountability/i)).toBeInTheDocument();
+    expect(screen.getByText("external: 1")).toBeInTheDocument();
+    expect(screen.getByText("Breached")).toBeInTheDocument();
+    expect(screen.getAllByText("At risk").length).toBeGreaterThan(0);
+  });
+
+  it("shows no SLA panel when the cohort has no SLA data", async () => {
+    server.use(
+      http.get(`${GLEA}/cohorts/coh-1`, () => HttpResponse.json(DETAIL)),  // no sla field
+      http.get(`${REG}/packs/:key/:version`, () => HttpResponse.json(synthPack)),
+      http.get(`${REG}/packs/:key/:version/bpmn`, () => HttpResponse.text("<definitions/>")),
+      http.get(`${R}/instances/:id`, () => HttpResponse.json(synthInstanceDetail())),
+    );
+    renderApp("/cohorts/coh-1", "owner-1");
+    expect(await screen.findByText(/CohortLifecycleEvent stream/i)).toBeInTheDocument();
+    expect(screen.queryByText(/SLAs — timing & accountability/i)).not.toBeInTheDocument();
+  });
+
+  it("shows breach/at-risk badges on the instances list", async () => {
+    const list: CohortListOut = { count: 1, cohorts: [{ ...ACH_LIST.cohorts[0]!, sla_breaches: 2, sla_at_risk: 1 }] };
+    server.use(
+      http.get(`${GLEA}/cohorts`, () => HttpResponse.json(list)),
+      http.get(`${REG}/cohort/definitions`, () => HttpResponse.json(DEFS)),
+    );
+    renderApp("/cohorts", "owner-1");
+    expect(await screen.findByText("CASE-1")).toBeInTheDocument();
+    expect(screen.getByText("1 at-risk")).toBeInTheDocument();
+    expect(screen.getByTitle(/2 SLA breaches/i)).toBeInTheDocument();
+  });
+});

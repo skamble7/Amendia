@@ -5,6 +5,7 @@ import type {
   CohortDetailOut,
   CohortListOut,
   CohortState,
+  ExpectationGraph,
   ProcessPackManifest,
 } from "../types";
 
@@ -62,6 +63,9 @@ export type CohortDefinitionUpdate = {
   close_schema: Record<string, unknown>;
   close_correlation_path: string;
   close_outcome_path: string | null;
+  // ADR-064 P4: the expectation graph rides the PUT (full-representation, forward-only). ALWAYS send it —
+  // omitting it clears the graph server-side. `null` → clear; a graph → replace. Validated by P1 (422).
+  expectation_graph?: ExpectationGraph | null;
 };
 export function updateCohortDefinition(cohortDefId: string, body: CohortDefinitionUpdate): Promise<CohortDefinition> {
   return request<CohortDefinition>("registry", `/cohort/definitions/${cohortDefId}`, { method: "PUT", body, silent: true });
