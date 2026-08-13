@@ -53,11 +53,12 @@ STATUS_PAGE = """<!doctype html>
    const j=await r.json(); msg.textContent = r.ok ? ('started '+j.case_id) : ('error: '+(j.detail||r.status)); document.getElementById('cid').value=''; refresh(); }
  const SEG=['A','B','C','close'];
  function steps(c){ const done=new Set((c.completed||[])); const closed=c.status==='closed';
-   return SEG.map(s=>{ let cls='seg'; if(s==='close'){ if(closed)cls+=' done'; } else if(done.has(s))cls+=' done'; else if(c.step===s)cls+=' cur'; return `<span class="${cls}">${s}</span>`; }).join(' → '); }
+   return SEG.map(s=>{ let cls='seg'; if(s==='close'){ if(closed)cls+=' done'; } else if(done.has(s))cls+=' done'; else if(c.step===s||c.step===s+'_pending')cls+=' cur'; return `<span class="${cls}">${s}</span>`; }).join(' → '); }
  async function refresh(){ const r=await fetch('cases'); const j=await r.json(); const rows=j.cases||[];
    const t=document.getElementById('rows');
    if(!rows.length){ t.innerHTML='<tr><td colspan="5" class="empty">No cases yet.</td></tr>'; return; }
-   t.innerHTML=rows.map(c=>{ const dec=[c.recommendation?('rec '+c.recommendation):null,c.rbo_decision?('rbo '+c.rbo_decision):null,c.instruction,c.outcome?('→ '+c.outcome):null].filter(Boolean).join(' · ')||'—';
+   t.innerHTML=rows.map(c=>{ const late=c.step==='C_pending'?('⏳ closeout +'+(c.closeout_delay_seconds||'?')+'s (SLA breach)'):null;
+     const dec=[c.recommendation?('rec '+c.recommendation):null,c.rbo_decision?('rbo '+c.rbo_decision):null,c.instruction,late,c.outcome?('→ '+c.outcome):null].filter(Boolean).join(' · ')||'—';
      return `<tr><td class="mono">${c.case_id}</td><td>${c.scenario}</td><td><div class="steps">${steps(c)}</div></td>
        <td><span class="st ${c.status}">${c.status}</span></td><td class="k">${dec}</td></tr>`; }).join(''); }
  loadScenarios(); refresh(); setInterval(refresh, 2000);

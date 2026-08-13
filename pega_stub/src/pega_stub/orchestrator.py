@@ -8,11 +8,13 @@ each segment advances exactly once (idempotent per (case_id, segment)).
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import uuid
-from typing import Any, Awaitable, Callable, Dict, List, Optional
+from typing import Any, Awaitable, Callable, Dict, List, Optional, Set
 
 from . import scenarios as S
+from .config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -20,6 +22,16 @@ SEGMENTS = ["A", "B", "C"]
 
 # A submit fn: (trigger_type, schema_version, payload) -> trigger_id. Injected so tests use a fake store.
 SubmitFn = Callable[..., Awaitable[str]]
+# A sleep fn (seconds) -> awaitable. Injected so tests collapse the closeout delay (no real 25s wait).
+SleepFn = Callable[[float], Awaitable[None]]
+
+
+def _closeout_delay(preset: Dict[str, Any]) -> int:
+    """Effective closeout delay (seconds): the env override wins when > 0, else the preset value (0 absent)."""
+    override = settings.closeout_delay_override
+    if override and override > 0:
+        return override
+    return int(preset.get("closeout_delay_seconds", 0) or 0)
 
 
 def _canonical_segment(segment: Optional[str], completed: List[str]) -> Optional[str]:
@@ -43,9 +55,22 @@ def _canonical_segment(segment: Optional[str], completed: List[str]) -> Optional
 
 
 class Orchestrator:
-    def __init__(self, submit: SubmitFn) -> None:
+    def __init__(self, submit: SubmitFn, *, sleep: SleepFn = asyncio.sleep) -> None:
         self._submit = submit
+        self._sleep = sleep                       # injectable so tests collapse the closeout delay
         self.cases: Dict[str, Dict[str, Any]] = {}
+        self._tasks: Set["asyncio.Task[Any]"] = set()   # scheduled delayed-fire tasks (for drain/shutdown)
+
+    def _schedule(self, coro: Awaitable[Any]) -> "asyncio.Task[Any]":
+        task = asyncio.ensure_future(coro)
+        self._tasks.add(task)
+        task.add_done_callback(self._tasks.discard)
+        return task
+
+    async def drain(self) -> None:
+        """Test/shutdown helper: await all currently-scheduled delayed-fire tasks."""
+        while self._tasks:
+            await asyncio.gather(*list(self._tasks), return_exceptions=True)
 
     # -- reads --
     def get(self, case_id: str) -> Optional[Dict[str, Any]]:
@@ -107,13 +132,18 @@ class Orchestrator:
                                     "rbo_decision": case["rbo_decision"]})
         elif n == 2:  # Segment B done → fire Segment C (instruction derived from the decision)
             case["instruction"] = "release" if case["rbo_decision"] == "approve" else "purge"
-            tid = await self._submit(
-                trigger_type=S.TRIGGER_TYPE["C"], schema_version=S.SCHEMA_VERSION["C"],
-                payload=S.segment_c_payload(case_id, case["instruction"]))
-            case["triggers"]["C"] = tid
-            case["step"] = "C"
-            case["history"].append({"op": "submitted", "segment": "C", "trigger_id": tid,
-                                    "instruction": case["instruction"]})
+            delay = _closeout_delay(preset)
+            if delay > 0:
+                # ADR-064 SLA e2e: fire C LATE (non-blocking) so the enforce→closeout arrival SLA breaches
+                # first, then C arrives late. Schedule at most once (this B-handback runs once per case), and
+                # return the handback response immediately — never block the event loop on the delay.
+                case["step"] = "C_pending"
+                case["closeout_delay_seconds"] = delay
+                case["history"].append({"op": "scheduled", "segment": "C", "delay_seconds": delay,
+                                        "note": f"closeout delayed {delay}s (breaches the 20s arrival SLA)"})
+                self._schedule(self._fire_c_later(case_id, delay))
+            else:
+                await self._fire_c(case)          # immediate — unchanged for the other scenarios
         elif n == 3:  # Segment C done → emit the close message; the cohort drains to closed
             case["outcome"] = "Released" if case["instruction"] == "release" else "Purged"
             tid = await self._submit(
@@ -125,6 +155,34 @@ class Orchestrator:
             case["history"].append({"op": "submitted", "segment": "close", "trigger_id": tid,
                                     "outcome": case["outcome"]})
         return case
+
+    async def _fire_c(self, case: Dict[str, Any]) -> None:
+        """Submit Segment C exactly once (once-only guard: skip if C already fired / case closed)."""
+        if case["status"] == "closed" or "C" in case["triggers"]:
+            return
+        case_id = case["case_id"]
+        tid = await self._submit(
+            trigger_type=S.TRIGGER_TYPE["C"], schema_version=S.SCHEMA_VERSION["C"],
+            payload=S.segment_c_payload(case_id, case["instruction"]))
+        case["triggers"]["C"] = tid
+        case["step"] = "C"
+        case["history"].append({"op": "submitted", "segment": "C", "trigger_id": tid,
+                                "instruction": case["instruction"]})
+
+    async def _fire_c_later(self, case_id: str, delay: int) -> None:
+        """Fire Segment C after ``delay`` seconds (the SLA-breach path). Non-blocking (runs as a task).
+        Graceful on edge cases: a case closed/removed before the timer fires → no-op; a cancelled sleep
+        (shutdown) → no-op; the ``_fire_c`` guard keeps it exactly-once."""
+        try:
+            await self._sleep(delay)
+        except asyncio.CancelledError:  # pragma: no cover - shutdown
+            return
+        case = self.cases.get(case_id)
+        if case is None or case["status"] == "closed":
+            logger.info("delayed closeout for %s skipped (case closed/removed before it fired)", case_id)
+            return
+        logger.info("firing delayed Segment C for %s (after %ss — SLA already breached)", case_id, delay)
+        await self._fire_c(case)
 
 
 def _recommendation(result: Any) -> Optional[str]:

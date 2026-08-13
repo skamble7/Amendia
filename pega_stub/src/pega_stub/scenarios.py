@@ -48,6 +48,16 @@ SCENARIOS: Dict[str, Dict[str, Any]] = {
         "credit_amount": 360000.0, "credit_limit": 300000.0, "debit_amount": 0.0, "debit_limit": 200000.0,
         "overage": 60000.0, "rbo_decision": "approve",
     },
+    # ADR-064 SLA e2e: a normal approve case through A and B, but the Segment C (closeout) trigger is fired
+    # LATE — past the cohort's enforce→closeout arrival SLA (20s) — so the SLA breaches (owner=external), the
+    # closeout then arrives late (recorded `arrived_late`), and the case still closes. `closeout_delay_seconds`
+    # is the opt-in delay; the other three presets omit it (absent/0 → fire immediately, unchanged).
+    "late_closeout": {
+        "company": "DELTA-FREIGHT", "exposure_type": "credit",
+        "credit_amount": 335000.0, "credit_limit": 300000.0, "debit_amount": 0.0, "debit_limit": 200000.0,
+        "overage": 35000.0, "rbo_decision": "approve",
+        "closeout_delay_seconds": 25,   # > the 20s enforce→closeout arrival SLA → breach, then late arrival
+    },
 }
 
 
