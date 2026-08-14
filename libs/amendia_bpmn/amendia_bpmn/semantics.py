@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 from xml.etree import ElementTree as ET
 
+from amendia_bpmn.conditions import normalize_condition
 from amendia_bpmn.model import local_name
 
 TASK_KINDS = {
@@ -80,7 +81,9 @@ class SemSequenceFlow:
     source: Optional[str]
     target: Optional[str]
     name: Optional[str] = None
-    condition: Optional[str] = None            # raw conditionExpression text
+    condition: Optional[str] = None            # the CANONICAL condition (Tier-1 normalized) — what inference reads
+    condition_raw: Optional[str] = None        # the verbatim conditionExpression text (audit)
+    condition_changes: List[str] = field(default_factory=list)  # what Tier-1 auto-converted (for the notice)
 
 
 @dataclass
@@ -191,9 +194,13 @@ def extract_semantics(xml: str, process_id: str) -> BpmnSemanticModel:
         ln = local_name(child.tag)
         if ln == "sequenceFlow":
             cond = next((c.text for c in child if local_name(c.tag) == "conditionExpression"), None)
+            raw = (cond or "").strip() or None
+            # Tier-1 lossless normalization at the extraction seam — the canonical form is derived, the uploaded
+            # XML is never mutated. Inference/validation/summary read the canonical `condition`.
+            canonical, changes = normalize_condition(raw)
             model.sequence_flows.append(SemSequenceFlow(
                 id=child.get("id") or "", source=child.get("sourceRef"), target=child.get("targetRef"),
-                name=child.get("name"), condition=(cond or "").strip() or None,
+                name=child.get("name"), condition=canonical, condition_raw=raw, condition_changes=changes,
             ))
         elif ln in ("dataObject", "dataObjectReference", "dataStoreReference", "dataStore"):
             model.data_objects.append(SemDataObject(id=child.get("id") or "", name=child.get("name"), kind=ln))

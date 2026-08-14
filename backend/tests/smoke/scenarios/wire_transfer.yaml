@@ -1,0 +1,23 @@
+# Wire-transfer exception — the reference vertical (generalizes tools/demo_wire_repair.sh).
+# Targets the SEEDED, always-active `wire-repair-standard` pack (the demo's pack), reason code AC01.
+domain: wire_transfer
+pack_keys: [wire-repair-standard]        # preflight: must be active in the registry (seeded → always is)
+
+trigger:
+  kind: stub_generator                   # POST {STUB}/generators/wire/generate
+  request:
+    generator: wire
+    body: { reason_code: AC01, count: 1 }
+
+correlation: trigger_id                  # single-instance: follow the returned trigger through the ingestor
+
+hitl:
+  default_persona: riya                  # analyst gates
+  roles:
+    role.payments.ops_approver: marcus   # approver gates (four-eyes)
+  personas: [riya, marcus]               # SoD fallback pool
+
+expect:
+  instance_status: completed
+
+timeout_s: 120

@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
+                  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                  id="Defs_E2E" targetNamespace="http://amendia.dev/e2e">
+  <bpmn:process id="Proc_E2E_Condition" isExecutable="true">
+    <bpmn:startEvent id="Start"><bpmn:outgoing>f0</bpmn:outgoing></bpmn:startEvent>
+    <bpmn:serviceTask id="Task_Decide" name="Decide"><bpmn:incoming>f0</bpmn:incoming><bpmn:outgoing>f1</bpmn:outgoing></bpmn:serviceTask>
+    <bpmn:exclusiveGateway id="Gw_Decision" name="Decision">
+      <bpmn:incoming>f1</bpmn:incoming><bpmn:outgoing>f_yes</bpmn:outgoing><bpmn:outgoing>f_no</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:endEvent id="End_Yes"><bpmn:incoming>f_yes</bpmn:incoming></bpmn:endEvent>
+    <bpmn:endEvent id="End_No"><bpmn:incoming>f_no</bpmn:incoming></bpmn:endEvent>
+    <bpmn:sequenceFlow id="f0" sourceRef="Start" targetRef="Task_Decide"/>
+    <bpmn:sequenceFlow id="f1" sourceRef="Task_Decide" targetRef="Gw_Decision"/>
+    <!-- Camunda/generic modeler style: ${…}-wrapped conditions (no FEEL language attr). The upload should
+         auto-normalize these to Amendia FEEL and show the notice; the field-less LHS is a guided gateway issue. -->
+    <bpmn:sequenceFlow id="f_yes" sourceRef="Gw_Decision" targetRef="End_Yes">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${decision == "Proceed"}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="f_no" sourceRef="Gw_Decision" targetRef="End_No">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${decision == "Reject"}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+  </bpmn:process>
+</bpmn:definitions>

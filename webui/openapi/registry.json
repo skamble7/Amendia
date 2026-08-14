@@ -838,6 +838,13 @@
             "title": "Bpmn File",
             "type": "string"
           },
+          "condition_normalizations": {
+            "items": {
+              "$ref": "#/components/schemas/ConditionNormalization"
+            },
+            "title": "Condition Normalizations",
+            "type": "array"
+          },
           "coverage_counts": {
             "additionalProperties": {
               "type": "integer"
@@ -1784,6 +1791,42 @@
         ],
         "title": "Compatibility",
         "type": "string"
+      },
+      "ConditionNormalization": {
+        "description": "One flow's Tier-1 auto-conversion \u2014 informational (the upload notice), never blocking.",
+        "properties": {
+          "changes": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Changes",
+            "type": "array"
+          },
+          "flow_id": {
+            "title": "Flow Id",
+            "type": "string"
+          },
+          "from": {
+            "title": "From",
+            "type": "string"
+          },
+          "gateway_id": {
+            "title": "Gateway Id",
+            "type": "string"
+          },
+          "to": {
+            "title": "To",
+            "type": "string"
+          }
+        },
+        "required": [
+          "gateway_id",
+          "flow_id",
+          "from",
+          "to"
+        ],
+        "title": "ConditionNormalization",
+        "type": "object"
       },
       "Constraints": {
         "additionalProperties": false,
@@ -2771,6 +2814,24 @@
       },
       "GatewayConditionSummary": {
         "properties": {
+          "canonical": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Canonical"
+          },
+          "changes": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Changes",
+            "type": "array"
+          },
           "flow_id": {
             "title": "Flow Id",
             "type": "string"

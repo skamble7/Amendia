@@ -65,7 +65,9 @@ def test_unparseable_condition_rejected(bundle):
     bad.bpmn_model = copy.deepcopy(bundle.bpmn_model)
     for fl in bad.bpmn_model.flows:
         if fl.id == "Flow_Repairable":
-            fl.condition_expr = "beneficiary.repair_verdict in [1,2,3]"  # unsupported
+            # The compiler evaluates the Tier-1 canonical form (normalize would leave this unsupported
+            # expression untouched, so a real bad condition is bad in both forms).
+            fl.condition_expr = fl.condition_canonical = "beneficiary.repair_verdict in [1,2,3]"  # unsupported
     with pytest.raises(CompilerError, match="Gateway_Repairable"):
         compile_graph(bad, InProcessExecutor(), simulation=True, checkpointer=_saver())
 

@@ -681,11 +681,14 @@ def _build_gateway_router(bundle, model, gateway_id, resolve_node):
             raise CompilerError(
                 f"gateway '{gateway_id}' flow '{fl.id}' has no condition and is not the default"
             )
+        # Evaluate the Tier-1 CANONICAL form (unwrapped ${…}, single→double quotes) — lossless, so byte-identical
+        # for already-canonical conditions, and a Camunda-authored one now runs instead of crashing at compile.
+        cond = fl.condition_canonical or fl.condition_expr
         try:
-            expr.parse_condition(fl.condition_expr)  # validate at compile time
+            expr.parse_condition(cond)  # validate at compile time
         except expr.ConditionSyntaxError as exc:
             raise CompilerError(f"gateway '{gateway_id}': {exc}") from exc
-        conditional.append((fl.condition_expr, target_node))
+        conditional.append((cond, target_node))
 
     def router(state: Dict[str, Any]) -> str:
         artifacts = state.get("artifacts", {})
