@@ -54,6 +54,9 @@ COHORT_LIFECYCLE = "cohort_lifecycle"
 # ADR-063 Phase 2: the ingestor recognised an external end-of-process (close) message and asks the cohort
 # owner (agent-runtime) to drive the cohort's close. correlation_value is the sole handle (no Amendia id).
 COHORT_CLOSE_REQUESTED = "cohort_close_requested"
+# ADR-064 Phase 2: a cohort SLA expectation changed state (at_risk / breached / satisfied / voided) — the
+# agent-runtime SoR is authoritative; GLEA consumes this to surface at-risk/breach with owner attribution.
+COHORT_SLA = "cohort_sla"
 
 def rk(service: Service | str, event: str, version: str = Version.V1.value) -> str:
     """

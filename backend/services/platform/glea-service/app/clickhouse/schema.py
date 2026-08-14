@@ -114,6 +114,65 @@ SETTINGS index_granularity = 8192
 """.strip()
 
 
+# --------------------------------------------------------------------------- #
+# ADR-064 P3 — the cohort SLA read-model table (a SEPARATE table again — audit_events and cohort_events are
+# untouched). Sourced from the CohortSlaEvent stream (agent_runtime.cohort_sla.v1). The current state of an
+# expectation is the latest event per sla_id, so the ORDER BY leads with (cohort_instance_id, sla_id) → the
+# per-sla_id latest is a cheap read. Idempotent on event_id via the sort tuple (ReplacingMergeTree on
+# ingested_at). due_at/at_risk_at/detected_at are stored as the emitted ISO strings (may be "" when absent),
+# lossless and parse-free — the UI renders them.
+# --------------------------------------------------------------------------- #
+COHORT_SLA_INSERT_COLUMNS = [
+    "event_id",
+    "occurred_at",
+    "state",
+    "cohort_instance_id",
+    "cohort_def_id",
+    "correlation_value",
+    "sla_id",
+    "kind",
+    "ref",
+    "owner",
+    "clock",
+    "due_at",
+    "at_risk_at",
+    "detected_at",
+]
+COHORT_SLA_READ_COLUMNS = COHORT_SLA_INSERT_COLUMNS + ["ingested_at"]
+
+
+def cohort_sla_alter_add_columns_ddl(db: str, table: str) -> list[str]:
+    """Idempotent column migrations for a pre-existing cohort_sla_events table. Empty today (fresh table);
+    the sibling of ``cohort_alter_add_columns_ddl`` so future additive columns land without a drop."""
+    return []
+
+
+def create_cohort_sla_table_ddl(db: str, table: str, ttl_days: int) -> str:
+    return f"""
+CREATE TABLE IF NOT EXISTS {db}.{table} (
+  event_id            String,
+  occurred_at         DateTime64(3, 'UTC'),
+  ingested_at         DateTime64(3, 'UTC') DEFAULT now64(3),
+  state               LowCardinality(String),
+  cohort_instance_id  String,
+  cohort_def_id       String,
+  correlation_value   String,
+  sla_id              String,
+  kind                LowCardinality(String),
+  ref                 String,
+  owner               LowCardinality(String),
+  clock               LowCardinality(String),
+  due_at              String,
+  at_risk_at          String,
+  detected_at         String
+)
+ENGINE = ReplacingMergeTree(ingested_at)
+ORDER BY (cohort_instance_id, sla_id, occurred_at, event_id)
+TTL toDateTime(occurred_at) + INTERVAL {int(ttl_days)} DAY
+SETTINGS index_granularity = 8192
+""".strip()
+
+
 def create_table_ddl(db: str, table: str, ttl_days: int) -> str:
     return f"""
 CREATE TABLE IF NOT EXISTS {db}.{table} (

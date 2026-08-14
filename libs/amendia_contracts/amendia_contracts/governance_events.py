@@ -19,6 +19,7 @@ from typing import ClassVar, Literal, Optional
 from amendia_common.events import (
     ARTIFACT_COMMITTED,
     COHORT_LIFECYCLE,
+    COHORT_SLA,
     CONFIG_REF_RESOLVED,
     EGRESS_DECISION,
     PACK_LIFECYCLE,
@@ -53,6 +54,22 @@ class CohortLifecycleOp(str, Enum):
     CLOSING = "closing"              # external close signal arrived while ≥1 member still running (Phase 2)
     CLOSED = "closed"                # cohort terminal — no member in flight (Phase 2)
     LATE_JOIN = "late_join"          # anomaly: joined a closed cohort, or a cohort_def_id-mismatch member
+
+
+class CohortSlaState(str, Enum):
+    """ADR-064 P2 — the state a cohort SLA expectation is emitted in (a subset of the persisted state
+    machine ``pending | at_risk | satisfied | voided | breached``; ``pending`` is never emitted)."""
+    AT_RISK = "at_risk"      # crossed the at-risk lead with the satisfying event still outstanding (amber)
+    BREACHED = "breached"    # crossed the deadline unmet — recorded + attributed to an owner
+    SATISFIED = "satisfied"  # the satisfying event arrived in time (optional; useful for P3 rollups)
+    VOIDED = "voided"        # excused — XOR sibling arrived, or the cohort closed (never a fault)
+
+
+class CohortSlaKind(str, Enum):
+    """Which expectation a cohort SLA measures (structural — mirrors the ADR-064 graph shapes)."""
+    EDGE = "edge"              # a precedence hop (after anchor of `from`, expect `to`)
+    NODE = "node"             # a segment's own arrival → completion runtime promise
+    END_TO_END = "end_to_end" # the whole case (cohort open → close)
 
 
 # --------------------------------------------------------------------------- #
@@ -122,6 +139,33 @@ class CohortLifecycleEvent(EventBase):
     # the read-model reads a clean column instead of parsing it out of `detail` (which is still set too).
     close_outcome: Optional[str] = None
     detail: Optional[str] = None                    # anomaly / close-outcome note (late_join, closing, closed)
+    trace: Optional[Trace] = None
+
+
+class CohortSlaEvent(EventBase):
+    """ADR-064 P2 — a cohort SLA expectation changed state, emitted fail-soft by agent-runtime (sibling of
+    ``CohortLifecycleEvent``). The agent-runtime SoR stays authoritative; this is the service-to-service
+    signal GLEA (P3) consumes to build the read-model + owner-attributed ``sla_breaches`` rollup — it may
+    carry the fields GLEA needs. Fields stay structural/domain-neutral: ``correlation_value``/``ref`` are
+    opaque, never business-term keys. Times (``due_at``/``at_risk_at``/``detected_at``) let the read-model
+    stay honest about downtime (``detected_at`` may be > ``due_at`` after a crash-recovery re-fire)."""
+
+    _service: ClassVar[Service] = Service.AGENT_RUNTIME
+    _event_name: ClassVar[str] = COHORT_SLA
+
+    schema_version: Literal["pin.platform.cohort_sla/1.0"] = "pin.platform.cohort_sla/1.0"
+    cohort_def_id: str
+    cohort_instance_id: str
+    correlation_value: str                          # opaque business key (structural — not a domain term)
+    sla_id: str                                     # stable per-cohort expectation id (e.g. "edge:a->b")
+    state: CohortSlaState
+    kind: CohortSlaKind
+    ref: str                                        # human-readable expectation ref ("a->b" / "a" / "start->close")
+    owner: str                                      # external | amendia | shared — the accountable party
+    clock: str                                      # wall | business
+    due_at: Optional[str] = None                    # the scheduled deadline (ISO) — set on breach
+    at_risk_at: Optional[str] = None                # the scheduled at-risk lead (ISO)
+    detected_at: Optional[str] = None               # when this transition was noticed (ISO; > due_at if late)
     trace: Optional[Trace] = None
 
 

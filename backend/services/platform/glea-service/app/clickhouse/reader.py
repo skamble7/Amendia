@@ -257,7 +257,9 @@ class CohortReader:
         self._pool = pool
         self._table = f"{settings.CLICKHOUSE_DB}.{settings.CLICKHOUSE_COHORT_TABLE}"
         self._audit = f"{settings.CLICKHOUSE_DB}.{settings.CLICKHOUSE_TABLE}"
+        self._sla_table = f"{settings.CLICKHOUSE_DB}.{settings.CLICKHOUSE_COHORT_SLA_TABLE}"
         self._cols = schema.COHORT_READ_COLUMNS
+        self._sla_cols = schema.COHORT_SLA_READ_COLUMNS
 
     def _rows(self, client: Any, where: str, params: Dict[str, Any]) -> List[Dict[str, Any]]:
         cols = ", ".join(self._cols)
@@ -299,3 +301,29 @@ class CohortReader:
 
     async def member_outcomes(self, correlation_ids: List[str]) -> List[Dict[str, Any]]:
         return await self._pool.run(lambda c: self._member_outcomes_sync(c, list(correlation_ids)))
+
+    # ------------------------------------------------------------------ #
+    # ADR-064 P3 — cohort SLA read-model (its own table). Reads use FINAL so a redelivered event_id shows
+    # once; the caller's read-model derives the current state per sla_id (latest by occurred_at, event_id).
+    # ------------------------------------------------------------------ #
+    def _sla_rows(self, client: Any, where: str, params: Dict[str, Any]) -> List[Dict[str, Any]]:
+        cols = ", ".join(self._sla_cols)
+        sql = (f"SELECT {cols} FROM {self._sla_table} FINAL "
+               f"{where} ORDER BY occurred_at ASC, event_id ASC")
+        try:
+            res = client.query(sql, parameters=params)
+        except Exception as exc:  # noqa: BLE001
+            raise StorageUnavailable(f"cohort sla query failed: {exc}") from exc
+        return [dict(zip(res.column_names, row)) for row in res.result_rows]
+
+    async def cohort_sla_events_all(self) -> List[Dict[str, Any]]:
+        return await self._pool.run(lambda c: self._sla_rows(c, "", {}))
+
+    async def cohort_sla_events_for(self, cohort_instance_id: str) -> List[Dict[str, Any]]:
+        return await self._pool.run(
+            lambda c: self._sla_rows(c, "WHERE cohort_instance_id = {cid:String}",
+                                     {"cid": cohort_instance_id}))
+
+    async def cohort_sla_events_by_correlation_value(self, correlation_value: str) -> List[Dict[str, Any]]:
+        return await self._pool.run(
+            lambda c: self._sla_rows(c, "WHERE correlation_value = {v:String}", {"v": correlation_value}))

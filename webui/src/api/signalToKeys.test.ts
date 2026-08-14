@@ -34,7 +34,19 @@ describe("signalToKeys", () => {
     expect(keys).toContainEqual(["trigger", "EXC-1"]);
   });
 
-  it("resync → every live key", () => {
+  it("cohort_sla → cohort list + the specific cohort detail", () => {
+    const keys = signalToKeys({ type: "cohort_sla", cohort_instance_id: "coh-1", sla_id: "edge:a->b", state: "breached", owner: "external" });
+    expect(keys).toContainEqual(["cohorts"]);
+    expect(keys).toContainEqual(["cohort", "coh-1"]);
+  });
+
+  it("cohort_sla without a cohort id → list only", () => {
+    expect(signalToKeys({ type: "cohort_sla" })).toEqual([["cohorts"]]);
+  });
+
+  it("resync includes the cohort live keys", () => {
+    expect(LIVE_KEYS).toContainEqual(["cohorts"]);
+    expect(LIVE_KEYS).toContainEqual(["cohort"]);
     expect(signalToKeys({ type: "resync" })).toEqual(LIVE_KEYS);
   });
 

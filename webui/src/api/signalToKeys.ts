@@ -15,6 +15,8 @@ export const LIVE_KEYS: QueryKey[] = [
   ["ingestion"],
   ["triggers"],
   ["trigger"],
+  ["cohorts"],
+  ["cohort"],
   ["me"],
 ];
 
@@ -53,6 +55,15 @@ export function signalToKeys(signal: Signal): QueryKey[] {
       const keys: QueryKey[] = [["instances"], ["ingestions"]];
       if (pid) keys.push(["instance", pid]);
       if (eid) keys.push(["ingestion", eid]);
+      return keys;
+    }
+
+    case "cohort_sla": {
+      // ADR-064 P4: a cohort SLA transition → refresh the cohort list (badges) + the specific cohort detail
+      // (the `sla` section). The browser re-fetches the authorized SLA data over the role-guarded GLEA REST.
+      const cid = signal.cohort_instance_id;
+      const keys: QueryKey[] = [["cohorts"]];
+      if (cid) keys.push(["cohort", cid]);
       return keys;
     }
 

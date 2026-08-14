@@ -63,7 +63,13 @@ def bootstrap(client: Any) -> None:
     client.command(schema.create_cohort_table_ddl(db, cohort_table, ttl))
     for ddl in schema.cohort_alter_add_columns_ddl(db, cohort_table):
         client.command(ddl)
-    logger.info("glea schema ready: %s.%s + %s.%s (ttl=%dd)", db, table, db, cohort_table, ttl)
+    # ADR-064 P3: the cohort SLA read-model table (separate again from audit_events + cohort_events).
+    cohort_sla_table = settings.CLICKHOUSE_COHORT_SLA_TABLE
+    client.command(schema.create_cohort_sla_table_ddl(db, cohort_sla_table, ttl))
+    for ddl in schema.cohort_sla_alter_add_columns_ddl(db, cohort_sla_table):
+        client.command(ddl)
+    logger.info("glea schema ready: %s.%s + %s.%s + %s.%s (ttl=%dd)",
+                db, table, db, cohort_table, db, cohort_sla_table, ttl)
 
 
 def ping(client: Optional[Any]) -> bool:

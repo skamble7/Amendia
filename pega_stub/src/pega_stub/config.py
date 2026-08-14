@@ -26,6 +26,11 @@ class Settings:
     port: int = int(os.environ.get("PORT", "9095"))
     log_level: str = os.environ.get("LOG_LEVEL", "INFO")
 
+    # ADR-064 SLA e2e: optional override for the `late_closeout` scenario's closeout delay (seconds). When
+    # > 0 it overrides the preset's `closeout_delay_seconds` (retune the breach demo without editing code);
+    # 0 (default) → use the preset value. Never affects a scenario that declares no delay.
+    closeout_delay_override: int = int(os.environ.get("CLOSEOUT_DELAY_SECONDS", "0") or "0")
+
     # Optional, flagged: self-register the cohort definition on startup via the registry API. Off by default —
     # registering needs role.process.owner, so provide REGISTRY_BEARER (never hardcode owner creds). When off,
     # the operator registers the definition in the webui (the exact close schema is documented in the report).

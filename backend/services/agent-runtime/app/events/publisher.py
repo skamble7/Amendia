@@ -18,7 +18,9 @@ from aio_pika import DeliveryMode, ExchangeType, Message
 
 from amendia_common.events import EXCHANGE
 from amendia_contracts.dispatch import Trace
-from amendia_contracts.governance_events import CohortLifecycleEvent, CohortLifecycleOp
+from amendia_contracts.governance_events import (
+    CohortLifecycleEvent, CohortLifecycleOp, CohortSlaEvent, CohortSlaKind, CohortSlaState,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -87,3 +89,27 @@ async def emit_cohort_lifecycle(
         await publisher.publish(ev.to_doc(), ev.routing_key(), ev.event_id)
     except Exception as exc:  # noqa: BLE001 — cohort observation must never break execution
         logger.warning("failed to publish CohortLifecycleEvent (%s %s): %s", op, cohort_instance_id, exc)
+
+
+async def emit_cohort_sla(
+    publisher, *, state: str, cohort_def_id: str, cohort_instance_id: str, correlation_value: str,
+    sla_id: str, kind: str, ref: str, owner: str, clock: str,
+    due_at: Optional[str] = None, at_risk_at: Optional[str] = None, detected_at: Optional[str] = None,
+    trace: Optional[Trace] = None,
+) -> None:
+    """ADR-064 P2 — publish a CohortSlaEvent (at_risk / breached / satisfied / voided). Fail-soft, exactly
+    like ``emit_cohort_lifecycle``: a broker hiccup never breaks the segment or the cohort lifecycle — the SLA
+    is observation. The agent-runtime SoR stays authoritative; GLEA (P3) consumes this off the bus."""
+    if publisher is None or not getattr(publisher, "is_ready", False):
+        return
+    try:
+        ev = CohortSlaEvent(
+            event_id=uuid.uuid4().hex, occurred_at=datetime.now(timezone.utc),
+            state=CohortSlaState(state), cohort_def_id=cohort_def_id, cohort_instance_id=cohort_instance_id,
+            correlation_value=correlation_value, sla_id=sla_id, kind=CohortSlaKind(kind), ref=ref,
+            owner=owner, clock=clock, due_at=due_at, at_risk_at=at_risk_at, detected_at=detected_at,
+            trace=trace,
+        )
+        await publisher.publish(ev.to_doc(), ev.routing_key(), ev.event_id)
+    except Exception as exc:  # noqa: BLE001 — cohort observation must never break execution
+        logger.warning("failed to publish CohortSlaEvent (%s %s %s): %s", state, cohort_instance_id, sla_id, exc)

@@ -60,6 +60,10 @@ class RegistryClient:
     async def get_pack(self, pack_key: str, version: str) -> Dict[str, Any]:
         return await self._get(f"/packs/{pack_key}/{version}")
 
+    async def get_cohort_definition(self, cohort_def_id: str) -> Dict[str, Any]:
+        # ADR-064 P2: fetch the cohort definition (incl. its ``expectation_graph``) to snapshot at cohort open.
+        return await self._get(f"/cohort/definitions/{cohort_def_id}")
+
     async def get_resolution(self, pack_key: str, version: str) -> Dict[str, Any]:
         return await self._get(f"/packs/{pack_key}/{version}/resolution")
 

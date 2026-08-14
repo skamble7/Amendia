@@ -34,9 +34,10 @@ async def list_cohorts(
     try:
         rows = await reader.cohort_events_all()
         outcomes = await reader.member_outcomes(_member_cids(rows))
+        sla_rows = await reader.cohort_sla_events_all()      # ADR-064 P3: compact per-cohort SLA badges
     except StorageUnavailable as exc:
         raise HTTPException(status_code=503, detail="cohort store unavailable") from exc
-    cohorts = build_cohort_list(rows, outcomes)
+    cohorts = build_cohort_list(rows, outcomes, sla_rows)
     if state:
         cohorts = [c for c in cohorts if c["state"] == state]
     return CohortListOut(count=len(cohorts), cohorts=cohorts)
@@ -47,7 +48,9 @@ async def cohort_by_correlation(correlation_value: str, reader: CohortReader = D
     """Detail resolved by the external business key (the cohort's sole handle)."""
     try:
         rows = await reader.cohort_events_by_correlation_value(correlation_value)
-        detail = build_cohort_detail(rows, await reader.member_outcomes(_member_cids(rows)))
+        outcomes = await reader.member_outcomes(_member_cids(rows))
+        sla_rows = await reader.cohort_sla_events_by_correlation_value(correlation_value)
+        detail = build_cohort_detail(rows, outcomes, sla_rows)
     except StorageUnavailable as exc:
         raise HTTPException(status_code=503, detail="cohort store unavailable") from exc
     if detail is None:
@@ -60,7 +63,9 @@ async def cohort_detail(cohort_instance_id: str, reader: CohortReader = Depends(
     """Identity + roster (each member's joined status/duration/outcome) + lifecycle stream + close summary."""
     try:
         rows = await reader.cohort_events_for(cohort_instance_id)
-        detail = build_cohort_detail(rows, await reader.member_outcomes(_member_cids(rows)))
+        outcomes = await reader.member_outcomes(_member_cids(rows))
+        sla_rows = await reader.cohort_sla_events_for(cohort_instance_id)
+        detail = build_cohort_detail(rows, outcomes, sla_rows)
     except StorageUnavailable as exc:
         raise HTTPException(status_code=503, detail="cohort store unavailable") from exc
     if detail is None:

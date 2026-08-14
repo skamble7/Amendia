@@ -22,6 +22,7 @@ from app.config import auth_settings, settings
 from app.dal.artifact_schema_repo import ArtifactSchemaRepository
 from app.dal.capability_repo import CapabilityRepository
 from app.dal.cohort_repo import CohortInstanceRepository
+from app.dal.cohort_sla_repo import CohortSlaExpectationRepository, CohortSlaTimerRepository
 from app.dal.dispatch_repo import DispatchLogRepository
 from app.dal.hitl_task_repo import HitlTaskRepository
 from app.dal.instance_repo import ProcessInstanceRepository
@@ -32,6 +33,8 @@ from app.db.mongo import (
     ARTIFACT_SCHEMAS,
     CAPABILITIES,
     COHORT_INSTANCES,
+    COHORT_SLA_EXPECTATIONS,
+    COHORT_SLA_TIMERS,
     DISPATCH_LOG,
     HITL_TASKS,
     MESSAGE_SUBSCRIPTIONS,
@@ -60,7 +63,9 @@ from app.routers import (
     packs,
 )
 from app.seeding.load import SeedLoader
+from app.services.business_clock import calendar_from_settings
 from app.services.cohort_service import CohortService
+from app.services.cohort_sla_service import CohortSlaService
 from app.services.dispatch_service import DispatchService
 from app.services.hitl_service import HitlDecisionService
 from app.services.message_service import MessageSubscriptionService
@@ -126,8 +131,18 @@ async def lifespan(app: FastAPI):
     )
     # ADR-063 Phase 1: cohort SoR + service. Shares the publisher for the fail-soft lifecycle emit.
     cohort_repo = CohortInstanceRepository(mongo.collection(COHORT_INSTANCES))
-    cohort_service = CohortService(repo=cohort_repo, publisher=publisher)
+    # ADR-064 Phase 2: cohort SLA runtime (sibling substrate). Snapshots the definition's expectation_graph at
+    # open, materialises durable at-risk/breach timers, resolves them on the fail-soft join/close path, and (via
+    # its own poller) fires anything due into at_risk/breached. Real UTC clock in production.
+    cohort_sla_service = CohortSlaService(
+        exp_repo=CohortSlaExpectationRepository(mongo.collection(COHORT_SLA_EXPECTATIONS)),
+        timer_repo=CohortSlaTimerRepository(mongo.collection(COHORT_SLA_TIMERS)),
+        cohort_repo=cohort_repo, registry_client=registry_client, publisher=publisher,
+        calendar=calendar_from_settings(settings),
+    )
+    cohort_service = CohortService(repo=cohort_repo, publisher=publisher, sla_service=cohort_sla_service)
     app.state.cohort_repo = cohort_repo
+    app.state.cohort_sla_service = cohort_sla_service
     engine = ProcessEngine(
         registry=registry_client, instance_repo=instance_repo, hitl_repo=hitl_task_repo,
         publisher=publisher, settings=settings, executor=build_executor(settings, memo=memo_store),
@@ -196,6 +211,22 @@ async def lifespan(app: FastAPI):
             await asyncio.sleep(settings.TIMER_POLL_SECONDS)
     timer_task = asyncio.create_task(_timer_poll())
 
+    # ADR-064 Phase 2: cohort-SLA poller (sibling of the timer poller — evaluate-and-flag, never resume). Wakes
+    # every AGENTRT_SLA_POLL_SECONDS, fires due at-risk/breach rows, and flags. Durable + guarded, so a restart
+    # re-fires anything overdue (crash-safe, detected_at > due_at) and a fire that lost to a satisfy is a no-op.
+    async def _sla_poll():
+        while True:
+            try:
+                n = await cohort_sla_service.fire_due()
+                if n:
+                    logger.info("cohort sla poller fired %d expectation(s)", n)
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:  # noqa: BLE001
+                logger.exception("cohort sla poll error: %s", exc)
+            await asyncio.sleep(settings.SLA_POLL_SECONDS)
+    sla_task = asyncio.create_task(_sla_poll())
+
     logger.info("agent-runtime ready (execution_mode=%s simulation=%s profile=%s)",
                 settings.EXECUTION_MODE, settings.SIMULATION_MODE, settings.EXECUTION_PROFILE)
     try:
@@ -207,6 +238,7 @@ async def lifespan(app: FastAPI):
         close_consumer_task.cancel()
         recover_task.cancel()
         timer_task.cancel()
+        sla_task.cancel()
         await publisher.close()
         await http.aclose()
         await rabbit.close()

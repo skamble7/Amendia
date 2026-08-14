@@ -20,10 +20,12 @@ from app.clickhouse.client import StorageUnavailable
 from app.clickhouse.provider import ClickHousePool
 from app.clickhouse.reader import AuditReader, CohortReader
 from app.clickhouse.sealer import AuditSealer
-from app.clickhouse.writer import AuditWriter, CohortWriter
+from app.clickhouse.writer import AuditWriter, CohortSlaWriter, CohortWriter
 from app.config import settings
 from app.events.consumer import AuditConsumer
-from app.events.mapper import is_cohort_event, to_cohort_row, to_row
+from app.events.mapper import (
+    is_cohort_event, is_cohort_sla_event, to_cohort_row, to_cohort_sla_row, to_row,
+)
 from app.logging_conf import configure_logging
 from app.routers import audit, cohorts, health
 
@@ -53,13 +55,16 @@ async def lifespan(app: FastAPI):
     writer = AuditWriter(pool)
     reader = AuditReader(pool)
     cohort_writer = CohortWriter(pool)          # ADR-063 Phase 3A
+    cohort_sla_writer = CohortSlaWriter(pool)   # ADR-064 P3
     cohort_reader = CohortReader(pool)
 
     async def handle(routing_key: str, payload: dict) -> None:
-        # Branch by routing key: cohort events → cohort_events (its own table); everything else → audit_events.
-        # to_(cohort_)row → UnmappableEvent (poison, dropped by the consumer); insert → StorageUnavailable
-        # (requeued — cohort events must not be dropped on a ClickHouse blip either).
-        if is_cohort_event(routing_key):
+        # Branch by routing key: cohort-SLA → cohort_sla_events; cohort lifecycle → cohort_events; everything
+        # else → audit_events (each its own table). to_*_row → UnmappableEvent (poison, dropped by the
+        # consumer); insert → StorageUnavailable (requeued — none of these are dropped on a ClickHouse blip).
+        if is_cohort_sla_event(routing_key):
+            await cohort_sla_writer.insert(to_cohort_sla_row(routing_key, payload))
+        elif is_cohort_event(routing_key):
             await cohort_writer.insert(to_cohort_row(routing_key, payload))
         else:
             await writer.insert(to_row(routing_key, payload))
@@ -70,6 +75,7 @@ async def lifespan(app: FastAPI):
     app.state.writer = writer
     app.state.reader = reader
     app.state.cohort_writer = cohort_writer
+    app.state.cohort_sla_writer = cohort_sla_writer
     app.state.cohort_reader = cohort_reader
     app.state.consumer = consumer
     app.state.sealer = sealer

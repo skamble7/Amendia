@@ -74,3 +74,23 @@ class CohortWriter:
 
     async def insert(self, row: Dict[str, Any]) -> None:
         await self._pool.run(lambda client: self._insert(client, row))
+
+
+class CohortSlaWriter:
+    """ADR-064 P3 — the ``cohort_sla_events`` writer (own table, separate from audit_events + cohort_events).
+    Idempotent by ``ReplacingMergeTree`` on ``event_id`` (via the sort tuple); a ClickHouse failure raises
+    ``StorageUnavailable`` so the consumer requeues (SLA events must not be dropped on an outage either)."""
+
+    def __init__(self, pool: ClickHousePool) -> None:
+        self._pool = pool
+        self._table = f"{settings.CLICKHOUSE_DB}.{settings.CLICKHOUSE_COHORT_SLA_TABLE}"
+
+    def _insert(self, client: Any, row: Dict[str, Any]) -> None:
+        values = [row.get(col) for col in schema.COHORT_SLA_INSERT_COLUMNS]
+        try:
+            client.insert(self._table, [values], column_names=schema.COHORT_SLA_INSERT_COLUMNS)
+        except Exception as exc:  # noqa: BLE001 — any insert error → requeue, never drop
+            raise StorageUnavailable(f"cohort sla insert failed: {exc}") from exc
+
+    async def insert(self, row: Dict[str, Any]) -> None:
+        await self._pool.run(lambda client: self._insert(client, row))

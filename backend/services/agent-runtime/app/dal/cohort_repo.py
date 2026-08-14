@@ -9,7 +9,7 @@ double-count).
 from __future__ import annotations
 
 import uuid
-from typing import Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 from motor.motor_asyncio import AsyncIOMotorCollection
 from pymongo import ReturnDocument
@@ -70,6 +70,15 @@ class CohortInstanceRepository:
         doc.pop("_id", None)
         created = doc.get("cohort_instance_id") == candidate_id
         return CohortInstance.model_validate(doc), created
+
+    async def set_sla_snapshot(self, cohort_instance_id: str, snapshot: Dict[str, Any]) -> None:
+        """ADR-064 P2: stamp the definition's ``expectation_graph`` onto the cohort at OPEN (forward-only).
+        Guarded ``$eq: None`` so it is written once by the opener and a re-attempt never overwrites — a mid-
+        flight cohort keeps the expectations it opened under."""
+        await self._coll.update_one(
+            {"cohort_instance_id": cohort_instance_id, "expectation_graph_snapshot": None},
+            {"$set": {"expectation_graph_snapshot": snapshot, "updated_at": utcnow().isoformat()}},
+        )
 
     async def add_member(self, cohort_instance_id: str, process_instance_id: str, pack_key: str) -> bool:
         """Idempotently attach a member. Returns True if newly added, False if already on the roster. The

@@ -1498,6 +1498,16 @@
             ],
             "title": "Display Name"
           },
+          "expectation_graph": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ExpectationGraph"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "updated_at": {
             "format": "date-time",
             "title": "Updated At",
@@ -1561,6 +1571,16 @@
               }
             ],
             "title": "Display Name"
+          },
+          "expectation_graph": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ExpectationGraph"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -1572,7 +1592,7 @@
         "type": "object"
       },
       "CohortDefinitionUpdate": {
-        "description": "Inline-edit request body \u2014 the MUTABLE fields only. ``cohort_def_id`` is immutable (instances + pack\n``cohort_membership`` key on it), so it is never in the body; the path parameter identifies the target.",
+        "description": "Inline-edit request body \u2014 the MUTABLE fields only. ``cohort_def_id`` is immutable (instances + pack\n``cohort_membership`` key on it), so it is never in the body; the path parameter identifies the target.\nFull-representation semantics (forward-only): omitting ``expectation_graph`` clears it, same as the other\noptional fields.",
         "properties": {
           "close_correlation_path": {
             "title": "Close Correlation Path",
@@ -1615,6 +1635,16 @@
               }
             ],
             "title": "Display Name"
+          },
+          "expectation_graph": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ExpectationGraph"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -1622,6 +1652,43 @@
           "close_correlation_path"
         ],
         "title": "CohortDefinitionUpdate",
+        "type": "object"
+      },
+      "CohortEdge": {
+        "properties": {
+          "from_node": {
+            "title": "From Node",
+            "type": "string"
+          },
+          "sla": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EdgeSla"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "split": {
+            "enum": [
+              "and",
+              "xor"
+            ],
+            "title": "Split",
+            "type": "string"
+          },
+          "to_node": {
+            "title": "To Node",
+            "type": "string"
+          }
+        },
+        "required": [
+          "from_node",
+          "to_node",
+          "split"
+        ],
+        "title": "CohortEdge",
         "type": "object"
       },
       "CohortMembership": {
@@ -1642,6 +1709,38 @@
           "correlation_key"
         ],
         "title": "CohortMembership",
+        "type": "object"
+      },
+      "CohortNode": {
+        "properties": {
+          "node_id": {
+            "title": "Node Id",
+            "type": "string"
+          },
+          "node_type": {
+            "default": "expected",
+            "enum": [
+              "expected",
+              "conditional"
+            ],
+            "title": "Node Type",
+            "type": "string"
+          },
+          "runtime_sla": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NodeSla"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "node_id"
+        ],
+        "title": "CohortNode",
         "type": "object"
       },
       "CommitStep": {
@@ -2432,6 +2531,62 @@
         "title": "DocumentedElement",
         "type": "object"
       },
+      "EdgeSla": {
+        "description": "A time promise on an edge: after ``anchor_moment`` of the edge's ``from`` node (cohort-open when\nfrom == __start__), expect ``satisfy_moment`` of the ``to`` node (close-received when to == __close__)\nwithin ``deadline_seconds``. Numeric well-formedness is checked at register/update time.",
+        "properties": {
+          "anchor_moment": {
+            "default": "completion",
+            "enum": [
+              "arrival",
+              "completion"
+            ],
+            "title": "Anchor Moment",
+            "type": "string"
+          },
+          "at_risk_seconds": {
+            "default": 0,
+            "title": "At Risk Seconds",
+            "type": "integer"
+          },
+          "clock": {
+            "default": "wall",
+            "enum": [
+              "wall",
+              "business"
+            ],
+            "title": "Clock",
+            "type": "string"
+          },
+          "deadline_seconds": {
+            "title": "Deadline Seconds",
+            "type": "integer"
+          },
+          "owner": {
+            "enum": [
+              "external",
+              "amendia",
+              "shared"
+            ],
+            "title": "Owner",
+            "type": "string"
+          },
+          "satisfy_moment": {
+            "default": "arrival",
+            "enum": [
+              "arrival",
+              "completion"
+            ],
+            "title": "Satisfy Moment",
+            "type": "string"
+          }
+        },
+        "required": [
+          "deadline_seconds",
+          "owner"
+        ],
+        "title": "EdgeSla",
+        "type": "object"
+      },
       "EditPackRequest": {
         "description": "ADR-056: open an edit session over an activated pack's config at a bumped version (BPMN unchanged).",
         "properties": {
@@ -2442,6 +2597,44 @@
           }
         },
         "title": "EditPackRequest",
+        "type": "object"
+      },
+      "EndToEndSla": {
+        "description": "The whole-case promise (cohort-open \u2192 cohort-close), conventionally ``shared``.",
+        "properties": {
+          "at_risk_seconds": {
+            "default": 0,
+            "title": "At Risk Seconds",
+            "type": "integer"
+          },
+          "clock": {
+            "default": "wall",
+            "enum": [
+              "wall",
+              "business"
+            ],
+            "title": "Clock",
+            "type": "string"
+          },
+          "deadline_seconds": {
+            "title": "Deadline Seconds",
+            "type": "integer"
+          },
+          "owner": {
+            "default": "shared",
+            "enum": [
+              "external",
+              "amendia",
+              "shared"
+            ],
+            "title": "Owner",
+            "type": "string"
+          }
+        },
+        "required": [
+          "deadline_seconds"
+        ],
+        "title": "EndToEndSla",
         "type": "object"
       },
       "EventSummary": {
@@ -2488,6 +2681,36 @@
           "id"
         ],
         "title": "EventSummary",
+        "type": "object"
+      },
+      "ExpectationGraph": {
+        "properties": {
+          "edges": {
+            "items": {
+              "$ref": "#/components/schemas/CohortEdge"
+            },
+            "title": "Edges",
+            "type": "array"
+          },
+          "end_to_end_sla": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EndToEndSla"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "nodes": {
+            "items": {
+              "$ref": "#/components/schemas/CohortNode"
+            },
+            "title": "Nodes",
+            "type": "array"
+          }
+        },
+        "title": "ExpectationGraph",
         "type": "object"
       },
       "FieldsSource-Input": {
@@ -3346,6 +3569,44 @@
           "id"
         ],
         "title": "MessageFlowSummary",
+        "type": "object"
+      },
+      "NodeSla": {
+        "description": "A segment's own runtime (arrival \u2192 completion) promise \u2014 conventionally owned by ``amendia``.",
+        "properties": {
+          "at_risk_seconds": {
+            "default": 0,
+            "title": "At Risk Seconds",
+            "type": "integer"
+          },
+          "clock": {
+            "default": "wall",
+            "enum": [
+              "wall",
+              "business"
+            ],
+            "title": "Clock",
+            "type": "string"
+          },
+          "deadline_seconds": {
+            "title": "Deadline Seconds",
+            "type": "integer"
+          },
+          "owner": {
+            "default": "amendia",
+            "enum": [
+              "external",
+              "amendia",
+              "shared"
+            ],
+            "title": "Owner",
+            "type": "string"
+          }
+        },
+        "required": [
+          "deadline_seconds"
+        ],
+        "title": "NodeSla",
         "type": "object"
       },
       "NotPredicate-Input": {

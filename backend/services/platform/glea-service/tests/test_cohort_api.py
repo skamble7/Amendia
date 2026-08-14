@@ -50,6 +50,16 @@ class FakeCohortReader:
     async def member_outcomes(self, correlation_ids):
         return [o for o in _OUTCOMES if o["correlation_id"] in set(correlation_ids)]
 
+    # ADR-064 P3 — cohort SLA reads (no SLA events in this fixture → empty SLA section, backward-compat).
+    async def cohort_sla_events_all(self):
+        return []
+
+    async def cohort_sla_events_for(self, cohort_instance_id):
+        return []
+
+    async def cohort_sla_events_by_correlation_value(self, correlation_value):
+        return []
+
 
 def _client():
     app = FastAPI()

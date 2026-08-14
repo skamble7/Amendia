@@ -47,6 +47,17 @@ async def create_indexes(db: AsyncIOMotorDatabase) -> None:
     await db[COHORT_INSTANCES].create_index("correlation_value", unique=True)
     await db[COHORT_INSTANCES].create_index("cohort_instance_id", unique=True)
 
+    # ADR-064 Phase 2: cohort SLA substrate (sibling of the ADR-027 timer). Per-expectation SoR keyed
+    # uniquely on (cohort_instance_id, sla_id) → idempotent re-schedule + guarded-CAS transitions; the read
+    # path (P3) lists by cohort_instance_id. Durable timers unique on (cohort_instance_id, sla_id, phase);
+    # the poller scans by (status, fire_at) for due pending rows and re-fires anything overdue on restart.
+    await db[COHORT_SLA_EXPECTATIONS].create_index(
+        [("cohort_instance_id", ASCENDING), ("sla_id", ASCENDING)], unique=True)
+    await db[COHORT_SLA_EXPECTATIONS].create_index("cohort_instance_id")
+    await db[COHORT_SLA_TIMERS].create_index(
+        [("cohort_instance_id", ASCENDING), ("sla_id", ASCENDING), ("phase", ASCENDING)], unique=True)
+    await db[COHORT_SLA_TIMERS].create_index([("status", ASCENDING), ("fire_at", ASCENDING)])
+
     # ADR-027 Phase 2.2 timer substrate. Idempotent re-register: unique on (instance, element, kind)
     # so re-entering a node (crash replay) upserts rather than duplicating. The poller scans by
     # (status, fire_at) for due pending timers.
@@ -80,6 +91,8 @@ MESSAGE_SUBSCRIPTIONS = "message_subscriptions"  # ADR-031 Phase 2.4 message sub
 PENDING_MESSAGES = "pending_messages"    # ADR-031 Phase 2.4 ordering buffer (TTL'd)
 SAMPLE_TRIGGERS = "sample_triggers"  # seed-only helper collection (ADR-059: trigger, not exception)
 COHORT_INSTANCES = "cohort_instances"    # ADR-063 Phase 1 cohort SoR (unique on correlation_value)
+COHORT_SLA_EXPECTATIONS = "cohort_sla_expectations"  # ADR-064 P2 per-expectation SLA SoR
+COHORT_SLA_TIMERS = "cohort_sla_timers"  # ADR-064 P2 durable SLA fire schedule (sibling of the timer poller)
 
 
 class MongoClient:

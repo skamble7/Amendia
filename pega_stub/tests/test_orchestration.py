@@ -3,6 +3,12 @@
 from __future__ import annotations
 
 from pega_stub import scenarios as S
+from pega_stub.orchestrator import Orchestrator
+
+
+async def _instant(_delay):
+    """A no-op sleep so the delayed closeout fires deterministically in tests (no real 25s wait)."""
+    return
 
 
 def _types(store):
@@ -84,6 +90,53 @@ async def test_closed_case_ignores_further_handbacks(orch, store):
     n = len(store.submitted)
     await orch.handback("case-6", "C", {})   # after close → no-op
     assert len(store.submitted) == n
+
+
+# --------------------------------------------------------------------------- #
+# ADR-064 SLA e2e — the late_closeout scenario (delayed Segment C → SLA breach)
+# --------------------------------------------------------------------------- #
+async def test_non_delayed_scenarios_fire_c_immediately(orch, store):
+    # the three existing presets declare no delay → C fires synchronously on the B handback (unchanged).
+    await orch.start_case("credit_approve", case_id="case-imm")
+    await orch.handback("case-imm", "A", {"recommendation": "APPROVE"})
+    await orch.handback("case-imm", "B", {})
+    assert _types(store)[-1] == "ach.closeout_requested"      # present right after the B handback returns
+
+
+async def test_late_closeout_defers_segment_c_then_closes(store):
+    orch = Orchestrator(submit=store.submit, sleep=_instant)
+    await orch.start_case("late_closeout", case_id="case-late")
+    await orch.handback("case-late", "A", {"recommendation": "APPROVE"})
+    case = await orch.handback("case-late", "B", {"acknowledged": True})
+
+    # C is NOT fired synchronously on the B handback — it is scheduled (breaches the arrival SLA first).
+    assert _types(store) == ["ach.assess_exposure_requested", "ach.enforce_decision_requested"]
+    assert case["step"] == "C_pending" and case["closeout_delay_seconds"] == 25
+
+    await orch.drain()                                        # the scheduled task fires C
+    assert _types(store)[-1] == "ach.closeout_requested"
+    assert store.submitted[2]["payload"]["instruction"] == "release"
+
+    # C handback → the close still fires and the cohort drains to closed (close path unchanged).
+    closed = await orch.handback("case-late", "C", {"applied": True})
+    assert closed["status"] == "closed" and closed["step"] == "closed"
+    assert store.submitted[3]["payload"] == {"event": "process_completed", "case_id": "case-late", "outcome": "Released"}
+
+
+async def test_late_closeout_schedules_c_exactly_once(store):
+    orch = Orchestrator(submit=store.submit, sleep=_instant)
+    await orch.start_case("late_closeout", case_id="c9")
+    await orch.handback("c9", "A", {"recommendation": "APPROVE"})
+    await orch.handback("c9", "B", {})
+    await orch.handback("c9", "B", {})                        # duplicate B handback → no second schedule
+    await orch.drain()
+    assert _types(store).count("ach.closeout_requested") == 1
+
+
+async def test_late_closeout_selectable_via_api(client):
+    assert "late_closeout" in (await client.get("/scenarios")).json()["scenarios"]
+    r = await client.post("/cases", json={"case_id": "case-sel", "scenario": "late_closeout"})
+    assert r.status_code == 201 and r.json()["step"] == "A"   # Segment A only; no delay involved yet
 
 
 # --------------------------------------------------------------------------- #

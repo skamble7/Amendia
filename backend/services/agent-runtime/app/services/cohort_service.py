@@ -35,9 +35,12 @@ def resolve_correlation_value(envelope: Any, correlation_key: str) -> Optional[s
 
 
 class CohortService:
-    def __init__(self, *, repo: CohortInstanceRepository, publisher) -> None:
+    def __init__(self, *, repo: CohortInstanceRepository, publisher, sla_service=None) -> None:
         self._repo = repo
         self._publisher = publisher
+        # ADR-064 P2: optional cohort-SLA runtime. Absent (unit tests / no SLA graph) → pure ADR-063 observer.
+        # Every hook below is fail-soft: an SLA error must NEVER break the lifecycle emit or the segment.
+        self._sla = sla_service
 
     async def join_on_spawn(self, instance, membership, envelope: Any) -> Optional[CohortInstance]:
         """Join ``instance`` to its cohort. Returns the cohort it joined (opened or existing), or None when the
@@ -60,6 +63,8 @@ class CohortService:
             await emit_cohort_lifecycle(
                 self._publisher, op="opened", cohort_def_id=cohort.cohort_def_id,
                 cohort_instance_id=coh_id, correlation_value=correlation_value, trace=trace)
+            # ADR-064 P2: snapshot the definition's expectation_graph + schedule START/end-to-end SLAs (fail-soft).
+            await self._sla_hook("open", "on_cohort_open", cohort)
 
         def_mismatch = cohort.cohort_def_id != membership.cohort_def_id
         is_closed = cohort.state == CohortState.CLOSED
@@ -83,6 +88,8 @@ class CohortService:
                 cohort_instance_id=coh_id, correlation_value=correlation_value,
                 process_instance_id=instance.process_instance_id, pack_key=instance.pack_key,
                 pack_version=instance.pack_version, trace=trace)
+            # ADR-064 P2: node ARRIVAL (node_id == the member's pack_key) — satisfy/void/schedule (fail-soft).
+            await self._sla_hook("arrival", "on_member_arrival", coh_id, instance.pack_key)
         return cohort
 
     async def on_member_terminal(self, instance) -> None:
@@ -95,6 +102,8 @@ class CohortService:
         updated = await self._repo.mark_member_terminal(coh_id, instance.process_instance_id)
         if updated is None:
             return  # already terminal / unknown member — nothing to drain
+        # ADR-064 P2: node COMPLETION (node_id == the member's pack_key) — satisfy/schedule next hop (fail-soft).
+        await self._sla_hook("completion", "on_member_completion", coh_id, getattr(instance, "pack_key", None))
         if updated.state == CohortState.CLOSING and updated.active_member_count == 0:
             finalized = await self._repo.finalize_if_drained(coh_id)
             if finalized is not None:                      # we won the single atomic finalize → emit closed once
@@ -116,6 +125,9 @@ class CohortService:
         if closing is None:
             logger.info("cohort close: %s already closing/closed — idempotent no-op", correlation_value)
             return
+        # ADR-064 P2: the CLOSE moment — satisfy end-to-end/close-edge SLAs, void still-pending ones (fail-soft).
+        # Runs on the single begin_close winner, so exactly once (a duplicate close returned above).
+        await self._sla_hook("close", "on_cohort_close", closing.cohort_instance_id)
         finalized = await self._repo.finalize_if_drained(closing.cohort_instance_id)
         if finalized is not None:
             await self._emit_closed(finalized)             # no member in flight → open → closed directly
@@ -131,6 +143,16 @@ class CohortService:
                 close_outcome=close_outcome,
                 detail=(f"close_outcome={close_outcome}" if close_outcome else None))
         # else: a concurrent drain already finalized → `closed` was emitted there; stay silent.
+
+    async def _sla_hook(self, label: str, method: str, *args) -> None:
+        """Invoke a CohortSlaService hook fail-soft: no SLA runtime → no-op; any SLA error is swallowed with a
+        warning so cohort observation never breaks the lifecycle emit or the segment (ADR-063 contract)."""
+        if self._sla is None:
+            return
+        try:
+            await getattr(self._sla, method)(*args)
+        except Exception as exc:  # noqa: BLE001 — SLA is observation; the segment/lifecycle is the product
+            logger.warning("cohort sla %s hook failed (%s): %s", label, args, exc)
 
     async def _emit_closed(self, cohort: CohortInstance) -> None:
         await emit_cohort_lifecycle(

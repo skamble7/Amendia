@@ -4,7 +4,7 @@ import { authBridge } from "@/auth/authToken";
 /** Connection health of the SSE stream (drives the polling fallback in live.ts). */
 export type StreamStatus = "connecting" | "up" | "down";
 
-/** A thin invalidation signal pushed from the notification-service. */
+/** A thin invalidation signal pushed from the notification-service. Ids/labels only — never payload data. */
 export interface Signal {
   type: string;
   trigger_id?: string;
@@ -13,6 +13,11 @@ export interface Signal {
   element_id?: string;
   role?: string;
   outcome?: string;
+  // ADR-064 P4 — cohort SLA signal (ids/labels only; the data is re-fetched over REST).
+  cohort_instance_id?: string;
+  sla_id?: string;
+  state?: string;
+  owner?: string;
 }
 
 interface Opts {

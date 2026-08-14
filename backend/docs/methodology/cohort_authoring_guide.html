@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Declaring a Cohort — Author's Guide</title>
+<style>
+  :root{
+    --bg:#0c0c0f; --panel:#141418; --panel2:#17171c; --line:#26262c; --line2:#33333a;
+    --txt:#ececed; --muted:#a0a0a8; --dim:#7b7b84; --accent:#8b6cff; --accent-soft:rgba(139,108,255,.13);
+    --ext:#5b9dff; --ext-soft:rgba(91,157,255,.14); --ami:#2dd4bf; --ami-soft:rgba(45,212,191,.14);
+    --amber:#f5a623; --amber-soft:rgba(245,166,35,.13); --red:#f87171; --red-soft:rgba(248,113,113,.13);
+    --green:#34d399; --green-soft:rgba(52,211,153,.13);
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--bg);color:var(--txt);
+    font:16px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;-webkit-font-smoothing:antialiased}
+  code,.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:.92em}
+  code{background:#1e1e24;border:1px solid var(--line);border-radius:5px;padding:.05em .38em}
+  .wrap{max-width:880px;margin:0 auto;padding:0 24px 96px}
+  header.top{border-bottom:1px solid var(--line);margin-bottom:8px}
+  .top .inner{max-width:880px;margin:0 auto;padding:34px 24px 26px}
+  .kicker{display:inline-flex;align-items:center;gap:8px;font-size:12px;letter-spacing:.7px;text-transform:uppercase;color:var(--accent);font-weight:700}
+  .kicker .tag{background:var(--accent-soft);border:1px solid rgba(139,108,255,.4);color:#c3b4ff;border-radius:20px;padding:2px 10px;letter-spacing:.4px}
+  h1{font-size:34px;line-height:1.15;margin:14px 0 10px;letter-spacing:-.5px}
+  .lede{font-size:18px;color:var(--muted);margin:0;max-width:70ch}
+  h2{font-size:23px;margin:52px 0 6px;letter-spacing:-.3px;scroll-margin-top:20px}
+  h2 .num{color:var(--accent);font-weight:700;margin-right:10px}
+  h3{font-size:17px;margin:26px 0 6px}
+  p{margin:12px 0}
+  a{color:#b3a1ff}
+  .sub{color:var(--dim);font-size:14px}
+  ul,ol{margin:12px 0;padding-left:22px}
+  li{margin:7px 0}
+  strong{color:#fff}
+  /* callouts */
+  .box{border:1px solid var(--line);background:var(--panel);border-radius:13px;padding:18px 20px;margin:20px 0}
+  .box.idea{border-color:rgba(139,108,255,.4);background:linear-gradient(180deg,var(--accent-soft),transparent)}
+  .box.warn{border-color:rgba(245,166,35,.4);background:var(--amber-soft)}
+  .box h4{margin:0 0 6px;font-size:15px;display:flex;align-items:center;gap:9px}
+  .box.idea h4{color:#c3b4ff}.box.warn h4{color:#f5c877}
+  .pill{display:inline-block;border-radius:20px;padding:2px 10px;font-size:12px;font-weight:700;letter-spacing:.2px}
+  .pill.ext{background:var(--ext-soft);color:#9cc4ff;border:1px solid rgba(91,157,255,.4)}
+  .pill.ami{background:var(--ami-soft);color:#7fe9db;border:1px solid rgba(45,212,191,.4)}
+  .pill.amber{background:var(--amber-soft);color:#f5c877;border:1px solid rgba(245,166,35,.4)}
+  .pill.red{background:var(--red-soft);color:#f7a3a3;border:1px solid rgba(248,113,113,.4)}
+  .pill.green{background:var(--green-soft);color:#8ee9c4;border:1px solid rgba(52,211,153,.4)}
+  /* concept grid */
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:18px 0}
+  .card{border:1px solid var(--line);background:var(--panel);border-radius:12px;padding:15px 17px}
+  .card h4{margin:0 0 4px;font-size:14.5px}
+  .card p{margin:0;font-size:14px;color:var(--muted)}
+  /* figure */
+  figure{margin:24px 0;border:1px solid var(--line);background:var(--panel2);border-radius:14px;padding:18px 18px 8px;overflow:auto}
+  figcaption{color:var(--dim);font-size:13px;margin-top:2px;padding:0 4px 8px}
+  svg{display:block;margin:0 auto;max-width:100%;height:auto}
+  .legend{display:flex;flex-wrap:wrap;gap:16px;margin:10px 4px 4px;font-size:12.5px;color:var(--muted)}
+  .legend span{display:inline-flex;align-items:center;gap:7px}
+  .sw{width:22px;height:0;border-top:3px solid;display:inline-block}
+  .dot{width:11px;height:11px;border-radius:50%;display:inline-block}
+  /* steps */
+  ol.steps{counter-reset:s;list-style:none;padding:0;margin:20px 0}
+  ol.steps>li{position:relative;padding:2px 0 18px 52px;margin:0;border-left:2px solid var(--line);margin-left:16px}
+  ol.steps>li:last-child{border-left-color:transparent}
+  ol.steps>li::before{counter-increment:s;content:counter(s);position:absolute;left:-16px;top:0;width:32px;height:32px;
+    background:var(--accent);color:#fff;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:15px}
+  ol.steps>li h3{margin:2px 0 4px}
+  /* table */
+  table{border-collapse:collapse;width:100%;margin:18px 0;font-size:14px}
+  th,td{border:1px solid var(--line);padding:9px 12px;text-align:left;vertical-align:top}
+  th{background:var(--panel2);color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.5px}
+  td .mono{color:#cdd3de}
+  /* checklist */
+  .check{border:1px solid var(--line);background:var(--panel);border-radius:13px;padding:6px 20px;margin:16px 0}
+  .check div{padding:10px 0;border-bottom:1px solid var(--line);display:flex;gap:12px;align-items:flex-start}
+  .check div:last-child{border-bottom:0}
+  .check .bx{flex:0 0 auto;width:18px;height:18px;border:2px solid var(--accent);border-radius:5px;margin-top:3px}
+  .toc{columns:2;column-gap:26px;font-size:14.5px;margin:14px 0 0}
+  .toc a{display:block;color:var(--muted);text-decoration:none;padding:3px 0}
+  .toc a:hover{color:var(--txt)}
+  hr{border:0;border-top:1px solid var(--line);margin:40px 0}
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="inner">
+    <span class="kicker">Amendia · Cohorts <span class="tag">Author's guide · design v1 (ADR-064)</span></span>
+    <h1>Declaring a Cohort</h1>
+    <p class="lede">How to describe a cross-system process to Amendia so it can watch your segments, warn you before a
+      deadline slips, and tell you <em>who</em> was late — without ever taking control of the process.</p>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <div class="box idea">
+    <h4>◆ The one idea to hold onto</h4>
+    <p style="margin:0">A cohort is an <strong>observer</strong>, not a controller. You are not building a workflow that
+      Amendia runs — you are writing down <strong>what you expect</strong> a larger process (spread across Amendia and an
+      external system like Pega) to do, so Amendia can quietly check reality against that expectation. When something is
+      late or never happens, a cohort <strong>flags it, warns you, and records who was accountable</strong>. It never
+      pauses, forces, skips, or invents a step. Everything below is about describing an <em>expectation</em> — never an
+      instruction.</p>
+  </div>
+
+  <nav class="toc">
+    <a href="#concepts">1 · The vocabulary</a>
+    <a href="#graph">2 · The expectation graph</a>
+    <a href="#andxor">3 · AND vs XOR branches</a>
+    <a href="#slas">4 · SLAs: at-risk, breach, owner</a>
+    <a href="#resolve">5 · Expected vs conditional</a>
+    <a href="#steps">6 · Declaring a cohort, step by step</a>
+    <a href="#example">7 · Worked example: ACH exposure</a>
+    <a href="#rules">8 · Rules, limits &amp; gotchas</a>
+    <a href="#checklist">9 · Author's checklist</a>
+  </nav>
+
+  <h2 id="concepts"><span class="num">1</span>The vocabulary</h2>
+  <p>A cohort is declared once, as a <strong>definition</strong>. Each real cross-system case that matches it becomes a
+    running <strong>instance</strong>. Here are the pieces you'll fill in.</p>
+
+  <div class="grid">
+    <div class="card"><h4>Correlation value</h4><p>The one business key every system already shares for a case (e.g. the
+      Pega <code>case_id</code>). It's the <em>only</em> handle — Amendia never shares its own ids outward, and the
+      external system closes a cohort by this value alone. Must be unique per live case.</p></div>
+    <div class="card"><h4>Segment (member)</h4><p>A piece of the larger process that Amendia runs as a process pack. A
+      cohort groups the segments Amendia is responsible for; the other systems' steps stay invisible to us.</p></div>
+    <div class="card"><h4>Close message</h4><p>The "the whole process is finished" signal the external system sends. You
+      declare its shape (a JSON schema) plus where the correlation value and the final outcome sit inside it.</p></div>
+    <div class="card"><h4>Expectation graph</h4><p>A diagram of the segments you expect and the order you expect them in —
+      the heart of this guide. Nodes are segments (plus a <em>Start</em> = "cohort opened"); edges mean "after this,
+      expect that."</p></div>
+    <div class="card"><h4>Expected vs conditional</h4><p>Every segment is either <strong>expected</strong> (it should
+      always run) or <strong>conditional</strong> (it only runs on some paths). This tells Amendia whether a no-show is a
+      problem or simply a branch not taken.</p></div>
+    <div class="card"><h4>SLA</h4><p>A time promise on an edge or a segment: "this should happen within <em>T</em>." Amdia
+      warns you as the deadline nears (<span class="pill amber">at&#8209;risk</span>) and records it if missed
+      (<span class="pill red">breached</span>).</p></div>
+    <div class="card"><h4>Owner (accountability)</h4><p>Every SLA names who is on the hook — the
+      <span class="pill ext">external system</span> (it hasn't invoked our segment yet) or
+      <span class="pill ami">Amendia</span> (our segment is running slow). Breaches roll up by owner.</p></div>
+    <div class="card"><h4>Clock</h4><p>Each SLA is measured in <strong>wall-clock</strong> time (real elapsed) or
+      <strong>business hours</strong> (against a configured calendar, so it doesn't tick overnight or on weekends).</p></div>
+  </div>
+
+  <h2 id="graph"><span class="num">2</span>The expectation graph</h2>
+  <p>Think of the graph as the sentence: <em>"When the case starts, I expect segment A; after A hands back, I expect B;
+    after B, either the release or the purge closeout; then the external system closes the case."</em> You draw that as
+    nodes and arrows. The graph is a <strong>directed acyclic graph (DAG)</strong> — arrows flow forward and never loop.</p>
+  <p>Two special nodes always exist: <strong>Start</strong> (the moment the cohort opens on the first segment) and
+    <strong>Close</strong> (the external system's end-of-process message). Everything you expect lives between them.</p>
+
+  <figure>
+    <svg viewBox="0 0 860 300" role="img" aria-label="Expectation graph for the ACH exposure cohort">
+      <defs>
+        <marker id="arw" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto">
+          <path d="M0,0 L7,3 L0,6 Z" fill="#6b6b74"/>
+        </marker>
+        <marker id="arwd" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto">
+          <path d="M0,0 L7,3 L0,6 Z" fill="#5b9dff"/>
+        </marker>
+      </defs>
+      <!-- edges -->
+      <line x1="70" y1="150" x2="120" y2="150" stroke="#6b6b74" stroke-width="2" marker-end="url(#arw)"/>
+      <line x1="250" y1="150" x2="300" y2="150" stroke="#6b6b74" stroke-width="2" marker-end="url(#arw)"/>
+      <line x1="430" y1="150" x2="470" y2="150" stroke="#6b6b74" stroke-width="2" marker-end="url(#arw)"/>
+      <!-- xor to two branches (dashed = conditional) -->
+      <path d="M515,140 C560,110 560,86 600,86" fill="none" stroke="#5b9dff" stroke-width="2" stroke-dasharray="5 4" marker-end="url(#arwd)"/>
+      <path d="M515,160 C560,190 560,214 600,214" fill="none" stroke="#5b9dff" stroke-width="2" stroke-dasharray="5 4" marker-end="url(#arwd)"/>
+      <!-- branches to close -->
+      <path d="M730,86 C770,86 770,140 792,148" fill="none" stroke="#6b6b74" stroke-width="2" marker-end="url(#arw)"/>
+      <path d="M730,214 C770,214 770,160 792,152" fill="none" stroke="#6b6b74" stroke-width="2" marker-end="url(#arw)"/>
+      <!-- Start -->
+      <circle cx="50" cy="150" r="20" fill="none" stroke="#8ee9c4" stroke-width="2.5"/>
+      <text x="50" y="155" text-anchor="middle" fill="#8ee9c4" font-size="11" font-weight="700">Start</text>
+      <!-- A -->
+      <rect x="120" y="128" width="130" height="44" rx="9" fill="#17171c" stroke="#5b9dff" stroke-width="2"/>
+      <text x="185" y="146" text-anchor="middle" fill="#ececed" font-size="12.5" font-weight="600">A · Assess</text>
+      <text x="185" y="162" text-anchor="middle" fill="#9cc4ff" font-size="10.5">expected</text>
+      <!-- B -->
+      <rect x="300" y="128" width="130" height="44" rx="9" fill="#17171c" stroke="#5b9dff" stroke-width="2"/>
+      <text x="365" y="146" text-anchor="middle" fill="#ececed" font-size="12.5" font-weight="600">B · Enforce</text>
+      <text x="365" y="162" text-anchor="middle" fill="#9cc4ff" font-size="10.5">expected</text>
+      <!-- XOR diamond -->
+      <path d="M492,150 L508,134 L524,150 L508,166 Z" fill="#1c1c22" stroke="#f5a623" stroke-width="2"/>
+      <text x="508" y="154" text-anchor="middle" fill="#f5c877" font-size="12" font-weight="800">×</text>
+      <text x="508" y="120" text-anchor="middle" fill="#f5c877" font-size="10.5" font-weight="700">XOR</text>
+      <!-- C1 -->
+      <rect x="600" y="64" width="130" height="44" rx="9" fill="#17171c" stroke="#33333a" stroke-width="1.6" stroke-dasharray="5 4"/>
+      <text x="665" y="82" text-anchor="middle" fill="#ececed" font-size="12" font-weight="600">C · Closeout</text>
+      <text x="665" y="98" text-anchor="middle" fill="#a0a0a8" font-size="10.5">release · conditional</text>
+      <!-- C2 -->
+      <rect x="600" y="192" width="130" height="44" rx="9" fill="#17171c" stroke="#33333a" stroke-width="1.6" stroke-dasharray="5 4"/>
+      <text x="665" y="210" text-anchor="middle" fill="#ececed" font-size="12" font-weight="600">C · Closeout</text>
+      <text x="665" y="226" text-anchor="middle" fill="#a0a0a8" font-size="10.5">purge · conditional</text>
+      <!-- Close -->
+      <circle cx="814" cy="150" r="20" fill="none" stroke="#8ee9c4" stroke-width="3.5"/>
+      <text x="814" y="154" text-anchor="middle" fill="#8ee9c4" font-size="10.5" font-weight="700">Close</text>
+      <!-- edge labels -->
+      <text x="95" y="142" text-anchor="middle" fill="#9cc4ff" font-size="9.5">≤2h</text>
+      <text x="275" y="142" text-anchor="middle" fill="#9cc4ff" font-size="9.5">≤4 bh</text>
+    </svg>
+    <div class="legend">
+      <span><span class="sw" style="border-color:#5b9dff"></span> expected edge</span>
+      <span><span class="sw" style="border-color:#5b9dff;border-top-style:dashed"></span> conditional edge</span>
+      <span><span class="dot" style="background:#f5a623"></span> XOR split (exactly one)</span>
+      <span><span class="dot" style="background:#8ee9c4"></span> Start / Close</span>
+      <span class="mono" style="color:#9cc4ff">bh = business hours</span>
+    </div>
+    <figcaption>The ACH exposure cohort as an expectation graph — Assess → Enforce → exactly one of two Closeout branches
+      → Close. Edge labels are SLAs (§4). We revisit this in the worked example (§7).</figcaption>
+  </figure>
+
+  <h2 id="andxor"><span class="num">3</span>AND vs XOR branches</h2>
+  <p>Whenever one node points to more than one next node, you must say which kind of split it is. This single choice is
+    what lets Amendia tell "a segment is missing" apart from "a branch simply wasn't taken."</p>
+
+  <figure>
+    <svg viewBox="0 0 720 210" role="img" aria-label="AND split versus XOR split">
+      <defs>
+        <marker id="a2" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#6b6b74"/></marker>
+      </defs>
+      <!-- AND -->
+      <text x="170" y="24" text-anchor="middle" fill="#8ee9c4" font-size="14" font-weight="700">AND — all branches expected</text>
+      <rect x="40" y="80" width="90" height="40" rx="8" fill="#17171c" stroke="#5b9dff" stroke-width="2"/>
+      <text x="85" y="104" text-anchor="middle" fill="#ececed" font-size="12">Prev</text>
+      <line x1="130" y1="100" x2="205" y2="60" stroke="#6b6b74" stroke-width="2" marker-end="url(#a2)"/>
+      <line x1="130" y1="100" x2="205" y2="140" stroke="#6b6b74" stroke-width="2" marker-end="url(#a2)"/>
+      <rect x="210" y="42" width="96" height="38" rx="8" fill="#17171c" stroke="#5b9dff" stroke-width="2"/>
+      <text x="258" y="66" text-anchor="middle" fill="#ececed" font-size="12">Branch 1</text>
+      <rect x="210" y="122" width="96" height="38" rx="8" fill="#17171c" stroke="#5b9dff" stroke-width="2"/>
+      <text x="258" y="146" text-anchor="middle" fill="#ececed" font-size="12">Branch 2</text>
+      <text x="258" y="190" text-anchor="middle" fill="#a0a0a8" font-size="11">both must arrive · either missing = breach</text>
+      <!-- divider -->
+      <line x1="380" y1="30" x2="380" y2="180" stroke="#26262c" stroke-width="1"/>
+      <!-- XOR -->
+      <text x="560" y="24" text-anchor="middle" fill="#f5c877" font-size="14" font-weight="700">XOR — exactly one</text>
+      <rect x="420" y="80" width="90" height="40" rx="8" fill="#17171c" stroke="#5b9dff" stroke-width="2"/>
+      <text x="465" y="104" text-anchor="middle" fill="#ececed" font-size="12">Prev</text>
+      <line x1="510" y1="100" x2="585" y2="60" stroke="#6b6b74" stroke-width="2" stroke-dasharray="5 4" marker-end="url(#a2)"/>
+      <line x1="510" y1="100" x2="585" y2="140" stroke="#6b6b74" stroke-width="2" stroke-dasharray="5 4" marker-end="url(#a2)"/>
+      <rect x="590" y="42" width="96" height="38" rx="8" fill="#17171c" stroke="#33333a" stroke-width="1.6" stroke-dasharray="5 4"/>
+      <text x="638" y="66" text-anchor="middle" fill="#ececed" font-size="12">Option A</text>
+      <rect x="590" y="122" width="96" height="38" rx="8" fill="#17171c" stroke="#33333a" stroke-width="1.6" stroke-dasharray="5 4"/>
+      <text x="638" y="146" text-anchor="middle" fill="#ececed" font-size="12">Option B</text>
+      <text x="560" y="190" text-anchor="middle" fill="#a0a0a8" font-size="11">one arrives → the other is voided (no breach)</text>
+    </svg>
+    <figcaption>AND expects every branch; a no-show on any is a breach. XOR expects exactly one; the moment one branch
+      arrives, its siblings are voided so they never raise a false alarm.</figcaption>
+  </figure>
+
+  <ul>
+    <li><strong>AND split</strong> — parallel work you expect to <em>all</em> happen. Every branch gets its own
+      expectation and its own SLA; any branch that never arrives is a real breach.</li>
+    <li><strong>XOR split</strong> — mutually exclusive options where exactly one path is taken. Mark those segments
+      <em>conditional</em>. When one option arrives, Amendia <strong>voids</strong> the others — so an unchosen branch is
+      never mistaken for a missing segment.</li>
+  </ul>
+  <p class="sub">Not supported in v1: loops (a segment that repeats) and branches the external system decides in ways you
+    can't enumerate up front. If you know the alternatives, model them as XOR; if you truly can't, leave that segment out
+    of the graph and it simply runs standalone.</p>
+
+  <h2 id="slas"><span class="num">4</span>SLAs — at-risk, breach, and owner</h2>
+  <p>An SLA is always the same four-part promise. If you can fill in this sentence, you can declare it:</p>
+  <div class="box">
+    <p style="margin:0;font-size:16.5px"><strong>After</strong> <span class="mono">[anchor event]</span>,
+      <strong>expect</strong> <span class="mono">[satisfying event]</span>
+      <strong>within</strong> <span class="mono">[deadline + clock]</span>;
+      <strong>if not, it's on</strong> <span class="pill ext">external</span> /
+      <span class="pill ami">Amendia</span>.</p>
+  </div>
+
+  <h3>Two clocks per segment</h3>
+  <p>Each segment has two moments you can attach an SLA to:</p>
+  <ul>
+    <li><strong>Arrival</strong> — the external system invoked the segment and Amendia started it. An arrival SLA answers
+      <em>"did the trigger show up in time?"</em> → owner is almost always the <span class="pill ext">external system</span>.</li>
+    <li><strong>Completion</strong> — the segment finished inside Amendia. A completion SLA answers <em>"did our segment
+      run fast enough?"</em> → owner is <span class="pill ami">Amendia</span>.</li>
+  </ul>
+  <p>That split is the whole point of attribution: the same case can breach because Pega was slow to invoke us, or because
+    our own segment stalled on an approval — and the cohort tells you which.</p>
+
+  <h3>At-risk before breached</h3>
+  <figure>
+    <svg viewBox="0 0 820 150" role="img" aria-label="SLA timeline showing at-risk and breach thresholds">
+      <line x1="60" y1="86" x2="760" y2="86" stroke="#33333a" stroke-width="2"/>
+      <!-- anchor -->
+      <circle cx="60" cy="86" r="7" fill="#8ee9c4"/>
+      <text x="60" y="116" text-anchor="middle" fill="#8ee9c4" font-size="12" font-weight="600">anchor</text>
+      <text x="60" y="132" text-anchor="middle" fill="#7b7b84" font-size="10.5">clock starts</text>
+      <!-- at-risk -->
+      <line x1="560" y1="66" x2="560" y2="106" stroke="#f5a623" stroke-width="2" stroke-dasharray="4 3"/>
+      <text x="560" y="52" text-anchor="middle" fill="#f5c877" font-size="12" font-weight="700">at-risk</text>
+      <text x="560" y="128" text-anchor="middle" fill="#7b7b84" font-size="10.5">warn + optional alert</text>
+      <!-- deadline -->
+      <line x1="720" y1="60" x2="720" y2="112" stroke="#f87171" stroke-width="2.5"/>
+      <text x="720" y="52" text-anchor="middle" fill="#f7a3a3" font-size="12" font-weight="700">deadline</text>
+      <text x="720" y="128" text-anchor="middle" fill="#7b7b84" font-size="10.5">breach if unmet</text>
+      <!-- green satisfy example -->
+      <circle cx="360" cy="86" r="9" fill="none" stroke="#34d399" stroke-width="2.5"/>
+      <path d="M355,86 l4,4 l7,-9" fill="none" stroke="#34d399" stroke-width="2.5"/>
+      <text x="360" y="60" text-anchor="middle" fill="#8ee9c4" font-size="11.5">event arrives →</text>
+      <text x="360" y="118" text-anchor="middle" fill="#8ee9c4" font-size="11">satisfied, timer cancelled</text>
+      <!-- amber & red zones -->
+      <rect x="560" y="82" width="160" height="8" fill="#f5a623" opacity=".25"/>
+      <rect x="720" y="82" width="40" height="8" fill="#f87171" opacity=".3"/>
+    </svg>
+    <figcaption>Every SLA has a deadline and an earlier at-risk threshold you set. If the satisfying event arrives first,
+      the timer is cancelled and nothing fires. Cross the at-risk line and it turns amber (chase it now); cross the
+      deadline unmet and it's a recorded, attributed breach.</figcaption>
+  </figure>
+  <p>You choose the <strong>at-risk lead</strong> (e.g. breach at 4 hours, at-risk at 3). At-risk exists so ops can chase
+    the external system <em>before</em> the promise is blown — a breach is a fact you record, at-risk is a chance to
+    prevent it.</p>
+
+  <h3>Wall-clock or business hours</h3>
+  <p>Pick per SLA. <strong>Wall-clock</strong> counts real elapsed time — use it for machine-to-machine steps that should
+    happen fast regardless of the hour. <strong>Business hours</strong> counts only against a configured calendar (working
+    hours + holidays) — use it for steps that wait on people, so an SLA doesn't "breach" overnight or across a weekend.</p>
+
+  <h2 id="resolve"><span class="num">5</span>Expected vs conditional — how a no-show is judged</h2>
+  <p>This is the rule that keeps the cohort from crying wolf. When a segment you named never arrives, Amendia decides
+    whether that's a breach or simply a path not taken, using the graph:</p>
+  <table>
+    <thead><tr><th>Node type</th><th>What happens if it never arrives</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Expected</strong></td><td>A missing arrival past the deadline is always a <span class="pill red">breach</span>
+        (owner: external). Only an explicit failure or the whole cohort closing can excuse it.</td></tr>
+      <tr><td><strong>Conditional</strong></td><td>The expectation is <strong>voided</strong> (no breach) the moment a
+        <em>resolving event</em> proves the branch wasn't taken — see below. If no resolving event comes and the deadline
+        passes, it still breaches.</td></tr>
+    </tbody>
+  </table>
+  <p>A <strong>resolving event</strong> for a conditional segment is any of:</p>
+  <ul>
+    <li><strong>A sibling on the same XOR split arrives</strong> — e.g. the <em>purge</em> closeout shows up, so the
+      <em>release</em> closeout is voided. (This is exactly why XOR siblings must be declared together.)</li>
+    <li><strong>The cohort closes</strong> — the external system's end-of-process message voids any still-pending
+      expectation. This is the case you flagged for a conditional <em>last</em> segment: the close proves it wasn't
+      needed.</li>
+  </ul>
+  <div class="box">
+    <h4 style="color:#c3b4ff">Why this needs the graph</h4>
+    <p style="margin:0">"Some other segment arrived, so this one was skipped" is only safe to conclude when Amendia knows
+      the topology. In a parallel (AND) world a sibling arriving means nothing about this segment; only an
+      <em>alternative-branch</em> (XOR) arrival, or the close, proves a skip. That's why the expectation graph — not a flat
+      list of segments — is what makes conditional segments trustworthy.</p>
+  </div>
+
+  <h2 id="steps"><span class="num">6</span>Declaring a cohort, step by step</h2>
+  <ol class="steps">
+    <li><h3>Name the case</h3><p>Give the cohort an id and display name, and declare the <strong>close message</strong>:
+      paste its JSON schema and point to where the <strong>correlation value</strong> and the final <strong>outcome</strong>
+      live inside it. This is how Amendia recognises "the process is over" and which case it belongs to.</p></li>
+    <li><h3>Add your segments</h3><p>Add each Amendia pack that's part of this process as a member, and map its
+      <strong>correlation key</strong> — the field in <em>that segment's</em> trigger that carries the shared correlation
+      value. A pack you don't add simply runs standalone.</p></li>
+    <li><h3>Draw the expectation graph</h3><p>Connect <em>Start</em> → your segments → <em>Close</em> with arrows in the
+      order you expect them. At every point where one step leads to several, choose <strong>AND</strong> (all expected) or
+      <strong>XOR</strong> (exactly one). Mark each segment <strong>expected</strong> or <strong>conditional</strong>.</p></li>
+    <li><h3>Attach SLAs</h3><p>On the edges/segments that matter, add a time promise: choose the <strong>anchor</strong>
+      (arrival or completion of the prior step), the <strong>deadline</strong> and <strong>clock</strong> (wall or
+      business), the <strong>at-risk lead</strong>, and the <strong>owner</strong>. Skip SLAs where you don't need a
+      deadline — not every edge needs one.</p></li>
+    <li><h3>Review &amp; register</h3><p>Check the graph reads like your real process, then register. If cases are already
+      running under this cohort you'll see a <strong>forward-only</strong> warning — see §8.</p></li>
+  </ol>
+
+  <h2 id="example"><span class="num">7</span>Worked example: the ACH exposure cohort</h2>
+  <p>Pega orchestrates an ACH exposure-limit case and hands three segments to Amendia: <strong>Assess</strong> the
+    exposure, <strong>Enforce</strong> the underwriter's decision, and <strong>Closeout</strong> — which is either a
+    <em>release</em> or a <em>purge</em>, never both. The graph in §2 is this process. Here's how it's declared.</p>
+  <table>
+    <thead><tr><th>Step</th><th>Type</th><th>SLA (anchor → satisfy, deadline, clock)</th><th>Owner</th></tr></thead>
+    <tbody>
+      <tr><td>Start → <strong>A · Assess</strong></td><td>expected</td>
+        <td><span class="mono">cohort opens → Assess arrives, ≤ 2h, wall-clock</span></td><td><span class="pill ext">external</span></td></tr>
+      <tr><td>A → <strong>B · Enforce</strong></td><td>expected</td>
+        <td><span class="mono">Assess handback → Enforce arrives, ≤ 4h, business</span></td><td><span class="pill ext">external</span></td></tr>
+      <tr><td><strong>B · Enforce</strong> runtime</td><td>expected</td>
+        <td><span class="mono">Enforce starts → completes, ≤ 30m, wall-clock</span></td><td><span class="pill ami">Amendia</span></td></tr>
+      <tr><td>B →<span style="color:#f5c877;font-weight:700"> XOR </span><strong>C · Closeout (release | purge)</strong></td><td>conditional</td>
+        <td><span class="mono">Enforce handback → one closeout arrives, ≤ 1h, wall</span></td><td><span class="pill ext">external</span></td></tr>
+      <tr><td>C → <strong>Close</strong></td><td>—</td>
+        <td><span class="mono">whole case ≤ 1 business day, end-to-end</span></td><td>shared</td></tr>
+    </tbody>
+  </table>
+  <p>Now watch how the same model attributes three very different bad days:</p>
+  <ul>
+    <li><strong>Pega never sends the Enforce trigger.</strong> The A→B arrival SLA goes amber at 3h, then
+      <span class="pill red">breaches</span> at 4 business hours — recorded against the <span class="pill ext">external
+      system</span>. The case is stuck waiting on <em>them</em>, and you have the evidence.</li>
+    <li><strong>Our Enforce segment stalls on an approval.</strong> The Enforce <em>runtime</em> SLA breaches at 30m —
+      against <span class="pill ami">Amendia</span>. Different owner, same cohort.</li>
+    <li><strong>The purge closeout runs (release doesn't).</strong> No breach — the purge arriving is a resolving event
+      that <strong>voids</strong> the release branch. Had <em>neither</em> arrived and the case closed, both would be
+      voided by the close.</li>
+  </ul>
+
+  <h2 id="rules"><span class="num">8</span>Rules, limits &amp; gotchas</h2>
+  <div class="box warn">
+    <h4>⚠ Edits are forward-only (for now)</h4>
+    <p style="margin:0">Changing a cohort's graph or SLAs affects cases that <strong>open after</strong> the change. Cases
+      already running keep the expectations they started with — Amendia will <em>not</em> retro-apply new deadlines to a
+      case in flight. You'll see a warning when live instances exist. (Version-pinning may come later; today it's
+      forward-only.)</p>
+  </div>
+  <ul>
+    <li><strong>Expectation, never execution.</strong> Nothing you declare here makes Amendia run, pause, skip, or force a
+      segment. The graph only tells Amendia what to <em>watch for</em>. If the real external process diverges from your
+      graph, the breaches you see are honestly measuring that divergence.</li>
+    <li><strong>Only owners can declare or edit</strong> a cohort definition (the process-owner role). If you can't see the
+      editing controls, you're signed in without that role.</li>
+    <li><strong>One correlation value per live case.</strong> The correlation value is the sole handle and must be unique
+      across running cohorts; reusing one would collide two cases.</li>
+    <li><strong>Model known alternatives as XOR</strong>; if you genuinely can't enumerate a branch up front, leave that
+      segment out of the graph rather than marking it expected (an expected no-show always breaches).</li>
+    <li><strong>Business-hours SLAs need a calendar.</strong> Make sure working hours/holidays are configured, or a
+      business-hours SLA can't be measured correctly.</li>
+    <li><strong>No loops in v1.</strong> A segment that can repeat isn't expressible yet; model the single expected pass.</li>
+  </ul>
+
+  <h2 id="checklist"><span class="num">9</span>Author's checklist</h2>
+  <div class="check">
+    <div><span class="bx"></span><span>Correlation value chosen — one shared business key, unique per live case, and mapped on <em>every</em> segment.</span></div>
+    <div><span class="bx"></span><span>Close message schema pasted, with the correlation and outcome paths pointed at the right fields.</span></div>
+    <div><span class="bx"></span><span>Every Amendia segment added as a member with its correlation key.</span></div>
+    <div><span class="bx"></span><span>Graph drawn Start → segments → Close; every fan-out marked <strong>AND</strong> or <strong>XOR</strong>.</span></div>
+    <div><span class="bx"></span><span>Each segment marked <strong>expected</strong> or <strong>conditional</strong> (XOR options are conditional).</span></div>
+    <div><span class="bx"></span><span>SLAs added where deadlines matter — anchor, deadline, clock (wall/business), at-risk lead, and owner set.</span></div>
+    <div><span class="bx"></span><span>Owners assigned so breaches attribute to <span class="pill ext">external</span> vs <span class="pill ami">Amendia</span> correctly.</span></div>
+    <div><span class="bx"></span><span>Read the graph back as a plain sentence — does it match the real cross-system process?</span></div>
+  </div>
+
+  <hr>
+  <p class="sub">This guide describes the agreed v1 design for cohort SLAs (ADR-064, in design). Terms follow ADR-063
+    (Cohorts): a cohort observes; the external system holds execution authority and closes by correlation value alone.</p>
+
+</div>
+</body>
+</html>
