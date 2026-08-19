@@ -1,0 +1,939 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Amendia — DevOps diagrams</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+         margin: 0; padding: 40px 32px 80px; line-height: 1.55;
+         color: #1A1A1A; background: #FDFDFC; }
+  .wrap { max-width: 1400px; margin: 0 auto; }
+  h1 { font-size: 30px; margin: 0 0 6px; letter-spacing: -0.01em; }
+  .sub { color: #5F5E5A; font-size: 14.5px; margin: 0 0 8px; }
+  .meta { color: #73726C; font-size: 13px; margin: 0 0 34px; }
+  h2 { font-size: 19px; margin: 0 0 4px; }
+  .lede { color: #5F5E5A; font-size: 14px; margin: 0 0 16px; max-width: 92ch; }
+  section { margin: 0 0 52px; padding: 0 0 8px; }
+  figure { margin: 0; padding: 14px; border: 1px solid #E3E1DA; border-radius: 12px;
+            background: #fff; overflow-x: auto; }
+  figure svg { display: block; max-width: 100%; height: auto; }
+  code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.92em; }
+  nav { margin: 0 0 40px; padding: 16px 20px; border: 1px solid #E3E1DA; border-radius: 10px; background: #F7F6F3; }
+  nav ol { margin: 6px 0 0; padding-left: 22px; } nav li { margin: 3px 0; font-size: 14px; }
+  nav strong { font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: #73726C; }
+  a { color: #3C3489; }
+  .foot { margin-top: 48px; padding-top: 20px; border-top: 1px solid #E3E1DA; color: #73726C; font-size: 13px; }
+  @media (prefers-color-scheme: dark) {
+    body { color: #EDEBE3; background: #1B1B19; }
+    .sub, .lede { color: #B4B2A9; } .meta, .foot { color: #9C9A92; }
+    figure { background: #232320; border-color: #3A3A36; }
+    nav { background: #232320; border-color: #3A3A36; } nav strong { color: #9C9A92; }
+    a { color: #AFA9EC; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+<h1>Amendia — DevOps diagrams</h1>
+<p class="sub">The deployment view: what runs, on which ports, talking to what, with which data persisted and which boundaries trusted.</p>
+<p class="meta">Read-verified against the working tree on 2026-08-19. Companion to
+<code>backend/docs/devops/Amendia_Component_Inventory_DevOps.xlsx</code>. Each diagram is also a standalone
+<code>.svg</code> in this folder and renders in light and dark themes.</p>
+
+<nav>
+<strong>Contents</strong>
+<ol>
+<li><a href="#d1">Local deployment topology (docker compose)</a></li>
+<li><a href="#d2">Event &amp; data flow</a></li>
+<li><a href="#d3">Production topology (Helm chart 0.2.0)</a></li>
+<li><a href="#d4">Trust &amp; exposure boundaries</a></li>
+</ol>
+</nav>
+
+<section id="d1">
+<h2>1 · Local deployment topology (docker compose)</h2>
+<p class="lede">Every container in the local stack, which compose file owns it, its host→container port mapping, and whether its data persists. Start here: it is the map the rest of the diagrams assume.</p>
+<figure>
+<svg xmlns="http://www.w3.org/2000/svg" width="1240" height="900" viewBox="0 0 1240 900" role="img">
+<title>Amendia local deployment topology (docker compose)</title>
+<desc>Every container in the local stack, which compose file owns it, its host-to-container port mapping and whether its data persists. Three compose files share one Docker network: the main backend stack, the MCP capability tool servers, and the mock Pega orchestrator. RabbitMQ has no named volume, so its durable queues do not survive a container recreate.</desc>
+<style>
+text { font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+.h1 { font-size: 19px; font-weight: 600; fill: #1A1A1A; }
+.h2 { font-size: 12.5px; font-weight: 400; fill: #5F5E5A; }
+.tt { font-size: 13.5px; font-weight: 500; }
+.st { font-size: 11px; font-weight: 400; }
+.mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 10.5px; }
+.purple rect { fill: #EEEDFE; stroke: #534AB7; }
+.purple .tt { fill: #3C3489; } .purple .st, .purple .mono { fill: #534AB7; }
+.teal rect { fill: #E1F5EE; stroke: #0F6E56; }
+.teal .tt { fill: #085041; } .teal .st, .teal .mono { fill: #0F6E56; }
+.gray rect { fill: #F1EFE8; stroke: #5F5E5A; }
+.gray .tt { fill: #444441; } .gray .st, .gray .mono { fill: #5F5E5A; }
+.amber rect { fill: #FDF0DC; stroke: #A66A00; }
+.amber .tt { fill: #7A4E00; } .amber .st, .amber .mono { fill: #A66A00; }
+.red rect { fill: #FDECEC; stroke: #B3261E; }
+.red .tt { fill: #8C1D18; } .red .st, .red .mono { fill: #B3261E; }
+.cont { fill: none; stroke: #888780; }
+.contlabel { font-size: 13px; font-weight: 500; fill: #444441; }
+.contsub { font-size: 10.5px; font-weight: 400; fill: #73726C; }
+.legend { font-size: 11px; fill: #5F5E5A; }
+.note { font-size: 11px; fill: #5F5E5A; }
+.warn { font-size: 11px; fill: #B3261E; font-weight: 500; }
+.arr { stroke: #73726C; fill: none; }
+.arrlabel { font-size: 10px; fill: #5F5E5A; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.arrwarn { stroke: #B3261E; fill: none; }
+@media (prefers-color-scheme: dark) {
+.h1 { fill: #EDEBE3; } .h2 { fill: #B4B2A9; }
+.purple rect { fill: #3C3489; stroke: #AFA9EC; }
+.purple .tt { fill: #CECBF6; } .purple .st, .purple .mono { fill: #AFA9EC; }
+.teal rect { fill: #085041; stroke: #5DCAA5; }
+.teal .tt { fill: #9FE1CB; } .teal .st, .teal .mono { fill: #5DCAA5; }
+.gray rect { fill: #444441; stroke: #B4B2A9; }
+.gray .tt { fill: #D3D1C7; } .gray .st, .gray .mono { fill: #B4B2A9; }
+.amber rect { fill: #7A4E00; stroke: #F2C078; }
+.amber .tt { fill: #FBE2BB; } .amber .st, .amber .mono { fill: #F2C078; }
+.red rect { fill: #8C1D18; stroke: #F2B8B5; }
+.red .tt { fill: #F9DEDC; } .red .st, .red .mono { fill: #F2B8B5; }
+.cont { stroke: #9C9A92; }
+.contlabel { fill: #D3D1C7; } .contsub { fill: #9C9A92; }
+.legend, .note { fill: #B4B2A9; }
+.warn { fill: #F2B8B5; }
+.arr { stroke: #9C9A92; }
+.arrlabel { fill: #B4B2A9; }
+.arrwarn { stroke: #F2B8B5; }
+}
+</style>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></marker></defs>
+<text class="h1" x="30" y="38">Amendia — local deployment topology (docker compose)</text>
+<text class="h2" x="30" y="58">Read-verified against the working tree 2026-08-19. Host ports are compose defaults and are remappable; container ports are the stable service-to-service contract.</text>
+<rect class="cont" x="30" y="80" width="830" height="470" rx="10" stroke-width="1" stroke-dasharray="5 4"/>
+<text class="contlabel" x="44" y="100">backend/deploy/docker-compose.yml</text>
+<text class="contsub" x="44" y="116">The main stack — 10 Amendia containers + Keycloak</text>
+<g class="purple">
+<rect x="50" y="118" width="258" height="78" rx="8" stroke-width="0.75"/>
+<text class="tt" x="179.0" y="143.5" text-anchor="middle" dominant-baseline="central">webui</text>
+<text class="st" x="179.0" y="160.5" text-anchor="middle" dominant-baseline="central">React SPA on nginx</text>
+<text class="mono" x="179.0" y="173.5" text-anchor="middle" dominant-baseline="central">18085 → 8085</text>
+</g>
+<g class="amber">
+<rect x="328" y="118" width="258" height="78" rx="8" stroke-width="0.75"/>
+<text class="tt" x="457.0" y="143.5" text-anchor="middle" dominant-baseline="central">stub-trigger-generator</text>
+<text class="st" x="457.0" y="160.5" text-anchor="middle" dominant-baseline="central">dev/test source system</text>
+<text class="mono" x="457.0" y="173.5" text-anchor="middle" dominant-baseline="central">18081 → 8081</text>
+</g>
+<g class="purple">
+<rect x="606" y="118" width="258" height="78" rx="8" stroke-width="0.75"/>
+<text class="tt" x="735.0" y="143.5" text-anchor="middle" dominant-baseline="central">ingestor</text>
+<text class="st" x="735.0" y="160.5" text-anchor="middle" dominant-baseline="central">resolve + dispatch</text>
+<text class="mono" x="735.0" y="173.5" text-anchor="middle" dominant-baseline="central">18082 → 8082</text>
+</g>
+<g class="purple">
+<rect x="50" y="214" width="258" height="78" rx="8" stroke-width="0.75"/>
+<text class="tt" x="179.0" y="239.5" text-anchor="middle" dominant-baseline="central">agent-runtime</text>
+<text class="st" x="179.0" y="256.5" text-anchor="middle" dominant-baseline="central">BPMN → LangGraph execution</text>
+<text class="mono" x="179.0" y="269.5" text-anchor="middle" dominant-baseline="central">18083 → 8083</text>
+</g>
+<g class="purple">
+<rect x="328" y="214" width="258" height="78" rx="8" stroke-width="0.75"/>
+<text class="tt" x="457.0" y="239.5" text-anchor="middle" dominant-baseline="central">process-registry</text>
+<text class="st" x="457.0" y="256.5" text-anchor="middle" dominant-baseline="central">authoring + validation</text>
+<text class="mono" x="457.0" y="269.5" text-anchor="middle" dominant-baseline="central">18084 → 8084</text>
+</g>
+<g class="purple">
+<rect x="606" y="214" width="258" height="78" rx="8" stroke-width="0.75"/>
+<text class="tt" x="735.0" y="239.5" text-anchor="middle" dominant-baseline="central">identity</text>
+<text class="st" x="735.0" y="256.5" text-anchor="middle" dominant-baseline="central">users, roles, JIT provisioning</text>
+<text class="mono" x="735.0" y="269.5" text-anchor="middle" dominant-baseline="central">18086 → 8086</text>
+</g>
+<g class="purple">
+<rect x="50" y="310" width="258" height="78" rx="8" stroke-width="0.75"/>
+<text class="tt" x="179.0" y="335.5" text-anchor="middle" dominant-baseline="central">notification-service</text>
+<text class="st" x="179.0" y="352.5" text-anchor="middle" dominant-baseline="central">SSE fan-out only</text>
+<text class="mono" x="179.0" y="365.5" text-anchor="middle" dominant-baseline="central">18088 → 8088</text>
+</g>
+<g class="purple">
+<rect x="328" y="310" width="258" height="78" rx="8" stroke-width="0.75"/>
+<text class="tt" x="457.0" y="335.5" text-anchor="middle" dominant-baseline="central">config-forge</text>
+<text class="st" x="457.0" y="352.5" text-anchor="middle" dominant-baseline="central">LLM config refs · /healthz</text>
+<text class="mono" x="457.0" y="365.5" text-anchor="middle" dominant-baseline="central">18040 → 8040</text>
+</g>
+<g class="purple">
+<rect x="606" y="310" width="258" height="78" rx="8" stroke-width="0.75"/>
+<text class="tt" x="735.0" y="335.5" text-anchor="middle" dominant-baseline="central">glea-service</text>
+<text class="st" x="735.0" y="352.5" text-anchor="middle" dominant-baseline="central">audit read-models</text>
+<text class="mono" x="735.0" y="365.5" text-anchor="middle" dominant-baseline="central">18090 → 8090</text>
+</g>
+<g class="purple">
+<rect x="50" y="406" width="258" height="78" rx="8" stroke-width="0.75"/>
+<text class="tt" x="179.0" y="431.5" text-anchor="middle" dominant-baseline="central">capability-worker</text>
+<text class="st" x="179.0" y="448.5" text-anchor="middle" dominant-baseline="central">profile: nemoclaw · no port</text>
+<text class="mono" x="179.0" y="461.5" text-anchor="middle" dominant-baseline="central">AMQP consumer only</text>
+</g>
+<g class="gray">
+<rect x="328" y="406" width="258" height="78" rx="8" stroke-width="0.75"/>
+<text class="tt" x="457.0" y="431.5" text-anchor="middle" dominant-baseline="central">keycloak</text>
+<text class="st" x="457.0" y="448.5" text-anchor="middle" dominant-baseline="central">dev IdP · realm amendia-dev</text>
+<text class="mono" x="457.0" y="461.5" text-anchor="middle" dominant-baseline="central">8087 → 8080</text>
+</g>
+<text class="note" x="608" y="432">Amendia services publish on 18xxx host</text>
+<text class="note" x="608" y="448">ports. Keycloak, the MCP servers and</text>
+<text class="note" x="608" y="464">pega-stub are the exceptions.</text>
+<rect class="cont" x="880" y="80" width="330" height="470" rx="10" stroke-width="1" stroke-dasharray="5 4"/>
+<text class="contlabel" x="894" y="100">Infrastructure</text>
+<text class="contsub" x="894" y="116">Same compose file — self-managed</text>
+<g class="teal">
+<rect x="900" y="118" width="290" height="96" rx="8" stroke-width="0.75"/>
+<text class="tt" x="1045.0" y="146.0" text-anchor="middle" dominant-baseline="central">mongodb</text>
+<text class="st" x="1045.0" y="163.0" text-anchor="middle" dominant-baseline="central">mongo:7 · 27017</text>
+<text class="mono" x="1045.0" y="176.0" text-anchor="middle" dominant-baseline="central">volume mongo_data</text>
+<text class="mono" x="1045.0" y="189.0" text-anchor="middle" dominant-baseline="central">→ /data/db</text>
+</g>
+<g class="red">
+<rect x="900" y="228" width="290" height="96" rx="8" stroke-width="0.75"/>
+<text class="tt" x="1045.0" y="256.0" text-anchor="middle" dominant-baseline="central">rabbitmq</text>
+<text class="st" x="1045.0" y="273.0" text-anchor="middle" dominant-baseline="central">rabbitmq:3-management · 5672/15672</text>
+<text class="mono" x="1045.0" y="286.0" text-anchor="middle" dominant-baseline="central">NO NAMED VOLUME</text>
+<text class="mono" x="1045.0" y="299.0" text-anchor="middle" dominant-baseline="central">durable queues lost on recreate</text>
+</g>
+<g class="teal">
+<rect x="900" y="338" width="290" height="96" rx="8" stroke-width="0.75"/>
+<text class="tt" x="1045.0" y="366.0" text-anchor="middle" dominant-baseline="central">clickhouse</text>
+<text class="st" x="1045.0" y="383.0" text-anchor="middle" dominant-baseline="central">24.8 · 8123 / 9001→9000</text>
+<text class="mono" x="1045.0" y="396.0" text-anchor="middle" dominant-baseline="central">volume clickhouse_data</text>
+<text class="mono" x="1045.0" y="409.0" text-anchor="middle" dominant-baseline="central">→ /var/lib/clickhouse</text>
+</g>
+<g class="teal">
+<rect x="900" y="448" width="290" height="96" rx="8" stroke-width="0.75"/>
+<text class="tt" x="1045.0" y="476.0" text-anchor="middle" dominant-baseline="central">otel-collector</text>
+<text class="st" x="1045.0" y="493.0" text-anchor="middle" dominant-baseline="central">contrib 0.109.0 · 4317/4318</text>
+<text class="mono" x="1045.0" y="506.0" text-anchor="middle" dominant-baseline="central">stateless gateway</text>
+<text class="mono" x="1045.0" y="519.0" text-anchor="middle" dominant-baseline="central">no healthcheck</text>
+</g>
+<rect class="cont" x="30" y="574" width="830" height="158" rx="10" stroke-width="1" stroke-dasharray="5 4"/>
+<text class="contlabel" x="44" y="594">mcp_stub/deploy/docker-compose.yml</text>
+<text class="contsub" x="44" y="610">Capability tool servers — the runtime calls these over MCP</text>
+<g class="amber">
+<rect x="50" y="620" width="152" height="78" rx="8" stroke-width="0.75"/>
+<text class="tt" x="126.0" y="645.5" text-anchor="middle" dominant-baseline="central">wire-transfer</text>
+<text class="mono" x="126.0" y="662.5" text-anchor="middle" dominant-baseline="central">8060 → 8060</text>
+<text class="mono" x="126.0" y="675.5" text-anchor="middle" dominant-baseline="central">wire-…-mcp</text>
+</g>
+<g class="amber">
+<rect x="217" y="620" width="152" height="78" rx="8" stroke-width="0.75"/>
+<text class="tt" x="293.0" y="645.5" text-anchor="middle" dominant-baseline="central">restaurant-dinein</text>
+<text class="mono" x="293.0" y="662.5" text-anchor="middle" dominant-baseline="central">8070 → 8070</text>
+<text class="mono" x="293.0" y="675.5" text-anchor="middle" dominant-baseline="central">dinein-mcp</text>
+</g>
+<g class="amber">
+<rect x="384" y="620" width="152" height="78" rx="8" stroke-width="0.75"/>
+<text class="tt" x="460.0" y="645.5" text-anchor="middle" dominant-baseline="central">ach-exposure-assess</text>
+<text class="mono" x="460.0" y="662.5" text-anchor="middle" dominant-baseline="central">8075 → 8075</text>
+<text class="mono" x="460.0" y="675.5" text-anchor="middle" dominant-baseline="central">ach-assess-mcp</text>
+</g>
+<g class="amber">
+<rect x="551" y="620" width="152" height="78" rx="8" stroke-width="0.75"/>
+<text class="tt" x="627.0" y="645.5" text-anchor="middle" dominant-baseline="central">ach-decision-enforce</text>
+<text class="mono" x="627.0" y="662.5" text-anchor="middle" dominant-baseline="central">8076 → 8076</text>
+<text class="mono" x="627.0" y="675.5" text-anchor="middle" dominant-baseline="central">ach-enforce-mcp</text>
+</g>
+<g class="amber">
+<rect x="718" y="620" width="152" height="78" rx="8" stroke-width="0.75"/>
+<text class="tt" x="794.0" y="645.5" text-anchor="middle" dominant-baseline="central">ach-closeout</text>
+<text class="mono" x="794.0" y="662.5" text-anchor="middle" dominant-baseline="central">8077 → 8077</text>
+<text class="mono" x="794.0" y="675.5" text-anchor="middle" dominant-baseline="central">ach-closeout-mcp</text>
+</g>
+<text class="note" x="50" y="718">Streamable HTTP (MCP) at /mcp · deterministic stubs — replace with real system connectors in production</text>
+<rect class="cont" x="880" y="574" width="330" height="158" rx="10" stroke-width="1" stroke-dasharray="5 4"/>
+<text class="contlabel" x="894" y="594">pega_stub/deploy/docker-compose.yml</text>
+<text class="contsub" x="894" y="610">Mock external orchestrator</text>
+<g class="amber">
+<rect x="900" y="620" width="290" height="78" rx="8" stroke-width="0.75"/>
+<text class="tt" x="1045.0" y="645.5" text-anchor="middle" dominant-baseline="central">pega-stub</text>
+<text class="mono" x="1045.0" y="662.5" text-anchor="middle" dominant-baseline="central">9095 → 9095 · alias pega-stub</text>
+<text class="mono" x="1045.0" y="675.5" text-anchor="middle" dominant-baseline="central">scenarios incl. late_closeout</text>
+</g>
+<text class="note" x="900" y="718">No auth; posts triggers with a static internal token.</text>
+<rect class="cont" x="30" y="752" width="1180" height="60" rx="10" stroke-width="1"/>
+<text class="contlabel" x="44" y="772">Docker network</text>
+<text class="note" x="160" y="778">All three compose files share one bridge network. The stub composes join it as external:  amendia → ${AMENDIA_NETWORK:-deploy_default}.</text>
+<text class="note" x="160" y="796">Services address each other by container name on the CONTAINER port — e.g. http://agent-runtime:8083 — never via a host port.</text>
+<text class="note" x="30" y="836">Legend</text>
+<g class="purple"><rect x="30" y="851" width="14" height="12" rx="3" stroke-width="0.75"/></g>
+<text class="legend" x="50" y="860" dominant-baseline="central">Amendia service</text>
+<g class="teal"><rect x="180" y="851" width="14" height="12" rx="3" stroke-width="0.75"/></g>
+<text class="legend" x="200" y="860" dominant-baseline="central">Datastore / infra</text>
+<g class="amber"><rect x="330" y="851" width="14" height="12" rx="3" stroke-width="0.75"/></g>
+<text class="legend" x="350" y="860" dominant-baseline="central">Dev/test stub</text>
+<g class="gray"><rect x="460" y="851" width="14" height="12" rx="3" stroke-width="0.75"/></g>
+<text class="legend" x="480" y="860" dominant-baseline="central">Third-party</text>
+<g class="red"><rect x="590" y="851" width="14" height="12" rx="3" stroke-width="0.75"/></g>
+<text class="legend" x="610" y="860" dominant-baseline="central">Defect / gap</text>
+<text class="note" x="720" y="862">capability-worker starts only under the 'nemoclaw' compose profile.</text>
+</svg>
+</figure>
+</section>
+<section id="d2">
+<h2>2 · Event &amp; data flow</h2>
+<p class="lede">One durable topic exchange carries all asynchronous traffic. This shows who publishes, who consumes, the full routing-key vocabulary, the queue names — and, deliberately, what does <em>not</em> ride the bus (HTTP, MCP tool calls, third-party inference).</p>
+<figure>
+<svg xmlns="http://www.w3.org/2000/svg" width="1320" height="956" viewBox="0 0 1320 956" role="img">
+<title>Amendia event and data flow</title>
+<desc>All asynchronous traffic rides one durable topic exchange, amendia.events, with routing keys of the form service.event.v1. The stub trigger source, ingestor, agent-runtime, process-registry, identity and config-forge publish to it; glea-service consumes governed events into ClickHouse over a durable named queue, and notification-service consumes lifecycle events onto a broadcast queue and relays thin invalidation signals to browsers over SSE. Synchronous HTTP calls, MCP tool calls and third-party LLM inference do not touch the bus.</desc>
+<style>
+text { font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+.h1 { font-size: 19px; font-weight: 600; fill: #1A1A1A; }
+.h2 { font-size: 12.5px; font-weight: 400; fill: #5F5E5A; }
+.tt { font-size: 13.5px; font-weight: 500; }
+.st { font-size: 11px; font-weight: 400; }
+.mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 10.5px; }
+.purple rect { fill: #EEEDFE; stroke: #534AB7; }
+.purple .tt { fill: #3C3489; } .purple .st, .purple .mono { fill: #534AB7; }
+.teal rect { fill: #E1F5EE; stroke: #0F6E56; }
+.teal .tt { fill: #085041; } .teal .st, .teal .mono { fill: #0F6E56; }
+.gray rect { fill: #F1EFE8; stroke: #5F5E5A; }
+.gray .tt { fill: #444441; } .gray .st, .gray .mono { fill: #5F5E5A; }
+.amber rect { fill: #FDF0DC; stroke: #A66A00; }
+.amber .tt { fill: #7A4E00; } .amber .st, .amber .mono { fill: #A66A00; }
+.red rect { fill: #FDECEC; stroke: #B3261E; }
+.red .tt { fill: #8C1D18; } .red .st, .red .mono { fill: #B3261E; }
+.cont { fill: none; stroke: #888780; }
+.contlabel { font-size: 13px; font-weight: 500; fill: #444441; }
+.contsub { font-size: 10.5px; font-weight: 400; fill: #73726C; }
+.legend { font-size: 11px; fill: #5F5E5A; }
+.note { font-size: 11px; fill: #5F5E5A; }
+.warn { font-size: 11px; fill: #B3261E; font-weight: 500; }
+.arr { stroke: #73726C; fill: none; }
+.arrlabel { font-size: 10px; fill: #5F5E5A; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.arrwarn { stroke: #B3261E; fill: none; }
+@media (prefers-color-scheme: dark) {
+.h1 { fill: #EDEBE3; } .h2 { fill: #B4B2A9; }
+.purple rect { fill: #3C3489; stroke: #AFA9EC; }
+.purple .tt { fill: #CECBF6; } .purple .st, .purple .mono { fill: #AFA9EC; }
+.teal rect { fill: #085041; stroke: #5DCAA5; }
+.teal .tt { fill: #9FE1CB; } .teal .st, .teal .mono { fill: #5DCAA5; }
+.gray rect { fill: #444441; stroke: #B4B2A9; }
+.gray .tt { fill: #D3D1C7; } .gray .st, .gray .mono { fill: #B4B2A9; }
+.amber rect { fill: #7A4E00; stroke: #F2C078; }
+.amber .tt { fill: #FBE2BB; } .amber .st, .amber .mono { fill: #F2C078; }
+.red rect { fill: #8C1D18; stroke: #F2B8B5; }
+.red .tt { fill: #F9DEDC; } .red .st, .red .mono { fill: #F2B8B5; }
+.cont { stroke: #9C9A92; }
+.contlabel { fill: #D3D1C7; } .contsub { fill: #9C9A92; }
+.legend, .note { fill: #B4B2A9; }
+.warn { fill: #F2B8B5; }
+.arr { stroke: #9C9A92; }
+.arrlabel { fill: #B4B2A9; }
+.arrwarn { stroke: #F2B8B5; }
+}
+</style>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></marker></defs>
+<text class="h1" x="30" y="38">Amendia — event &amp; data flow</text>
+<text class="h2" x="30" y="58">Routing keys are service.event.v1 (no tenant segment) built by amendia_common.events.rk(). Read-verified 2026-08-19.</text>
+<text class="note" x="40" y="82">PUBLISHERS / PARTICIPANTS</text>
+<g class="amber">
+<rect x="40" y="96" width="220" height="88" rx="8" stroke-width="0.75"/>
+<text class="tt" x="150.0" y="133.0" text-anchor="middle" dominant-baseline="central">stub-trigger-generator</text>
+<text class="st" x="150.0" y="150.0" text-anchor="middle" dominant-baseline="central">dev/test source system</text>
+</g>
+<g class="purple">
+<rect x="290" y="96" width="220" height="88" rx="8" stroke-width="0.75"/>
+<text class="tt" x="400.0" y="133.0" text-anchor="middle" dominant-baseline="central">ingestor</text>
+<text class="st" x="400.0" y="150.0" text-anchor="middle" dominant-baseline="central">also consumes ↕</text>
+</g>
+<g class="purple">
+<rect x="540" y="96" width="220" height="88" rx="8" stroke-width="0.75"/>
+<text class="tt" x="650.0" y="133.0" text-anchor="middle" dominant-baseline="central">agent-runtime</text>
+<text class="st" x="650.0" y="150.0" text-anchor="middle" dominant-baseline="central">also consumes ↕</text>
+</g>
+<g class="purple">
+<rect x="790" y="96" width="220" height="88" rx="8" stroke-width="0.75"/>
+<text class="tt" x="900.0" y="133.0" text-anchor="middle" dominant-baseline="central">process-registry</text>
+<text class="st" x="900.0" y="150.0" text-anchor="middle" dominant-baseline="central">governed events</text>
+</g>
+<g class="purple">
+<rect x="1040" y="96" width="240" height="88" rx="8" stroke-width="0.75"/>
+<text class="tt" x="1160.0" y="133.0" text-anchor="middle" dominant-baseline="central">identity · config-forge</text>
+<text class="st" x="1160.0" y="150.0" text-anchor="middle" dominant-baseline="central">governed events</text>
+</g>
+<g class="teal">
+<rect x="40" y="268" width="1240" height="84" rx="8" stroke-width="0.75"/>
+<text class="tt" x="660.0" y="303.0" text-anchor="middle" dominant-baseline="central">RabbitMQ  —  amendia.events</text>
+<text class="st" x="660.0" y="320.0" text-anchor="middle" dominant-baseline="central">durable topic exchange · the only asynchronous seam between services</text>
+</g>
+<line class="arr" x1="150" y1="184" x2="150" y2="266" stroke-width="1.5" marker-end="url(#arrow)"/>
+<text class="arrlabel" x="158" y="222" text-anchor="start">publishes</text>
+<line class="arr" x1="400" y1="184" x2="400" y2="266" stroke-width="1.5" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+<text class="arrlabel" x="408" y="216">publishes ↓</text>
+<text class="arrlabel" x="408" y="232">consumes ↑</text>
+<line class="arr" x1="650" y1="184" x2="650" y2="266" stroke-width="1.5" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+<text class="arrlabel" x="658" y="216">publishes ↓</text>
+<text class="arrlabel" x="658" y="232">consumes ↑</text>
+<line class="arr" x1="900" y1="184" x2="900" y2="266" stroke-width="1.5" marker-end="url(#arrow)"/>
+<text class="arrlabel" x="908" y="222" text-anchor="start">publishes</text>
+<line class="arr" x1="1160" y1="184" x2="1160" y2="266" stroke-width="1.5" marker-end="url(#arrow)"/>
+<text class="arrlabel" x="1168" y="222" text-anchor="start">publishes</text>
+<text class="note" x="40" y="392">CONSUMERS</text>
+<g class="purple">
+<rect x="40" y="406" width="280" height="88" rx="8" stroke-width="0.75"/>
+<text class="tt" x="180.0" y="436.5" text-anchor="middle" dominant-baseline="central">glea-service</text>
+<text class="st" x="180.0" y="453.5" text-anchor="middle" dominant-baseline="central">durable NAMED queue (competing consumers)</text>
+<text class="st" x="180.0" y="466.5" text-anchor="middle" dominant-baseline="central">16 binding keys · must not lose messages</text>
+</g>
+<g class="purple">
+<rect x="360" y="406" width="280" height="88" rx="8" stroke-width="0.75"/>
+<text class="tt" x="500.0" y="436.5" text-anchor="middle" dominant-baseline="central">notification-service</text>
+<text class="st" x="500.0" y="453.5" text-anchor="middle" dominant-baseline="central">broadcast queue (exclusive, auto-delete)</text>
+<text class="st" x="500.0" y="466.5" text-anchor="middle" dominant-baseline="central">8 binding keys · thin signals only</text>
+</g>
+<line class="arr" x1="180" y1="354" x2="180" y2="404" stroke-width="1.5" marker-end="url(#arrow)"/>
+<text class="arrlabel" x="188" y="380" text-anchor="start">governed + cohort + SLA events</text>
+<line class="arr" x1="500" y1="354" x2="500" y2="404" stroke-width="1.5" marker-end="url(#arrow)"/>
+<text class="arrlabel" x="508" y="380" text-anchor="start">lifecycle + cohort_sla</text>
+<g class="teal">
+<rect x="40" y="546" width="280" height="104" rx="8" stroke-width="0.75"/>
+<text class="tt" x="180.0" y="578.0" text-anchor="middle" dominant-baseline="central">ClickHouse</text>
+<text class="mono" x="180.0" y="595.0" text-anchor="middle" dominant-baseline="central">audit_events  (~7 yr TTL)</text>
+<text class="mono" x="180.0" y="608.0" text-anchor="middle" dominant-baseline="central">cohort_events  (ADR-063)</text>
+<text class="mono" x="180.0" y="621.0" text-anchor="middle" dominant-baseline="central">cohort_sla_events  (ADR-064)</text>
+</g>
+<g class="gray">
+<rect x="360" y="546" width="280" height="104" rx="8" stroke-width="0.75"/>
+<text class="tt" x="500.0" y="584.5" text-anchor="middle" dominant-baseline="central">Operator browser</text>
+<text class="mono" x="500.0" y="601.5" text-anchor="middle" dominant-baseline="central">GET /stream  (text/event-stream)</text>
+<text class="mono" x="500.0" y="614.5" text-anchor="middle" dominant-baseline="central">re-fetches authorized data over REST</text>
+</g>
+<line class="arr" x1="180" y1="496" x2="180" y2="544" stroke-width="1.5" marker-end="url(#arrow)"/>
+<text class="arrlabel" x="186" y="524" text-anchor="start">sole writer</text>
+<line class="arr" x1="500" y1="496" x2="500" y2="544" stroke-width="1.5" marker-end="url(#arrow)"/>
+<text class="arrlabel" x="506" y="524" text-anchor="start">SSE</text>
+<rect class="cont" x="700" y="392" width="580" height="258" rx="10" stroke-width="1" stroke-dasharray="5 4"/>
+<text class="contlabel" x="714" y="412">Synchronous — NOT on the bus</text>
+<text class="contsub" x="714" y="428">HTTP, MCP and third-party inference bypass the broker entirely</text>
+<g class="amber">
+<rect x="720" y="440" width="250" height="76" rx="8" stroke-width="0.75"/>
+<text class="tt" x="845.0" y="464.5" text-anchor="middle" dominant-baseline="central">MCP tool servers</text>
+<text class="mono" x="845.0" y="481.5" text-anchor="middle" dominant-baseline="central">5 servers · 8060–8077</text>
+<text class="mono" x="845.0" y="494.5" text-anchor="middle" dominant-baseline="central">egress allowlist ENFORCED</text>
+</g>
+<g class="red">
+<rect x="1000" y="440" width="260" height="76" rx="8" stroke-width="0.75"/>
+<text class="tt" x="1130.0" y="464.5" text-anchor="middle" dominant-baseline="central">AWS Bedrock  (us-east-1)</text>
+<text class="mono" x="1130.0" y="481.5" text-anchor="middle" dominant-baseline="central">full envelope + artifacts</text>
+<text class="mono" x="1130.0" y="494.5" text-anchor="middle" dominant-baseline="central">egress AUDIT-ONLY — not blocked</text>
+</g>
+<g class="teal">
+<rect x="720" y="536" width="540" height="60" rx="8" stroke-width="0.75"/>
+<text class="tt" x="990.0" y="559.0" text-anchor="middle" dominant-baseline="central">MongoDB</text>
+<text class="mono" x="990.0" y="576.0" text-anchor="middle" dominant-baseline="central">trigger_messages · ingestions · lg_checkpoints · hitl_tasks · cohort_* · packs</text>
+</g>
+<text class="note" x="722" y="616">Called by agent-runtime.  Also HTTP: ingestor → registry POST /resolve,</text>
+<text class="note" x="722" y="632">ingestor → stub fetch-back, webui nginx → /api/* for all seven services.</text>
+<line class="arr" x1="662" y1="478" x2="716" y2="478" stroke-width="1.5" marker-end="url(#arrow)"/>
+<rect class="cont" x="40" y="676" width="1240" height="196" rx="10" stroke-width="1" stroke-dasharray="5 4"/>
+<text class="contlabel" x="54" y="696">Routing keys on amendia.events</text>
+<text class="contsub" x="54" y="712">service.event.v1 — verified in libs/amendia_common/events.py</text>
+<text class="contlabel" x="62" y="730" font-size="11.5">Trigger pipeline</text>
+<text class="arrlabel" x="62" y="750">trigger_source.trigger_raised.v1</text>
+<text class="arrlabel" x="62" y="765">ingestor.trigger_dispatched.v1</text>
+<text class="arrlabel" x="62" y="780">agent_runtime.dispatch_accepted.v1</text>
+<text class="arrlabel" x="62" y="795">agent_runtime.dispatch_rejected.v1</text>
+<text class="arrlabel" x="62" y="810">ingestor.cohort_close_requested.v1</text>
+<text class="contlabel" x="368" y="730" font-size="11.5">Instance lifecycle</text>
+<text class="arrlabel" x="368" y="750">agent_runtime.hitl_task_created.v1</text>
+<text class="arrlabel" x="368" y="765">agent_runtime.hitl_task_decided.v1</text>
+<text class="arrlabel" x="368" y="780">agent_runtime.hitl_task_expired.v1</text>
+<text class="arrlabel" x="368" y="795">agent_runtime.timer_fired.v1</text>
+<text class="arrlabel" x="368" y="810">agent_runtime.message_received.v1</text>
+<text class="arrlabel" x="368" y="825">agent_runtime.process_completed.v1</text>
+<text class="arrlabel" x="368" y="840">agent_runtime.process_failed.v1</text>
+<text class="contlabel" x="674" y="730" font-size="11.5">Governance (→ audit_events)</text>
+<text class="arrlabel" x="674" y="750">agent_runtime.egress_decision.v1</text>
+<text class="arrlabel" x="674" y="765">agent_runtime.artifact_committed.v1</text>
+<text class="arrlabel" x="674" y="780">identity.role_changed.v1</text>
+<text class="arrlabel" x="674" y="795">process_registry.pack_lifecycle.v1</text>
+<text class="arrlabel" x="674" y="810">config_forge.config_ref_resolved.v1</text>
+<text class="contlabel" x="980" y="730" font-size="11.5">Cohorts (own tables)</text>
+<text class="arrlabel" x="980" y="750">agent_runtime.cohort_lifecycle.v1</text>
+<text class="arrlabel" x="980" y="765">agent_runtime.cohort_sla.v1</text>
+<text class="note" x="980" y="780"></text>
+<text class="note" x="980" y="795">In-sandbox (nemoclaw profile):</text>
+<text class="arrlabel" x="980" y="810">agent_runtime.capability_exec_request.v1</text>
+<text class="arrlabel" x="980" y="825">agent_runtime.capability_exec_result.v1</text>
+<text class="note" x="30" y="900">Queues:  ingestor.trigger_raised.v1  ·  ingestor.dispatch_replies.v1  ·  agent-runtime.trigger_dispatched.v1  ·  glea (durable, named)  ·  notification (broadcast, auto-delete)</text>
+<text class="warn" x="30" y="920">No dead-letter exchange, no queue TTL and no message-field encryption anywhere — every declare_queue() passes only durable=True.</text>
+<text class="warn" x="30" y="938">RabbitMQ has no named volume in compose, so these durable queues — including the GLEA audit queue — are lost on container recreate.</text>
+</svg>
+</figure>
+</section>
+<section id="d3">
+<h2>3 · Production topology (Helm chart 0.2.0)</h2>
+<p class="lede">What <code>deploy/helm/amendia</code> actually renders after the 2026-08-19 catch-up: services, PVC-backed datastores, Vault over Kubernetes auth, default-deny egress, and the conditional inference workload. Open items are listed on the diagram.</p>
+<figure>
+<svg xmlns="http://www.w3.org/2000/svg" width="1340" height="1000" viewBox="0 0 1340 1000" role="img">
+<title>Amendia production topology on Kubernetes (Helm chart 0.2.0)</title>
+<desc>What the portable umbrella chart renders: one Deployment, Service, ServiceAccount, PodDisruptionBudget, SecretProviderClass and egress NetworkPolicy per service entry, plus optional in-cluster datastores with PersistentVolumeClaims, an OTLP collector exporting to ClickHouse, and a conditional NIM inference workload. Secrets come from Vault over Kubernetes auth. Egress is default-deny with per-workload allowlists. Keycloak and Vault are external in production.</desc>
+<style>
+text { font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+.h1 { font-size: 19px; font-weight: 600; fill: #1A1A1A; }
+.h2 { font-size: 12.5px; font-weight: 400; fill: #5F5E5A; }
+.tt { font-size: 13.5px; font-weight: 500; }
+.st { font-size: 11px; font-weight: 400; }
+.mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 10.5px; }
+.purple rect { fill: #EEEDFE; stroke: #534AB7; }
+.purple .tt { fill: #3C3489; } .purple .st, .purple .mono { fill: #534AB7; }
+.teal rect { fill: #E1F5EE; stroke: #0F6E56; }
+.teal .tt { fill: #085041; } .teal .st, .teal .mono { fill: #0F6E56; }
+.gray rect { fill: #F1EFE8; stroke: #5F5E5A; }
+.gray .tt { fill: #444441; } .gray .st, .gray .mono { fill: #5F5E5A; }
+.amber rect { fill: #FDF0DC; stroke: #A66A00; }
+.amber .tt { fill: #7A4E00; } .amber .st, .amber .mono { fill: #A66A00; }
+.red rect { fill: #FDECEC; stroke: #B3261E; }
+.red .tt { fill: #8C1D18; } .red .st, .red .mono { fill: #B3261E; }
+.cont { fill: none; stroke: #888780; }
+.contlabel { font-size: 13px; font-weight: 500; fill: #444441; }
+.contsub { font-size: 10.5px; font-weight: 400; fill: #73726C; }
+.legend { font-size: 11px; fill: #5F5E5A; }
+.note { font-size: 11px; fill: #5F5E5A; }
+.warn { font-size: 11px; fill: #B3261E; font-weight: 500; }
+.arr { stroke: #73726C; fill: none; }
+.arrlabel { font-size: 10px; fill: #5F5E5A; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.arrwarn { stroke: #B3261E; fill: none; }
+@media (prefers-color-scheme: dark) {
+.h1 { fill: #EDEBE3; } .h2 { fill: #B4B2A9; }
+.purple rect { fill: #3C3489; stroke: #AFA9EC; }
+.purple .tt { fill: #CECBF6; } .purple .st, .purple .mono { fill: #AFA9EC; }
+.teal rect { fill: #085041; stroke: #5DCAA5; }
+.teal .tt { fill: #9FE1CB; } .teal .st, .teal .mono { fill: #5DCAA5; }
+.gray rect { fill: #444441; stroke: #B4B2A9; }
+.gray .tt { fill: #D3D1C7; } .gray .st, .gray .mono { fill: #B4B2A9; }
+.amber rect { fill: #7A4E00; stroke: #F2C078; }
+.amber .tt { fill: #FBE2BB; } .amber .st, .amber .mono { fill: #F2C078; }
+.red rect { fill: #8C1D18; stroke: #F2B8B5; }
+.red .tt { fill: #F9DEDC; } .red .st, .red .mono { fill: #F2B8B5; }
+.cont { stroke: #9C9A92; }
+.contlabel { fill: #D3D1C7; } .contsub { fill: #9C9A92; }
+.legend, .note { fill: #B4B2A9; }
+.warn { fill: #F2B8B5; }
+.arr { stroke: #9C9A92; }
+.arrlabel { fill: #B4B2A9; }
+.arrwarn { stroke: #F2B8B5; }
+}
+</style>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></marker></defs>
+<text class="h1" x="30" y="38">Amendia — production topology (Helm chart 0.2.0)</text>
+<text class="h2" x="30" y="58">deploy/helm/amendia · ADR-022 as revised 2026-08-19. Generic base + thin per-provider overlays (GKE first-class; EKS/AKS/on-prem scaffolded).</text>
+<rect class="cont" x="30" y="84" width="930" height="712" rx="10" stroke-width="1"/>
+<text class="contlabel" x="44" y="104">Kubernetes namespace: amendia</text>
+<text class="note" x="50" y="122">DEPLOYMENTS — one per .Values.services entry · replicas 2 · PDB minAvailable 1 · runAsNonRoot 10001 · readOnlyRootFilesystem · drop ALL</text>
+<g class="purple">
+<rect x="50" y="138" width="274" height="62" rx="8" stroke-width="0.75"/>
+<text class="tt" x="187.0" y="162.0" text-anchor="middle" dominant-baseline="central">webui</text>
+<text class="st" x="187.0" y="179.0" text-anchor="middle" dominant-baseline="central">8085 · nginx SPA</text>
+</g>
+<g class="amber">
+<rect x="342" y="138" width="274" height="62" rx="8" stroke-width="0.75"/>
+<text class="tt" x="479.0" y="162.0" text-anchor="middle" dominant-baseline="central">stub-trigger-generator</text>
+<text class="st" x="479.0" y="179.0" text-anchor="middle" dominant-baseline="central">8081 · replace in prod</text>
+</g>
+<g class="purple">
+<rect x="634" y="138" width="274" height="62" rx="8" stroke-width="0.75"/>
+<text class="tt" x="771.0" y="162.0" text-anchor="middle" dominant-baseline="central">ingestor</text>
+<text class="st" x="771.0" y="179.0" text-anchor="middle" dominant-baseline="central">8082</text>
+</g>
+<g class="purple">
+<rect x="50" y="212" width="274" height="62" rx="8" stroke-width="0.75"/>
+<text class="tt" x="187.0" y="236.0" text-anchor="middle" dominant-baseline="central">agent-runtime</text>
+<text class="st" x="187.0" y="253.0" text-anchor="middle" dominant-baseline="central">8083</text>
+</g>
+<g class="purple">
+<rect x="342" y="212" width="274" height="62" rx="8" stroke-width="0.75"/>
+<text class="tt" x="479.0" y="236.0" text-anchor="middle" dominant-baseline="central">process-registry</text>
+<text class="st" x="479.0" y="253.0" text-anchor="middle" dominant-baseline="central">8084</text>
+</g>
+<g class="purple">
+<rect x="634" y="212" width="274" height="62" rx="8" stroke-width="0.75"/>
+<text class="tt" x="771.0" y="236.0" text-anchor="middle" dominant-baseline="central">identity</text>
+<text class="st" x="771.0" y="253.0" text-anchor="middle" dominant-baseline="central">8086</text>
+</g>
+<g class="purple">
+<rect x="50" y="286" width="274" height="62" rx="8" stroke-width="0.75"/>
+<text class="tt" x="187.0" y="310.0" text-anchor="middle" dominant-baseline="central">notification-service</text>
+<text class="st" x="187.0" y="327.0" text-anchor="middle" dominant-baseline="central">8088</text>
+</g>
+<g class="purple">
+<rect x="342" y="286" width="274" height="62" rx="8" stroke-width="0.75"/>
+<text class="tt" x="479.0" y="310.0" text-anchor="middle" dominant-baseline="central">config-forge</text>
+<text class="st" x="479.0" y="327.0" text-anchor="middle" dominant-baseline="central">8040 · /healthz · unprefixed env</text>
+</g>
+<g class="purple">
+<rect x="634" y="286" width="274" height="62" rx="8" stroke-width="0.75"/>
+<text class="tt" x="771.0" y="310.0" text-anchor="middle" dominant-baseline="central">glea-service</text>
+<text class="st" x="771.0" y="327.0" text-anchor="middle" dominant-baseline="central">8090 · NEW in 0.2.0</text>
+</g>
+<g class="purple">
+<rect x="50" y="360" width="274" height="62" rx="8" stroke-width="0.75"/>
+<text class="tt" x="187.0" y="384.0" text-anchor="middle" dominant-baseline="central">capability-worker</text>
+<text class="st" x="187.0" y="401.0" text-anchor="middle" dominant-baseline="central">no Service · nemoclaw only</text>
+</g>
+<g class="teal">
+<rect x="342" y="360" width="274" height="62" rx="8" stroke-width="0.75"/>
+<text class="tt" x="479.0" y="384.0" text-anchor="middle" dominant-baseline="central">otel-collector</text>
+<text class="st" x="479.0" y="401.0" text-anchor="middle" dominant-baseline="central">4317/4318 · contrib image</text>
+</g>
+<g class="gray">
+<rect x="634" y="360" width="274" height="62" rx="8" stroke-width="0.75"/>
+<text class="tt" x="771.0" y="384.0" text-anchor="middle" dominant-baseline="central">nim (conditional)</text>
+<text class="st" x="771.0" y="401.0" text-anchor="middle" dominant-baseline="central">8000 · nim-selfhosted only · GPU</text>
+</g>
+<rect class="cont" x="50" y="442" width="890" height="196" rx="10" stroke-width="1" stroke-dasharray="5 4"/>
+<text class="contlabel" x="64" y="462">In-cluster datastores — datastores.*.deploy</text>
+<text class="contsub" x="64" y="478">Disable and point at managed/BYO endpoints in production (mongo.uri · rabbit.host · GLEA/collector ClickHouse)</text>
+<g class="teal">
+<rect x="70" y="494" width="202" height="108" rx="8" stroke-width="0.75"/>
+<text class="tt" x="171.0" y="528.0" text-anchor="middle" dominant-baseline="central">mongodb</text>
+<text class="st" x="171.0" y="545.0" text-anchor="middle" dominant-baseline="central">27017</text>
+<text class="mono" x="171.0" y="558.0" text-anchor="middle" dominant-baseline="central">PVC 10Gi</text>
+<text class="mono" x="171.0" y="571.0" text-anchor="middle" dominant-baseline="central">/data/db</text>
+</g>
+<g class="teal">
+<rect x="287" y="494" width="202" height="108" rx="8" stroke-width="0.75"/>
+<text class="tt" x="388.0" y="528.0" text-anchor="middle" dominant-baseline="central">rabbitmq</text>
+<text class="st" x="388.0" y="545.0" text-anchor="middle" dominant-baseline="central">5672</text>
+<text class="mono" x="388.0" y="558.0" text-anchor="middle" dominant-baseline="central">PVC 8Gi  (new)</text>
+<text class="mono" x="388.0" y="571.0" text-anchor="middle" dominant-baseline="central">/var/lib/rabbitmq</text>
+</g>
+<g class="teal">
+<rect x="504" y="494" width="202" height="108" rx="8" stroke-width="0.75"/>
+<text class="tt" x="605.0" y="528.0" text-anchor="middle" dominant-baseline="central">clickhouse</text>
+<text class="st" x="605.0" y="545.0" text-anchor="middle" dominant-baseline="central">8123 + 9000</text>
+<text class="mono" x="605.0" y="558.0" text-anchor="middle" dominant-baseline="central">PVC 50Gi  (new)</text>
+<text class="mono" x="605.0" y="571.0" text-anchor="middle" dominant-baseline="central">/var/lib/clickhouse</text>
+</g>
+<g class="gray">
+<rect x="721" y="494" width="202" height="108" rx="8" stroke-width="0.75"/>
+<text class="tt" x="822.0" y="528.0" text-anchor="middle" dominant-baseline="central">keycloak</text>
+<text class="st" x="822.0" y="545.0" text-anchor="middle" dominant-baseline="central">deploy: false</text>
+<text class="mono" x="822.0" y="558.0" text-anchor="middle" dominant-baseline="central">external/managed</text>
+<text class="mono" x="822.0" y="571.0" text-anchor="middle" dominant-baseline="central">no storage value</text>
+</g>
+<text class="note" x="70" y="622">PVC: ReadWriteOnce · storageClassName from global.storageClass, omitted entirely when "" so the cluster default applies.</text>
+<rect class="cont" x="50" y="654" width="890" height="124" rx="10" stroke-width="1" stroke-dasharray="5 4"/>
+<text class="contlabel" x="64" y="674">NetworkPolicy — default-deny egress + per-workload allowlists</text>
+<text class="contsub" x="64" y="690">networkPolicy.enabled · defaultDenyEgress · allowDNS (kube-dns required for Service resolution)</text>
+<text class="note" x="70" y="706">agent-runtime → mongodb, rabbitmq, process-registry, config-forge, identity, otel     |     ingestor → the same + stub-trigger-generator</text>
+<text class="note" x="70" y="724">glea-service → rabbitmq, clickhouse, otel     |     otel-collector → clickhouse     |     webui → the seven services it proxies</text>
+<text class="note" x="70" y="742">capability-worker → rabbitmq, config-forge, inference, mcp, otel     |     identity → mongodb, keycloak     |     process-registry → mongodb, identity</text>
+<text class="warn" x="70" y="762">Governs EGRESS only. Nothing here restricts who may call a service — see the trust-boundary diagram.</text>
+<rect class="cont" x="985" y="84" width="325" height="712" rx="10" stroke-width="1" stroke-dasharray="5 4"/>
+<text class="contlabel" x="999" y="104">Outside the cluster</text>
+<g class="teal">
+<rect x="1005" y="124" width="285" height="108" rx="8" stroke-width="0.75"/>
+<text class="tt" x="1147.5" y="151.5" text-anchor="middle" dominant-baseline="central">Vault</text>
+<text class="st" x="1147.5" y="168.5" text-anchor="middle" dominant-baseline="central">Kubernetes auth (portable)</text>
+<text class="mono" x="1147.5" y="181.5" text-anchor="middle" dominant-baseline="central">method: csi  (default in 0.2.0)</text>
+<text class="mono" x="1147.5" y="194.5" text-anchor="middle" dominant-baseline="central">secret/data/amendia/&lt;service&gt;</text>
+<text class="mono" x="1147.5" y="207.5" text-anchor="middle" dominant-baseline="central">→ SecretProviderClass → secretKeyRef</text>
+</g>
+<g class="gray">
+<rect x="1005" y="248" width="285" height="92" rx="8" stroke-width="0.75"/>
+<text class="tt" x="1147.5" y="274.0" text-anchor="middle" dominant-baseline="central">Customer OIDC IdP</text>
+<text class="st" x="1147.5" y="291.0" text-anchor="middle" dominant-baseline="central">Keycloak dev · Entra/Okta prod</text>
+<text class="mono" x="1147.5" y="304.0" text-anchor="middle" dominant-baseline="central">issuer + PKCE client + audience</text>
+<text class="mono" x="1147.5" y="317.0" text-anchor="middle" dominant-baseline="central">→ JWKS fetch + browser PKCE</text>
+</g>
+<g class="gray">
+<rect x="1005" y="348" width="285" height="104" rx="8" stroke-width="0.75"/>
+<text class="tt" x="1147.5" y="380.0" text-anchor="middle" dominant-baseline="central">Inference — one toggle</text>
+<text class="st" x="1147.5" y="397.0" text-anchor="middle" dominant-baseline="central">nim-selfhosted → in-cluster GPU</text>
+<text class="mono" x="1147.5" y="410.0" text-anchor="middle" dominant-baseline="central">nvidia-hosted → integrate.api.nvidia.com</text>
+<text class="mono" x="1147.5" y="423.0" text-anchor="middle" dominant-baseline="central">bedrock-only → AWS Bedrock</text>
+</g>
+<g class="gray">
+<rect x="1005" y="470" width="285" height="78" rx="8" stroke-width="0.75"/>
+<text class="tt" x="1147.5" y="495.5" text-anchor="middle" dominant-baseline="central">Container registry</text>
+<text class="st" x="1147.5" y="512.5" text-anchor="middle" dominant-baseline="central">ghcr.io/amendia</text>
+<text class="mono" x="1147.5" y="525.5" text-anchor="middle" dominant-baseline="central">imageTag 0.1.0</text>
+</g>
+<g class="gray">
+<rect x="1005" y="566" width="285" height="86" rx="8" stroke-width="0.75"/>
+<text class="tt" x="1147.5" y="595.5" text-anchor="middle" dominant-baseline="central">Ingress</text>
+<text class="st" x="1147.5" y="612.5" text-anchor="middle" dominant-baseline="central">disabled by default</text>
+<text class="mono" x="1147.5" y="625.5" text-anchor="middle" dominant-baseline="central">gce | alb | azure | nginx</text>
+</g>
+<line class="arr" x1="1004" y1="178" x2="962" y2="178" stroke-width="1.5" marker-end="url(#arrow)"/>
+<line class="arr" x1="1004" y1="294" x2="962" y2="294" stroke-width="1.5" marker-end="url(#arrow)"/>
+<line class="arr" x1="962" y1="400" x2="1004" y2="400" stroke-width="1.5" marker-end="url(#arrow)"/>
+<text class="note" x="1005" y="676">Release name is amendia — cross-service</text>
+<text class="note" x="1005" y="692">DNS defaults assume it.</text>
+<text class="note" x="1005" y="718">Per-provider overlays set only:</text>
+<text class="note" x="1005" y="734">global.storageClass · GPU nodeSelector +</text>
+<text class="note" x="1005" y="750">tolerations · ingress.className · SA</text>
+<text class="note" x="1005" y="766">identity annotations.</text>
+<text class="note" x="1005" y="786">Fail-closed: executionMode=nemoclaw.</text>
+<text class="note" x="30" y="828">Open items (ADR-022 revision, chart 0.2.0)</text>
+<text class="warn" x="30" y="850">⚠  The PVC-backed datastore Deployments still use the default RollingUpdate strategy. At replicas 1, maxSurge=1 / maxUnavailable=0 schedules the replacement pod</text>
+<text class="warn" x="30" y="866">    before the old one releases the ReadWriteOnce volume, so the rollout deadlocks on a single-attach CSI driver. Set strategy: Recreate, or use StatefulSets.</text>
+<text class="warn" x="30" y="886">⚠  ClickHouse is single-replica with the passwordless 'default' user and inherits defaults.resources (cpu 1 / mem 512Mi). GLEA_CLICKHOUSE_PASSWORD is not wired to Vault.</text>
+<text class="note" x="30" y="906">•  openshell.sandbox.enabled=false — NemoClaw's K8s sandbox mechanism is unconfirmed (# [confirm] + STOP). The baseline hardened worker Deployment is the supported posture.</text>
+<text class="note" x="30" y="924">•  The NIM image/args/licensing line is likewise # [confirm] against NVIDIA's official Helm packaging.</text>
+<text class="note" x="30" y="942">•  Everything shown is a helm template / helm lint result across defaults + all four overlays. No runtime behaviour has been verified — there is no cluster.</text>
+<g class="purple"><rect x="30" y="967" width="14" height="12" rx="3" stroke-width="0.75"/></g>
+<text class="legend" x="50" y="976" dominant-baseline="central">Amendia service</text>
+<g class="teal"><rect x="180" y="967" width="14" height="12" rx="3" stroke-width="0.75"/></g>
+<text class="legend" x="200" y="976" dominant-baseline="central">Datastore / infra</text>
+<g class="amber"><rect x="330" y="967" width="14" height="12" rx="3" stroke-width="0.75"/></g>
+<text class="legend" x="350" y="976" dominant-baseline="central">Dev/test — replace</text>
+<g class="gray"><rect x="500" y="967" width="14" height="12" rx="3" stroke-width="0.75"/></g>
+<text class="legend" x="520" y="976" dominant-baseline="central">External / conditional</text>
+<text class="note" x="660" y="980">One .Values.services entry renders 6 objects: Deployment, Service, ServiceAccount, PDB, SecretProviderClass, NetworkPolicy.</text>
+</svg>
+</figure>
+</section>
+<section id="d4">
+<h2>4 · Trust &amp; exposure boundaries</h2>
+<p class="lede">Where authentication is enforced and where it is not. This is the diagram that makes <strong>CB-9</strong> visible: glea-service is the only production service sitting in the unauthenticated zone, exposing the entire audit trail.</p>
+<figure>
+<svg xmlns="http://www.w3.org/2000/svg" width="1340" height="1010" viewBox="0 0 1340 1010" role="img">
+<title>Amendia trust and exposure boundaries</title>
+<desc>Which services enforce authentication and which do not. Seven services require an OIDC bearer on every endpoint except health. The webui and Keycloak are public by design. The stub trigger generator, the MCP tool servers and the Pega stub are unauthenticated dev scaffolding. glea-service is an unauthenticated production service exposing the whole audit trail, recorded as cleanup-backlog item CB-9. Service to service calls use one static shared token, and outbound egress is enforced for MCP but audit-only for LLM inference.</desc>
+<style>
+text { font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+.h1 { font-size: 19px; font-weight: 600; fill: #1A1A1A; }
+.h2 { font-size: 12.5px; font-weight: 400; fill: #5F5E5A; }
+.tt { font-size: 13.5px; font-weight: 500; }
+.st { font-size: 11px; font-weight: 400; }
+.mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 10.5px; }
+.purple rect { fill: #EEEDFE; stroke: #534AB7; }
+.purple .tt { fill: #3C3489; } .purple .st, .purple .mono { fill: #534AB7; }
+.teal rect { fill: #E1F5EE; stroke: #0F6E56; }
+.teal .tt { fill: #085041; } .teal .st, .teal .mono { fill: #0F6E56; }
+.gray rect { fill: #F1EFE8; stroke: #5F5E5A; }
+.gray .tt { fill: #444441; } .gray .st, .gray .mono { fill: #5F5E5A; }
+.amber rect { fill: #FDF0DC; stroke: #A66A00; }
+.amber .tt { fill: #7A4E00; } .amber .st, .amber .mono { fill: #A66A00; }
+.red rect { fill: #FDECEC; stroke: #B3261E; }
+.red .tt { fill: #8C1D18; } .red .st, .red .mono { fill: #B3261E; }
+.cont { fill: none; stroke: #888780; }
+.contlabel { font-size: 13px; font-weight: 500; fill: #444441; }
+.contsub { font-size: 10.5px; font-weight: 400; fill: #73726C; }
+.legend { font-size: 11px; fill: #5F5E5A; }
+.note { font-size: 11px; fill: #5F5E5A; }
+.warn { font-size: 11px; fill: #B3261E; font-weight: 500; }
+.arr { stroke: #73726C; fill: none; }
+.arrlabel { font-size: 10px; fill: #5F5E5A; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.arrwarn { stroke: #B3261E; fill: none; }
+@media (prefers-color-scheme: dark) {
+.h1 { fill: #EDEBE3; } .h2 { fill: #B4B2A9; }
+.purple rect { fill: #3C3489; stroke: #AFA9EC; }
+.purple .tt { fill: #CECBF6; } .purple .st, .purple .mono { fill: #AFA9EC; }
+.teal rect { fill: #085041; stroke: #5DCAA5; }
+.teal .tt { fill: #9FE1CB; } .teal .st, .teal .mono { fill: #5DCAA5; }
+.gray rect { fill: #444441; stroke: #B4B2A9; }
+.gray .tt { fill: #D3D1C7; } .gray .st, .gray .mono { fill: #B4B2A9; }
+.amber rect { fill: #7A4E00; stroke: #F2C078; }
+.amber .tt { fill: #FBE2BB; } .amber .st, .amber .mono { fill: #F2C078; }
+.red rect { fill: #8C1D18; stroke: #F2B8B5; }
+.red .tt { fill: #F9DEDC; } .red .st, .red .mono { fill: #F2B8B5; }
+.cont { stroke: #9C9A92; }
+.contlabel { fill: #D3D1C7; } .contsub { fill: #9C9A92; }
+.legend, .note { fill: #B4B2A9; }
+.warn { fill: #F2B8B5; }
+.arr { stroke: #9C9A92; }
+.arrlabel { fill: #B4B2A9; }
+.arrwarn { stroke: #F2B8B5; }
+}
+</style>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></marker></defs>
+<text class="h1" x="30" y="38">Amendia — trust &amp; exposure boundaries</text>
+<text class="h2" x="30" y="58">Where authentication is enforced, where it is not, and what crosses the boundary. Read-verified 2026-08-19 against the compose stack.</text>
+<rect class="cont" x="30" y="84" width="236" height="560" rx="10" stroke-width="1" stroke-dasharray="5 4"/>
+<text class="contlabel" x="44" y="104">Callers</text>
+<text class="contsub" x="44" y="120">Anything that can reach the port</text>
+<g class="gray">
+<rect x="48" y="130" width="200" height="76" rx="8" stroke-width="0.75"/>
+<text class="tt" x="148.0" y="154.5" text-anchor="middle" dominant-baseline="central">Operator browser</text>
+<text class="st" x="148.0" y="171.5" text-anchor="middle" dominant-baseline="central">PKCE → bearer</text>
+<text class="mono" x="148.0" y="184.5" text-anchor="middle" dominant-baseline="central">role-aware UI</text>
+</g>
+<g class="amber">
+<rect x="48" y="222" width="200" height="76" rx="8" stroke-width="0.75"/>
+<text class="tt" x="148.0" y="246.5" text-anchor="middle" dominant-baseline="central">External orchestrator</text>
+<text class="st" x="148.0" y="263.5" text-anchor="middle" dominant-baseline="central">pega-stub → POST /triggers</text>
+<text class="mono" x="148.0" y="276.5" text-anchor="middle" dominant-baseline="central">static internal token</text>
+</g>
+<g class="red">
+<rect x="48" y="314" width="200" height="90" rx="8" stroke-width="0.75"/>
+<text class="tt" x="148.0" y="339.0" text-anchor="middle" dominant-baseline="central">Anything else on the</text>
+<text class="st" x="148.0" y="356.0" text-anchor="middle" dominant-baseline="central">host or the Docker network</text>
+<text class="mono" x="148.0" y="369.0" text-anchor="middle" dominant-baseline="central">— no ingress policy exists</text>
+<text class="mono" x="148.0" y="382.0" text-anchor="middle" dominant-baseline="central">in compose or in Helm</text>
+</g>
+<text class="note" x="48" y="432">NetworkPolicies in the Helm</text>
+<text class="note" x="48" y="448">chart govern EGRESS only.</text>
+<text class="note" x="48" y="464">Nothing constrains who may</text>
+<text class="note" x="48" y="480">CALL a service.</text>
+<rect class="cont" x="286" y="84" width="730" height="268" rx="10" stroke-width="1" stroke-dasharray="5 4"/>
+<text class="contlabel" x="300" y="104">AUTHENTICATED — OIDC bearer required on every endpoint except /health</text>
+<text class="contsub" x="300" y="120">ADR-012 baseline via libs/amendia_auth · roles resolved from the identity service, never from IdP claims</text>
+<g class="purple">
+<rect x="306" y="136" width="226" height="62" rx="8" stroke-width="0.75"/>
+<text class="tt" x="419.0" y="160.0" text-anchor="middle" dominant-baseline="central">ingestor</text>
+<text class="mono" x="419.0" y="177.0" text-anchor="middle" dominant-baseline="central">18082</text>
+</g>
+<g class="purple">
+<rect x="558" y="136" width="226" height="62" rx="8" stroke-width="0.75"/>
+<text class="tt" x="671.0" y="160.0" text-anchor="middle" dominant-baseline="central">agent-runtime</text>
+<text class="mono" x="671.0" y="177.0" text-anchor="middle" dominant-baseline="central">18083</text>
+</g>
+<g class="purple">
+<rect x="790" y="136" width="226" height="62" rx="8" stroke-width="0.75"/>
+<text class="tt" x="903.0" y="160.0" text-anchor="middle" dominant-baseline="central">process-registry</text>
+<text class="mono" x="903.0" y="177.0" text-anchor="middle" dominant-baseline="central">18084</text>
+</g>
+<g class="purple">
+<rect x="306" y="210" width="226" height="62" rx="8" stroke-width="0.75"/>
+<text class="tt" x="419.0" y="234.0" text-anchor="middle" dominant-baseline="central">identity</text>
+<text class="mono" x="419.0" y="251.0" text-anchor="middle" dominant-baseline="central">18086</text>
+</g>
+<g class="purple">
+<rect x="558" y="210" width="226" height="62" rx="8" stroke-width="0.75"/>
+<text class="tt" x="671.0" y="234.0" text-anchor="middle" dominant-baseline="central">notification-service</text>
+<text class="mono" x="671.0" y="251.0" text-anchor="middle" dominant-baseline="central">18088</text>
+</g>
+<g class="purple">
+<rect x="790" y="210" width="226" height="62" rx="8" stroke-width="0.75"/>
+<text class="tt" x="903.0" y="234.0" text-anchor="middle" dominant-baseline="central">config-forge</text>
+<text class="mono" x="903.0" y="251.0" text-anchor="middle" dominant-baseline="central">18040</text>
+</g>
+<text class="note" x="306" y="300">Role guards on top of the baseline: process-registry mutations and all cohort/SLA authoring require role.process.owner;</text>
+<text class="note" x="306" y="318">identity admin requires role.platform.admin. HITL claim/decide additionally enforce SoD from the actor log.</text>
+<rect class="cont" x="286" y="372" width="730" height="272" rx="10" stroke-width="1" stroke-dasharray="5 4"/>
+<text class="contlabel" x="300" y="392">NO AUTHENTICATION</text>
+<text class="contsub" x="300" y="408">Reachable without a credential</text>
+<g class="red">
+<rect x="306" y="424" width="226" height="76" rx="8" stroke-width="0.75"/>
+<text class="tt" x="419.0" y="448.5" text-anchor="middle" dominant-baseline="central">glea-service</text>
+<text class="mono" x="419.0" y="465.5" text-anchor="middle" dominant-baseline="central">18090 — GAP (CB-9)</text>
+<text class="mono" x="419.0" y="478.5" text-anchor="middle" dominant-baseline="central">no amendia_auth at all</text>
+</g>
+<g class="gray">
+<rect x="558" y="424" width="226" height="76" rx="8" stroke-width="0.75"/>
+<text class="tt" x="671.0" y="448.5" text-anchor="middle" dominant-baseline="central">webui</text>
+<text class="mono" x="671.0" y="465.5" text-anchor="middle" dominant-baseline="central">18085 — public by design</text>
+<text class="mono" x="671.0" y="478.5" text-anchor="middle" dominant-baseline="central">static SPA; auth in browser</text>
+</g>
+<g class="gray">
+<rect x="790" y="424" width="226" height="76" rx="8" stroke-width="0.75"/>
+<text class="tt" x="903.0" y="448.5" text-anchor="middle" dominant-baseline="central">keycloak</text>
+<text class="mono" x="903.0" y="465.5" text-anchor="middle" dominant-baseline="central">8087 — public by design</text>
+<text class="mono" x="903.0" y="478.5" text-anchor="middle" dominant-baseline="central">it is the IdP</text>
+</g>
+<g class="amber">
+<rect x="306" y="516" width="226" height="76" rx="8" stroke-width="0.75"/>
+<text class="tt" x="419.0" y="540.5" text-anchor="middle" dominant-baseline="central">stub-trigger-generator</text>
+<text class="mono" x="419.0" y="557.5" text-anchor="middle" dominant-baseline="central">18081 — dev scaffolding</text>
+<text class="mono" x="419.0" y="570.5" text-anchor="middle" dominant-baseline="central">/triggers takes internal token</text>
+</g>
+<g class="amber">
+<rect x="558" y="516" width="226" height="76" rx="8" stroke-width="0.75"/>
+<text class="tt" x="671.0" y="540.5" text-anchor="middle" dominant-baseline="central">MCP tool servers</text>
+<text class="mono" x="671.0" y="557.5" text-anchor="middle" dominant-baseline="central">8060–8077 — dev stubs</text>
+<text class="mono" x="671.0" y="570.5" text-anchor="middle" dominant-baseline="central">no auth on /mcp</text>
+</g>
+<g class="amber">
+<rect x="790" y="516" width="226" height="76" rx="8" stroke-width="0.75"/>
+<text class="tt" x="903.0" y="540.5" text-anchor="middle" dominant-baseline="central">pega-stub</text>
+<text class="mono" x="903.0" y="557.5" text-anchor="middle" dominant-baseline="central">9095 — dev stub</text>
+<text class="mono" x="903.0" y="570.5" text-anchor="middle" dominant-baseline="central">no auth</text>
+</g>
+<text class="warn" x="306" y="612">Only glea-service is a production service in this zone.</text>
+<text class="warn" x="306" y="630">The rest are public by design, or dev-only scaffolding a real deployment replaces.</text>
+<rect class="cont" x="30" y="664" width="986" height="128" rx="10" stroke-width="1" stroke-dasharray="5 4"/>
+<text class="contlabel" x="44" y="684">CB-9 — what an unauthenticated glea-service exposes</text>
+<text class="note" x="50" y="712">Every GLEA read model, to anyone who can reach port 8090:  instance audit  ·  decision trails  ·  lineage  ·  trace trees  ·  metrics  ·  seal verification</text>
+<text class="note" x="50" y="730">·  cohort read models  ·  cohort SLA rollups.  audit_events.payload stores the entire raw event JSON verbatim under a ~7-year TTL.</text>
+<text class="warn" x="50" y="754">Verified: config.py declares no *_AUTH_* or *_INTERNAL_TOKEN · amendia_auth is not in its pyproject.toml · nothing under app/ imports it ·</text>
+<text class="warn" x="50" y="772">every Depends() injects a reader or consumer, never a principal.  It is also proxied by the webui nginx at /api/glea/.</text>
+<rect class="cont" x="1036" y="84" width="274" height="560" rx="10" stroke-width="1" stroke-dasharray="5 4"/>
+<text class="contlabel" x="1050" y="104">OUTBOUND</text>
+<text class="contsub" x="1050" y="120">What leaves the boundary</text>
+<g class="amber">
+<rect x="1054" y="130" width="238" height="88" rx="8" stroke-width="0.75"/>
+<text class="tt" x="1173.0" y="160.5" text-anchor="middle" dominant-baseline="central">MCP tool servers</text>
+<text class="mono" x="1173.0" y="177.5" text-anchor="middle" dominant-baseline="central">allowlist ENFORCED</text>
+<text class="mono" x="1173.0" y="190.5" text-anchor="middle" dominant-baseline="central">(NATIVE_EGRESS_ENFORCE)</text>
+</g>
+<g class="red">
+<rect x="1054" y="234" width="238" height="106" rx="8" stroke-width="0.75"/>
+<text class="tt" x="1173.0" y="267.0" text-anchor="middle" dominant-baseline="central">AWS Bedrock</text>
+<text class="mono" x="1173.0" y="284.0" text-anchor="middle" dominant-baseline="central">us-east-1 · real inference</text>
+<text class="mono" x="1173.0" y="297.0" text-anchor="middle" dominant-baseline="central">full envelope + artifacts</text>
+<text class="mono" x="1173.0" y="310.0" text-anchor="middle" dominant-baseline="central">egress AUDIT-ONLY</text>
+</g>
+<g class="gray">
+<rect x="1054" y="356" width="238" height="88" rx="8" stroke-width="0.75"/>
+<text class="tt" x="1173.0" y="386.5" text-anchor="middle" dominant-baseline="central">NVIDIA hosted / NIM</text>
+<text class="mono" x="1173.0" y="403.5" text-anchor="middle" dominant-baseline="central">nemoclaw profile</text>
+<text class="mono" x="1173.0" y="416.5" text-anchor="middle" dominant-baseline="central">inference.mode toggle</text>
+</g>
+<text class="warn" x="1054" y="476">The allowlist is derived from the</text>
+<text class="warn" x="1054" y="492">capability's own declared endpoint —</text>
+<text class="warn" x="1054" y="508">it verifies “we dialled the host we</text>
+<text class="warn" x="1054" y="524">said we would”, not “this host is</text>
+<text class="warn" x="1054" y="540">approved”.</text>
+<text class="note" x="1054" y="566">llm and deep_agent capabilities are</text>
+<text class="note" x="1054" y="582">explicitly exempt from blocking —</text>
+<text class="note" x="1054" y="598">the deny is recorded and the call</text>
+<text class="note" x="1054" y="614">proceeds anyway.</text>
+<rect class="cont" x="30" y="812" width="640" height="132" rx="10" stroke-width="1" stroke-dasharray="5 4"/>
+<text class="contlabel" x="44" y="832">Service-to-service trust</text>
+<g class="red">
+<rect x="50" y="856" width="260" height="68" rx="8" stroke-width="0.75"/>
+<text class="tt" x="180.0" y="876.5" text-anchor="middle" dominant-baseline="central">X-Amendia-Internal</text>
+<text class="mono" x="180.0" y="893.5" text-anchor="middle" dominant-baseline="central">one static shared token</text>
+<text class="mono" x="180.0" y="906.5" text-anchor="middle" dominant-baseline="central">identical in every service</text>
+</g>
+<text class="note" x="330" y="872">Compared with a plain == (not constant-time).</text>
+<text class="note" x="330" y="890">Never expires, never rotates, no per-caller identity.</text>
+<text class="note" x="330" y="908">libs/amendia_auth carries its own TODO to replace</text>
+<text class="note" x="330" y="924">it with mTLS / signed service tokens.</text>
+<rect class="cont" x="690" y="812" width="620" height="132" rx="10" stroke-width="1" stroke-dasharray="5 4"/>
+<text class="contlabel" x="704" y="832">Data at rest</text>
+<g class="red">
+<rect x="710" y="856" width="240" height="68" rx="8" stroke-width="0.75"/>
+<text class="tt" x="830.0" y="876.5" text-anchor="middle" dominant-baseline="central">MongoDB + ClickHouse</text>
+<text class="mono" x="830.0" y="893.5" text-anchor="middle" dominant-baseline="central">no field-level encryption</text>
+<text class="mono" x="830.0" y="906.5" text-anchor="middle" dominant-baseline="central">no masking, no tokenization</text>
+</g>
+<text class="note" x="968" y="872">Nothing in the platform encrypts, masks, redacts</text>
+<text class="note" x="968" y="890">or classifies a field. ClickHouse audit rows carry</text>
+<text class="note" x="968" y="908">the raw payload for ~7 years. See the PII gap</text>
+<text class="note" x="968" y="924">analysis (ADR-065 workstream) for the full register.</text>
+<g class="purple"><rect x="30" y="967" width="14" height="12" rx="3" stroke-width="0.75"/></g>
+<text class="legend" x="50" y="976" dominant-baseline="central">Auth enforced</text>
+<g class="gray"><rect x="170" y="967" width="14" height="12" rx="3" stroke-width="0.75"/></g>
+<text class="legend" x="190" y="976" dominant-baseline="central">Public by design</text>
+<g class="amber"><rect x="330" y="967" width="14" height="12" rx="3" stroke-width="0.75"/></g>
+<text class="legend" x="350" y="976" dominant-baseline="central">Dev scaffolding — replace in production</text>
+<g class="red"><rect x="610" y="967" width="14" height="12" rx="3" stroke-width="0.75"/></g>
+<text class="legend" x="630" y="976" dominant-baseline="central">Gap / unmitigated exposure</text>
+<text class="note" x="880" y="980">Compose host ports shown. In Helm these are ClusterIP — still no ingress policy.</text>
+</svg>
+</figure>
+</section>
+
+<p class="foot">
+Sources: <code>backend/deploy/docker-compose.yml</code>, <code>mcp_stub/deploy</code>, <code>pega_stub/deploy</code>,
+<code>deploy/helm/amendia</code>, <code>deploy/vault</code>, <code>libs/amendia_common/events.py</code>,
+<code>webui/nginx.conf</code> and the per-service <code>config.py</code> files.
+Related: ADR-022 (portable Helm deployment, revised for chart 0.2.0), ADR-058/063/064 (GLEA, cohorts, cohort SLAs),
+ADR-012 (auth baseline), <code>backend/docs/known-issues/cleanup-backlog.md</code> (CB-9), and
+<code>amendia_pii_processor_gap_analysis.md</code>.
+Nothing here asserts runtime behaviour on a cluster — the Helm view is a <code>helm template</code> result.
+</p>
+</div>
+</body>
+</html>

@@ -1,11 +1,20 @@
 {{- /* Optional in-cluster datastores (dev/self-contained). Disable (deploy:false) + point at
-       managed/BYO endpoints in prod (mongo.uri / rabbit.host / auth.jwksUri). Simple single
-       replicas — a bank typically uses an operator or managed service. */ -}}
+       managed/BYO endpoints in prod (mongo.uri / rabbit.host / auth.jwksUri / glea+otel ClickHouse).
+       Simple single replicas — a bank typically uses an operator or managed service.
+
+       Persistence (ADR-022 gap fix): a datastore with a `storage` value gets a PersistentVolumeClaim
+       (RWO, global.storageClass) mounted at its data path, so the pod does NOT lose data on restart or
+       reschedule. No `storage` (or deploy:false) ⇒ ephemeral, unchanged. */ -}}
 {{- $root := . -}}
+{{- /* name → in-cluster port(s); multi-port (ClickHouse: 8123 HTTP + 9000 native) is a list */ -}}
+{{- $dsPorts := dict "mongodb" (list 27017) "rabbitmq" (list 5672) "keycloak" (list 8080) "clickhouse" (list 8123 9000) -}}
+{{- /* name → data path the PVC mounts at (only datastores with a `storage` value are persisted) */ -}}
+{{- $dsDataPath := dict "mongodb" "/data/db" "rabbitmq" "/var/lib/rabbitmq" "clickhouse" "/var/lib/clickhouse" -}}
 {{- range $name, $ds := .Values.datastores }}
 {{- if $ds.deploy }}
 {{- $fullname := include "amendia.svc" (dict "root" $root "name" $name) }}
-{{- $port := 27017 }}{{ if eq $name "rabbitmq" }}{{ $port = 5672 }}{{ else if eq $name "keycloak" }}{{ $port = 8080 }}{{ end }}
+{{- $ports := hasKey $dsPorts $name | ternary (index $dsPorts $name) (list 27017) }}
+{{- $persist := and $ds.storage (hasKey $dsDataPath $name) }}
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -30,9 +39,40 @@ spec:
           args: ["start"]
           {{- end }}
           ports:
-            - containerPort: {{ $port }}
+            {{- range $p := $ports }}
+            - name: {{ printf "p%d" (int $p) }}
+              containerPort: {{ $p }}
+            {{- end }}
           resources:
 {{ toYaml $root.Values.defaults.resources | indent 12 }}
+          {{- if $persist }}
+          volumeMounts:
+            - name: data
+              mountPath: {{ index $dsDataPath $name | quote }}
+          {{- end }}
+      {{- if $persist }}
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ $fullname }}-data
+      {{- end }}
+{{- if $persist }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ $fullname }}-data
+  labels:
+{{ include "amendia.labels" (dict "root" $root "name" $name) | indent 4 }}
+spec:
+  accessModes: [ReadWriteOnce]
+  {{- if $root.Values.global.storageClass }}
+  storageClassName: {{ $root.Values.global.storageClass | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ $ds.storage | quote }}
+{{- end }}
 ---
 apiVersion: v1
 kind: Service
@@ -44,7 +84,10 @@ spec:
   selector:
 {{ include "amendia.selectorLabels" (dict "root" $root "name" $name) | indent 4 }}
   ports:
-    - port: {{ $port }}
-      targetPort: {{ $port }}
+    {{- range $p := $ports }}
+    - name: {{ printf "p%d" (int $p) }}
+      port: {{ $p }}
+      targetPort: {{ $p }}
+    {{- end }}
 {{- end }}
 {{- end }}

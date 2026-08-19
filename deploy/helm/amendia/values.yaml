@@ -71,7 +71,11 @@ inference:
 # ── Vault (Kubernetes auth) — portable across GKE/EKS/AKS/on-prem (Part B). ──
 vault:
   enabled: true
-  method: "agent-injector"              # agent-injector | csi  (CSI is the documented alternative)
+  # CSI is the default (Secrets Store CSI + Vault provider → per-service SecretProviderClass, synced
+  # into a K8s Secret consumed via secretKeyRef). This is what _helpers.tpl, secretproviderclass.yaml
+  # and deploy/vault/README all assume, and it renders a working secret path out of the box.
+  # agent-injector is the fully-supported alternative (pod annotations → /vault/secrets file refs).
+  method: "csi"                         # csi | agent-injector
   address: "https://vault.amendia.example"   # per-deployment
   role: "amendia"                        # Vault role bound to the service ServiceAccounts
   # Base KV path holding Amendia secrets. Each service reads only its subpaths (see deploy/vault).
@@ -87,14 +91,24 @@ networkPolicy:
   allowDNS: true
   # per-provider: CNI differences (Calico/Cilium/GKE-native) may need extra ipBlocks.
 
-# ── Observability (Part G). ──
+# ── Observability (Part G / ADR-058: GLEA on OTel + ClickHouse). ──
 otel:
   enabled: true
   # In-cluster collector endpoint (baseline). Sandbox enhancement uses host.openshell.internal:4318.
   endpoint: "http://amendia-otel-collector:4318"
   deployCollector: true                 # a minimal in-cluster OTLP collector (Deployment)
-  collectorImage: "otel/opentelemetry-collector:0.109.0"
-  # per-deployment: the export/backend (Tempo/Jaeger/Cloud Trace) — configure the collector exporter.
+  # CONTRIB distribution — the non-contrib image lacks the ClickHouse exporter GLEA/ADR-058 rely on.
+  collectorImage: "otel/opentelemetry-collector-contrib:0.109.0"
+  # Trace/log export backend. Default 'clickhouse' — the ADR-058 telemetry backend that GLEA reads
+  # (otel_traces / otel_logs, short TTL; the multi-year audit_events SOR is glea's own table).
+  # per-deployment: set 'otlp' + exporterEndpoint to forward to Tempo/Jaeger/Cloud Trace (any OTLP backend).
+  exporter: "clickhouse"                # clickhouse | otlp
+  exporterEndpoint: ""                  # otlp only: the downstream OTLP backend host:port
+  clickhouse:
+    # empty → derived from the in-cluster ClickHouse Service (tcp://<release>-clickhouse:9000).
+    endpoint: ""                        # per-deployment: override for a managed ClickHouse (tcp://host:9000?…)
+    database: "otel"                    # collector-owned DB (glea owns its separate `glea` DB)
+    ttl: "72h"                          # operational-trace retention; audit_events TTL is glea's (~7yr)
 
 # ── OpenShell-sandbox enhancement (Part D) — gated + [confirm]. ──
 openshell:
@@ -106,14 +120,24 @@ openshell:
     enabled: false
 
 # ── Optional in-cluster datastores (dev/self-contained). Disable + point external in prod. ──
+# Each with a `storage` value gets a PersistentVolumeClaim (RWO, global.storageClass) mounted at its
+# data path — so an in-cluster pod does NOT lose data on restart/reschedule. No `storage` ⇒ ephemeral.
 datastores:
   mongodb:
     deploy: true
     image: "mongo:7"
-    storage: "10Gi"
+    storage: "10Gi"                     # → PVC at /data/db
   rabbitmq:
     deploy: true
     image: "rabbitmq:3-management"
+    storage: "8Gi"                      # → PVC at /var/lib/rabbitmq (durable GLEA audit queue survives restarts)
+  clickhouse:
+    # ADR-058 telemetry backend + audit system-of-record (otel_traces/otel_logs + glea's audit_events).
+    deploy: true                        # per-provider: disable + point glea/otel at a managed ClickHouse in prod
+    image: "clickhouse/clickhouse-server:24.8"
+    # Sized for the ~7-year append-only audit horizon (GLEA_AUDIT_TTL_DAYS=2555), not the 72h trace TTL —
+    # visibly larger than mongo's operational store. # per-deployment: size from real audit throughput.
+    storage: "50Gi"                     # → PVC at /var/lib/clickhouse
   keycloak:
     deploy: false                       # usually external/managed in prod
     image: "quay.io/keycloak/keycloak:26.0"
@@ -234,6 +258,33 @@ services:
     egress: [rabbitmq, identity]
     secretEnv: [NOTIFICATION_AUTH_INTERNAL_TOKEN, RABBIT_USER, RABBIT_PASSWORD]
 
+  # GLEA read-model + audit system-of-record (ADR-058/063/064): consumes governed events off RabbitMQ,
+  # writes the audit_events / cohort_events / cohort_sla_events tables in ClickHouse, and exports its own
+  # OTLP traces to the collector. Env derived from glea-service/app/config.py (GLEA_ prefix, extra=ignore):
+  # NO Mongo, and NO internal-auth token (glea has no auth layer — see report). The `common` auth vars it
+  # emits are ignored by extra=ignore; they buy consistency + GLEA_LOG_LEVEL/GLEA_RABBITMQ_URL.
+  glea-service:
+    port: 8090                          # config.py PORT
+    prefix: GLEA                         # config.py env_prefix="GLEA_"
+    image: glea-service
+    health: /health
+    common: true                        # → GLEA_LOG_LEVEL + GLEA_RABBITMQ_URL (auth vars ignored)
+    rabbit: true                        # → GLEA_RABBITMQ_URL (config.py RABBITMQ_URL)
+    # no mongoDb — glea has no Mongo (config.py has no MONGO_* fields)
+    egress: [rabbitmq, clickhouse, otel]   # NOT identity: glea has no auth/identity call (config.py + compose)
+    secretEnv: [RABBIT_USER, RABBIT_PASSWORD]   # broker creds for the $(…)-interpolated RABBITMQ_URL
+    extraEnv:
+      GLEA_CLICKHOUSE_HOST: "amendia-clickhouse"   # in-cluster ClickHouse Service (release "amendia")
+      GLEA_CLICKHOUSE_PORT: "8123"       # config.py CLICKHOUSE_PORT (HTTP interface)
+      GLEA_CLICKHOUSE_DB: "glea"         # config.py CLICKHOUSE_DB (glea's own DB; collector owns `otel`)
+      GLEA_CLICKHOUSE_USER: "default"    # config.py CLICKHOUSE_USER
+      GLEA_CLICKHOUSE_TABLE: "audit_events"            # config.py CLICKHOUSE_TABLE
+      GLEA_CLICKHOUSE_COHORT_TABLE: "cohort_events"    # config.py CLICKHOUSE_COHORT_TABLE (ADR-063)
+      GLEA_CLICKHOUSE_COHORT_SLA_TABLE: "cohort_sla_events"  # config.py CLICKHOUSE_COHORT_SLA_TABLE (ADR-064)
+      GLEA_ENABLE_DEV_CORS: "false"      # prod hardening (config.py default is True)
+      # amendia_telemetry (configure_telemetry) reads this OTel SDK var; matches otel.endpoint default.
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://amendia-otel-collector:4318"
+
   config-forge:
     port: 8040
     image: config-forge-service
@@ -255,7 +306,8 @@ services:
     common: false
     static: true                        # nginx SPA, no app env
     secretEnv: []
-    egress: [stub-trigger-generator, ingestor, agent-runtime, process-registry, notification-service]
+    # Must match every /api/* proxy target in webui/nginx.conf (identity + glea-service were missing).
+    egress: [stub-trigger-generator, ingestor, agent-runtime, process-registry, identity, glea-service, notification-service]
 
 # capability-worker is rendered specially (worker: no Service/port; consumes the broker).
 capabilityWorker:

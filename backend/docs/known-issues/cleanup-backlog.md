@@ -98,7 +98,68 @@ Status legend: `open` · `investigating` · `fix-prompted` · `done` · `wontfix
 - **Severity:** low (no functional problem today; a governance/immutability preference).
 - **Status:** `open` (decision; not blocking).
 
+## CB-7 — Cohort SLA alerting (owner-routed email/push) — **OPEN (deferred by decision)**
+
+- **Area:** a *new* independent consumer of `agent_runtime.cohort_sla.v1`, plus the platform's first outbound
+  alert channel (notification-service or a sibling).
+- **Context:** ADR-064 V1 is deliberately **surface-only** — a breach or at-risk shows as a UI badge plus a thin
+  SSE invalidation signal. There is **no email, push or webhook sender anywhere in the platform** (re-verified
+  2026-08-19: nothing under `notification-service/app` matches `slack|teams|smtp|sendgrid|email`; the
+  `signal_mapper` allow-list → `hub` → `GET /stream` path is the only outbound route). Alerting is therefore
+  net-new work, not a config toggle.
+- **Shape if picked up:** a separate consumer of the existing SLA event stream, routed by the breach's owner
+  attribution (`external` | `amendia` | `shared`). **Zero rework to ADR-064 P2–P4** — the stream already carries
+  what is needed.
+- **Severity:** low under the current observe-first stance; rises the moment a breach must reach someone who is
+  not watching the board.
+- **Status:** `open` (deferred by Sandeep 2026-08-12 — observe first). Likely warrants its own small ADR when
+  picked up, since it introduces an outbound channel the platform has never had.
+
+## CB-8 — ADR-064 P4 follow-ups: pending-plan snapshot + SLA-editor UX — **OPEN**
+
+- **Area:** agent-runtime (new read API) · webui (`SlaGraphEditor`, `SlaPanel`).
+- **Context:** GLEA surfaces **transition-derived** SLA state only (`at_risk`/`breached`/`satisfied`/`voided`).
+  Still-*pending* expectations live in the agent-runtime `cohort_sla_expectations` snapshot — the SoR — which has
+  no REST surface, so the UI cannot render a full "what is still expected, with countdowns" plan.
+- **Items:** (a) an agent-runtime snapshot endpoint exposing pending expectations + `due_at`; (b) friendlier
+  duration entry in the SLA editor (raw seconds today); (c) a visual DAG canvas — V1 is a tabular editor and the
+  canvas was explicitly scoped out of ADR-064.
+- **Severity:** low (feature completeness, not correctness).
+- **Status:** `open`.
+
+## CB-9 — `glea-service` has no authentication layer — **OPEN (security)**
+
+- **Area:** glea-service · `app/routers/{audit,cohorts}.py`, `app/config.py`, `pyproject.toml`.
+- **Finding (verified 2026-08-19 by reading the source — not suspected):** glea-service mounts **no auth at
+  all**. `config.py` declares no `*_AUTH_*` and no `*_INTERNAL_TOKEN`; **`amendia_auth` is not a dependency in
+  its `pyproject.toml`** and nothing under `glea-service/app` imports it; every `Depends(...)` in `audit.py` and
+  `cohorts.py` injects an `AuditReader`/`CohortReader`/`AuditSealer`/`AuditConsumer` — never a principal. This
+  makes glea the **only** Amendia service without the ADR-012 baseline ("every endpoint requires a valid OIDC
+  bearer except `/health`").
+- **Exposure:** the entire GLEA read surface is open to anything that can reach the service — instance audit,
+  decision trails, lineage, trace trees, metrics, seal verification, and the ADR-063/064 cohort + SLA
+  read-models. In compose it is published on host **18090** and proxied by the webui nginx at `/api/glea/`. In
+  Helm (chart 0.2.0) the NetworkPolicies govern **egress**, not ingress, so nothing restricts it there either.
+- **Why this is not an ordinary cleanup item:** `audit_events.payload` stores the **entire raw event JSON
+  verbatim** under a ~7-year TTL (`GLEA_AUDIT_TTL_DAYS: 2555`), so this is an unauthenticated read path onto the
+  platform's most sensitive store. It also contradicted the "Keycloak JWT (read APIs)" line the DevOps inventory
+  carried until 2026-08-19 — i.e. the gap was invisible in the documentation, which is how it survived.
+- **Not a regression:** it has been this way since ADR-058. It surfaced during the ADR-022 chart catch-up, when
+  glea's env contract had to be derived from `config.py` to write its Helm values entry.
+- **Action (decision needed):** (a) mount `amendia_auth` with a baseline principal + a read role, matching every
+  sibling service — the consistent answer; or (b) declare glea explicitly **internal-only** and enforce that at
+  the network layer (no published port, no webui proxy, ingress policy) — a stopgap that leaves the service
+  itself trusting.
+- **Cross-refs:** ADR-012 (baseline enforcement), ADR-058, the ADR-022 chart-0.2.0 revision (§ Contract
+  correction), and `amendia_pii_processor_gap_analysis.md` (adjacent to G-34 "no field-read access log" and G-07
+  standing RBAC).
+- **Severity:** **high** — recorded here for tracking, but this is not a low-urgency residue item. Against real
+  customer data it is a go-live blocker, not a cleanup.
+- **Status:** `open` (security decision).
+
 ---
 
 *Started 2026-08-08 during ADR-061 review. CB-1/CB-2/CB-3 closed and CB-4 parked 2026-08-08.
-CB-5 (operational) + CB-6 (decision) opened 2026-08-08. Owner: Sandeep.*
+CB-5 (operational) + CB-6 (decision) opened 2026-08-08. CB-7/CB-8 were tracked in the working-model bridge notes
+from 2026-08-12 but had never been written into this file — restored 2026-08-19 so this register is the single
+on-disk source. CB-9 opened 2026-08-19 during the ADR-022 chart catch-up review. Owner: Sandeep.*

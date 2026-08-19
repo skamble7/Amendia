@@ -1,0 +1,187 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1320" height="956" viewBox="0 0 1320 956" role="img">
+<title>Amendia event and data flow</title>
+<desc>All asynchronous traffic rides one durable topic exchange, amendia.events, with routing keys of the form service.event.v1. The stub trigger source, ingestor, agent-runtime, process-registry, identity and config-forge publish to it; glea-service consumes governed events into ClickHouse over a durable named queue, and notification-service consumes lifecycle events onto a broadcast queue and relays thin invalidation signals to browsers over SSE. Synchronous HTTP calls, MCP tool calls and third-party LLM inference do not touch the bus.</desc>
+<style>
+text { font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+.h1 { font-size: 19px; font-weight: 600; fill: #1A1A1A; }
+.h2 { font-size: 12.5px; font-weight: 400; fill: #5F5E5A; }
+.tt { font-size: 13.5px; font-weight: 500; }
+.st { font-size: 11px; font-weight: 400; }
+.mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 10.5px; }
+.purple rect { fill: #EEEDFE; stroke: #534AB7; }
+.purple .tt { fill: #3C3489; } .purple .st, .purple .mono { fill: #534AB7; }
+.teal rect { fill: #E1F5EE; stroke: #0F6E56; }
+.teal .tt { fill: #085041; } .teal .st, .teal .mono { fill: #0F6E56; }
+.gray rect { fill: #F1EFE8; stroke: #5F5E5A; }
+.gray .tt { fill: #444441; } .gray .st, .gray .mono { fill: #5F5E5A; }
+.amber rect { fill: #FDF0DC; stroke: #A66A00; }
+.amber .tt { fill: #7A4E00; } .amber .st, .amber .mono { fill: #A66A00; }
+.red rect { fill: #FDECEC; stroke: #B3261E; }
+.red .tt { fill: #8C1D18; } .red .st, .red .mono { fill: #B3261E; }
+.cont { fill: none; stroke: #888780; }
+.contlabel { font-size: 13px; font-weight: 500; fill: #444441; }
+.contsub { font-size: 10.5px; font-weight: 400; fill: #73726C; }
+.legend { font-size: 11px; fill: #5F5E5A; }
+.note { font-size: 11px; fill: #5F5E5A; }
+.warn { font-size: 11px; fill: #B3261E; font-weight: 500; }
+.arr { stroke: #73726C; fill: none; }
+.arrlabel { font-size: 10px; fill: #5F5E5A; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.arrwarn { stroke: #B3261E; fill: none; }
+@media (prefers-color-scheme: dark) {
+.h1 { fill: #EDEBE3; } .h2 { fill: #B4B2A9; }
+.purple rect { fill: #3C3489; stroke: #AFA9EC; }
+.purple .tt { fill: #CECBF6; } .purple .st, .purple .mono { fill: #AFA9EC; }
+.teal rect { fill: #085041; stroke: #5DCAA5; }
+.teal .tt { fill: #9FE1CB; } .teal .st, .teal .mono { fill: #5DCAA5; }
+.gray rect { fill: #444441; stroke: #B4B2A9; }
+.gray .tt { fill: #D3D1C7; } .gray .st, .gray .mono { fill: #B4B2A9; }
+.amber rect { fill: #7A4E00; stroke: #F2C078; }
+.amber .tt { fill: #FBE2BB; } .amber .st, .amber .mono { fill: #F2C078; }
+.red rect { fill: #8C1D18; stroke: #F2B8B5; }
+.red .tt { fill: #F9DEDC; } .red .st, .red .mono { fill: #F2B8B5; }
+.cont { stroke: #9C9A92; }
+.contlabel { fill: #D3D1C7; } .contsub { fill: #9C9A92; }
+.legend, .note { fill: #B4B2A9; }
+.warn { fill: #F2B8B5; }
+.arr { stroke: #9C9A92; }
+.arrlabel { fill: #B4B2A9; }
+.arrwarn { stroke: #F2B8B5; }
+}
+</style>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></marker></defs>
+<text class="h1" x="30" y="38">Amendia — event &amp; data flow</text>
+<text class="h2" x="30" y="58">Routing keys are service.event.v1 (no tenant segment) built by amendia_common.events.rk(). Read-verified 2026-08-19.</text>
+<text class="note" x="40" y="82">PUBLISHERS / PARTICIPANTS</text>
+<g class="amber">
+<rect x="40" y="96" width="220" height="88" rx="8" stroke-width="0.75"/>
+<text class="tt" x="150.0" y="133.0" text-anchor="middle" dominant-baseline="central">stub-trigger-generator</text>
+<text class="st" x="150.0" y="150.0" text-anchor="middle" dominant-baseline="central">dev/test source system</text>
+</g>
+<g class="purple">
+<rect x="290" y="96" width="220" height="88" rx="8" stroke-width="0.75"/>
+<text class="tt" x="400.0" y="133.0" text-anchor="middle" dominant-baseline="central">ingestor</text>
+<text class="st" x="400.0" y="150.0" text-anchor="middle" dominant-baseline="central">also consumes ↕</text>
+</g>
+<g class="purple">
+<rect x="540" y="96" width="220" height="88" rx="8" stroke-width="0.75"/>
+<text class="tt" x="650.0" y="133.0" text-anchor="middle" dominant-baseline="central">agent-runtime</text>
+<text class="st" x="650.0" y="150.0" text-anchor="middle" dominant-baseline="central">also consumes ↕</text>
+</g>
+<g class="purple">
+<rect x="790" y="96" width="220" height="88" rx="8" stroke-width="0.75"/>
+<text class="tt" x="900.0" y="133.0" text-anchor="middle" dominant-baseline="central">process-registry</text>
+<text class="st" x="900.0" y="150.0" text-anchor="middle" dominant-baseline="central">governed events</text>
+</g>
+<g class="purple">
+<rect x="1040" y="96" width="240" height="88" rx="8" stroke-width="0.75"/>
+<text class="tt" x="1160.0" y="133.0" text-anchor="middle" dominant-baseline="central">identity · config-forge</text>
+<text class="st" x="1160.0" y="150.0" text-anchor="middle" dominant-baseline="central">governed events</text>
+</g>
+<g class="teal">
+<rect x="40" y="268" width="1240" height="84" rx="8" stroke-width="0.75"/>
+<text class="tt" x="660.0" y="303.0" text-anchor="middle" dominant-baseline="central">RabbitMQ  —  amendia.events</text>
+<text class="st" x="660.0" y="320.0" text-anchor="middle" dominant-baseline="central">durable topic exchange · the only asynchronous seam between services</text>
+</g>
+<line class="arr" x1="150" y1="184" x2="150" y2="266" stroke-width="1.5" marker-end="url(#arrow)"/>
+<text class="arrlabel" x="158" y="222" text-anchor="start">publishes</text>
+<line class="arr" x1="400" y1="184" x2="400" y2="266" stroke-width="1.5" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+<text class="arrlabel" x="408" y="216">publishes ↓</text>
+<text class="arrlabel" x="408" y="232">consumes ↑</text>
+<line class="arr" x1="650" y1="184" x2="650" y2="266" stroke-width="1.5" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+<text class="arrlabel" x="658" y="216">publishes ↓</text>
+<text class="arrlabel" x="658" y="232">consumes ↑</text>
+<line class="arr" x1="900" y1="184" x2="900" y2="266" stroke-width="1.5" marker-end="url(#arrow)"/>
+<text class="arrlabel" x="908" y="222" text-anchor="start">publishes</text>
+<line class="arr" x1="1160" y1="184" x2="1160" y2="266" stroke-width="1.5" marker-end="url(#arrow)"/>
+<text class="arrlabel" x="1168" y="222" text-anchor="start">publishes</text>
+<text class="note" x="40" y="392">CONSUMERS</text>
+<g class="purple">
+<rect x="40" y="406" width="280" height="88" rx="8" stroke-width="0.75"/>
+<text class="tt" x="180.0" y="436.5" text-anchor="middle" dominant-baseline="central">glea-service</text>
+<text class="st" x="180.0" y="453.5" text-anchor="middle" dominant-baseline="central">durable NAMED queue (competing consumers)</text>
+<text class="st" x="180.0" y="466.5" text-anchor="middle" dominant-baseline="central">16 binding keys · must not lose messages</text>
+</g>
+<g class="purple">
+<rect x="360" y="406" width="280" height="88" rx="8" stroke-width="0.75"/>
+<text class="tt" x="500.0" y="436.5" text-anchor="middle" dominant-baseline="central">notification-service</text>
+<text class="st" x="500.0" y="453.5" text-anchor="middle" dominant-baseline="central">broadcast queue (exclusive, auto-delete)</text>
+<text class="st" x="500.0" y="466.5" text-anchor="middle" dominant-baseline="central">8 binding keys · thin signals only</text>
+</g>
+<line class="arr" x1="180" y1="354" x2="180" y2="404" stroke-width="1.5" marker-end="url(#arrow)"/>
+<text class="arrlabel" x="188" y="380" text-anchor="start">governed + cohort + SLA events</text>
+<line class="arr" x1="500" y1="354" x2="500" y2="404" stroke-width="1.5" marker-end="url(#arrow)"/>
+<text class="arrlabel" x="508" y="380" text-anchor="start">lifecycle + cohort_sla</text>
+<g class="teal">
+<rect x="40" y="546" width="280" height="104" rx="8" stroke-width="0.75"/>
+<text class="tt" x="180.0" y="578.0" text-anchor="middle" dominant-baseline="central">ClickHouse</text>
+<text class="mono" x="180.0" y="595.0" text-anchor="middle" dominant-baseline="central">audit_events  (~7 yr TTL)</text>
+<text class="mono" x="180.0" y="608.0" text-anchor="middle" dominant-baseline="central">cohort_events  (ADR-063)</text>
+<text class="mono" x="180.0" y="621.0" text-anchor="middle" dominant-baseline="central">cohort_sla_events  (ADR-064)</text>
+</g>
+<g class="gray">
+<rect x="360" y="546" width="280" height="104" rx="8" stroke-width="0.75"/>
+<text class="tt" x="500.0" y="584.5" text-anchor="middle" dominant-baseline="central">Operator browser</text>
+<text class="mono" x="500.0" y="601.5" text-anchor="middle" dominant-baseline="central">GET /stream  (text/event-stream)</text>
+<text class="mono" x="500.0" y="614.5" text-anchor="middle" dominant-baseline="central">re-fetches authorized data over REST</text>
+</g>
+<line class="arr" x1="180" y1="496" x2="180" y2="544" stroke-width="1.5" marker-end="url(#arrow)"/>
+<text class="arrlabel" x="186" y="524" text-anchor="start">sole writer</text>
+<line class="arr" x1="500" y1="496" x2="500" y2="544" stroke-width="1.5" marker-end="url(#arrow)"/>
+<text class="arrlabel" x="506" y="524" text-anchor="start">SSE</text>
+<rect class="cont" x="700" y="392" width="580" height="258" rx="10" stroke-width="1" stroke-dasharray="5 4"/>
+<text class="contlabel" x="714" y="412">Synchronous — NOT on the bus</text>
+<text class="contsub" x="714" y="428">HTTP, MCP and third-party inference bypass the broker entirely</text>
+<g class="amber">
+<rect x="720" y="440" width="250" height="76" rx="8" stroke-width="0.75"/>
+<text class="tt" x="845.0" y="464.5" text-anchor="middle" dominant-baseline="central">MCP tool servers</text>
+<text class="mono" x="845.0" y="481.5" text-anchor="middle" dominant-baseline="central">5 servers · 8060–8077</text>
+<text class="mono" x="845.0" y="494.5" text-anchor="middle" dominant-baseline="central">egress allowlist ENFORCED</text>
+</g>
+<g class="red">
+<rect x="1000" y="440" width="260" height="76" rx="8" stroke-width="0.75"/>
+<text class="tt" x="1130.0" y="464.5" text-anchor="middle" dominant-baseline="central">AWS Bedrock  (us-east-1)</text>
+<text class="mono" x="1130.0" y="481.5" text-anchor="middle" dominant-baseline="central">full envelope + artifacts</text>
+<text class="mono" x="1130.0" y="494.5" text-anchor="middle" dominant-baseline="central">egress AUDIT-ONLY — not blocked</text>
+</g>
+<g class="teal">
+<rect x="720" y="536" width="540" height="60" rx="8" stroke-width="0.75"/>
+<text class="tt" x="990.0" y="559.0" text-anchor="middle" dominant-baseline="central">MongoDB</text>
+<text class="mono" x="990.0" y="576.0" text-anchor="middle" dominant-baseline="central">trigger_messages · ingestions · lg_checkpoints · hitl_tasks · cohort_* · packs</text>
+</g>
+<text class="note" x="722" y="616">Called by agent-runtime.  Also HTTP: ingestor → registry POST /resolve,</text>
+<text class="note" x="722" y="632">ingestor → stub fetch-back, webui nginx → /api/* for all seven services.</text>
+<line class="arr" x1="662" y1="478" x2="716" y2="478" stroke-width="1.5" marker-end="url(#arrow)"/>
+<rect class="cont" x="40" y="676" width="1240" height="196" rx="10" stroke-width="1" stroke-dasharray="5 4"/>
+<text class="contlabel" x="54" y="696">Routing keys on amendia.events</text>
+<text class="contsub" x="54" y="712">service.event.v1 — verified in libs/amendia_common/events.py</text>
+<text class="contlabel" x="62" y="730" font-size="11.5">Trigger pipeline</text>
+<text class="arrlabel" x="62" y="750">trigger_source.trigger_raised.v1</text>
+<text class="arrlabel" x="62" y="765">ingestor.trigger_dispatched.v1</text>
+<text class="arrlabel" x="62" y="780">agent_runtime.dispatch_accepted.v1</text>
+<text class="arrlabel" x="62" y="795">agent_runtime.dispatch_rejected.v1</text>
+<text class="arrlabel" x="62" y="810">ingestor.cohort_close_requested.v1</text>
+<text class="contlabel" x="368" y="730" font-size="11.5">Instance lifecycle</text>
+<text class="arrlabel" x="368" y="750">agent_runtime.hitl_task_created.v1</text>
+<text class="arrlabel" x="368" y="765">agent_runtime.hitl_task_decided.v1</text>
+<text class="arrlabel" x="368" y="780">agent_runtime.hitl_task_expired.v1</text>
+<text class="arrlabel" x="368" y="795">agent_runtime.timer_fired.v1</text>
+<text class="arrlabel" x="368" y="810">agent_runtime.message_received.v1</text>
+<text class="arrlabel" x="368" y="825">agent_runtime.process_completed.v1</text>
+<text class="arrlabel" x="368" y="840">agent_runtime.process_failed.v1</text>
+<text class="contlabel" x="674" y="730" font-size="11.5">Governance (→ audit_events)</text>
+<text class="arrlabel" x="674" y="750">agent_runtime.egress_decision.v1</text>
+<text class="arrlabel" x="674" y="765">agent_runtime.artifact_committed.v1</text>
+<text class="arrlabel" x="674" y="780">identity.role_changed.v1</text>
+<text class="arrlabel" x="674" y="795">process_registry.pack_lifecycle.v1</text>
+<text class="arrlabel" x="674" y="810">config_forge.config_ref_resolved.v1</text>
+<text class="contlabel" x="980" y="730" font-size="11.5">Cohorts (own tables)</text>
+<text class="arrlabel" x="980" y="750">agent_runtime.cohort_lifecycle.v1</text>
+<text class="arrlabel" x="980" y="765">agent_runtime.cohort_sla.v1</text>
+<text class="note" x="980" y="780"></text>
+<text class="note" x="980" y="795">In-sandbox (nemoclaw profile):</text>
+<text class="arrlabel" x="980" y="810">agent_runtime.capability_exec_request.v1</text>
+<text class="arrlabel" x="980" y="825">agent_runtime.capability_exec_result.v1</text>
+<text class="note" x="30" y="900">Queues:  ingestor.trigger_raised.v1  ·  ingestor.dispatch_replies.v1  ·  agent-runtime.trigger_dispatched.v1  ·  glea (durable, named)  ·  notification (broadcast, auto-delete)</text>
+<text class="warn" x="30" y="920">No dead-letter exchange, no queue TTL and no message-field encryption anywhere — every declare_queue() passes only durable=True.</text>
+<text class="warn" x="30" y="938">RabbitMQ has no named volume in compose, so these durable queues — including the GLEA audit queue — are lost on container recreate.</text>
+</svg>

@@ -1,0 +1,217 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1240" height="900" viewBox="0 0 1240 900" role="img">
+<title>Amendia local deployment topology (docker compose)</title>
+<desc>Every container in the local stack, which compose file owns it, its host-to-container port mapping and whether its data persists. Three compose files share one Docker network: the main backend stack, the MCP capability tool servers, and the mock Pega orchestrator. RabbitMQ has no named volume, so its durable queues do not survive a container recreate.</desc>
+<style>
+text { font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+.h1 { font-size: 19px; font-weight: 600; fill: #1A1A1A; }
+.h2 { font-size: 12.5px; font-weight: 400; fill: #5F5E5A; }
+.tt { font-size: 13.5px; font-weight: 500; }
+.st { font-size: 11px; font-weight: 400; }
+.mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 10.5px; }
+.purple rect { fill: #EEEDFE; stroke: #534AB7; }
+.purple .tt { fill: #3C3489; } .purple .st, .purple .mono { fill: #534AB7; }
+.teal rect { fill: #E1F5EE; stroke: #0F6E56; }
+.teal .tt { fill: #085041; } .teal .st, .teal .mono { fill: #0F6E56; }
+.gray rect { fill: #F1EFE8; stroke: #5F5E5A; }
+.gray .tt { fill: #444441; } .gray .st, .gray .mono { fill: #5F5E5A; }
+.amber rect { fill: #FDF0DC; stroke: #A66A00; }
+.amber .tt { fill: #7A4E00; } .amber .st, .amber .mono { fill: #A66A00; }
+.red rect { fill: #FDECEC; stroke: #B3261E; }
+.red .tt { fill: #8C1D18; } .red .st, .red .mono { fill: #B3261E; }
+.cont { fill: none; stroke: #888780; }
+.contlabel { font-size: 13px; font-weight: 500; fill: #444441; }
+.contsub { font-size: 10.5px; font-weight: 400; fill: #73726C; }
+.legend { font-size: 11px; fill: #5F5E5A; }
+.note { font-size: 11px; fill: #5F5E5A; }
+.warn { font-size: 11px; fill: #B3261E; font-weight: 500; }
+.arr { stroke: #73726C; fill: none; }
+.arrlabel { font-size: 10px; fill: #5F5E5A; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.arrwarn { stroke: #B3261E; fill: none; }
+@media (prefers-color-scheme: dark) {
+.h1 { fill: #EDEBE3; } .h2 { fill: #B4B2A9; }
+.purple rect { fill: #3C3489; stroke: #AFA9EC; }
+.purple .tt { fill: #CECBF6; } .purple .st, .purple .mono { fill: #AFA9EC; }
+.teal rect { fill: #085041; stroke: #5DCAA5; }
+.teal .tt { fill: #9FE1CB; } .teal .st, .teal .mono { fill: #5DCAA5; }
+.gray rect { fill: #444441; stroke: #B4B2A9; }
+.gray .tt { fill: #D3D1C7; } .gray .st, .gray .mono { fill: #B4B2A9; }
+.amber rect { fill: #7A4E00; stroke: #F2C078; }
+.amber .tt { fill: #FBE2BB; } .amber .st, .amber .mono { fill: #F2C078; }
+.red rect { fill: #8C1D18; stroke: #F2B8B5; }
+.red .tt { fill: #F9DEDC; } .red .st, .red .mono { fill: #F2B8B5; }
+.cont { stroke: #9C9A92; }
+.contlabel { fill: #D3D1C7; } .contsub { fill: #9C9A92; }
+.legend, .note { fill: #B4B2A9; }
+.warn { fill: #F2B8B5; }
+.arr { stroke: #9C9A92; }
+.arrlabel { fill: #B4B2A9; }
+.arrwarn { stroke: #F2B8B5; }
+}
+</style>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></marker></defs>
+<text class="h1" x="30" y="38">Amendia — local deployment topology (docker compose)</text>
+<text class="h2" x="30" y="58">Read-verified against the working tree 2026-08-19. Host ports are compose defaults and are remappable; container ports are the stable service-to-service contract.</text>
+<rect class="cont" x="30" y="80" width="830" height="470" rx="10" stroke-width="1" stroke-dasharray="5 4"/>
+<text class="contlabel" x="44" y="100">backend/deploy/docker-compose.yml</text>
+<text class="contsub" x="44" y="116">The main stack — 10 Amendia containers + Keycloak</text>
+<g class="purple">
+<rect x="50" y="118" width="258" height="78" rx="8" stroke-width="0.75"/>
+<text class="tt" x="179.0" y="143.5" text-anchor="middle" dominant-baseline="central">webui</text>
+<text class="st" x="179.0" y="160.5" text-anchor="middle" dominant-baseline="central">React SPA on nginx</text>
+<text class="mono" x="179.0" y="173.5" text-anchor="middle" dominant-baseline="central">18085 → 8085</text>
+</g>
+<g class="amber">
+<rect x="328" y="118" width="258" height="78" rx="8" stroke-width="0.75"/>
+<text class="tt" x="457.0" y="143.5" text-anchor="middle" dominant-baseline="central">stub-trigger-generator</text>
+<text class="st" x="457.0" y="160.5" text-anchor="middle" dominant-baseline="central">dev/test source system</text>
+<text class="mono" x="457.0" y="173.5" text-anchor="middle" dominant-baseline="central">18081 → 8081</text>
+</g>
+<g class="purple">
+<rect x="606" y="118" width="258" height="78" rx="8" stroke-width="0.75"/>
+<text class="tt" x="735.0" y="143.5" text-anchor="middle" dominant-baseline="central">ingestor</text>
+<text class="st" x="735.0" y="160.5" text-anchor="middle" dominant-baseline="central">resolve + dispatch</text>
+<text class="mono" x="735.0" y="173.5" text-anchor="middle" dominant-baseline="central">18082 → 8082</text>
+</g>
+<g class="purple">
+<rect x="50" y="214" width="258" height="78" rx="8" stroke-width="0.75"/>
+<text class="tt" x="179.0" y="239.5" text-anchor="middle" dominant-baseline="central">agent-runtime</text>
+<text class="st" x="179.0" y="256.5" text-anchor="middle" dominant-baseline="central">BPMN → LangGraph execution</text>
+<text class="mono" x="179.0" y="269.5" text-anchor="middle" dominant-baseline="central">18083 → 8083</text>
+</g>
+<g class="purple">
+<rect x="328" y="214" width="258" height="78" rx="8" stroke-width="0.75"/>
+<text class="tt" x="457.0" y="239.5" text-anchor="middle" dominant-baseline="central">process-registry</text>
+<text class="st" x="457.0" y="256.5" text-anchor="middle" dominant-baseline="central">authoring + validation</text>
+<text class="mono" x="457.0" y="269.5" text-anchor="middle" dominant-baseline="central">18084 → 8084</text>
+</g>
+<g class="purple">
+<rect x="606" y="214" width="258" height="78" rx="8" stroke-width="0.75"/>
+<text class="tt" x="735.0" y="239.5" text-anchor="middle" dominant-baseline="central">identity</text>
+<text class="st" x="735.0" y="256.5" text-anchor="middle" dominant-baseline="central">users, roles, JIT provisioning</text>
+<text class="mono" x="735.0" y="269.5" text-anchor="middle" dominant-baseline="central">18086 → 8086</text>
+</g>
+<g class="purple">
+<rect x="50" y="310" width="258" height="78" rx="8" stroke-width="0.75"/>
+<text class="tt" x="179.0" y="335.5" text-anchor="middle" dominant-baseline="central">notification-service</text>
+<text class="st" x="179.0" y="352.5" text-anchor="middle" dominant-baseline="central">SSE fan-out only</text>
+<text class="mono" x="179.0" y="365.5" text-anchor="middle" dominant-baseline="central">18088 → 8088</text>
+</g>
+<g class="purple">
+<rect x="328" y="310" width="258" height="78" rx="8" stroke-width="0.75"/>
+<text class="tt" x="457.0" y="335.5" text-anchor="middle" dominant-baseline="central">config-forge</text>
+<text class="st" x="457.0" y="352.5" text-anchor="middle" dominant-baseline="central">LLM config refs · /healthz</text>
+<text class="mono" x="457.0" y="365.5" text-anchor="middle" dominant-baseline="central">18040 → 8040</text>
+</g>
+<g class="purple">
+<rect x="606" y="310" width="258" height="78" rx="8" stroke-width="0.75"/>
+<text class="tt" x="735.0" y="335.5" text-anchor="middle" dominant-baseline="central">glea-service</text>
+<text class="st" x="735.0" y="352.5" text-anchor="middle" dominant-baseline="central">audit read-models</text>
+<text class="mono" x="735.0" y="365.5" text-anchor="middle" dominant-baseline="central">18090 → 8090</text>
+</g>
+<g class="purple">
+<rect x="50" y="406" width="258" height="78" rx="8" stroke-width="0.75"/>
+<text class="tt" x="179.0" y="431.5" text-anchor="middle" dominant-baseline="central">capability-worker</text>
+<text class="st" x="179.0" y="448.5" text-anchor="middle" dominant-baseline="central">profile: nemoclaw · no port</text>
+<text class="mono" x="179.0" y="461.5" text-anchor="middle" dominant-baseline="central">AMQP consumer only</text>
+</g>
+<g class="gray">
+<rect x="328" y="406" width="258" height="78" rx="8" stroke-width="0.75"/>
+<text class="tt" x="457.0" y="431.5" text-anchor="middle" dominant-baseline="central">keycloak</text>
+<text class="st" x="457.0" y="448.5" text-anchor="middle" dominant-baseline="central">dev IdP · realm amendia-dev</text>
+<text class="mono" x="457.0" y="461.5" text-anchor="middle" dominant-baseline="central">8087 → 8080</text>
+</g>
+<text class="note" x="608" y="432">Amendia services publish on 18xxx host</text>
+<text class="note" x="608" y="448">ports. Keycloak, the MCP servers and</text>
+<text class="note" x="608" y="464">pega-stub are the exceptions.</text>
+<rect class="cont" x="880" y="80" width="330" height="470" rx="10" stroke-width="1" stroke-dasharray="5 4"/>
+<text class="contlabel" x="894" y="100">Infrastructure</text>
+<text class="contsub" x="894" y="116">Same compose file — self-managed</text>
+<g class="teal">
+<rect x="900" y="118" width="290" height="96" rx="8" stroke-width="0.75"/>
+<text class="tt" x="1045.0" y="146.0" text-anchor="middle" dominant-baseline="central">mongodb</text>
+<text class="st" x="1045.0" y="163.0" text-anchor="middle" dominant-baseline="central">mongo:7 · 27017</text>
+<text class="mono" x="1045.0" y="176.0" text-anchor="middle" dominant-baseline="central">volume mongo_data</text>
+<text class="mono" x="1045.0" y="189.0" text-anchor="middle" dominant-baseline="central">→ /data/db</text>
+</g>
+<g class="red">
+<rect x="900" y="228" width="290" height="96" rx="8" stroke-width="0.75"/>
+<text class="tt" x="1045.0" y="256.0" text-anchor="middle" dominant-baseline="central">rabbitmq</text>
+<text class="st" x="1045.0" y="273.0" text-anchor="middle" dominant-baseline="central">rabbitmq:3-management · 5672/15672</text>
+<text class="mono" x="1045.0" y="286.0" text-anchor="middle" dominant-baseline="central">NO NAMED VOLUME</text>
+<text class="mono" x="1045.0" y="299.0" text-anchor="middle" dominant-baseline="central">durable queues lost on recreate</text>
+</g>
+<g class="teal">
+<rect x="900" y="338" width="290" height="96" rx="8" stroke-width="0.75"/>
+<text class="tt" x="1045.0" y="366.0" text-anchor="middle" dominant-baseline="central">clickhouse</text>
+<text class="st" x="1045.0" y="383.0" text-anchor="middle" dominant-baseline="central">24.8 · 8123 / 9001→9000</text>
+<text class="mono" x="1045.0" y="396.0" text-anchor="middle" dominant-baseline="central">volume clickhouse_data</text>
+<text class="mono" x="1045.0" y="409.0" text-anchor="middle" dominant-baseline="central">→ /var/lib/clickhouse</text>
+</g>
+<g class="teal">
+<rect x="900" y="448" width="290" height="96" rx="8" stroke-width="0.75"/>
+<text class="tt" x="1045.0" y="476.0" text-anchor="middle" dominant-baseline="central">otel-collector</text>
+<text class="st" x="1045.0" y="493.0" text-anchor="middle" dominant-baseline="central">contrib 0.109.0 · 4317/4318</text>
+<text class="mono" x="1045.0" y="506.0" text-anchor="middle" dominant-baseline="central">stateless gateway</text>
+<text class="mono" x="1045.0" y="519.0" text-anchor="middle" dominant-baseline="central">no healthcheck</text>
+</g>
+<rect class="cont" x="30" y="574" width="830" height="158" rx="10" stroke-width="1" stroke-dasharray="5 4"/>
+<text class="contlabel" x="44" y="594">mcp_stub/deploy/docker-compose.yml</text>
+<text class="contsub" x="44" y="610">Capability tool servers — the runtime calls these over MCP</text>
+<g class="amber">
+<rect x="50" y="620" width="152" height="78" rx="8" stroke-width="0.75"/>
+<text class="tt" x="126.0" y="645.5" text-anchor="middle" dominant-baseline="central">wire-transfer</text>
+<text class="mono" x="126.0" y="662.5" text-anchor="middle" dominant-baseline="central">8060 → 8060</text>
+<text class="mono" x="126.0" y="675.5" text-anchor="middle" dominant-baseline="central">wire-…-mcp</text>
+</g>
+<g class="amber">
+<rect x="217" y="620" width="152" height="78" rx="8" stroke-width="0.75"/>
+<text class="tt" x="293.0" y="645.5" text-anchor="middle" dominant-baseline="central">restaurant-dinein</text>
+<text class="mono" x="293.0" y="662.5" text-anchor="middle" dominant-baseline="central">8070 → 8070</text>
+<text class="mono" x="293.0" y="675.5" text-anchor="middle" dominant-baseline="central">dinein-mcp</text>
+</g>
+<g class="amber">
+<rect x="384" y="620" width="152" height="78" rx="8" stroke-width="0.75"/>
+<text class="tt" x="460.0" y="645.5" text-anchor="middle" dominant-baseline="central">ach-exposure-assess</text>
+<text class="mono" x="460.0" y="662.5" text-anchor="middle" dominant-baseline="central">8075 → 8075</text>
+<text class="mono" x="460.0" y="675.5" text-anchor="middle" dominant-baseline="central">ach-assess-mcp</text>
+</g>
+<g class="amber">
+<rect x="551" y="620" width="152" height="78" rx="8" stroke-width="0.75"/>
+<text class="tt" x="627.0" y="645.5" text-anchor="middle" dominant-baseline="central">ach-decision-enforce</text>
+<text class="mono" x="627.0" y="662.5" text-anchor="middle" dominant-baseline="central">8076 → 8076</text>
+<text class="mono" x="627.0" y="675.5" text-anchor="middle" dominant-baseline="central">ach-enforce-mcp</text>
+</g>
+<g class="amber">
+<rect x="718" y="620" width="152" height="78" rx="8" stroke-width="0.75"/>
+<text class="tt" x="794.0" y="645.5" text-anchor="middle" dominant-baseline="central">ach-closeout</text>
+<text class="mono" x="794.0" y="662.5" text-anchor="middle" dominant-baseline="central">8077 → 8077</text>
+<text class="mono" x="794.0" y="675.5" text-anchor="middle" dominant-baseline="central">ach-closeout-mcp</text>
+</g>
+<text class="note" x="50" y="718">Streamable HTTP (MCP) at /mcp · deterministic stubs — replace with real system connectors in production</text>
+<rect class="cont" x="880" y="574" width="330" height="158" rx="10" stroke-width="1" stroke-dasharray="5 4"/>
+<text class="contlabel" x="894" y="594">pega_stub/deploy/docker-compose.yml</text>
+<text class="contsub" x="894" y="610">Mock external orchestrator</text>
+<g class="amber">
+<rect x="900" y="620" width="290" height="78" rx="8" stroke-width="0.75"/>
+<text class="tt" x="1045.0" y="645.5" text-anchor="middle" dominant-baseline="central">pega-stub</text>
+<text class="mono" x="1045.0" y="662.5" text-anchor="middle" dominant-baseline="central">9095 → 9095 · alias pega-stub</text>
+<text class="mono" x="1045.0" y="675.5" text-anchor="middle" dominant-baseline="central">scenarios incl. late_closeout</text>
+</g>
+<text class="note" x="900" y="718">No auth; posts triggers with a static internal token.</text>
+<rect class="cont" x="30" y="752" width="1180" height="60" rx="10" stroke-width="1"/>
+<text class="contlabel" x="44" y="772">Docker network</text>
+<text class="note" x="160" y="778">All three compose files share one bridge network. The stub composes join it as external:  amendia → ${AMENDIA_NETWORK:-deploy_default}.</text>
+<text class="note" x="160" y="796">Services address each other by container name on the CONTAINER port — e.g. http://agent-runtime:8083 — never via a host port.</text>
+<text class="note" x="30" y="836">Legend</text>
+<g class="purple"><rect x="30" y="851" width="14" height="12" rx="3" stroke-width="0.75"/></g>
+<text class="legend" x="50" y="860" dominant-baseline="central">Amendia service</text>
+<g class="teal"><rect x="180" y="851" width="14" height="12" rx="3" stroke-width="0.75"/></g>
+<text class="legend" x="200" y="860" dominant-baseline="central">Datastore / infra</text>
+<g class="amber"><rect x="330" y="851" width="14" height="12" rx="3" stroke-width="0.75"/></g>
+<text class="legend" x="350" y="860" dominant-baseline="central">Dev/test stub</text>
+<g class="gray"><rect x="460" y="851" width="14" height="12" rx="3" stroke-width="0.75"/></g>
+<text class="legend" x="480" y="860" dominant-baseline="central">Third-party</text>
+<g class="red"><rect x="590" y="851" width="14" height="12" rx="3" stroke-width="0.75"/></g>
+<text class="legend" x="610" y="860" dominant-baseline="central">Defect / gap</text>
+<text class="note" x="720" y="862">capability-worker starts only under the 'nemoclaw' compose profile.</text>
+</svg>
