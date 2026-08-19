@@ -41,9 +41,12 @@ SECRET = os.environ.get("CLI_SECRET", "dev-cli-secret")
 PASSWORD = os.environ.get("DEV_PASSWORD", "dev-password")
 CORPUS = Path(__file__).resolve().parents[3] / "backend/docs/methodology/worked-examples/ach_exposure"
 COHORT_DEF = "ach_exposure_cohort"
-# The persona the HITL arc drives every ACH gate as (mirrors the pytest smoke's default_persona). The ACH gate
-# roles are granted to this persona post-onboarding so the browser can act on the gates.
-GRANT_PERSONA = "marcus"
+# Access is distributed across TWO distinct humans, each holding only their segment's role (exclusive): APPROVER
+# (marcus) drives enforce/B; ANALYST (riya) drives assess/A + closeout/C. priya only onboards + owns the cohort,
+# then steps out. The runtime AND the UI enforce role-holding at claim, so each gate is driven by its sole holder.
+# See `_roles_by_persona` (grants) + `personaForRole` (backend.ts).
+APPROVER_PERSONA = "marcus"
+ANALYST_PERSONA = "riya"
 
 
 def _token(user: str = "priya") -> str:
@@ -91,11 +94,11 @@ REV = {"type": "object", "additionalProperties": False, "required": ["approved",
 PURGE = {"type": "object", "additionalProperties": False, "required": ["authorized", "case_id"],
          "properties": {"authorized": {"type": "boolean"}, "case_id": {"type": "string"}, "notes": {"type": "string"}}}
 
-# The ACH gates use their own domain roles (`role.ach_*`). No seeded persona holds these, so — like a real
-# operator would after publishing a pack — the setup GRANTS them (see `grant_test_roles`) to the HITL persona
-# (`GRANT_PERSONA`) via the identity admin API. The UI enforces role-holding (`taskEligibility`: the actor's roles
-# must include the gate role), and both the Playwright arc and the pytest smoke drive every ACH gate as their
-# default persona (marcus) — so all gate roles are granted to that one persona. Teardown revokes them.
+# The ACH gates use their own domain roles (`role.ach_*`). No seeded persona holds these, so — like a real operator
+# would after publishing a pack — the setup GRANTS them (see `grant_test_roles` / `_roles_by_persona`), EXCLUSIVELY:
+# the enforce approval role → marcus (B); the assess + closeout review roles → riya (A + C). The runtime AND the UI
+# enforce role-holding at claim (403 'caller lacks required role'), so each gate is driven by its sole role-holder —
+# two distinct humans across the segments. Teardown revokes both personas' grants.
 PACKS = {
     "ach-exposure-assess": {
         "domain": "ach_assess", "mcp": "http://ach-assess-mcp:8075/mcp",
@@ -103,6 +106,11 @@ PACKS = {
         "caps": {"Task_ClassifyExposure": "classify_exposure", "Task_ClientRiskProfile": "get_client_risk_profile",
                  "Task_RecommendDisposition": "recommend_disposition", "Task_DraftUnderwriting": "draft_underwriting_message",
                  "Task_NotifyAssessed": "notify_pega"},
+        # Amendia's rule: ANY side-effectful activity is human-gated. The assemble hitl-guard REQUIRES an
+        # approve_actions gate on a side_effectful capability. Per the MCP stubs' ACTION_TOOLS, A's only
+        # side-effectful tool is `notify_pega` (the Pega handback), so `Task_NotifyAssessed` carries the real
+        # handback-approval gate (NOT a fabrication). The read-only assess tools (classify/risk/recommend/draft)
+        # run automatically. Driving this gate (Riya) is what lets A hand back → Pega fires B.
         "output_name": {}, "humans": {},
         "gates": {"Task_NotifyAssessed": ("approve_actions", "role.ach_exposure_assess.reviewer")},
         "gvars": [], "roles": ["role.ach_exposure_assess.reviewer"]},
@@ -114,7 +122,16 @@ PACKS = {
         "output_name": {"Task_CaptureDecision": "decision"},
         "humans": {"Task_AuthorizeRelease": ("release_authorization", REL, "role.ach_decision_enforce.approver"),
                    "Task_AuthorizePurge": ("purge_authorization", PURGE, "role.ach_decision_enforce.approver")},
-        "gates": {},
+        # B's side-effectful ACTION_TOOLS (prepare_release / request_purge / notify_pega) each carry an
+        # approve_actions gate, PLUS the AuthorizeRelease/AuthorizePurge decision userTasks. All → the enforce
+        # approver (marcus). NOTE: no within-enforce `distinct_actor` SoD — once the actions are gated, a
+        # distinct_actor pairing an action gate with the AuthorizeRelease human userTask would EXCLUDE the single
+        # approver from the second gate (compute_sod_excluded excludes a HUMAN who acted on a sibling; AuthorizeRelease
+        # is a human userTask) and stall B. SoD here is CROSS-SEGMENT (enforce approver ≠ assess/closeout reviewer),
+        # honoured by the exclusive role distribution (`_roles_by_persona`), not a blocking intra-segment constraint.
+        "gates": {"Task_PrepareRelease": ("approve_actions", "role.ach_decision_enforce.approver"),
+                  "Task_RequestPurge": ("approve_actions", "role.ach_decision_enforce.approver"),
+                  "Task_NotifyOrchestrated": ("approve_actions", "role.ach_decision_enforce.approver")},
         "gvars": [{"gateway_id": "Gateway_RboDecision", "variable": "decision.rbo_decision",
                    "source_artifact": "art.ach_enforce.capture_decision_output"}],
         "roles": ["role.ach_decision_enforce.approver"]},
@@ -123,8 +140,13 @@ PACKS = {
         "trigger": "art.ach.closeout_requested", "req": "CloseoutRequested",
         "caps": {"Task_VerifyDisposition": "verify_disposition", "Task_MarkCompleted": "mark_completed",
                  "Task_PurgeWorkingData": "purge_working_data", "Task_NotifyClosedOut": "notify_pega"},
+        # C's side-effectful ACTION_TOOLS (mark_completed / purge_working_data / notify_pega) each gated, plus the
+        # ReviewArtifacts review userTask. All → the closeout reviewer (riya). verify_disposition is read-only.
         "output_name": {}, "humans": {"Task_ReviewArtifacts": ("review_decision", REV, "role.ach_closeout.reviewer")},
-        "gates": {}, "gvars": [], "roles": ["role.ach_closeout.reviewer"]},
+        "gates": {"Task_MarkCompleted": ("approve_actions", "role.ach_closeout.reviewer"),
+                  "Task_PurgeWorkingData": ("approve_actions", "role.ach_closeout.reviewer"),
+                  "Task_NotifyClosedOut": ("approve_actions", "role.ach_closeout.reviewer")},
+        "gvars": [], "roles": ["role.ach_closeout.reviewer"]},
 }
 
 
@@ -194,7 +216,8 @@ def onboard(name: str, cfg: dict) -> bool:
          {"triage_rules": [{"rule_id": name, "priority": 100,
                             "when": {"all": [{"field": "request_type", "op": "eq", "value": cfg["req"]}]}}]})
     call("PUT", f"/onboarding/{sid}/policies",
-         {"gateway_variables": cfg["gvars"], "sod_policies": [], "roles": cfg["roles"], "role_meta": {}})
+         {"gateway_variables": cfg["gvars"], "roles": cfg["roles"], "role_meta": {},
+          "sod_policies": [{"elements": els} for els in cfg.get("sod", [])]})
     st, s = call("POST", f"/onboarding/{sid}/assemble")
     errs = [f for f in (s.get("dry_run_report") or {}).get("findings", []) if f.get("severity") == "error"]
     if st >= 300 or errs:
@@ -217,9 +240,16 @@ def ensure_cohort_definition() -> bool:
         "edges": [
             {"from_node": "__start__", "to_node": "ach-exposure-assess", "split": "and"},
             {"from_node": "ach-exposure-assess", "to_node": "ach-decision-enforce", "split": "and"},
+            # The enforce→closeout arrival SLA (the breach target). ONBOARDING.md illustrates this at deadline 20s,
+            # but the pega_stub `late_closeout` delays the closeout by a FIXED 25s and agent-runtime's SLA poller
+            # sweeps every `SLA_POLL_SECONDS` (15s): a 20s deadline leaves only a 5s breach window (20→25s), so a
+            # poll lands in it just ~1/3 of runs — otherwise the late arrival VOIDS the SLA (excused, not a breach)
+            # and the e2e flakes. We use deadline 8s so the breach window (8→25s = 17s) EXCEEDS the 15s poll →
+            # a poll is guaranteed to fire the breach before arrival (deterministic). 8s still comfortably clears the
+            # immediate-closeout flows (credit_approve/debit_reject arrive ~1–3s after enforce completes → satisfied).
             {"from_node": "ach-decision-enforce", "to_node": "ach-closeout", "split": "and",
              "sla": {"anchor_moment": "completion", "satisfy_moment": "arrival",
-                     "deadline_seconds": 20, "at_risk_seconds": 10, "clock": "wall", "owner": "external"}},
+                     "deadline_seconds": 8, "at_risk_seconds": 4, "clock": "wall", "owner": "external"}},
             {"from_node": "ach-closeout", "to_node": "__close__", "split": "and"},
         ],
         "end_to_end_sla": {"deadline_seconds": 86400, "at_risk_seconds": 64800, "clock": "wall", "owner": "shared"},
@@ -230,15 +260,6 @@ def ensure_cohort_definition() -> bool:
         "expectation_graph": graph})
     print(f"{COHORT_DEF}: create {st}")
     return st in (200, 201)
-
-
-def _gate_roles() -> list[str]:
-    """Every distinct role the ACH gates require (gate + human bindings), across all packs."""
-    roles: set[str] = set()
-    for cfg in PACKS.values():
-        roles.update(role for _m, role in cfg["gates"].values())
-        roles.update(role for _a, _s, role in cfg["humans"].values())
-    return sorted(roles)
 
 
 def _persona_uid(persona: str) -> str | None:
@@ -264,46 +285,92 @@ def _persona_email(persona: str) -> str:
     return f"{persona}@amendia.dev"  # the identity seed/JIT key
 
 
-def grant_test_roles() -> None:
-    """Give the HITL persona (marcus) the ACH gate roles so the browser can act on the gates.
+def _pack_gate_roles(name: str) -> set[str]:
+    cfg = PACKS[name]
+    return ({role for _el, (_mode, role) in cfg["gates"].items()}
+            | {role for _el, (_a, _s, role) in cfg["humans"].items()})
 
-    PRIMARY — pending-stage by email (`POST /pending-role-assignments {email, roles}`): identity materialises staged
-    roles onto the user at JIT-provision (first login). global-setup runs this BEFORE the persona logins, so marcus
-    logs in ALREADY holding the roles. This is the only path that works on a genuinely clean stack — where marcus is
-    not provisioned yet, so priya's admin `GET /users` can't find him — and it never mints marcus's token / calls his
-    `/me`, preserving the no-cache-poison property (see `_persona_uid`, gotcha #5).
 
-    FALLBACK — already provisioned (e.g. a reused `--keep` stack): staging returns 409 `user_exists`, so resolve the
-    uid via priya's admin `GET /users` and grant each role via `POST /users/{uid}/roles` (idempotent; 409 = held)."""
-    roles = _gate_roles()
-    email = _persona_email(GRANT_PERSONA)
+def _roles_by_persona() -> dict[str, list[str]]:
+    """Grant each ACH gate role to the SINGLE persona who drives that segment (exclusive, two distinct humans):
+    the enforce APPROVAL role → marcus (the money-moving decision, segment B); the assess + closeout REVIEW roles →
+    riya (segments A + C). priya only onboards + owns the cohort, then steps out; Marcus and Riya carry the process
+    per their roles. The runtime AND the UI enforce role-holding at claim (403 'caller lacks required role'), so each
+    gate is driven by its sole role-holder. Teardown revokes both personas' grants."""
+    by: dict[str, list[str]] = {}
+    for name, cfg in PACKS.items():
+        persona = APPROVER_PERSONA if name == "ach-decision-enforce" else ANALYST_PERSONA
+        for role in _pack_gate_roles(name):
+            by.setdefault(persona, []).append(role)
+    return {p: sorted(rs) for p, rs in by.items()}
+
+
+def _stage_or_grant(persona: str, roles: list[str]) -> None:
+    """Grant `roles` to `persona`. PRIMARY — pending-stage by email (`POST /pending-role-assignments`): identity
+    materialises staged roles at JIT-provision (first login). global-setup stages BEFORE the persona logins, so they
+    log in ALREADY holding the roles — the only path that works on a clean stack (persona not provisioned → absent
+    from priya's admin `GET /users`), and it never mints the persona's token / calls `/me` (no cache poison; gotcha
+    #5). FALLBACK — already provisioned (409 `user_exists`): resolve the uid via admin `GET /users` and grant each via
+    `POST /users/{uid}/roles` (idempotent; 409 = held)."""
+    if not roles:
+        return
+    email = _persona_email(persona)
     st, _ = _http(IDENTITY, "POST", "/pending-role-assignments", {"email": email, "roles": roles})
     if st == 201:
-        print(f"stage: {GRANT_PERSONA} pending += {roles} (materialises at first login)")
+        print(f"stage: {persona} pending += {roles} (materialises at first login)")
         return
     if st != 409:  # 409 user_exists is the expected already-provisioned case; anything else still falls back
         print(f"stage: unexpected HTTP {st} staging {email} — falling back to admin grant")
-    uid = _persona_uid(GRANT_PERSONA)
+    uid = _persona_uid(persona)
     if not uid:
-        print(f"grant: no uid for '{GRANT_PERSONA}' — skipping role grant (HITL gates may be un-actionable)")
+        print(f"grant: no uid for '{persona}' — skipping role grant (HITL gates may be un-actionable)")
         return
     for role in roles:
         st, _ = _http(IDENTITY, "POST", f"/users/{uid}/roles", {"role": role})
-        print(f"grant: {GRANT_PERSONA} += {role} -> {st}{' (already held)' if st == 409 else ''}")
+        print(f"grant: {persona} += {role} -> {st}{' (already held)' if st == 409 else ''}")
+
+
+def grant_test_roles() -> None:
+    """Distribute the ACH gate roles EXCLUSIVELY across the two process humans (see `_roles_by_persona`): riya drives
+    assess + closeout, marcus drives enforce. priya (owner) only onboards and owns the cohort."""
+    for persona, roles in sorted(_roles_by_persona().items()):
+        _stage_or_grant(persona, roles)
 
 
 def revoke_test_roles() -> None:
-    """Teardown: leave identity as found. Delete any pending stage (404 is fine — it was consumed at the persona's
-    first login, or never created on the fallback path) AND revoke the roles from the provisioned user if present."""
-    email = _persona_email(GRANT_PERSONA)
-    st, _ = _http(IDENTITY, "DELETE", f"/pending-role-assignments/{email}")
-    print(f"revoke: pending stage for {email} -> {st}")
-    uid = _persona_uid(GRANT_PERSONA)
-    if not uid:
+    """Teardown: leave identity as found. Per persona: delete any pending stage (404 = consumed at first login / never
+    created on the fallback path) AND revoke the granted roles from the provisioned user if present."""
+    for persona, roles in sorted(_roles_by_persona().items()):
+        email = _persona_email(persona)
+        st, _ = _http(IDENTITY, "DELETE", f"/pending-role-assignments/{email}")
+        print(f"revoke: pending stage for {email} -> {st}")
+        uid = _persona_uid(persona)
+        if not uid:
+            continue
+        for role in roles:
+            st, _ = _http(IDENTITY, "DELETE", f"/users/{uid}/roles/{role}")
+            print(f"revoke: {persona} -= {role} -> {st}")
+
+
+# The opt-in copilot journey (e2e/tests/copilot-onboarding.spec.ts) publishes a THROWAWAY pack keyed with this
+# prefix; teardown clean-deletes any it finds (by prefix, so a crashed prior run's leftover is swept too — the
+# runtime-generated key isn't known here). Deterministic ACH execution packs never use this prefix.
+COPILOT_PREFIX = "e2e-copilot"
+
+
+def _delete_copilot_packs() -> None:
+    st, packs = call("GET", "/packs?status=active&limit=200")
+    if st != 200 or not isinstance(packs, list):
         return
-    for role in _gate_roles():
-        st, _ = _http(IDENTITY, "DELETE", f"/users/{uid}/roles/{role}")
-        print(f"revoke: {GRANT_PERSONA} -= {role} -> {st}")
+    for pk in packs:
+        key = pk.get("pack_key", "")
+        if key.startswith(COPILOT_PREFIX):
+            call("DELETE", f"/packs/{key}")  # ADR-061 clean-delete
+            print(f"teardown: removed copilot throwaway pack {key}")
+
+
+def _truthy(name: str) -> bool:
+    return os.environ.get(name, "").strip().lower() in ("1", "true", "yes", "on")
 
 
 def teardown() -> None:
@@ -311,6 +378,13 @@ def teardown() -> None:
     call("DELETE", f"/cohort/definitions/{COHORT_DEF}")
     for name in PACKS:
         call("DELETE", f"/packs/{name}")  # ADR-061 clean-delete (audit-first)
+    # E2E_KEEP_COPILOT (⊆ E2E_KEEP) → leave the LLM-generated `e2e-copilot-*` pack in the registry for inspection,
+    # while the ephemeral ACH stack still tears down. (Under full E2E_KEEP, global-teardown skips this driver call
+    # entirely, so nothing is deleted at all.) A later non-keep run's prefix-sweep clears any accumulated ones.
+    if _truthy("E2E_KEEP_COPILOT") or _truthy("E2E_KEEP"):
+        print("teardown: keeping copilot throwaway pack(s) (E2E_KEEP_COPILOT set)")
+    else:
+        _delete_copilot_packs()
     print("teardown: removed cohort definition + ACH packs")
 
 

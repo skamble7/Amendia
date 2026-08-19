@@ -4,7 +4,7 @@ import { scenario, interpolate } from "../support/scenarios";
 import { withPersonaPage } from "../support/personaPage";
 import type { Persona } from "../support/env";
 import {
-  cohortByCorrelation, fireScenario, instanceStatus, missingPacks, openTaskOn, personaForTask,
+  cohortByCorrelation, fireScenario, instanceStatus, missingPacks, openTaskOn, personaForRole,
 } from "../support/backend";
 
 // The headline journey: fire the ACH scenario, then drive its HITL gates ENTIRELY through the Task-Inbox UI —
@@ -40,7 +40,10 @@ test.describe("HITL via the Task Inbox → cohort closes (ACH)", () => {
         const task = await openTaskOn(pid);
         if (!task || seen.has(task.task_id)) continue;
         seen.add(task.task_id);
-        const persona = await personaForTask(pool, task.excluded); // SoD-correct actor
+        // Role-aware + SoD-correct actor: the persona who HOLDS this gate's role and isn't SoD-excluded (roles are
+        // now distributed across riya/marcus per the pack SoD — see onboard_ach.py `_role_persona`).
+        const persona = await personaForRole(pool, task.role, task.excluded);
+        if (!persona) continue; // no eligible actor yet — retry next pass
         const edits = outputs[task.element_id] ? interpolate(outputs[task.element_id], { correlation }) : null;
         // Resolve THIS gate in the Task-Inbox detail, as that persona, through the UI.
         await withPersonaPage(browser, persona, async (p) => {

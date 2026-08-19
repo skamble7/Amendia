@@ -14,6 +14,10 @@ const WEBUI_DIR = path.resolve(__dirname, "../webui");
 
 export default defineConfig({
   testDir: "./tests",
+  // The copilot/LLM lifecycle spec is NON-BLOCKING and runs only via its own command (tools/e2e-copilot.sh →
+  // playwright.copilot.config.ts). Exclude it from the deterministic gate so `bash tools/e2e.sh` never depends on
+  // the LLM.
+  testIgnore: ["**/ach-copilot-lifecycle.spec.ts"],
   outputDir: "./.artifacts",
   globalSetup: "./global-setup.ts",
   globalTeardown: "./global-teardown.ts",

@@ -72,7 +72,7 @@ async function authed(url: string): Promise<unknown | null> {
   }
 }
 
-export async function cohortByCorrelation(value: string): Promise<{ state?: string; outcome?: string; roster?: { process_instance_id: string }[]; rollup?: { failed?: number } } | null> {
+export async function cohortByCorrelation(value: string): Promise<{ state?: string; outcome?: string; member_count?: number; roster?: { process_instance_id: string; pack_key?: string; status?: string }[]; rollup?: { done?: number; running?: number; failed?: number } } | null> {
   return authed(`${CFG.glea}/cohorts/by-correlation/${value}`) as Promise<never>;
 }
 
@@ -122,6 +122,58 @@ export async function personaForTask(pool: string[], excluded: string[]): Promis
     if (!ex.has((await personaUserId(p)) ?? "")) return p;
   }
   return pool[0]!;
+}
+
+/** A persona's granted roles (via identity /me) — reads the DISTRIBUTED access, so gate-driving can pick the persona
+ * who actually holds a gate's role (the runtime + UI enforce role-holding). NOT cached: a grant may only become
+ * visible after `amendia_auth`'s ~30s (iss,sub) resolve-cache expires, so callers (the gate loop retries; the
+ * structural test polls) must be able to observe freshly-materialised roles rather than a stale first read. */
+export async function personaRoles(persona: string): Promise<Set<string>> {
+  let roles = new Set<string>();
+  const tok = await mintToken(persona).catch(() => null);
+  if (tok) {
+    try {
+      const r = await fetch(`${CFG.identity}/me`, { headers: { Authorization: `Bearer ${tok}` } });
+      if (r.ok) roles = new Set(((await r.json()).roles ?? []) as string[]);
+    } catch { /* ignore */ }
+  }
+  return roles;
+}
+
+/** The persona from `pool` who HOLDS `role` (UI-eligible) AND is NOT SoD-excluded — the SoD-correct, role-aware
+ * actor for a gate. Returns null when no pool persona both holds the role and isn't excluded (a real failure to
+ * surface, not a silent fallback). `excluded` is a list of Amendia user-ids (from openTaskOn). */
+export async function personaForRole(pool: string[], role: string, excluded: string[]): Promise<string | null> {
+  const ex = new Set(excluded);
+  for (const p of pool) {
+    const holds = role ? (await personaRoles(p)).has(role) : true;
+    if (holds && !ex.has((await personaUserId(p)) ?? "")) return p;
+  }
+  return null;
+}
+
+/** A committed pack's manifest (GET /packs/{key}/1.0.0) — for reading declared policies (SoD) + bindings. */
+export async function packManifest(packKey: string): Promise<Record<string, unknown> | null> {
+  return authed(`${CFG.registry}/packs/${packKey}/1.0.0`) as Promise<Record<string, unknown> | null>;
+}
+
+interface CohortSla { breaches?: { external?: number; amendia?: number; shared?: number; total?: number };
+  at_risk?: number; satisfied?: number; states?: { sla_id: string; kind: string; ref: string; owner: string; state: string }[] }
+/** A cohort's ADR-064 SLA summary (breaches by owner + per-SLA states) by correlation value — for the breach flow. */
+export async function cohortSla(value: string): Promise<CohortSla | null> {
+  const d = (await authed(`${CFG.glea}/cohorts/by-correlation/${value}`)) as { sla?: CohortSla } | null;
+  return d?.sla ?? null;
+}
+
+/** A cohort's terminal outcome (Released/Purged) by correlation value. */
+export async function cohortOutcome(value: string): Promise<string | null> {
+  const d = (await authed(`${CFG.glea}/cohorts/by-correlation/${value}`)) as { outcome?: string } | null;
+  return d?.outcome ?? null;
+}
+
+/** A cohort DEFINITION (registry, owner-authored) — for asserting the declared DAG + enforce→closeout SLA. */
+export async function cohortDefinition(id: string): Promise<Record<string, unknown> | null> {
+  return authed(`${CFG.registry}/cohort/definitions/${id}`) as Promise<Record<string, unknown> | null>;
 }
 
 /** Fire the scenario's real trigger (drivers keyed by kind), returning the correlation value. */

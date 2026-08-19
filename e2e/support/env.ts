@@ -10,11 +10,6 @@ export const SCENARIOS_DIR = path.resolve(E2E_DIR, "../backend/tests/smoke/scena
 
 const env = (k: string, d: string) => (process.env[k]?.trim() ? process.env[k]!.trim() : d);
 
-// E2E_KEEP (truthy) → skip teardown entirely: leave the onboarded packs / cohort definition / granted roles / fired
-// data in place so the operator can use the UI afterwards without re-onboarding. Setup is create-if-absent, so the
-// next run simply REUSES the kept stack (no double-onboard). Data accumulates until a normal run or a `down -v`.
-export const KEEP_STACK = /^(1|true|yes|on)$/i.test((process.env.E2E_KEEP ?? "").trim());
-
 export const CFG = {
   // The served webui (Playwright baseURL). vite dev on 5173 (its registered OIDC redirect origin).
   webui: env("E2E_BASE_URL", "http://localhost:5173"),

@@ -15,11 +15,19 @@ docker compose -f pega_stub/deploy/docker-compose.yml up -d    # ACH's mock Pega
 (cd e2e && npm install && npx playwright install chromium)     # one-time: deps + browser (installed under e2e/)
 
 # run from the repo root:
-bash tools/e2e.sh              # all journeys, per-journey PASS/FAIL summary
-bash tools/e2e.sh --keep       # keep the onboarded stack (skip teardown) — reuse it in the UI / next run
+bash tools/e2e.sh              # THE CI GATE — all deterministic journeys, per-journey summary; onboard → run → teardown
 bash tools/e2e.sh -g owner     # pass-through Playwright args (-g grep, --project chromium, …)
-# or, from e2e/: npm run e2e
+
+bash tools/e2e-copilot.sh      # NON-BLOCKING copilot/LLM lifecycle — real autopilot onboard; RETAINS everything; skips w/o a model
 ```
+
+**Two commands, no flags.** `tools/e2e.sh` is the **reliable gate**: deterministic (rule-based `infer_draft`, no
+LLM), fast, and it tears down. `tools/e2e-copilot.sh` is a **separate, non-blocking** command that proves the
+**real copilot onboarding path** end-to-end (onboard the 3 ACH segments via the LLM autopilot → form the cohort →
+run the 3 pega flows) and **retains everything** for inspection; it **skips** cleanly when the stack has no copilot
+model, and it **never gates CI**. It needs the copilot model + a **clean DB** on each run (it retains, so a re-run
+must start from `down -v`). See `ach-copilot-lifecycle.spec.ts` and
+[the running-e2e doc](../backend/docs/engineering/running-e2e-tests.md#the-copilot-lifecycle-command-tools-e2e-copilotsh).
 
 > **This is a top-level, full-system suite** (`e2e/` at the repo root) — frontend + backend + stubs + DB — with its
 > own `package.json` / `node_modules`. It is not part of the webui package; nothing here imports webui `src`. The
@@ -27,11 +35,9 @@ bash tools/e2e.sh -g owner     # pass-through Playwright args (-g grep, --projec
 
 **Self-contained — no manual "onboard ACH first" step.** `global-setup.ts` runs the deterministic, copilot-free
 driver (`fixtures/onboarding/onboard_ach.py`) that onboards the three ACH packs to active, creates the
-`ach_exposure_cohort` definition, and grants the `role.ach_*` gate roles to **marcus** (via the identity admin API,
-as an operator would after publishing). `global-teardown.ts` revokes the roles and ADR-061 clean-deletes the packs +
-definition — **unless `E2E_KEEP` (or `tools/e2e.sh --keep`) is set**, which skips teardown so the onboarded stack
-stays usable (setup is create-if-absent, so the next run reuses it; data then accumulates until a normal run or a
-`down -v`). Idempotent; safe from an empty, minimally-seeded registry. See
+`ach_exposure_cohort` definition, and grants the `role.ach_*` gate roles across two humans (marcus/riya, via the
+identity admin API, as an operator would after publishing). `global-teardown.ts` always revokes the roles and
+ADR-061 clean-deletes the packs + definition. Idempotent; safe from an empty, minimally-seeded registry. See
 [backend/docs/engineering/running-e2e-tests.md](../backend/docs/engineering/running-e2e-tests.md) for the
 minimal-seed contract and the three subtle wiring details the HITL arc depends on.
 
@@ -48,10 +54,36 @@ through Keycloak and snapshots each persona's auth; specs pick one with `test.us
 - **owner-gating** — priya sees the definition editor; marcus sees it read-only (two persona projects, one screen).
 - **dag-sla-editor** — build + Save a graph on a throwaway definition (invalid graph → the server 422 inline;
   valid → read view reflects it); the real ACH definition shows the forward-only warning on Edit.
+- **ach-lifecycle** (flagship) — the full ach_exposure acceptance narrative, FAITHFUL to the BPMNs + Amendia's rule
+  that any side-effectful activity is human-gated: priya onboards the 3 segments (every side-effectful action tool
+  `approve_actions`-gated — A's `notify_pega` handback, B's prepare/request_purge/notify, C's mark/purge/notify —
+  plus the AuthorizeRelease/Purge + ReviewArtifacts decisions) and owns the cohort, then steps out. Access is split
+  to **two distinct humans** (Marcus → enforce/B, Riya → assess/A + closeout/C); the runtime AND UI enforce
+  role-holding at claim. Every gate is driven through the Task Inbox as its role-holder, and each flow asserts the
+  cohort reaches **MEMBERS = 3** (assess+enforce+closeout all joined & terminal) and closes — a **1-member stall
+  fails**. Flows: **credit_approve** → 3 members/Released, **debit_reject** → purge branch/3 members/Purged,
+  **late_closeout** → enforce→closeout SLA **breaches (owner=external)** on the SLA board, 3 members, still Released.
+  (No manifest SoD — with actions gated, an intra-enforce `distinct_actor` would stall the single approver; SoD is
+  cross-segment, honoured by the exclusive role split.)
 - **hitl-arc** — fire ACH → resolve each gate **in the Task Inbox** (claim + author the manual gates' artifacts via
   the raw-JSON form) → the **cohort closes Released**, asserted off the Cohorts screen.
 - **live-sse** — with Cohorts open and **not** reloaded, a fired case's row appears live (SSE → refetch).
 - **instance-diagram** — a terminal instance renders its highlighted BPMN diagram (ADR-062).
+
+## The copilot lifecycle command (separate, non-blocking — `tools/e2e-copilot.sh`)
+
+`e2e/tests/ach-copilot-lifecycle.spec.ts` (its own `playwright.copilot.config.ts`, **not** part of the gate above)
+drives the **real copilot autopilot** to onboard the 3 ACH segments (`/registry/onboard`: upload BPMN → point at the
+segment MCP → author trigger schema + triage → Generate → **accept as-is** → publish; fresh pack keys per run),
+then runs the **same ach_exposure lifecycle** the gate proves — cohort formation, role-gated HITL, DAG+SLA, and the
+3 pega flows — but over **copilot-inferred** packs. Because inference varies per run, **everything is read from the
+live packs** and nothing inferred is asserted or hardcoded: each **manual gate's value is synthesized from its
+inferred artifact schema** (`support/copilot.ts` — the fix for the de-risk's 422), and because the copilot often
+infers a **4-eyes `distinct_actor` SoD within enforce** that a single approver can't satisfy, **every gate role is
+granted to both marcus and riya** and each gate is driven by the **SoD-aware picker** (marcus primary; riya provides
+the second signature). It **retains everything** (no teardown), and **skips** cleanly when the stack has no copilot
+model (502 `copilot_llm_unavailable`). A produced-but-unpublishable draft, or a cohort that stalls below 3 members,
+is a real failure. Non-blocking by design — it never gates CI. Re-run needs a clean DB (`down -v`), since it retains.
 
 ## Persona / storageState model
 
