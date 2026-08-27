@@ -13,8 +13,10 @@ belongs to the registry caller (use ``compute_sha256`` for that).
 from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, Set, Tuple
-from xml.etree import ElementTree as ET
+import defusedxml.ElementTree as ET  # hardened fromstring (entity-expansion/XXE safe); re-exports ParseError
+from defusedxml.common import DefusedXmlException
 
+from amendia_bpmn.conditions import normalize_condition
 from amendia_bpmn.model import (
     EXECUTABLE_KINDS,
     EXTENDED_TASK_KINDS,
@@ -179,7 +181,7 @@ def parse(
 
     try:
         root = ET.fromstring(xml)
-    except ET.ParseError as exc:
+    except (ET.ParseError, DefusedXmlException) as exc:  # DefusedXmlException → entity-expansion/DTD rejected
         findings.append(Finding("bpmn_parse_error", f"XML did not parse: {exc}"))
         return None, findings
 
@@ -250,9 +252,12 @@ def parse(
                 cond_el = next((gc for gc in child if local_name(gc.tag) == "conditionExpression"), None)
                 has_cond = cond_el is not None
                 cond_text = (cond_el.text or "").strip() if cond_el is not None else None
+                # Tier-1 lossless canonical form (derived; the raw text is retained on condition_expr).
+                canonical, changes = normalize_condition(cond_text)
                 model.flows.append(Flow(
                     id=node_id, source=src, target=tgt, has_condition=has_cond,
-                    condition_expr=cond_text, name=child.get("name"),
+                    condition_expr=cond_text, condition_canonical=canonical, condition_changes=changes,
+                    name=child.get("name"),
                 ))
                 continue
             if name == "association":

@@ -1,0 +1,28 @@
+# Restaurant dine-in — the wizard "hello world" (single instance, many HITL gates across dining roles).
+# NOT seeded: this runs only when the operator has (1) onboarded dine-in.bpmn (default pack key below;
+# override if you named it differently), (2) added the dinein-mcp server (alias dinein-mcp:8070) to compose,
+# and (3) granted role.dining.{server,kitchen,manager} to the mapped dev personas. Otherwise the preflight
+# skips it ("onboard restaurant-dinein first") — it is never silently dropped.
+domain: restaurant
+pack_keys: [restaurant-dinein]           # the wizard pack key for dine-in.bpmn (override to match your onboarding)
+
+trigger:
+  kind: stub_generator                   # POST {STUB}/generators/dine_in/generate
+  request:
+    generator: dine_in
+    body: {}                             # "happy path" ticket (no allergen conflict)
+
+correlation: trigger_id
+
+hitl:
+  default_persona: riya
+  roles:
+    role.dining.server: riya
+    role.dining.kitchen: marcus
+    role.dining.manager: priya
+  personas: [riya, marcus, priya]
+
+expect:
+  instance_status: completed
+
+timeout_s: 180

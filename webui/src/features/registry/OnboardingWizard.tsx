@@ -26,7 +26,7 @@ import {
   setOnboardingPolicies, setOnboardingTriage,
   type BindingInput, type CapabilityToolSelection, type IntrospectedTool, type OnbTriageRule,
   type OnbBpmnInventory, type OnbBindableElement, type OnboardingSession, type OnboardingState,
-  type ValidationReport, type InferenceDraft, type OnbDecisionSpec, type OnbReduceSpec,
+  type ValidationReport, type ValidationFinding, type InferenceDraft, type OnbDecisionSpec, type OnbReduceSpec,
   type OnbBindingIO, type OnbArtifactRequest, type OnbStagedArtifact,
 } from "@/api/services/registry";
 import { useCapabilities, useCapabilitySearch, useOnboardingSessions, usePacks } from "./queries";
@@ -315,6 +315,7 @@ function BpmnStep({ session, onDone }: { session: OnboardingSession; onDone: (s:
               <div className="flex-1" />
               <Button variant="ghost" size="sm" onClick={() => setCollapsed(false)}><FileCode className="mr-1 size-3.5" />Replace / edit</Button>
             </div>
+            <ConditionNormalizationNotice normalizations={result.bpmn.condition_normalizations} />
           </CardContent>
         ) : (
         <CardContent className="space-y-3">
@@ -2084,6 +2085,16 @@ export function PoliciesStep({ session, onDone, onBack, nextLabel = "Save & revi
           {gateways.map((g) => (
             <div key={g} className="grid grid-cols-2 gap-3 rounded-md border border-border p-3">
               <p className="col-span-2 font-mono text-xs font-medium">{g}</p>
+              <GatewayConditionIssues
+                issues={(session.dry_run_report?.condition_issues ?? []).filter((f) => f.element_id === g)}
+                onApply={(cond) => {
+                  const first = cond.split(/\s*(==|!=|=)\s*/)[0]!.trim();
+                  setGvars((prev) => ({ ...prev, [g]: {
+                    variable: first,
+                    source_artifact: prev[g]!.source_artifact || outputArtifact[first.split(".")[0] ?? ""] || "",
+                  } }));
+                }}
+              />
               <Field label="Decision variable (dot-path)"><Input value={gvars[g]!.variable} onChange={(e) => setGvars({ ...gvars, [g]: { ...gvars[g]!, variable: e.target.value } })} placeholder="<output>.<field>" className="font-mono text-xs" /></Field>
               <Field label="Source artifact">
                 <select className={selectCls} value={gvars[g]!.source_artifact} onChange={(e) => setGvars({ ...gvars, [g]: { ...gvars[g]!, source_artifact: e.target.value } })}>
@@ -2352,6 +2363,57 @@ export function ReadRow({ label, value, mono, className }: { label: string; valu
     </div>
   );
 }
+/** ADR (condition hardening): informational upload notice — what Tier-1 auto-converted (Camunda ${…} → FEEL,
+ *  single→double quotes). Non-blocking; expandable to per-flow before/after. Hidden when nothing was converted. */
+export function ConditionNormalizationNotice({ normalizations }: { normalizations?: OnbBpmnInventory["condition_normalizations"] }) {
+  const items = normalizations ?? [];
+  if (items.length === 0) return null;
+  return (
+    <details className="mt-3 rounded-md border border-agent/30 bg-agent-muted/20 p-3 text-xs">
+      <summary className="flex cursor-pointer items-center gap-2 text-agent">
+        <Info className="size-3.5 shrink-0" />
+        <span className="font-medium">Converted {items.length} gateway condition{items.length === 1 ? "" : "s"} from Camunda <code>{"${…}"}</code> syntax to Amendia FEEL.</span>
+      </summary>
+      <ul className="mt-2 space-y-1.5">
+        {items.map((n, i) => (
+          <li key={i} className="grid grid-cols-[auto_1fr] gap-x-2">
+            <span className="font-mono text-muted-foreground">{n.gateway_id}</span>
+            <span className="font-mono"><span className="text-danger/80 line-through">{n.from}</span> → <span className="text-success">{n.to}</span></span>
+          </li>
+        ))}
+      </ul>
+    </details>
+  );
+}
+
+/** ADR (condition hardening): the guided, blocking Tier-2 findings for one gateway — the server's message +
+ *  a suggested condition the author can Apply (which pre-fills the editable variable) or edit by hand. */
+export function GatewayConditionIssues({ issues, onApply }: { issues: ValidationFinding[]; onApply: (cond: string) => void }) {
+  if (issues.length === 0) return null;
+  return (
+    <div className="col-span-2 space-y-2">
+      {issues.map((f, i) => (
+        <div key={i} className="rounded-md border border-danger/40 bg-danger-muted/20 p-2.5 text-xs">
+          <p className="flex items-start gap-1.5 text-danger">
+            <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
+            <span>{f.message}</span>
+          </p>
+          {f.suggestion?.condition && (
+            <div className="mt-1.5 flex items-center gap-2">
+              <code className="rounded bg-surface px-1.5 py-0.5 font-mono text-[11px]">{f.suggestion.condition}</code>
+              {!f.suggestion.condition.includes("<") && (
+                <Button size="sm" variant="outline" className="h-6 px-2 text-[11px]" onClick={() => onApply(f.suggestion!.condition)}>
+                  <Check className="mr-1 size-3" /> Apply
+                </Button>
+              )}
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export function StepFooter({ summary, busy, disabled, onNext, onBack, nextLabel = "Save & continue" }: { summary: string; busy: boolean; disabled?: boolean; onNext?: () => void; onBack?: () => void; nextLabel?: string }) {
   return (
     <div className="flex items-center justify-between border-t border-border pt-4">

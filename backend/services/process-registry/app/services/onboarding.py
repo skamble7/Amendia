@@ -16,7 +16,8 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from packaging.version import Version
 from urllib.parse import urlsplit
-from xml.etree import ElementTree as ET
+
+import defusedxml.ElementTree as ET  # hardened fromstring (entity-expansion/XXE safe); _task_names' except Exception catches DefusedXmlException
 
 from amendia_bpmn import (
     TASK_EXECUTOR_CATEGORY,
@@ -54,6 +55,7 @@ from app.models.onboarding import (
     BindingInput,
     BpmnInventory,
     CommitStep,
+    ConditionNormalization,
     CreateSessionRequest,
     IntrospectMcpRequest,
     IntrospectMcpResponse,
@@ -557,6 +559,12 @@ class OnboardingService:
             required_execution_profile=inventory.get("required_execution_profile", "common_subset"),
             **build_semantic_summary(sem),
         )
+        # Condition-hardening: surface the Tier-1 auto-conversions for the upload notice (before/after per flow).
+        s.bpmn.condition_normalizations = [
+            ConditionNormalization(gateway_id=gc.gateway_id, flow_id=gc.flow_id,
+                                   **{"from": gc.raw}, to=(gc.canonical or gc.raw), changes=list(gc.changes))
+            for gc in s.bpmn.gateway_conditions if gc.changes
+        ]
         s.inferred = infer_draft(sem, s.basics.default_domain)
         # Re-attaching BPMN re-derives inventory and invalidates everything that referenced
         # task/gateway ids (bindings, gateway variables, SoD) plus the dry-run.

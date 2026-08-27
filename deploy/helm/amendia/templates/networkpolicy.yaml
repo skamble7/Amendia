@@ -4,8 +4,9 @@
        (Calico/Cilium/GKE-native) may require extra ipBlocks — # per-provider. */ -}}
 {{- if .Values.networkPolicy.enabled }}
 {{- $root := . }}
-{{- /* token → in-cluster target port (external tokens handled separately below) */ -}}
-{{- $ports := dict "mongodb" 27017 "rabbitmq" 5672 "keycloak" 8080 "identity" 8086 "process-registry" 8084 "stub-trigger-generator" 8081 "config-forge" 8040 "agent-runtime" 8083 "ingestor" 8082 "notification-service" 8088 "otel" 4318 }}
+{{- /* token → in-cluster target port(s); a list = multi-port (ClickHouse 8123 HTTP + 9000 native).
+       External tokens (inference/mcp) are handled separately below. */ -}}
+{{- $ports := dict "mongodb" 27017 "rabbitmq" 5672 "keycloak" 8080 "identity" 8086 "process-registry" 8084 "stub-trigger-generator" 8081 "config-forge" 8040 "agent-runtime" 8083 "ingestor" 8082 "notification-service" 8088 "otel" 4318 "glea-service" 8090 "clickhouse" (list 8123 9000) }}
 {{- if .Values.networkPolicy.defaultDenyEgress }}
 ---
 apiVersion: networking.k8s.io/v1
@@ -33,6 +34,12 @@ spec:
 {{- if and .Values.capabilityWorker.enabled (eq .Values.executionMode "nemoclaw") -}}
 {{- $_ := set $workloads "capability-worker" .Values.capabilityWorker -}}
 {{- end -}}
+{{- /* The otel-collector is not a .Values.services entry but dials ClickHouse (ADR-058); give it an
+       egress allowlist when it's deployed and exporting to the in-cluster ClickHouse. An 'otlp'
+       exporter targets an external backend → # per-deployment ipBlock rule instead. */ -}}
+{{- if and .Values.otel.enabled .Values.otel.deployCollector (eq (.Values.otel.exporter | default "clickhouse") "clickhouse") -}}
+{{- $_ := set $workloads "otel-collector" (dict "egress" (list "clickhouse")) -}}
+{{- end -}}
 {{- range $name, $svc := $workloads }}
 {{- if $svc.egress }}
 ---
@@ -55,13 +62,21 @@ spec:
     {{- range $t := $svc.egress }}
     {{- $target := $t }}{{ if eq $t "otel" }}{{ $target = "otel-collector" }}{{ end }}
     {{- if hasKey $ports $t }}
+    {{- $pv := index $ports $t }}
     # → {{ $target }} (in-cluster)
     - to:
         - podSelector:
             matchLabels:
               app.kubernetes.io/name: {{ $target }}
               app.kubernetes.io/instance: {{ $root.Release.Name }}
-      ports: [{ protocol: TCP, port: {{ index $ports $t }} }]
+      ports:
+        {{- if kindIs "slice" $pv }}
+        {{- range $pp := $pv }}
+        - { protocol: TCP, port: {{ $pp }} }
+        {{- end }}
+        {{- else }}
+        - { protocol: TCP, port: {{ $pv }} }
+        {{- end }}
     {{- else if eq $t "inference" }}
     {{- if eq $root.Values.inference.mode "nim-selfhosted" }}
     # → in-cluster NIM (nim-selfhosted)

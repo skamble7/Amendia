@@ -25,7 +25,8 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple, Union
-from xml.etree import ElementTree as ET
+import defusedxml.ElementTree as ET  # hardened fromstring (entity-expansion/XXE safe); re-exports ParseError
+from defusedxml.common import DefusedXmlException
 
 from amendia_bpmn.model import Finding, local_name
 
@@ -99,7 +100,7 @@ def parse_decision_table(spec: Union[Dict[str, Any], str]) -> DecisionTable:
 def _parse_dmn_xml(xml: str) -> DecisionTable:
     try:
         root = ET.fromstring(xml)
-    except ET.ParseError as exc:
+    except (ET.ParseError, DefusedXmlException) as exc:  # DefusedXmlException → entity-expansion/DTD rejected
         raise DmnError(f"DMN XML did not parse: {exc}") from exc
     dt = next((e for e in root.iter() if local_name(e.tag) == "decisionTable"), None)
     if dt is None:

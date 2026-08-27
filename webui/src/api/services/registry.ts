@@ -13,6 +13,16 @@ import type {
 
 export type FindingSeverity = "error" | "warning" | "info";
 
+/** Condition-hardening: a guided Tier-2 gateway-condition fix (obj + candidate fields + enum values +
+ *  a ready-to-paste condition string). Never auto-applied — the author confirms which value routes. */
+export interface ConditionSuggestion {
+  obj?: string;
+  candidate_fields?: string[];
+  enum_values?: Record<string, string[]>;
+  field?: string;
+  condition: string;
+}
+
 export interface ValidationFinding {
   code: string;
   severity: FindingSeverity;
@@ -21,12 +31,18 @@ export interface ValidationFinding {
   stage: number;
   element_id: string | null;
   path: string | null;
+  /** condition-hardening: machine reason (missing_field | unquoted_rhs | unsupported_operator |
+   *  wrapper_unresolved | not_parseable) + a structured guided suggestion. */
+  reason?: string | null;
+  suggestion?: ConditionSuggestion | null;
 }
 
 export interface ValidationReport {
   pack_key: string;
   pack_version: string;
   findings: ValidationFinding[];
+  /** the guided gateway-condition findings, surfaced first-class for the Gateways step */
+  condition_issues?: ValidationFinding[];
   created_at?: string;
 }
 

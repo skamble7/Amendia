@@ -1,14 +1,15 @@
 apiVersion: v2
 name: amendia
 description: >-
-  Amendia payment-exception platform — portable umbrella chart (ADR-022).
+  Amendia payment-exception platform — portable umbrella chart (ADR-022, ADR-058).
   Templates every platform service (stub, ingestor, agent-runtime, process-registry,
-  identity, notification-service, config-forge, capability-worker, webui) plus optional
-  in-cluster datastores (Mongo, RabbitMQ, Keycloak). Generic base + thin per-provider
-  values overlays (GKE first-class; EKS/AKS/on-prem scaffolded). Secrets via Vault
-  (Kubernetes auth). Nemotron serving via a single inference.mode toggle.
+  identity, notification-service, config-forge, glea-service, capability-worker, webui)
+  plus optional in-cluster datastores (Mongo, RabbitMQ, ClickHouse, Keycloak) with
+  PVC-backed persistence and an OTel collector that exports to ClickHouse. Generic base +
+  thin per-provider values overlays (GKE first-class; EKS/AKS/on-prem scaffolded). Secrets
+  via Vault (Kubernetes auth). Nemotron serving via a single inference.mode toggle.
 type: application
-version: 0.1.0
+version: 0.2.0
 appVersion: "0.1.0"
 # NOTE: Mongo/RabbitMQ/Keycloak are provided as *optional in-chart Deployments* (datastores.*.deploy)
 # so `helm template` renders a self-contained stack offline. A bank typically disables these and

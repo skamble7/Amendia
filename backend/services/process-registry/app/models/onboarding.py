@@ -107,8 +107,21 @@ class EventSummary(BaseModel):
 class GatewayConditionSummary(BaseModel):
     gateway_id: str
     flow_id: str
-    variable: Optional[str] = None                            # leading dot-path of the condition
-    raw: str
+    variable: Optional[str] = None                            # leading dot-path of the CANONICAL condition
+    raw: str                                                  # verbatim (or canonical if raw absent)
+    canonical: Optional[str] = None                          # Tier-1 normalized form (what runs / is validated)
+    changes: List[str] = Field(default_factory=list)         # what Tier-1 auto-converted (empty → untouched)
+
+
+class ConditionNormalization(BaseModel):
+    """One flow's Tier-1 auto-conversion — informational (the upload notice), never blocking."""
+    gateway_id: str
+    flow_id: str
+    from_: str = Field(alias="from")
+    to: str
+    changes: List[str] = Field(default_factory=list)
+
+    model_config = {"populate_by_name": True}
 
 
 class DataObjectSummary(BaseModel):
@@ -256,6 +269,9 @@ class BpmnInventory(BaseModel):
     events: List[EventSummary] = Field(default_factory=list)
     gateway_conditions: List[GatewayConditionSummary] = Field(default_factory=list)
     data_objects: List[DataObjectSummary] = Field(default_factory=list)
+    # Condition-hardening: the Tier-1 auto-conversions (Camunda ${…}/quote normalization) applied at upload —
+    # informational for the Understanding-step notice. Empty when nothing was converted.
+    condition_normalizations: List[ConditionNormalization] = Field(default_factory=list)
 
 
 class StagedArtifact(BaseModel):

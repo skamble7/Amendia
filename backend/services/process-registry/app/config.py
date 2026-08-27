@@ -35,6 +35,10 @@ class Settings(BaseSettings):
     # /resolve active-pack cache TTL (seconds)
     RESOLVE_CACHE_TTL: float = 30.0
 
+    # Max accepted BPMN upload size (bytes) on the two owner-gated BPMN routes — a compounding-factor
+    # mitigation for the entity-expansion DoS (scan 2026-08-19, C-2). BPMN docs are small; 5 MiB is generous.
+    MAX_BPMN_UPLOAD_BYTES: int = 5_242_880
+
     # Which BPMN conformance level may be activated (ADR-034 / Phase 2.8). "common_executable"
     # (DEFAULT) accepts the full built construct set; "common_subset" gates everything beyond the
     # Phase-0/1 base subset out. Derived required_profile is pinned at activation; the runtime's

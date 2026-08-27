@@ -23,9 +23,14 @@ dependencies = [
   # (CallToolResult.structuredContent→structured_content) and removed streamablehttp_client — silently
   # breaking the executor's tool-output reads. Pin to the 1.28.x line the MCP servers already run.
   "mcp>=1.9,<1.29",
+  # V-1 (CVE-2026-48775 JsonPlusSerializer / -28277 msgpack) — NOT bumped. The fix (langgraph-checkpoint>=4.1.1 /
+  # langgraph>=1.0.10) is UNSATISFIABLE under polyllm's langchain-core<1.0 cap: reaching checkpoint 4.x needs
+  # langgraph>=1.0.6 → langgraph-prebuilt>=1.0.2 → langchain-core>=1.0.0. Closing V-1 requires either MongoDB auth
+  # (separate decision) or crossing the LangChain caps to 1.x (Sandeep's call). See the remediation report.
   "langgraph>=0.2.0",
   "langgraph-checkpoint-mongodb>=0.1.0",
-  "langchain-core>=0.3.0",
+  # V-2 (CVE-2026-44843 / -40087): 0.3.85 is inside the 0.3.x line (already resolves 0.3.86 — floor-lock).
+  "langchain-core>=0.3.85",
   "amendia-common",
   "amendia-contracts",
   "amendia-bpmn",

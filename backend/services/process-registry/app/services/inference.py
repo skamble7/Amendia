@@ -89,8 +89,12 @@ def build_semantic_summary(sem: BpmnSemanticModel) -> Dict[str, Any]:
             {"id": n.id, "name": n.name, "subtype": n.event_subtype, "attached_to": n.attached_to}
             for n in sem.flow_nodes if n.kind in event_kinds
         ],
+        # `f.condition` is the CANONICAL (Tier-1 normalized) form — so a Camunda-authored ${decision == "…"}
+        # now infers its variable instead of silently blanking. `raw`/`canonical`/`changes` are carried for the
+        # upload notice + audit.
         "gateway_conditions": [
-            {"gateway_id": f.source, "flow_id": f.id, "variable": _condition_variable(f.condition), "raw": f.condition}
+            {"gateway_id": f.source, "flow_id": f.id, "variable": _condition_variable(f.condition),
+             "raw": f.condition_raw or f.condition, "canonical": f.condition, "changes": list(f.condition_changes)}
             for f in sem.sequence_flows if f.condition and f.source in gateway_ids
         ],
         "data_objects": [{"id": d.id, "name": d.name} for d in sem.data_objects],

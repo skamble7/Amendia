@@ -17,6 +17,8 @@ dependencies = [
   "packaging>=24.0",
   "orjson>=3.10",
   "dnspython>=2.6",
+  # Hardens the onboarding BPMN parse site against entity-expansion DoS (C-2 / scan 2026-08-19).
+  "defusedxml>=0.7",
   # MCP client for onboarding introspection (lazy-imported; fake injected in tests).
   # Cap below mcp 1.29 / 2.0: those releases renamed the client model fields camelCase→snake_case
   # (Tool.outputSchema→output_schema, CallToolResult.structuredContent→structured_content) and removed

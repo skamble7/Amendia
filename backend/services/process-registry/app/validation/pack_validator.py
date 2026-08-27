@@ -12,7 +12,14 @@ from typing import Dict, List, Optional, Tuple
 
 from packaging.version import Version
 
-from amendia_bpmn import TASK_EXECUTOR_CATEGORY, compilability_findings
+from amendia_bpmn import (
+    TASK_EXECUTOR_CATEGORY,
+    ConditionSyntaxError,
+    classify_condition_error,
+    compilability_findings,
+    condition_lhs,
+    parse_condition,
+)
 from amendia_contracts.capability import CapabilityDescriptor
 from amendia_contracts.common import HitlMode, hitl_mode_at_least
 from amendia_contracts.process_pack import ProcessPackManifest
@@ -38,6 +45,22 @@ APPROVE_ACTIONS = HitlMode.APPROVE_ACTIONS
 # ADR-051: the leading dot-path of a gateway condition (its first segment is the artifact/output name the
 # runtime resolves against). Mirrors inference._CONDITION_LHS.
 _COND_LHS = re.compile(r'^\s*([A-Za-z_][A-Za-z0-9_.]*)')
+
+
+def _required_string_fields(json_schema: Optional[dict]) -> List[Tuple[str, Optional[list]]]:
+    """The top-level REQUIRED string properties of an output schema, each with its enum (or None) — the
+    branch-worthy fields a gateway condition should target. Drives the guided condition suggestion."""
+    if not isinstance(json_schema, dict):
+        return []
+    props = json_schema.get("properties") or {}
+    required = json_schema.get("required") or []
+    out: List[Tuple[str, Optional[list]]] = []
+    for name in required:
+        p = props.get(name) or {}
+        if p.get("type") == "string" or (isinstance(p.get("enum"), list) and p["enum"]):
+            enum = p.get("enum") if isinstance(p.get("enum"), list) else None
+            out.append((name, enum))
+    return out
 
 
 def _forward_reach(model: BpmnModel) -> Dict[str, set]:
@@ -784,6 +807,105 @@ class PackValidator:
                                  path=pointer,
                                  message=f"variable '{gv.variable}': field is not required at every level in "
                                          f"'{gv.source_artifact}'")
+
+        # Condition-hardening Tier-2: run the SHARED runtime grammar on every conditional flow's canonical
+        # condition (the arbiter design time never ran before). A residue that won't parse — or a field-less
+        # LHS that compares the whole output object to a string (silent non-branch) — is a BLOCKING, guided,
+        # schema-enriched finding. Never auto-applied (picking which value routes is author intent).
+        await self._stage6_condition_grammar(model, by_gateway, out_schema_ref, report)
+
+    async def _stage6_condition_grammar(
+        self, model: BpmnModel, by_gateway: Dict[str, list], out_schema_ref: Dict[str, str],
+        report: ValidationReport,
+    ) -> None:
+        for gw in model.exclusive_gateways:
+            seen: set = set()
+            for fl in model.flows:
+                if fl.source != gw:
+                    continue
+                canonical = getattr(fl, "condition_canonical", None) or getattr(fl, "condition_expr", None)
+                if not canonical or canonical in seen:
+                    continue
+                seen.add(canonical)
+                lhs = condition_lhs(canonical) or ""
+                state_name = lhs.split(".")[0] if lhs else ""
+                field_path = lhs.split(".")[1:] if lhs else []
+                schema = await self._condition_schema(gw, state_name, by_gateway, out_schema_ref)
+
+                try:
+                    parse_condition(canonical)
+                    parsed = True
+                except ConditionSyntaxError:
+                    parsed = False
+                if not parsed:
+                    reason = classify_condition_error(canonical)
+                    msg, sugg = self._guided_condition_fix(reason, gw, state_name, field_path, canonical, schema)
+                    report.error("gateway_condition_grammar", stage=6, element_id=gw, reason=reason,
+                                 suggestion=sugg, message=msg)
+                # A field-less LHS (parses but names the whole output object) can never equal a string →
+                # a silent non-branch at runtime. Flag it (in addition to any parse reason above).
+                if lhs and not field_path:
+                    msg, sugg = self._guided_condition_fix("missing_field", gw, state_name, field_path,
+                                                           canonical, schema)
+                    report.error("gateway_condition_grammar", stage=6, element_id=gw, reason="missing_field",
+                                 suggestion=sugg, message=msg)
+
+    async def _condition_schema(self, gw: str, state_name: str, by_gateway: Dict[str, list],
+                                out_schema_ref: Dict[str, str]):
+        """Resolve the artifact schema a gateway's condition LHS reads: the authored gateway_variable's
+        source_artifact when present, else the produced output's schema (by first segment)."""
+        ref: Optional[str] = None
+        for gv in by_gateway.get(gw, []):
+            if (gv.variable or "").split(".")[0] == state_name:
+                ref = gv.source_artifact
+                break
+        if ref is None and by_gateway.get(gw):
+            ref = by_gateway[gw][0].source_artifact
+        if ref is None:
+            ref = out_schema_ref.get(state_name)
+        return await self._latest_active_schema(ref) if ref else None
+
+    def _guided_condition_fix(self, reason: str, gw: str, state_name: str, field_path: List[str],
+                              canonical: str, schema) -> Tuple[str, dict]:
+        """Build the guided message + a structured suggestion (obj, candidate fields, enum values, a ready
+        condition string) the UI renders as a one-click-ish fix. Never auto-applied."""
+        fields = _required_string_fields(schema.json_schema if schema else None)
+        names = [n for n, _ in fields]
+        enums = {n: e for n, e in fields if e}
+        obj = state_name or "<output>"
+
+        if reason == "missing_field":
+            f0 = names[0] if names else "<field>"
+            v0 = (enums.get(f0) or ["<value>"])[0]
+            cond = f'{obj}.{f0} = "{v0}"'
+            extra = f" Required string field(s): {names}." if names else ""
+            msg = (f"gateway '{gw}' condition '{canonical}' compares the whole '{obj}' output object to a "
+                   f"string and can never branch — target a field.{extra} e.g. {cond}")
+        elif reason == "unquoted_rhs":
+            field_name = field_path[0] if field_path else (names[0] if names else None)
+            enum = enums.get(field_name) if field_name else None
+            lhs_str = f"{obj}.{field_name}" if field_name else obj
+            if enum:
+                cond = f'{lhs_str} = "{enum[0]}"'
+                msg = (f"gateway '{gw}' condition '{canonical}': the right-hand side must be a double-quoted "
+                       f"string. '{field_name}' allows {enum}. e.g. {cond}")
+            else:
+                cond = f'{lhs_str} = "<value>"'
+                msg = (f"gateway '{gw}' condition '{canonical}': the right-hand side must be a double-quoted "
+                       f"string (only string equality is supported). e.g. {cond}")
+        elif reason == "unsupported_operator":
+            cond = f'{obj}.<field> = "<category>"'
+            msg = (f"gateway '{gw}' condition '{canonical}': only string comparison with = / == / != is "
+                   f"supported — compute this upstream and branch on a categorical string output. e.g. {cond}")
+        elif reason == "wrapper_unresolved":
+            cond = f'{obj}.<field> = "<value>"'
+            msg = (f"gateway '{gw}' condition '{canonical}': the ${{…}} wrapper could not be safely unwrapped "
+                   f"(unbalanced / multiple expressions). Write a single string comparison, e.g. {cond}")
+        else:  # not_parseable
+            cond = f'{obj}.<field> = "<value>"'
+            msg = (f"gateway '{gw}' condition '{canonical}' is not a supported condition — write "
+                   f'{cond} (string equality; the literal must be double-quoted).')
+        return msg, {"obj": obj, "candidate_fields": names, "enum_values": enums, "condition": cond}
 
     # ------------------------------------------------------------------ #
     # ADR-037 — native DMN decision tables

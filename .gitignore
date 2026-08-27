@@ -174,6 +174,7 @@ Thumbs.db
 *.temp
 *.bak
 *.swp
+*.swo
 *~.nib
 
 # Linux
@@ -231,16 +232,19 @@ node_modules/
 tmp/
 temp/
 
-# Editor backups
-*~
-*.swp
-*.swo
-
-# OS generated files
-.DS_Store
-.DS_Store?
-._*
-.Spotlight-V100
-.Trashes
-ehthumbs.db
-Thumbs.db
+# Playwright / pytest test artifacts (top-level e2e/ + backend/tests/smoke/) — generated OUTPUTS only.
+# Committed INPUTS stay tracked: e2e/{fixtures,support,pages,tests}/**, e2e/{package.json,package-lock.json,
+# playwright.config.ts,README.md}, backend/tests/smoke/**. Python caches / coverage / venvs are already covered
+# above (__pycache__/, .pytest_cache/, .coverage, .coverage.*, htmlcov/, coverage.xml, and .venv — the bare .venv
+# rule also matches backend/tests/smoke/.venv/). OS/editor strays (.DS_Store, *~, *.swp, *.swo) live in the
+# macOS/Windows/Linux block above.
+e2e/node_modules/
+e2e/.artifacts/
+e2e/.auth/
+e2e/.report/
+e2e/test-results/
+e2e/blob-report/
+e2e/playwright/.cache/
+# Belt-and-suspenders for any Playwright run not scoped under e2e/:
+playwright-report/
+test-results/

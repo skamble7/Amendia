@@ -5,9 +5,10 @@ build-backend = "hatchling.build"
 [project]
 name = "amendia-bpmn"
 version = "0.1.0"
-description = "Shared BPMN 2.0 parser for the Amendia Iteration-1 element subset (stdlib only)"
+description = "Shared BPMN 2.0 parser for the Amendia Iteration-1 element subset"
 requires-python = ">=3.11"
-dependencies = []
+# defusedxml hardens the ElementTree parse sites against entity-expansion DoS (C-2 / scan 2026-08-19).
+dependencies = ["defusedxml>=0.7"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["amendia_bpmn"]

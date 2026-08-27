@@ -5,6 +5,7 @@ Inference mode : {{ .Values.inference.mode }} → ConfigForge ref {{ index .Valu
 Secrets        : Vault ({{ .Values.vault.method }}) at {{ .Values.vault.address }}, role {{ .Values.vault.role }}
 NetworkPolicy  : {{ if .Values.networkPolicy.enabled }}default-deny egress + per-service allowlists{{ else }}DISABLED{{ end }}
 Capability-worker: {{ if and .Values.capabilityWorker.enabled (eq .Values.executionMode "nemoclaw") }}{{ .Values.capabilityWorker.replicas }} replica(s){{ if .Values.openshell.sandbox.enabled }} [openshell-sandbox requested — # [confirm]]{{ end }}{{ else }}not rendered (native mode){{ end }}
+Audit / traces : {{ if .Values.otel.enabled }}GLEA audit SOR + OTel traces{{ if .Values.datastores.clickhouse.deploy }} → in-cluster ClickHouse{{ else }} → external ClickHouse ({{ .Values.otel.exporter }} exporter){{ end }} (ADR-058){{ else }}OTel disabled{{ end }}
 
 Install with an explicit release name "amendia" so in-cluster Service DNS matches the defaults:
   helm upgrade --install amendia deploy/helm/amendia -n amendia -f deploy/helm/amendia/values-gke.yaml

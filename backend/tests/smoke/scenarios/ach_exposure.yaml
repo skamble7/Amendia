@@ -1,0 +1,39 @@
+# ACH exposure — a segmented cross-system case orchestrated by the mock Pega (3 Amendia segments + a cohort).
+# Pega fires Segment A; the MCP handbacks drive B (approve gate) → C → the process_completed close that
+# drains the cohort. Assertion is the COHORT (closed / Released), which proves the whole A→B→C→close arc.
+#
+# Needs the pega_stub compose up too: `docker compose -f pega_stub/deploy/docker-compose.yml up -d`.
+domain: ach_exposure
+pack_keys: [ach-exposure-assess, ach-decision-enforce, ach-closeout]   # all three must be onboarded + active
+
+trigger:
+  kind: pega_stub                        # POST {PEGA_STUB}/cases
+  request:
+    scenario: credit_approve             # approve → immediate closeout → Released (the happy path)
+
+correlation: case_id                     # the cohort correlation_value (returned on the case)
+
+hitl:
+  default_persona: marcus                # Segment B's enforce gate
+  roles: {}                              # role ids are operator-chosen at onboarding → rely on default + SoD
+  personas: [marcus, riya]               # SoD: the enforce approver must differ from the assessor
+  # Segment B's manual Task_AuthorizeRelease produces a `release_authorization` artifact — the human output a
+  # generic "complete" can't synthesize. Supplied here (case_id filled from the correlation at runtime).
+  outputs:
+    Task_AuthorizeRelease:               # Segment B — the enforce approver authorizes the release
+      release_authorization:
+        authorized: true
+        case_id: "{correlation}"
+        company: ACME-LOGISTICS          # matches the credit_approve scenario's company
+        decision: {}
+        records: []
+    Task_ReviewArtifacts:                # Segment C — the closeout reviewer confirms the disposition
+      review_decision:
+        approved: true
+        disposition_confirmed: released  # credit_approve → Released
+
+expect:
+  instance_status: completed
+  cohort: { state: closed, outcome: Released }
+
+timeout_s: 200

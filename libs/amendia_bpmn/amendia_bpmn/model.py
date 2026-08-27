@@ -105,8 +105,13 @@ class Flow:
     source: str
     target: str
     has_condition: bool
-    condition_expr: Optional[str] = None  # raw <conditionExpression> text (runtime compiler)
+    condition_expr: Optional[str] = None  # raw <conditionExpression> text (immutable audit record)
     name: Optional[str] = None
+    # ADR (condition hardening): the Tier-1 *lossless* canonical form (unwrapped ${…}, single→double quotes),
+    # derived deterministically at parse time — NOT a mutation of the uploaded XML. Everything downstream
+    # (runtime compiler, registry validator) uses this; ``condition_changes`` records what was auto-converted.
+    condition_canonical: Optional[str] = None
+    condition_changes: List[str] = field(default_factory=list)
 
 
 @dataclass

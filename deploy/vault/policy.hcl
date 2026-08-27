@@ -9,6 +9,7 @@ path "secret/data/amendia/identity"                 { capabilities = ["read"] }
 path "secret/data/amendia/notification-service"     { capabilities = ["read"] }
 path "secret/data/amendia/config-forge"             { capabilities = ["read"] }
 path "secret/data/amendia/capability-worker"        { capabilities = ["read"] }
+path "secret/data/amendia/glea-service"             { capabilities = ["read"] }
 
 # NIM licensing (NGC_API_KEY) when inference.mode = nim-selfhosted.
 path "secret/data/amendia/nim"                      { capabilities = ["read"] }

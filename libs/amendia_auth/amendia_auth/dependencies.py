@@ -15,6 +15,7 @@ None of these ever echo the token; failures carry ``error="invalid_token"``.
 """
 from __future__ import annotations
 
+import secrets
 from typing import Optional
 
 from fastapi import Depends, HTTPException, Request
@@ -108,7 +109,9 @@ async def principal_or_internal(
 ) -> Optional[Principal]:
     """Accept a user bearer OR the shared internal token (service-to-service)."""
     token = request.headers.get(INTERNAL_HEADER)
-    if token and auth.settings.internal_token and token == auth.settings.internal_token:
+    # Constant-time compare (D-1). The `token and internal_token` short-circuit keeps the fail-closed
+    # semantics: an empty configured token means internal auth is disabled, never "matches empty".
+    if token and auth.settings.internal_token and secrets.compare_digest(token, auth.settings.internal_token):
         return INTERNAL_PRINCIPAL
     return await current_principal(creds, auth)
 
@@ -121,5 +124,7 @@ async def require_internal(
     if auth.settings.auth_disabled:
         return
     token = request.headers.get(INTERNAL_HEADER)
-    if not token or not auth.settings.internal_token or token != auth.settings.internal_token:
+    # Constant-time compare (D-1). The `not token or not internal_token` short-circuit preserves fail-closed:
+    # an empty configured token rejects (never accepts an empty/well-known default).
+    if not token or not auth.settings.internal_token or not secrets.compare_digest(token, auth.settings.internal_token):
         raise HTTPException(status_code=401, detail={"error": "invalid_internal_token"})

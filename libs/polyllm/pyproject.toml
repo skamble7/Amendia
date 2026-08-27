@@ -13,7 +13,12 @@ dependencies = [
 
 [project.optional-dependencies]
 langchain = [
-  "langchain>=0.2,<0.4",
+  # V-3 (CVE-2026-45134): 0.3.30 is inside the <0.4 cap. Caps kept deliberately — 1.x fixes for
+  # langchain-openai/-anthropic/-text-splitters are ABOVE these caps (Sandeep's call; see report).
+  "langchain>=0.3.30,<0.4",
+  # V-2 (CVE-2026-44843 / -40087): shared floor so process-registry (which pulls langchain-core only
+  # via this extra) tracks agent-runtime at >=0.3.85 instead of drifting 10 patches behind.
+  "langchain-core>=0.3.85",
   "langchain-openai>=0.1,<0.3",
   "langchain-anthropic>=0.1,<0.3",
   "langchain-google-genai>=2.0",

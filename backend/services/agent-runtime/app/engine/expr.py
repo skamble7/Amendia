@@ -1,35 +1,28 @@
 # app/engine/expr.py
-"""Gateway condition expression subset.
+"""Gateway condition expression subset — runtime evaluation.
+
+The *grammar* (the accepted syntax + parser) is the shared source of truth in
+``amendia_bpmn.conditions`` — process-registry validates against the SAME module, so design time and runtime
+can never drift. This file delegates parsing to it and keeps only the runtime concern: resolving the dotpath
+against ``state.artifacts`` and comparing.
 
 Supported forms (whitespace-tolerant; both ``=`` and ``==`` accepted):
     <dotpath> = "literal"
     <dotpath> != "literal"
 
-The dot-path is resolved against ``state.artifacts`` — its first segment is the
-artifact name (per the manifest ``gateway_variables``), e.g.
-``result.status`` → ``artifacts["result"]["status"]``.
-Anything else raises ``ConditionSyntaxError`` (the compiler surfaces it with the
-gateway id).
+The dot-path is resolved against ``state.artifacts`` — its first segment is the artifact name (per the manifest
+``gateway_variables``), e.g. ``result.status`` → ``artifacts["result"]["status"]``. Anything else raises
+``ConditionSyntaxError`` (the compiler surfaces it with the gateway id).
 """
 from __future__ import annotations
 
-import re
 from typing import Any, Dict
 
-_COND = re.compile(r'^\s*([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z0-9_]+)*)\s*(==|=|!=)\s*"([^"]*)"\s*$')
+# Delegate the grammar to the shared module (single source of truth; no local regex copy → no drift).
+from amendia_bpmn.conditions import CONDITION_RE as _COND  # noqa: F401 - re-exported for back-compat
+from amendia_bpmn.conditions import ConditionSyntaxError, parse_condition
 
-
-class ConditionSyntaxError(ValueError):
-    """The gateway flow condition is outside the supported subset."""
-
-
-def parse_condition(expr: str):
-    """Return ``(segments, op, literal)`` where op is ``==`` or ``!=``."""
-    m = _COND.match(expr or "")
-    if not m:
-        raise ConditionSyntaxError(f"unsupported gateway condition expression: {expr!r}")
-    path, op, literal = m.group(1), m.group(2), m.group(3)
-    return path.split("."), ("!=" if op == "!=" else "=="), literal
+__all__ = ["ConditionSyntaxError", "parse_condition", "resolve_path", "evaluate"]
 
 
 def resolve_path(segments, artifacts: Dict[str, Any]) -> Any:

@@ -44,11 +44,25 @@ from amendia_bpmn.reduce import (
     parse_reduce_config,
     validate_reduce,
 )
+from amendia_bpmn.conditions import (
+    CONDITION_RE,
+    ConditionSyntaxError,
+    classify_condition_error,
+    condition_lhs,
+    normalize_condition,
+    parse_condition,
+)
 from amendia_bpmn.parser import parse, select_process_id
 from amendia_bpmn.semantics import BpmnSemanticModel, extract_semantics
 from amendia_bpmn.timers import UnsupportedTimer, parse_iso_duration, parse_timer, timer_is_supported
 
 __all__ = [
+    "CONDITION_RE",
+    "ConditionSyntaxError",
+    "classify_condition_error",
+    "condition_lhs",
+    "normalize_condition",
+    "parse_condition",
     "BoundaryTimer",
     "BpmnModel",
     "BpmnSemanticModel",

@@ -22,7 +22,7 @@ vault write auth/kubernetes/config \
 
 # One role bound to every Amendia ServiceAccount, scoped by the policy below.
 vault write auth/kubernetes/role/amendia \
-  bound_service_account_names="amendia-stub-trigger-generator,amendia-ingestor,amendia-agent-runtime,amendia-process-registry,amendia-identity,amendia-notification-service,amendia-config-forge,amendia-capability-worker" \
+  bound_service_account_names="amendia-stub-trigger-generator,amendia-ingestor,amendia-agent-runtime,amendia-process-registry,amendia-identity,amendia-notification-service,amendia-config-forge,amendia-capability-worker,amendia-glea-service" \
   bound_service_account_namespaces="amendia" \
   policy="amendia" \
   ttl="1h"
@@ -43,6 +43,9 @@ vault kv put secret/amendia/capability-worker \
   NVIDIA_NIM_API_KEY=... OPENSHELL_INFERENCE_TOKEN=...
 
 vault kv put secret/amendia/identity  IDENTITY_INTERNAL_TOKEN=...
+
+# glea-service consumes governed events off RabbitMQ (no Mongo, no internal token — see values.yaml).
+vault kv put secret/amendia/glea-service  RABBIT_USER=... RABBIT_PASSWORD=...
 # ...one path per service (see values.yaml secretEnv lists).
 ```
 

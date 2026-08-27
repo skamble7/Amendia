@@ -1056,6 +1056,8 @@ export interface components {
             bindable_elements?: components["schemas"]["BindableElementSummary"][];
             /** Bpmn File */
             bpmn_file: string;
+            /** Condition Normalizations */
+            condition_normalizations?: components["schemas"]["ConditionNormalization"][];
             /** Coverage Counts */
             coverage_counts?: {
                 [key: string]: number;
@@ -1420,6 +1422,22 @@ export interface components {
          * @enum {string}
          */
         Compatibility: "backward" | "none";
+        /**
+         * ConditionNormalization
+         * @description One flow's Tier-1 auto-conversion — informational (the upload notice), never blocking.
+         */
+        ConditionNormalization: {
+            /** Changes */
+            changes?: string[];
+            /** Flow Id */
+            flow_id: string;
+            /** From */
+            from: string;
+            /** Gateway Id */
+            gateway_id: string;
+            /** To */
+            to: string;
+        };
         /** Constraints */
         Constraints: {
             /**
@@ -1890,6 +1908,10 @@ export interface components {
         };
         /** GatewayConditionSummary */
         GatewayConditionSummary: {
+            /** Canonical */
+            canonical?: string | null;
+            /** Changes */
+            changes?: string[];
             /** Flow Id */
             flow_id: string;
             /** Gateway Id */

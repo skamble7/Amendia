@@ -14,6 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from amendia_auth import require_roles
 from amendia_auth.models import AuthenticatedUser
 
+from app.config import settings
 from app.deps import get_onboarding_service, get_resolver
 from app.models.onboarding import (
     AttachBpmnRequest,
@@ -188,6 +189,9 @@ async def attach_bpmn(
     owner: str = Depends(_owner_id),
     svc: OnboardingService = Depends(get_onboarding_service),
 ):
+    # Cap BPMN size — compounding-factor mitigation for the entity-expansion DoS (scan 2026-08-19, C-2).
+    if len(req.bpmn_xml.encode("utf-8")) > settings.MAX_BPMN_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail=f"BPMN exceeds {settings.MAX_BPMN_UPLOAD_BYTES} bytes")
     try:
         return await svc.attach_bpmn(session_id, req, owner=owner)
     except TransitionError as exc:
