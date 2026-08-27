@@ -16,7 +16,8 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from packaging.version import Version
 from urllib.parse import urlsplit
-from xml.etree import ElementTree as ET
+
+import defusedxml.ElementTree as ET  # hardened fromstring (entity-expansion/XXE safe); _task_names' except Exception catches DefusedXmlException
 
 from amendia_bpmn import (
     TASK_EXECUTOR_CATEGORY,

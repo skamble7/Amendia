@@ -58,7 +58,7 @@ requires-dist = [
     { name = "httpx", specifier = ">=0.27" },
     { name = "httpx", marker = "extra == 'dev'", specifier = ">=0.27" },
     { name = "jsonschema", specifier = ">=4.21" },
-    { name = "langchain-core", specifier = ">=0.3.0" },
+    { name = "langchain-core", specifier = ">=0.3.85" },
     { name = "langgraph", specifier = ">=0.2.0" },
     { name = "langgraph-checkpoint-mongodb", specifier = ">=0.1.0" },
     { name = "mcp", specifier = ">=1.9,<1.29" },
@@ -131,6 +131,12 @@ provides-extras = ["dev"]
 name = "amendia-bpmn"
 version = "0.1.0"
 source = { editable = "../../../libs/amendia_bpmn" }
+dependencies = [
+    { name = "defusedxml" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "defusedxml", specifier = ">=0.7" }]
 
 [[package]]
 name = "amendia-common"
@@ -1695,6 +1701,7 @@ langchain = [
     { name = "langchain" },
     { name = "langchain-anthropic" },
     { name = "langchain-aws" },
+    { name = "langchain-core" },
     { name = "langchain-google-genai" },
     { name = "langchain-openai" },
 ]
@@ -1705,9 +1712,10 @@ remote = [
 [package.metadata]
 requires-dist = [
     { name = "httpx", marker = "extra == 'remote'", specifier = ">=0.27" },
-    { name = "langchain", marker = "extra == 'langchain'", specifier = ">=0.2,<0.4" },
+    { name = "langchain", marker = "extra == 'langchain'", specifier = ">=0.3.30,<0.4" },
     { name = "langchain-anthropic", marker = "extra == 'langchain'", specifier = ">=0.1,<0.3" },
     { name = "langchain-aws", marker = "extra == 'langchain'", specifier = ">=0.1,<0.3" },
+    { name = "langchain-core", marker = "extra == 'langchain'", specifier = ">=0.3.85" },
     { name = "langchain-google-genai", marker = "extra == 'langchain'", specifier = ">=2.0" },
     { name = "langchain-openai", marker = "extra == 'langchain'", specifier = ">=0.1,<0.3" },
     { name = "pydantic", specifier = ">=2.7" },

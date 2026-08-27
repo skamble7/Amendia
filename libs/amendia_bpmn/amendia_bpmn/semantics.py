@@ -12,7 +12,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
-from xml.etree import ElementTree as ET
+import defusedxml.ElementTree as ET  # hardened fromstring (entity-expansion/XXE safe); re-exports ParseError
+from defusedxml.common import DefusedXmlException
 
 from amendia_bpmn.conditions import normalize_condition
 from amendia_bpmn.model import local_name
@@ -160,7 +161,7 @@ def extract_semantics(xml: str, process_id: str) -> BpmnSemanticModel:
     model = BpmnSemanticModel(process_id=process_id)
     try:
         root = ET.fromstring(xml)
-    except ET.ParseError:
+    except (ET.ParseError, DefusedXmlException):  # DefusedXmlException → entity-expansion/DTD rejected
         return model
 
     # collaboration: pools + message flows

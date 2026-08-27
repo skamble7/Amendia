@@ -13,7 +13,8 @@ belongs to the registry caller (use ``compute_sha256`` for that).
 from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, Set, Tuple
-from xml.etree import ElementTree as ET
+import defusedxml.ElementTree as ET  # hardened fromstring (entity-expansion/XXE safe); re-exports ParseError
+from defusedxml.common import DefusedXmlException
 
 from amendia_bpmn.conditions import normalize_condition
 from amendia_bpmn.model import (
@@ -180,7 +181,7 @@ def parse(
 
     try:
         root = ET.fromstring(xml)
-    except ET.ParseError as exc:
+    except (ET.ParseError, DefusedXmlException) as exc:  # DefusedXmlException → entity-expansion/DTD rejected
         findings.append(Finding("bpmn_parse_error", f"XML did not parse: {exc}"))
         return None, findings
 

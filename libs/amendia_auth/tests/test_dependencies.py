@@ -175,6 +175,27 @@ async def test_require_internal_guard(idp, resolver):
     assert bad.status_code == 401
 
 
+async def test_principal_or_internal_empty_configured_token_fails_closed(idp, resolver):
+    """D-1 (secrets.compare_digest): an empty configured internal_token must NEVER match — not an empty
+    header token, not a non-empty one. Both fall through to bearer auth → 401 (no bearer present)."""
+    app = build_app(_settings(internal_token=""), idp, resolver)
+    async with await _client(app) as ac:
+        empty = await ac.get("/s2s", headers={INTERNAL_HEADER: ""})
+        nonempty = await ac.get("/s2s", headers={INTERNAL_HEADER: "anything"})
+    assert empty.status_code == 401
+    assert nonempty.status_code == 401
+
+
+async def test_require_internal_empty_configured_token_rejects(idp, resolver):
+    """D-1 fail-closed: require_internal rejects (401) whenever internal_token is unset ('')."""
+    app = build_app(_settings(internal_token=""), idp, resolver)
+    async with await _client(app) as ac:
+        empty = await ac.get("/internal-only", headers={INTERNAL_HEADER: ""})
+        nonempty = await ac.get("/internal-only", headers={INTERNAL_HEADER: "anything"})
+    assert empty.status_code == 401
+    assert nonempty.status_code == 401
+
+
 async def test_auth_disabled_yields_synthetic_user(idp, resolver):
     app = build_app(_settings(auth_disabled=True), idp, resolver)
     async with await _client(app) as ac:

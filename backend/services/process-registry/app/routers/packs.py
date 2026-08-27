@@ -88,6 +88,8 @@ async def upload_bpmn(
     body = await request.body()
     if not body:
         raise HTTPException(status_code=422, detail="empty BPMN body")
+    if len(body) > settings.MAX_BPMN_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail=f"BPMN exceeds {settings.MAX_BPMN_UPLOAD_BYTES} bytes")
     xml = body.decode("utf-8")
     sha = compute_sha256(xml)
     await bpmn_repo.upsert(pack_key, version, xml=xml, sha256=sha)
