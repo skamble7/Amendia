@@ -24,7 +24,7 @@ from typing import Any, Callable, Dict, List, NamedTuple, Optional, Tuple
 
 from packaging.version import Version
 
-from amendia_contracts.common import HitlMode, hitl_mode_at_least
+from amendia_contracts.common import HitlMode, hitl_mode_at_least, hitl_rank
 
 from app.models.onboarding import (
     BindingInput,
@@ -143,6 +143,14 @@ def _hrank(mode: str) -> int:
     return order.index(mode) if mode in order else 0
 
 
+def _bare_cap_id(ref: Optional[str]) -> Optional[str]:
+    """The capability id without its version range (the part before '@'), or None if the ref is unknown.
+    ADR-065 P1 follow-up: a waiver is compared on the bare id so a routine version-range bump doesn't drop it."""
+    if not ref:
+        return None
+    return ref.split("@", 1)[0] or None
+
+
 class Reconciler:
     def __init__(self, svc: Any, *, domain: str, mcp: CopilotMcpConfig,
                  tools: IntrospectMcpResponse, proposal: CopilotProposal,
@@ -202,6 +210,10 @@ class Reconciler:
         bindable = {e.element_id: e for e in session.bpmn.bindable_elements}
         inferred = session.inferred or InferenceDraft()
         inf_by_el = {b.element_id: b for b in inferred.bindings}
+        # ADR-065 Part C: the operator's prior side-effect waivers, by element. The copilot must never re-gate a
+        # waived binding nor create/destroy a waiver — a chat turn re-runs this whole reconcile, so a waived
+        # binding must be preserved verbatim rather than clamped back up to the floor.
+        self._prior_by_el = {b.element_id: b for b in (session.bindings or [])}
         # Four-eyes is a safety invariant → deterministic. Detect the approval gates structurally (Part 1) BEFORE
         # anything LLM-derived, then derive the human approver from the gate tasks (Part 4) and use the automation
         # lane to keep a gate off the machine lane (Part D).
@@ -705,8 +717,29 @@ class Reconciler:
                 elif p and p.output_name:
                     b.output_name = p.output_name.strip()
                     self._llm("output_name", eid, f"named output '{b.output_name}'", p)
-                # HITL: LLM proposal clamped up to the side-effect floor
-                b.hitl_mode, b.hitl_role = self._clamp_hitl(eid, p, side_effect, inf)
+                # HITL: LLM proposal clamped up to the side-effect floor — UNLESS the operator already waived this
+                # binding (ADR-065 Part C). A waiver justifies ONE capability, gated ONE way, on ONE element: it
+                # survives a chat turn only when neither the capability nor the gate changed. A deliberate rebind
+                # (set_executor to a different capability) or an explicit gate raise (set_hitl to a stricter mode)
+                # DROPS the waiver and re-gates the binding via the normal clamp — the fail-safe direction — and
+                # tells the operator, so an LLM-proposed edit can never make a human gate vanish from a capability
+                # that no human ever waived.
+                prior = self._prior_by_el.get(eid)
+                prior_waiver = getattr(prior, "side_effect_waiver", None)
+                if prior_waiver is not None:
+                    drop_reason = self._waiver_drop_reason(prior, b.capability_ref, p)
+                    if drop_reason is None:
+                        b.side_effect_waiver = prior_waiver
+                        b.hitl_mode, b.hitl_role = prior.hitl_mode, prior.hitl_role
+                        self._det("hitl", eid, f"preserved the operator's side-effect waiver (hitl '{prior.hitl_mode}') "
+                                               f"— the copilot never re-gates or removes an untouched waiver")
+                    else:
+                        b.hitl_mode, b.hitl_role = self._clamp_hitl(eid, p, side_effect, inf)
+                        self._det("hitl", eid, f"dropped the operator's side-effect waiver ({drop_reason}) and re-gated "
+                                               f"{eid} to '{b.hitl_mode}' — a waiver justifies one capability gated one "
+                                               f"way; re-waive against what the binding now is")
+                else:
+                    b.hitl_mode, b.hitl_role = self._clamp_hitl(eid, p, side_effect, inf)
                 # input_map (LLM proposal → composite over the tool input fields); refine fills any gaps
                 b.input_sources = self._capability_input_sources(eid, tool, p)
                 if p:
@@ -756,6 +789,24 @@ class Reconciler:
         b.call_pack = (p.executor.call if p and p.executor.call else None) or getattr(inv, "called_pack", None)
         b.call_version = getattr(inv, "called_version", None) or "^1.0.0"
         return b
+
+    def _waiver_drop_reason(self, prior: Any, new_ref: Optional[str], p: Optional[ElementProposal]) -> Optional[str]:
+        """ADR-065 P1 follow-up: a preserved waiver is trustworthy only when the binding it justifies is unchanged.
+        Returns a human-readable reason to DROP the waiver (capability rebound / gate raised), or None to preserve.
+        Fail-safe: any ambiguity in the capability comparison drops — never preserve on a maybe."""
+        # Capability changed ⇒ drop. Compare the BARE capability id (before '@'), so a routine version-range bump
+        # doesn't spuriously drop a valid waiver. Either id missing (ambiguous) ⇒ drop.
+        prior_id = _bare_cap_id(getattr(prior, "capability_ref", None))
+        new_id = _bare_cap_id(new_ref)
+        if prior_id is None or new_id is None or prior_id != new_id:
+            return f"capability rebound {prior_id or '?'} → {new_id or '?'}"
+        # Gate deliberately raised this turn ⇒ drop. The reconstructed+mutated proposal (a set_hitl the operator
+        # made) asks for a mode STRICTER than the waived one; honour it, and the waiver would be dead anyway once
+        # the binding is at/above the floor. Semantic rank (approve_actions ~= manual), so equivalent isn't "raised".
+        proposed = p.hitl.mode if (p and p.hitl and p.hitl.mode) else None
+        if proposed is not None and hitl_rank(proposed) > hitl_rank(prior.hitl_mode):
+            return f"gate raised '{prior.hitl_mode}' → '{proposed}'"
+        return None
 
     def _clamp_hitl(self, eid: str, p: Optional[ElementProposal], side_effect: str, inf: Any) -> Tuple[str, Optional[str]]:
         proposed = (p.hitl.mode if p else None) or (inf.suggested_hitl_mode if inf else None) or "none"

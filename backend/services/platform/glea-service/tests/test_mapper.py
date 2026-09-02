@@ -9,7 +9,7 @@ import orjson
 import pytest
 
 from app.clickhouse import schema
-from app.events.mapper import UnmappableEvent, event_kind, to_row
+from app.events.mapper import UnmappableEvent, event_kind, to_row, waiver_rows
 
 
 def _envelope(**extra):
@@ -37,6 +37,45 @@ def test_row_columns_are_exactly_the_structural_schema():
     assert row["decided_by"] == "u1"
     assert row["actor"] == "u1"          # decided_by is the acting human
     assert row["sod_satisfied"] == 1     # Nullable(UInt8)
+
+
+def test_pack_waiver_fans_out_one_row_per_waiver():
+    # ADR-065 P4b: a publish PackLifecycleEvent fans out to one `pack_waiver` row per waiver — same structural
+    # columns, author in `actor`, publisher + capability + justification on the row's payload.
+    payload = _envelope(
+        pack_key="wire-repair-standard", version="1.2.0", op="publish", actor="usr-publisher",
+        trace={"correlation_id": "", "trace_id": ""},
+        waivers=[
+            {"element_id": "Task_NotifyAssessed", "capability_id": "cap.payment.notify_parties",
+             "justification": "Idempotent handback; the orchestrator re-confirms receipt.",
+             "waived_by": "usr-author", "waived_at": "2026-09-01T00:00:00+00:00"},
+            {"element_id": "Task_Record", "capability_id": "cap.payment.record",
+             "justification": "Write-once ledger append; a re-run is a no-op.",
+             "waived_by": "usr-author2", "waived_at": "2026-09-01T00:01:00+00:00"},
+        ],
+    )
+    rows = waiver_rows("process_registry.pack_lifecycle.v1", payload)
+    assert len(rows) == 2
+    for r in rows:
+        assert set(r.keys()) == set(schema.INSERT_COLUMNS)          # SAME domain-neutral columns as any audit row
+        assert r["kind"] == "pack_waiver"
+        assert r["pack_key"] == "wire-repair-standard" and r["pack_version"] == "1.2.0"
+    r0 = rows[0]
+    assert r0["element_id"] == "Task_NotifyAssessed"
+    assert r0["actor"] == "usr-author"                             # the author is the actor column ("who allowed it")
+    assert r0["event_id"].endswith(":waiver:Task_NotifyAssessed")  # deterministic → idempotent redelivery
+    p = orjson.loads(r0["payload"])
+    assert p["capability_id"] == "cap.payment.notify_parties"
+    assert p["publisher"] == "usr-publisher"                       # publisher is a DIFFERENT fact from waived_by
+    assert p["justification"].startswith("Idempotent")
+
+
+def test_pack_waiver_no_fanout_when_absent_or_not_publish():
+    # deprecate / rollback (or publish with no waivers) → no fan-out; a non-pack event → no rows.
+    assert waiver_rows("process_registry.pack_lifecycle.v1",
+                       _envelope(op="deprecate", pack_key="p", version="1.0.0")) == []
+    assert waiver_rows("agent_runtime.hitl_task_decided.v1",
+                       _envelope(waivers=[{"element_id": "X"}])) == []
 
 
 def test_egress_decision_maps_to_egress_columns_not_decision():

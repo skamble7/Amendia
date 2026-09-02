@@ -567,6 +567,16 @@
             },
             "title": "Outputs",
             "type": "array"
+          },
+          "side_effect_waiver": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SideEffectWaiver"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -665,6 +675,16 @@
             },
             "title": "Outputs",
             "type": "array"
+          },
+          "side_effect_waiver": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SideEffectWaiver"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -814,6 +834,16 @@
               }
             ],
             "title": "Role"
+          },
+          "side_effect_waiver": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SideEffectWaiver"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -4852,6 +4882,55 @@
         "title": "SideEffect",
         "type": "string"
       },
+      "SideEffectWaiver": {
+        "additionalProperties": false,
+        "description": "ADR-065 \u2014 a per-binding, justified waiver of the platform's ``side_effectful \u21d2 hitl >= approve_actions``\nfloor for THIS element in THIS pack version. Present only when it is doing work (a dead waiver is a\nvalidation error). It waives EXACTLY that one platform floor \u2014 never the capability author's\n``constraints.min_hitl_mode``, never ``deep_agent_requires_hitl``, never any other rule (see the registry\nvalidator). There is no boolean form: a waiver ALWAYS carries a substantive reason.\n\nADR-065 P4a \u2014 provenance + the capability bond. ``waived_capability_id`` is the BARE capability id (no version\nrange) the waiver authorises: stage 4 rejects a waiver whose bond does not match what the binding actually\nresolves to (``side_effect_waiver_capability_mismatch``), turning the P1 registry-emission-side guarantee into\none the manifest carries. ``waived_by`` / ``waived_at`` record who wrote the justification and when. ALL THREE\nare OPTIONAL and are STAMPED SERVER-SIDE by ``set_bindings`` \u2014 a client never asserts them (a client-sent value\nis ignored). Absent \u21d2 a pre-P4a (legacy) waiver: a warning (``side_effect_waiver_unbonded``), never an error.",
+        "properties": {
+          "justification": {
+            "title": "Justification",
+            "type": "string"
+          },
+          "waived_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Waived At"
+          },
+          "waived_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Waived By"
+          },
+          "waived_capability_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Waived Capability Id"
+          }
+        },
+        "required": [
+          "justification"
+        ],
+        "title": "SideEffectWaiver",
+        "type": "object"
+      },
       "SkillRuntime": {
         "additionalProperties": false,
         "properties": {
@@ -5077,6 +5156,16 @@
               }
             ],
             "title": "Role"
+          },
+          "side_effect_waiver": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SideEffectWaiver"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [

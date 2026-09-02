@@ -4,7 +4,7 @@
 **Claude Code (CC)** in Sandeep's local VS Code workspace. A device bridge connects the session to the
 workspace. Claude writes **documents and prompts, never code**.
 
-**Doc status:** consolidated 2026-08-28. Supersedes the 2026-08-13 project-doc version; kept on disk from
+**Doc status:** consolidated 2026-08-28; ADR-065 log added + closed out 2026-09-01. Supersedes the 2026-08-13 project-doc version; kept on disk from
 now on (`backend/docs/amendia_bridge_working_model.md`) with a mirror at project doc
 `claude/amendia_bridge_working_model.md`.
 
@@ -13,7 +13,7 @@ now on (`backend/docs/amendia_bridge_working_model.md`) with a mirror at project
 ## Locations
 
 - **Workspace root (code):** `/Users/sandeep/Documents/Projects/Amendia` (macOS, device `sandeeps-macbook-pro-local`)
-- **ADRs:** `backend/docs/adr/ADR-0XX-*.md` — on disk through **ADR-064**; **next is ADR-065**. Always
+- **ADRs:** `backend/docs/adr/ADR-0XX-*.md` — on disk through **ADR-065**; **next is ADR-066**. Always
   `ls backend/docs/adr/` before writing to confirm.
 - **Docs root + doc map:** `backend/docs/` (see its `README.md`); front door is
   `backend/docs/methodology/amendia_operating_model.md`.
@@ -291,9 +291,104 @@ don't cache.
   auth** or a **LangChain 1.x migration**. The remaining 7 npm advisories need SemVer majors (vitest 4 /
   vite 8 / react-router-dom 7); vitest 4 breaks the run on a jsdom `scrollIntoView` throw.
 
+## 2026-08-28 → 2026-09-01 — ADR-065: the side-effect gate becomes waivable
+
+- **ADR-065 written 2026-08-28.** The platform invariant "any side-effectful capability is human-gated" becomes
+  **default-on but waivable**, per binding, with a **required written justification**. Sandeep's call: a full
+  `hitl: none` is permitted — some processes legitimately have no human in them.
+  - **The argument for building it:** the gate was *already* removable, dishonestly. `side_effect` is not
+    transmitted by MCP — it is inferred from the output ack-shape (`mcp_introspect.py:88-107`, `:321`) and then
+    freely editable by the operator, the copilot's `set_side_effect` mutation, and any headless caller. The ACH
+    e2e fixture does exactly this (`onboard_ach.py:171-176`). An explicit, justified, auditable waiver is
+    strictly safer than an untraceable mislabel.
+  - **Decided (each confirmed by Sandeep):** **`min_hitl_mode` is the capability author's non-waivable floor** —
+    the mechanism by which an MCP team marks its own tool's gate un-waivable; **the copilot may never waive** (no
+    `set_waiver` mutation, clamp still clamps up); **a side-effectful capability stays ineligible as a
+    multi-instance host**, waiver or not (today that block is *accidental* — it falls out of the gate invariant —
+    and allowing `none` would otherwise permit un-gated N-way fan-out); **warn on downgrading** an
+    ack-shape-inferred `side_effectful` to `read_only`.
+  - Also folded in: the `assist_capability` hole (stage 4 never side-effect-checked a human task's assist, which
+    `task_runner.py:871-874` runs in `mode="execute"` *before* the interrupt) and a `human` executor at
+    `hitl: none` (passes validation, raises at runtime).
+- **P1 shipped + reviewed (contracts + registry).** `SideEffectWaiver{justification}` on `Binding`, ≥20 chars at
+  parse time, no boolean form. Nine finding codes through stage 4, mirrored into `_check_hitl_guard`. The
+  non-waivable set holds. Assist hole confirmed empirically and closed. Waiver survives
+  `set_bindings → session → assemble → manifest → from-pack → copilot`. Seed packs unchanged. The seven
+  human-task tests that the new `hitl_none_on_human_executor` rule broke were fixed by binding them at
+  `manual`/`role.server` — the real configuration — not by relaxing the rule.
+- **P1 review found one blocking hole — closed by a follow-up phase.** Waiver preservation across a copilot chat
+  turn was keyed on `element_id` alone, while `set_executor` (in the closed mutation vocabulary) can rebind that
+  element to a **different** capability in the same turn. A waiver written for `notify_pega` could silently
+  carry onto `execute_payment` — and it **validated clean**. The letter of Part C held (no `set_waiver`
+  mutation); the intent did not. Writing the fix surfaced the mirror image: a `set_hitl` **raise** on a waived
+  binding was silently discarded, so asking the copilot to put a gate back did nothing.
+  - **Fix (`reconcile.py::_waiver_drop_reason`):** a waiver survives only when *neither the capability nor the
+    gate changed*. Capability compared on the **bare id** (version bumps don't drop); missing/unequal ⇒ drop
+    (fail-safe); a strictly-stronger proposed mode is honoured and drops the waiver; every drop emits a
+    decision-trace entry. Verified end to end — a rebound binding now **fails** stage 4 until re-waived.
+  - **Guard against the mirror failure:** `HitlProposal.mode` defaults to `"none"` (`proposal.py:30`), so an
+    unrelated turn cannot look like a gate raise and erode waivers turn by turn. The preserve test fires a
+    `set_hitl` at a *different* element and asserts survival.
+- **Known boundary, for P4.** The guarantee is **registry-emission-side, not a signature**: nothing binds the
+  justification text to the capability it justifies, so a hand-edited manifest could still carry a mismatched
+  waiver. Planned fix: stamp `waived_capability_id` into the waiver object alongside `waived_by`/`waived_at`, so
+  stage 4 re-verifies the bond on every validate. The waiver is an object precisely to allow this without a wire
+  break.
+- **P2 prompt written (runtime enforcement).** The runtime has never enforced this invariant —
+  `task_runner.py:410-441` dispatches on the declared `hitl_mode` and the only fail-closed check keys on
+  `deep_agent`. P2 threads the waiver onto `NodeContext`, adds the fail-closed check on both the capability and
+  human-assist paths, propagates through `call_activity._scope_ctx`, and adds the compiler MI rule. Safety
+  property that makes it cheap: **no existing pack can trip it** — before P1 an ungated side-effect could not be
+  activated. Critical requirement carried from the wire-screen hunt: `side_effect_ungated` must be excluded from
+  **catch-all error-boundary** routing, or it resurfaces as a fake business "hold".
+- **P2 shipped (runtime).** Waiver threaded onto `NodeContext` (`bundle.py`), fail-closed check on the
+  capability path and — separately — the human-**assist** path (human executors route to `_run_manual` *before*
+  the hitl dispatch, so one check can't cover both), propagation through `call_activity._scope_ctx`, and the
+  compiler MI refusal. **Deliverable 4 came out better than the prompt asked:** `side_effect_ungated` is
+  *structurally* unmaskable — only `CapabilityBusinessError` ever becomes a boundary entry, so a
+  `NodeExecutionError` propagates to a hard `_fail` and never reaches the boundary router. Nothing needed
+  extending; CC reused the exception class and touched the router zero times.
+- **Assist-ordering correction (ADR Part G amended 2026-09-01).** Review of P2 found the assist rule keyed on the
+  HITL rank ladder, and `_HITL_RANK` scores `manual` and `approve_actions` **equally (2)** — so a human task at
+  `manual`, the normal mode, skipped the check and ran a side-effectful assist un-gated. **The ladder encodes how
+  much authorization a task carries, not ordering**; on the assist path the effect always precedes the
+  `interrupt()`, so no rank buys anything. Corrected in all three places: a side-effectful assist is un-gated by
+  construction and **always** needs a waiver. Survey confirmed nothing existing was newly rejected (the only
+  assist anywhere is `cap.payment.draft_rfi`, `read_only`).
+- **P3 shipped (webui).** Shared `WaiverAffordance` (required justification, ≥20 chars, live count, never a
+  toggle) used by both the wizard's Bindings step and the copilot review — **decided 2026-09-01: the operator may
+  waive from copilot review**, since forcing them into the technical wizard pushes people back toward
+  mislabeling; the LLM still may never propose one. `policyByCap` splits `minFloor` (non-waivable) from `floor`,
+  so waiving drops to the capability author's floor, **not** unconditionally to `none`. `gatesOf` no longer
+  filters waived steps — they sort first, danger-styled, with a count banner.
+- **P4a shipped (provenance + bond).** `waived_by` / `waived_at` / `waived_capability_id`, **server-stamped at
+  `set_bindings`**, never client-asserted (client-sent values are ignored and overwritten — there is a test that
+  sends `waived_by="attacker"`). Stage 4 verifies the bond (`side_effect_waiver_capability_mismatch`); absent
+  provenance is a warning, never an error. **CC correctly declined the instruction to mirror the bond check in
+  `_check_hitl_guard`** — a hand-edited manifest never passes through onboarding, and assemble runs the full
+  validator anyway, so the mirror would be dead code contradicting "ignore client provenance."
+- **P4b shipped (audit + fixtures), closing the ADR.** The P4a preserve gap closed (preserve author/timestamp
+  only when justification **and** bond match — a same-text/new-capability re-send was crediting the prior author
+  with a bond the server had just re-derived to match, making the mismatch check unfalsifiable). Audit: the
+  publish `PackLifecycleEvent` carries `waivers`, fanned out by GLEA to one `pack_waiver` row each, so the
+  auditor query is `kind = 'pack_waiver'` — no new column, no new channel. **Well-evidenced refutation on the ACH
+  fixture:** `ach-lifecycle.spec.ts:116-131` asserts every handback is gated at `approve_actions`, so an *honest*
+  fixture carries **no waiver** — the fix was to the *derivation* (gating-derived → nature-derived
+  `suggested_side_effect`), and the waiver is exercised by the new Playwright journey's own pack instead.
+- **THE STANDING GAP: nothing in ADR-065 has been verified on a running stack.** Every phase was green in tests
+  and carried the same "not live until `docker compose build`" caveat; `tools/e2e.sh` needs a live compose stack
+  and could not run. Before this can be called done: rebuild `process-registry`, `agent-runtime`, `glea-service`
+  and webui, **restart** (the runtime's bundle cache is non-evicting), then waive a step as **priya**, watch it
+  run un-gated, and find it in the audit store. The ADR stays **Proposed** until that pass.
+- **Docs updated 2026-09-01:** the MCP implementor guideline gained **§4b** (`min_hitl_mode` as the capability
+  author's non-waivable floor — new guidance: the tool's builder decides whether a process owner may ever run it
+  unattended), and the trust/accountability business view gained a dated update restating the gating claim
+  honestly (*"a person approves every real-world action — unless a named owner recorded, in advance and on the
+  record, why this one does not need it"*).
+
 ## Open decisions on the table (2026-08-28)
 
-1. **ADR-065 — Amendia as data processor (PII).** `backend/docs/engineering/amendia_pii_processor_gap_analysis.md`
+1. **Amendia as data processor (PII) — needs a new ADR number (065 is taken by the gate waiver; use 066+).** `backend/docs/engineering/amendia_pii_processor_gap_analysis.md`
    (2026-08-18) is explicitly *input to ADR-065* and is the largest open item. 28 findings (9 Critical,
    11 High). Headline: **nothing in the codebase field-encrypts, masks, tokenizes, redacts or classifies
    customer data** — verified by exhaustive search, not assumed. Worst two: **G-19** — every `llm`-kind

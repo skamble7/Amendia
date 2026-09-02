@@ -193,3 +193,99 @@ async def test_chat_honors_per_request_model_config_ref(svc, monkeypatch):
     assert resp.report.model_ref == alt_ref
     assert _binding(resp.session, "Task_FireTicket").hitl_role == "role.rest_stan.manager"
     copilot_llm._LLM_CLIENTS.clear()
+
+
+async def test_copilot_chat_preserves_operator_waiver(svc, monkeypatch):
+    # ADR-065 Part C / D5: the wizard-waives → copilot-chat-edits → waiver-survives round trip. A chat turn
+    # re-runs the whole reconcile; a human's side-effect waiver must never be re-gated or destroyed.
+    from amendia_contracts.process_pack import SideEffectWaiver
+    session = await _seed(svc, monkeypatch)
+    fb = _binding(session, "Task_FireTicket")     # side-effectful, floor-less
+    fb.side_effect_waiver = SideEffectWaiver(
+        justification="Kitchen fires on the confirmed order; there is no human decision to make here.")
+    fb.hitl_mode, fb.hitl_role = "none", None
+    await svc.sessions.save(session)
+
+    # a chat turn that edits a DIFFERENT element — the copilot rebuilds every binding under the hood
+    _chat_llm(monkeypatch, _edit("route take-order to the manager",
+        [{"kind": "set_hitl", "element_id": "Task_TakeOrder", "role": "role.rest_stan.manager", "rationale": "x"}]))
+    resp = await CopilotService(svc).chat(session.session_id, CopilotChatRequest(
+        message="route take-order to the manager"), owner=OWNER)
+
+    fire = _binding(resp.session, "Task_FireTicket")
+    assert fire.side_effect_waiver is not None                       # the waiver survived the chat turn
+    assert fire.hitl_mode == "none"                                  # NOT re-clamped up to approve_actions
+    assert [f for f in (resp.validation or {}).get("findings", []) if f["severity"] == "error"] == []
+
+
+async def test_copilot_chat_drops_waiver_on_rebind(svc, monkeypatch):
+    # ADR-065 P1 follow-up (D1, the blocking hole): a waiver justifies ONE capability. If a chat turn REBINDS the
+    # element to a different capability (set_executor), the stale waiver must NOT carry over onto it — it is
+    # dropped and the binding re-gated to the side-effect floor, so a high-risk capability can never inherit a
+    # justification an operator wrote for a different, low-risk one.
+    from amendia_contracts.process_pack import SideEffectWaiver
+    session = await _seed(svc, monkeypatch)
+    fb = _binding(session, "Task_FireTicket")     # side-effectful (fire_ticket), floor-less, waived at 'none'
+    fb.side_effect_waiver = SideEffectWaiver(
+        justification="Kitchen fires on the confirmed order; there is no human decision to make here.")
+    fb.hitl_mode, fb.hitl_role = "none", None
+    await svc.sessions.save(session)
+
+    # rebind Task_FireTicket to a DIFFERENT side-effectful tool (charge_payment)
+    _chat_llm(monkeypatch, _edit("actually charge the card at this step",
+        [{"kind": "set_executor", "element_id": "Task_FireTicket", "capability_tool": "charge_payment",
+          "rationale": "operator changed their mind"}]))
+    resp = await CopilotService(svc).chat(session.session_id, CopilotChatRequest(
+        message="actually charge the card at this step"), owner=OWNER)
+
+    fire = _binding(resp.session, "Task_FireTicket")
+    assert fire.capability_ref.split("@", 1)[0] == "cap.rest_stan.charge_payment"   # rebound
+    assert fire.side_effect_waiver is None                            # stale waiver DROPPED, not carried over
+    assert fire.hitl_mode == "approve_actions"                        # re-gated to the side-effect floor (fail-safe)
+    assert any("dropped the operator's side-effect waiver" in d.summary
+               for d in resp.report.decisions)                       # the operator is told (decision trace)
+
+    # End-to-end: strip the re-gate (force 'none', no waiver) and assemble — stage 4 now REJECTS the rebound
+    # side-effectful capability, proving the stale waiver truly no longer covers charge_payment (hole closed).
+    fire.hitl_mode, fire.hitl_role, fire.side_effect_waiver = "none", None, None
+    await svc.sessions.save(resp.session)
+    s2 = await svc.assemble(resp.session.session_id, owner=OWNER)
+    codes2 = {f["code"] for f in (s2.dry_run_report or {}).get("findings", []) if f["severity"] == "error"}
+    assert "side_effect_requires_approve_actions" in codes2
+
+    # ...and a FRESH waiver justifying THIS capability clears it again + emits the non-blocking waived warning.
+    fire.side_effect_waiver = SideEffectWaiver(
+        justification="POS charge is idempotent on the order id; a re-charge is a no-op, nothing to gate here.")
+    await svc.sessions.save(resp.session)
+    s3 = await svc.assemble(resp.session.session_id, owner=OWNER)
+    all3 = {f["code"] for f in (s3.dry_run_report or {}).get("findings", [])}
+    assert "side_effect_requires_approve_actions" not in all3
+    assert "side_effect_waived" in all3
+
+
+async def test_copilot_chat_drops_waiver_on_explicit_gate_raise(svc, monkeypatch):
+    # ADR-065 P1 follow-up (D1): an operator explicitly asking the copilot to put a STRONGER gate back on a waived
+    # binding (set_hitl) must be honoured — the request wins and the waiver is dropped (it would be dead anyway,
+    # since a mode at/above the floor leaves nothing to waive). Confirms the premise that the pre-fix branch
+    # silently discarded such a set_hitl.
+    from amendia_contracts.process_pack import SideEffectWaiver
+    session = await _seed(svc, monkeypatch)
+    fb = _binding(session, "Task_FireTicket")
+    fb.side_effect_waiver = SideEffectWaiver(
+        justification="Kitchen fires on the confirmed order; there is no human decision to make here.")
+    fb.hitl_mode, fb.hitl_role = "none", None
+    await svc.sessions.save(session)
+
+    _chat_llm(monkeypatch, _edit("actually require a manual gate before firing the ticket",
+        [{"kind": "set_hitl", "element_id": "Task_FireTicket", "mode": "manual",
+          "rationale": "operator wants to authorize each firing"}]))
+    resp = await CopilotService(svc).chat(session.session_id, CopilotChatRequest(
+        message="actually require a manual gate before firing the ticket"), owner=OWNER)
+
+    fire = _binding(resp.session, "Task_FireTicket")
+    assert fire.capability_ref.split("@", 1)[0] == "cap.rest_stan.fire_ticket"      # capability unchanged
+    assert fire.side_effect_waiver is None                           # waiver dropped by the deliberate raise
+    assert fire.hitl_mode == "manual"                                # the stronger gate the operator asked for wins
+    assert any("dropped the operator's side-effect waiver" in d.summary
+               for d in resp.report.decisions)
+    assert [f for f in (resp.validation or {}).get("findings", []) if f["severity"] == "error"] == []

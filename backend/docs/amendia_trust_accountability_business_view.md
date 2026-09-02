@@ -18,13 +18,13 @@ These are not features you sprinkle on at the end. They are foundational — a p
 
 ## The short version
 
-Amendia's foundations here are strong because these properties fall out of *how the platform runs work*, not from an add-on module. Every step records who acted, every piece of data is tied to a fixed, versioned definition, and sensitive actions require a real second person to approve — enforced by the system, not by policy on paper.
+Amendia's foundations here are strong because these properties fall out of *how the platform runs work*, not from an add-on module. Every step records who acted, every piece of data is tied to a fixed, versioned definition, and sensitive actions require a real second person to approve — enforced by the system, not by policy on paper. Where a process genuinely has no human in it, that exemption is itself a recorded, attributed decision rather than a silent omission (see the 2026-09-01 update).
 
 Where we are still maturing is on **showing and proving**: the raw record of everything that happened exists, but we don't yet present it as a clean, human-readable trail, and we don't yet keep it in a dedicated, tamper-resistant vault built for auditors. In short: **the memory is there; the reporting and the strongroom are the next build.**
 
 ## 1. Governance — controlling what the AI (and people) may do
 
-**What we have.** Amendia enforces real controls at the moment work happens, not as guidance. Sensitive steps require a **four-eyes approval**: the person who prepares an action cannot be the same person who approves it — the system blocks that overlap automatically, every time. Who is allowed to approve what is tied to defined roles, and the platform protects its own control structure (for example, it won't let the last administrator be removed, which would leave the system ungoverned). Just as importantly, when an AI capability runs, the list of external systems it is permitted to contact is derived automatically from what that capability formally declares it needs — there is no hidden, hand-maintained list of "who can talk to whom."
+**What we have.** Amendia enforces real controls at the moment work happens, not as guidance. Sensitive steps require a **four-eyes approval**: the person who prepares an action cannot be the same person who approves it — the system blocks that overlap automatically, every time. Any step that acts on the outside world is human-gated by default, and the only way to remove that gate is a written, attributed waiver that is recorded and queryable (see the 2026-09-01 update). Who is allowed to approve what is tied to defined roles, and the platform protects its own control structure (for example, it won't let the last administrator be removed, which would leave the system ungoverned). Just as importantly, when an AI capability runs, the list of external systems it is permitted to contact is derived automatically from what that capability formally declares it needs — there is no hidden, hand-maintained list of "who can talk to whom."
 
 **The gap.** That automatic "permitted destinations" control is fully enforced only in our most secure, sandboxed running mode. In the lighter-weight mode we use for development and simpler deployments, the permitted list is still calculated but not actively enforced. We also don't yet keep a formal, authored rulebook that a compliance officer could inspect and version independently — governance today is expressed through roles and declared contracts rather than a standalone, reviewable policy document.
 
@@ -99,3 +99,34 @@ _When this note was first written, the honest summary was "the memory is there; 
 ### Bottom line — updated
 
 The reporting and the strongroom are built. Amendia can now **show** a reviewer, in plain view, what the AI did, what a human decided, why, and prove the record hasn't been tampered with — with a readable decision trail, a lineage diagram, captured AI reasoning, and a sealed, append-only audit store behind it. What remains is breadth, not foundations: an organization-wide audit console and proactive alerting, both standing on the store that now exists.
+
+## Update — the human gate becomes a recorded decision (2026-09-01)
+
+**What changed.** Amendia's strongest claim has been that any step with a real-world effect is executed only
+after a person approves it. That rule was absolute — and being routed around. Because the platform cannot tell
+from a connected system whether a tool is "an action" or "a lookup", the person onboarding a process classifies
+it; anyone who needed a step to run unattended simply classified an action as a lookup. The rule held on paper
+while the record showed nothing at all.
+
+**What we do now.** The gate stays on by default, and removing it is a first-class, governed decision rather than
+a workaround:
+
+- The person onboarding the process must **write, in their own words, why this step is safe to run unattended**.
+  Not a checkbox — a justification, and short ones are refused.
+- The waiver is **stamped with who wrote it and when**, and bound to the one specific capability it authorises.
+  It cannot be moved onto a different capability, and a justification written for a notification cannot end up
+  authorising a payment.
+- It is **written into the audit store**, so an auditor can ask *"which live processes act on the world with no
+  one approving, who allowed each one, and why?"* and get a direct answer.
+- A team that builds a connected system can declare its own tools **non-waivable**, and no process owner can
+  override that. The people who understand the risk of an operation get the final word on it.
+- Every waived step is shown **prominently** in review — the loudest item on the screen, not a hidden setting.
+
+**Why this is stronger, not weaker.** The previous position was an absolute rule with an untraceable exception.
+The current one is a default with an exception that is written down, attributed, bound to a specific action,
+visible in review, and auditable years later. For a regulated buyer the honest sentence is now: *"a person
+approves every real-world action — unless a named owner recorded, in advance and on the record, why this one
+does not need it."* That is a claim we can put in front of an examiner and support with evidence.
+
+**Status.** Implemented across the contract, the authoring/validation layer, the execution runtime, the operator
+UI and the audit store. Verified in test suites; **awaiting verification on a running stack.**

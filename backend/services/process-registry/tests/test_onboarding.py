@@ -8,6 +8,7 @@ mongomock repos. The end-to-end test proves an operator can go basics → BPMN �
 import pytest
 
 from amendia_contracts.capability import CapabilityDescriptor
+from amendia_contracts.process_pack import SideEffectWaiver
 from app.models.onboarding import (
     AttachBpmnRequest,
     BindingInput,
@@ -322,6 +323,26 @@ async def test_side_effect_requires_approve_actions(onboarding_service):
         s.session_id, SetBindingsRequest(bindings=[_binding(hitl_mode="approve_actions")]), owner=OWNER
     )
     assert s.state == OnboardingState.BINDINGS_SET
+    # ADR-065: a justified waiver allows hitl 'none' on this floor-less side_effectful capability, and the
+    # waiver persists through the session round-trip.
+    waived = _binding(hitl_mode="none", role=None)
+    # ADR-065 P4a: the client sends a bogus author — the server must IGNORE it and stamp the authenticated owner.
+    waived.side_effect_waiver = SideEffectWaiver(
+        justification="Idempotent status handback to the orchestrator; no human decision to make here.",
+        waived_by="attacker", waived_capability_id="cap.payment.execute_return")
+    s = await onboarding_service.set_bindings(s.session_id, SetBindingsRequest(bindings=[waived]), owner=OWNER)
+    assert s.state == OnboardingState.BINDINGS_SET
+    w = s.bindings[0].side_effect_waiver
+    assert w is not None
+    assert w.waived_by == OWNER                                   # server-stamped, NOT the client's "attacker"
+    assert w.waived_at is not None
+    assert w.waived_capability_id == "cap.payment.screen_party"   # the binding's OWN capability (bare), not the bogus one
+    # a DEAD waiver (approve_actions already gates) is rejected at the early pre-check too.
+    dead = _binding(hitl_mode="approve_actions")
+    dead.side_effect_waiver = SideEffectWaiver(justification="unnecessary because it is already gated fully")
+    with pytest.raises(TransitionError) as ei2:
+        await onboarding_service.set_bindings(s.session_id, SetBindingsRequest(bindings=[dead]), owner=OWNER)
+    assert any(e.get("field") == "side_effect_waiver" for e in ei2.value.detail["errors"])
 
 
 async def test_bindings_capability_requires_ref(onboarding_service):
@@ -570,3 +591,95 @@ async def test_http_introspect_mcp(client):
     assert r.status_code == 200, r.text
     names = {t["name"]: t["compliance"]["compliant"] for t in r.json()["tools"]}
     assert names == {"screen_party": True, "notify_ops": False}
+
+
+# --------------------------------------------------------------------------- #
+# ADR-065 — the side-effect waiver survives the session round-trip
+# --------------------------------------------------------------------------- #
+async def test_waiver_provenance_preserved_on_unchanged_resave(onboarding_service):
+    # ADR-065 P4a: an UNCHANGED re-save preserves the original author + timestamp (an unrelated Bindings edit must
+    # not restamp a waiver it didn't touch); a CHANGED justification is a fresh authorship, freshly stamped.
+    s = await _walk_to_capabilities(onboarding_service, side_effect="side_effectful")
+    JUST = "Idempotent status handback to the orchestrator; no human decision to make here."
+    w = _binding(hitl_mode="none", role=None); w.side_effect_waiver = SideEffectWaiver(justification=JUST)
+    s = await onboarding_service.set_bindings(s.session_id, SetBindingsRequest(bindings=[w]), owner=OWNER)
+    w1 = s.bindings[0].side_effect_waiver
+
+    again = _binding(hitl_mode="none", role=None); again.side_effect_waiver = SideEffectWaiver(justification=JUST)
+    s = await onboarding_service.set_bindings(s.session_id, SetBindingsRequest(bindings=[again]), owner=OWNER)
+    w2 = s.bindings[0].side_effect_waiver
+    assert w2.waived_at == w1.waived_at and w2.waived_by == w1.waived_by   # preserved verbatim
+
+    changed = _binding(hitl_mode="none", role=None)
+    changed.side_effect_waiver = SideEffectWaiver(justification="A different, freshly written reason for this.")
+    s = await onboarding_service.set_bindings(s.session_id, SetBindingsRequest(bindings=[changed]), owner=OWNER)
+    w3 = s.bindings[0].side_effect_waiver
+    assert w3.justification.startswith("A different") and w3.waived_capability_id == "cap.payment.screen_party"
+
+
+async def test_waiver_same_text_new_capability_gets_fresh_provenance(onboarding_service):
+    # ADR-065 P4b (D1): re-sending the SAME justification for a DIFFERENT capability must NOT credit the prior
+    # author, and must NOT let the server silently re-bond to the new capability (which would make a mismatch
+    # unfalsifiable). The preserve branch requires justification AND bond to match; else stamp fresh. Direct unit
+    # test of _stamp_waiver — the server-side chokepoint, reachable headlessly (ADR-053).
+    from datetime import datetime, timezone
+    JUST = "Idempotent status handback to the orchestrator; no human decision to make here."
+    prior = SideEffectWaiver(justification=JUST, waived_by="usr-original",
+                             waived_at=datetime(2020, 1, 1, tzinfo=timezone.utc),
+                             waived_capability_id="cap.payment.notify")
+    # same text, but the binding now runs a DIFFERENT capability → fresh author + timestamp + the new bond
+    moved = BindingInput(element_id="T", element_kind="serviceTask", executor_type="capability",
+                         capability_ref="cap.payment.execute_payment@^1.0.0", hitl_mode="none",
+                         side_effect_waiver=SideEffectWaiver(justification=JUST))
+    got = onboarding_service._stamp_waiver(moved, prior, owner="usr-current")
+    assert got.waived_by == "usr-current"                          # NOT the prior author
+    assert got.waived_capability_id == "cap.payment.execute_payment"
+    assert got.waived_at != prior.waived_at                        # fresh timestamp, not the prior's
+    # same text AND same capability → author + timestamp preserved (the legitimate unrelated re-save)
+    same = BindingInput(element_id="T", element_kind="serviceTask", executor_type="capability",
+                        capability_ref="cap.payment.notify@^1.0.0", hitl_mode="none",
+                        side_effect_waiver=SideEffectWaiver(justification=JUST))
+    kept = onboarding_service._stamp_waiver(same, prior, owner="usr-current")
+    assert kept.waived_by == "usr-original" and kept.waived_at == prior.waived_at
+
+
+# --------------------------------------------------------------------------- #
+async def test_waiver_survives_assemble_manifest_and_from_pack(onboarding_service, pack_repo):
+    # D6: a waiver survives set_bindings → session → assemble → emitted manifest → from-pack re-edit.
+    s = await _walk_to_capabilities(onboarding_service, side_effect="side_effectful")
+    waived = _binding(hitl_mode="none", role=None)
+    waived.side_effect_waiver = SideEffectWaiver(
+        justification="Idempotent status handback to the orchestrator; no human decision to make here.")
+    s = await onboarding_service.set_bindings(s.session_id, SetBindingsRequest(bindings=[waived]), owner=OWNER)
+    # ADR-065 P4a: set_bindings stamped provenance + the bond (bare id of the binding's own capability).
+    w0 = s.bindings[0].side_effect_waiver
+    assert w0.waived_by == OWNER and w0.waived_at is not None and w0.waived_capability_id == "cap.payment.screen_party"
+    s = await onboarding_service.set_triage(
+        s.session_id, SetTriageRequest(triage_rules=[StagedTriageRule(
+            rule_id="r1", priority=100,
+            when={"field": "reason_codes", "op": "intersects", "value": ["AC01"]})]), owner=OWNER)
+    s = await onboarding_service.set_policies(
+        s.session_id, SetPoliciesRequest(gateway_variables=[], sod_policies=[], roles=["role.payments.ops_analyst"]),
+        owner=OWNER)
+    s = await onboarding_service.assemble(s.session_id, owner=OWNER)
+    assert s.state == OnboardingState.ASSEMBLED
+    errs = [f for f in s.dry_run_report["findings"] if f["severity"] == "error"]
+    assert errs == [], errs
+    # the loud side_effect_waived warning rode into the dry-run report
+    assert any(f["code"] == "side_effect_waived" for f in s.dry_run_report["findings"])
+
+    await onboarding_service.commit(s.session_id, owner=OWNER)
+    pack = await pack_repo.get("mcp-screen", "1.0.0")
+    b = next(bd for bd in pack.bindings if bd.element_id == "Task_Screen")
+    assert b.side_effect_waiver is not None
+    assert b.side_effect_waiver.justification.startswith("Idempotent")
+    # P4a: all four fields rode onto the emitted, committed manifest.
+    assert b.side_effect_waiver.waived_by == OWNER and b.side_effect_waiver.waived_at is not None
+    assert b.side_effect_waiver.waived_capability_id == "cap.payment.screen_party"
+
+    # from-pack rehydration keeps the waiver + its provenance — a silently-dropped waiver on re-edit would re-gate.
+    s2 = await onboarding_service.hydrate_from_pack("mcp-screen", "1.0.0", "2.0.0", owner=OWNER)
+    b2 = next(bd for bd in s2.bindings if bd.element_id == "Task_Screen")
+    assert b2.side_effect_waiver is not None and b2.side_effect_waiver.justification.startswith("Idempotent")
+    assert b2.side_effect_waiver.waived_by == OWNER
+    assert b2.side_effect_waiver.waived_capability_id == "cap.payment.screen_party"

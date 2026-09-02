@@ -168,12 +168,17 @@ def onboard(name: str, cfg: dict) -> bool:
     kind = {e["element_id"]: e.get("element_kind", "serviceTask") for e in s["bpmn"]["bindable_elements"]}
     _, intro = call("POST", "/capabilities/introspect-mcp",
                     {"endpoint": cfg["mcp"], "transport": "streamable_http", "domain": dom})
-    # A tool is side_effectful ONLY where THIS pack gates it with approve_actions (so the gate synthesizes
-    # proposed actions → the UI's Authorize path). Ungated notify_pega (enforce/closeout) stays read_only, else
-    # the assemble hitl-guard rejects a side_effectful capability with no approve_actions gate.
-    gated_tools = {cfg["caps"][el] for el, (mode, _r) in cfg["gates"].items() if mode == "approve_actions"}
+    # ADR-065 P4b: declare each tool's side_effect HONESTLY — its TRUE nature as introspection inferred it (the
+    # MCP marks its ACTION_TOOLS side-effectful via the acknowledgement-shape output), NOT derived from whether
+    # this pack happens to gate it. The pre-ADR fixture set side_effect = (gated ? side_effectful : read_only),
+    # i.e. it LIED that an un-gated action was read_only so the assemble hitl-guard wouldn't fire — the very
+    # workaround that opened ADR-065. That lie is gone. Every side-effectful action in these three flows carries a
+    # real approve_actions gate (the e2e's "each segment gates its side-effectful action tools" test asserts it),
+    # so nothing runs un-gated here and no waiver is needed — an honest pack that happens to gate everything. A
+    # side_effect_waiver (the ADR-065 control) is what a segment WOULD attach if it ran an action un-gated; the
+    # dedicated waiver journey exercises that path on its own pack.
     tools = [{"tool": t["name"], "endpoint": cfg["mcp"], "transport": "streamable_http", "domain": dom,
-              "side_effect": ("side_effectful" if t["name"] in gated_tools else "read_only"),
+              "side_effect": t.get("suggested_side_effect", "read_only"),
               "input_schema": t.get("input_schema"), "output_schema": t.get("output_schema")} for t in intro["tools"]]
     call("POST", f"/onboarding/{sid}/capabilities", {"tools": tools, "reused_capability_refs": []})
     for _el, (akey, schema, _role) in cfg["humans"].items():

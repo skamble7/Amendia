@@ -137,12 +137,20 @@ async def test_only_deprecated_versions_in_range(registered, validator, cap_repo
 
 
 async def test_side_effectful_at_review_after(registered, validator):
+    # ADR-065: blocked WITHOUT a waiver; WITH a waiver the platform side-effect floor is cleared. (apply_repair
+    # also declares min_hitl_mode=approve_actions — a NON-waivable floor — so the pack still fails on that; the
+    # point here is the platform `side_effect_requires_approve_actions` rule itself is waived.)
     d = manifest_dict()
     for b in d["bindings"]:
         if b["element_id"] == "Task_ApplyRepair":
             b["hitl"] = {"mode": "review_after", "role": "role.payments.ops_approver"}
-    report = await _validate(validator, build(d))
-    assert "side_effect_requires_approve_actions" in _errs(report)
+    assert "side_effect_requires_approve_actions" in _errs(await _validate(validator, build(d)))
+    for b in d["bindings"]:
+        if b["element_id"] == "Task_ApplyRepair":
+            b["side_effect_waiver"] = _WAIVER
+    errs = _errs(await _validate(validator, build(d)))
+    assert "side_effect_requires_approve_actions" not in errs
+    assert "hitl_below_capability_floor" in errs  # the capability author's floor is not waivable
 
 
 async def test_binding_input_name_mismatch(registered, validator):
@@ -351,8 +359,9 @@ async def test_manual_task_bound_to_capability_is_mismatch(registered, cap_repo,
     assert "executor_kind_mismatch" in _errs(await _validate(v, build(d), bpmn=bpmn))
 
 
-async def test_send_task_side_effect_guard_unchanged(registered, cap_repo, schema_repo):
-    # a sendTask bound to a side_effectful capability still requires approve_actions (guard unchanged).
+async def test_send_task_side_effect_guard_blocked_without_waiver_cleared_with(registered, cap_repo, schema_repo):
+    # ADR-065: a sendTask bound to a side_effectful capability is blocked WITHOUT a waiver and has the platform
+    # side-effect rule cleared WITH one (apply_repair's min_hitl_mode floor — not waivable — still applies).
     from amendia_bpmn import compute_sha256
     from app.validation.pack_validator import PackValidator
     bpmn = _retag(load_bpmn(), "Task_ApplyRepair", "sendTask")
@@ -364,3 +373,262 @@ async def test_send_task_side_effect_guard_unchanged(registered, cap_repo, schem
             b["hitl"] = {"mode": "review_after", "role": "role.payments.ops_approver"}  # below floor
     v = PackValidator(cap_repo, schema_repo, profile="tasks")
     assert "side_effect_requires_approve_actions" in _errs(await _validate(v, build(d), bpmn=bpmn))
+    for b in d["bindings"]:
+        if b["element_id"] == "Task_ApplyRepair":
+            b["side_effect_waiver"] = _WAIVER
+    assert "side_effect_requires_approve_actions" not in _errs(await _validate(v, build(d), bpmn=bpmn))
+
+
+# --------------------------------------------------------------------------- #
+# ADR-065 — the side-effect waiver + Part G/E fixes
+# --------------------------------------------------------------------------- #
+from app.validation.pack_validator import PackValidator  # noqa: E402
+
+_WAIVER = {"justification": "Idempotent status handback to the external orchestrator; nothing to gate here."}
+
+
+async def _register_seed_with(cap_repo, schema_repo, *, side_effectful=()):
+    """Register seed schemas + caps, flipping the named capability_ids to side_effectful with NO
+    min_hitl_mode — a floor-less real-world action (like the ADR's notify_pega), which is exactly the
+    waivable case the seed caps (all min_hitl_mode=approve_actions) can't demonstrate."""
+    from app.services.registration import register_schema
+    from amendia_contracts.capability import CapabilityDescriptor
+    from tests.conftest import load_schemas, load_capabilities
+    for reg in load_schemas():
+        await register_schema(reg, schema_repo)
+    for cap in load_capabilities():
+        if cap.capability_id in side_effectful:
+            doc = cap.model_dump(mode="json", by_alias=True)
+            doc["side_effect"] = "side_effectful"
+            doc["constraints"] = {**(doc.get("constraints") or {}), "min_hitl_mode": None}
+            cap = CapabilityDescriptor.model_validate(doc)
+        await cap_repo.insert(cap)
+
+
+def _mi_task(bpmn: str, task_id: str) -> str:
+    """Inject multiInstanceLoopCharacteristics into a serviceTask so it becomes an MI host."""
+    import re
+    mi = ("<bpmn:multiInstanceLoopCharacteristics><bpmn:loopCardinality>3</bpmn:loopCardinality>"
+          "</bpmn:multiInstanceLoopCharacteristics>")
+    return re.sub(rf'(<bpmn:serviceTask id="{task_id}"[^>]*>)', rf'\1{mi}', bpmn)
+
+
+async def test_assist_side_effect_at_manual_requires_waiver_and_waiver_clears(cap_repo, schema_repo):
+    # ADR-065 Part G (amended 2026-09-01): a side-effectful assist runs in mode='execute' BEFORE the gate, so it
+    # is un-gated by construction — even 'manual' (the normal human mode, rank 2) does NOT exempt it. Code:
+    # `assist_side_effect_requires_waiver`. Task_ObtainInfo is a human task at hitl 'manual' with assist draft_rfi.
+    await _register_seed_with(cap_repo, schema_repo, side_effectful=["cap.payment.draft_rfi"])
+    v = PackValidator(cap_repo, schema_repo)
+    d = manifest_dict()  # Task_ObtainInfo: human, hitl 'manual', assist cap.payment.draft_rfi (now side_effectful)
+    assert "assist_side_effect_requires_waiver" in _errs(await _validate(v, build(d)))   # manual does not clear it
+    # Deliverable 2 — the dead-waiver interaction: the same binding's waiver is LOAD-BEARING at manual, so the
+    # pack validates clean with the `side_effect_waived` warning, NOT `side_effect_waiver_not_required`.
+    for b in d["bindings"]:
+        if b["element_id"] == "Task_ObtainInfo":
+            b["side_effect_waiver"] = _WAIVER
+    report = await _validate(v, build(d))
+    errs2 = _errs(report)
+    assert "assist_side_effect_requires_waiver" not in errs2
+    assert "side_effect_waiver_not_required" not in errs2
+    assert any(f.code == "side_effect_waived" and f.element_id == "Task_ObtainInfo" for f in report.findings)
+
+
+async def test_waiver_allows_floorless_side_effectful_at_none(cap_repo, schema_repo):
+    # The headline: a floor-less side_effectful capability bound at hitl 'none' is BLOCKED without a waiver and
+    # CLEAN with one — the report carrying the loud `side_effect_waived` warning + justification.
+    await _register_seed_with(cap_repo, schema_repo, side_effectful=["cap.payment.record_resolution"])
+    v = PackValidator(cap_repo, schema_repo)
+    d = manifest_dict()  # Task_RecordResolution binds record_resolution at hitl 'none'
+    assert "side_effect_requires_approve_actions" in _errs(await _validate(v, build(d)))
+    for b in d["bindings"]:
+        if b["element_id"] == "Task_RecordResolution":
+            b["side_effect_waiver"] = _WAIVER
+    report = await _validate(v, build(d))
+    assert report.ok, report.error_codes()
+    waived = [f for f in report.findings if f.code == "side_effect_waived"]
+    assert waived and waived[0].element_id == "Task_RecordResolution"
+    assert _WAIVER["justification"] in waived[0].message
+
+
+async def test_waiver_capability_mismatch_rejected_naming_both_ids(cap_repo, schema_repo):
+    # ADR-065 P4a (D2): a hand-built manifest pairing a waiver with a DIFFERENT capability → the bond check
+    # catches it. This is the only check that catches a manifest that never came through the registry.
+    await _register_seed_with(cap_repo, schema_repo, side_effectful=["cap.payment.record_resolution"])
+    v = PackValidator(cap_repo, schema_repo)
+    d = manifest_dict()
+    for b in d["bindings"]:
+        if b["element_id"] == "Task_RecordResolution":
+            b["side_effect_waiver"] = {**_WAIVER, "waived_capability_id": "cap.payment.execute_return"}  # wrong bond
+    report = await _validate(v, build(d))
+    assert "side_effect_waiver_capability_mismatch" in _errs(report)
+    msg = next(f.message for f in report.findings if f.code == "side_effect_waiver_capability_mismatch")
+    assert "cap.payment.execute_return" in msg and "cap.payment.record_resolution" in msg   # names BOTH ids
+
+
+async def test_waiver_matching_bond_is_clean(cap_repo, schema_repo):
+    # A correctly-bonded waiver validates exactly as an unbonded one did — clean, with the side_effect_waived
+    # warning and NO mismatch / NO unbonded warning.
+    await _register_seed_with(cap_repo, schema_repo, side_effectful=["cap.payment.record_resolution"])
+    v = PackValidator(cap_repo, schema_repo)
+    d = manifest_dict()
+    for b in d["bindings"]:
+        if b["element_id"] == "Task_RecordResolution":
+            b["side_effect_waiver"] = {**_WAIVER, "waived_by": "usr-o", "waived_at": "2026-09-01T00:00:00Z",
+                                       "waived_capability_id": "cap.payment.record_resolution"}
+    report = await _validate(v, build(d))
+    assert report.ok, report.error_codes()
+    codes = {f.code for f in report.findings}
+    assert "side_effect_waived" in codes
+    assert "side_effect_waiver_capability_mismatch" not in codes and "side_effect_waiver_unbonded" not in codes
+
+
+async def test_waiver_unbonded_is_a_warning_not_an_error(cap_repo, schema_repo):
+    # ADR-065 P4a (D3): a load-bearing waiver with NO bond is a legacy (pre-P4a) waiver — a warning, not an error;
+    # the pack still validates.
+    await _register_seed_with(cap_repo, schema_repo, side_effectful=["cap.payment.record_resolution"])
+    v = PackValidator(cap_repo, schema_repo)
+    d = manifest_dict()
+    for b in d["bindings"]:
+        if b["element_id"] == "Task_RecordResolution":
+            b["side_effect_waiver"] = _WAIVER   # justification only — no provenance
+    report = await _validate(v, build(d))
+    assert report.ok, report.error_codes()
+    assert any(f.code == "side_effect_waiver_unbonded" and f.element_id == "Task_RecordResolution"
+               for f in report.findings)
+
+
+async def test_assist_waiver_bond_mismatch_rejected(cap_repo, schema_repo):
+    # ADR-065 P4a (D2, assist): a waiver on a human binding bonds to the ASSIST (Part G). A wrong bond is caught.
+    await _register_seed_with(cap_repo, schema_repo, side_effectful=["cap.payment.draft_rfi"])
+    v = PackValidator(cap_repo, schema_repo)
+    d = manifest_dict()  # Task_ObtainInfo: human at 'manual', assist cap.payment.draft_rfi (now side_effectful)
+    for b in d["bindings"]:
+        if b["element_id"] == "Task_ObtainInfo":
+            b["side_effect_waiver"] = {**_WAIVER, "waived_capability_id": "cap.payment.notify_parties"}  # not the assist
+    report = await _validate(v, build(d))
+    assert "side_effect_waiver_capability_mismatch" in _errs(report)
+    msg = next(f.message for f in report.findings if f.code == "side_effect_waiver_capability_mismatch")
+    assert "cap.payment.draft_rfi" in msg   # names the ASSIST id, not the human role
+
+
+async def test_waiver_on_read_only_is_dead(registered, validator):
+    # A waiver where the capability is read_only does nothing → error (dead waivers must not accumulate).
+    d = manifest_dict()
+    for b in d["bindings"]:
+        if b["element_id"] == "Task_EnrichPayment":   # read_only, hitl none
+            b["side_effect_waiver"] = _WAIVER
+    assert "side_effect_waiver_not_required" in _errs(await _validate(validator, build(d)))
+
+
+async def test_waiver_on_already_gated_is_dead(registered, validator):
+    # A waiver where the binding already gates at approve_actions does nothing → error.
+    d = manifest_dict()
+    for b in d["bindings"]:
+        if b["element_id"] == "Task_ApplyRepair":     # side_effectful, already approve_actions
+            b["side_effect_waiver"] = _WAIVER
+    assert "side_effect_waiver_not_required" in _errs(await _validate(validator, build(d)))
+
+
+async def test_waiver_cannot_pass_min_hitl_mode(registered, validator):
+    # ADR-065 Part B: the capability author's min_hitl_mode floor is NOT waivable. apply_repair is side_effectful
+    # with min_hitl_mode approve_actions; a waiver at 'none' suppresses the platform floor (side_effect_waived)
+    # but hitl_below_capability_floor still fires — the pack stays blocked.
+    d = manifest_dict()
+    for b in d["bindings"]:
+        if b["element_id"] == "Task_ApplyRepair":
+            b["hitl"] = {"mode": "none"}
+            b["side_effect_waiver"] = _WAIVER
+    errs = _errs(await _validate(validator, build(d)))
+    assert "hitl_below_capability_floor" in errs
+    assert "side_effect_requires_approve_actions" not in errs   # the platform floor IS waived
+
+
+async def test_human_executor_at_none_rejected(registered, validator):
+    # ADR-065 Part G: a human executor bound at hitl 'none' is a validation error (runtime would raise).
+    d = manifest_dict()
+    for b in d["bindings"]:
+        if b["element_id"] == "Task_ApproveRepair":   # human executor
+            b["hitl"] = {"mode": "none"}
+    assert "hitl_none_on_human_executor" in _errs(await _validate(validator, build(d)))
+
+
+async def test_multi_instance_side_effect_blocked_even_with_waiver(cap_repo, schema_repo):
+    # ADR-065 Part E: a side_effectful capability may not be a multi-instance host, waiver or not.
+    from amendia_bpmn import compute_sha256
+    await _register_seed_with(cap_repo, schema_repo, side_effectful=["cap.payment.record_resolution"])
+    v = PackValidator(cap_repo, schema_repo)
+    bpmn = _mi_task(load_bpmn(), "Task_RecordResolution")
+    d = manifest_dict()
+    d["process"]["bpmn_sha256"] = compute_sha256(bpmn)
+    for b in d["bindings"]:
+        if b["element_id"] == "Task_RecordResolution":
+            b["side_effect_waiver"] = _WAIVER   # even waived, still blocked
+    assert "multi_instance_side_effect_unsupported" in _errs(await _validate(v, build(d), bpmn=bpmn))
+
+
+async def test_sod_over_ungated_element_warns(cap_repo, schema_repo):
+    # ADR-065 SoD consequence: distinct_actor over an un-gated (hitl none) element writes no human actor_log.
+    await _register_seed_with(cap_repo, schema_repo, side_effectful=["cap.payment.record_resolution"])
+    v = PackValidator(cap_repo, schema_repo)
+    d = manifest_dict()
+    for b in d["bindings"]:
+        if b["element_id"] == "Task_RecordResolution":
+            b["side_effect_waiver"] = _WAIVER  # keep the pack otherwise clean
+    d["policies"] = {"separation_of_duties": [
+        {"constraint": "distinct_actor", "elements": ["Task_RecordResolution", "Task_ApproveRepair"]}]}
+    report = await _validate(v, build(d))
+    assert any(f.code == "sod_element_ungated" and f.element_id == "Task_RecordResolution" for f in report.findings)
+
+
+async def test_read_only_with_ack_shape_output_warns(registered, cap_repo, schema_repo):
+    # ADR-065 Part H: a read_only capability whose OUTPUT carries the acknowledgement shape
+    # (acknowledged/action_id/status) that infers a side effect → non-blocking warning (likely a downgrade to
+    # dodge the gate). Register resolution_record at a higher version with the ack shape so the validator
+    # resolves it as latest; record_resolution stays read_only.
+    from amendia_contracts.artifact_schema import ArtifactSchemaRegistration
+    # Insert directly (bypassing the registration backward-compat gate, irrelevant here) at a higher version so
+    # the validator resolves this ack-shaped schema as latest for record_resolution's read_only output.
+    ack = ArtifactSchemaRegistration.model_validate({
+        "artifact_key": "art.payment.resolution_record", "version": "1.1.0",
+        "pack_key": "wire-repair-standard", "pack_version": "1.0.0", "title": "ack", "compatibility": "backward",
+        "json_schema": {"type": "object", "additionalProperties": False,
+                        "properties": {"acknowledged": {"type": "boolean"}, "action_id": {"type": "string"},
+                                       "status": {"type": "string"}},
+                        "required": ["acknowledged", "action_id", "status"]},
+        "status": "active"})
+    await schema_repo.insert(ack)
+    report = await _validate(PackValidator(cap_repo, schema_repo), build(manifest_dict()))
+    assert any(f.code == "side_effect_downgraded_from_inference" and f.element_id == "Task_RecordResolution"
+               for f in report.findings)
+
+
+async def test_read_only_ack_downgrade_survives_real_infer_path(registered, cap_repo, schema_repo):
+    # ADR-065 P1 follow-up (D2): lock the Part-H signal onto the REAL onboarding path — a genuinely mislabeled tool
+    # (ack-shaped output_schema, operator sets read_only) driven through infer_capability → normalize_artifact_schema
+    # → register → validate STILL warns. This guards the property the P1 report relied on: normalize deepcopies and
+    # only ADDS keys, so top-level `properties` survives verbatim; if a future normalize ever dropped them,
+    # carries_ack_shape would go blind and this test — not just the hand-inserted one — would catch it.
+    from amendia_contracts.artifact_schema import ArtifactSchemaRegistration
+    from app.services.mcp_introspect import carries_ack_shape, infer_capability
+
+    ack_output = {"type": "object",
+                  "properties": {"acknowledged": {"type": "boolean"}, "action_id": {"type": "string"},
+                                 "status": {"type": "string"}},
+                  "required": ["acknowledged", "action_id", "status"]}
+    _in, out_art, _cap, _w = infer_capability(
+        tool="record_resolution", endpoint="http://dinein-mcp:8070/mcp", transport="streamable_http", headers={},
+        domain="payment", input_schema={"type": "object", "properties": {"case_id": {"type": "string"}}},
+        output_schema=ack_output, input_artifact_key="art.payment.resolution_record_input",
+        output_artifact_key="art.payment.resolution_record", capability_id="cap.payment.record_resolution",
+        artifact_version="1.1.0", capability_version="1.0.0",
+        side_effect="read_only",                       # <-- the operator MISLABEL the warning must catch
+        idempotent=None, min_hitl_mode=None, title="Record resolution", description="record")
+    # the schema went through normalize_artifact_schema and still carries the ack shape (the property under test)
+    assert carries_ack_shape(out_art.json_schema)
+    await schema_repo.insert(ArtifactSchemaRegistration.model_validate({
+        "artifact_key": out_art.artifact_key, "version": out_art.version, "pack_key": "wire-repair-standard",
+        "pack_version": "1.0.0", "title": "ack", "compatibility": "backward",
+        "json_schema": out_art.json_schema, "status": "active"}))
+    report = await _validate(PackValidator(cap_repo, schema_repo), build(manifest_dict()))
+    assert any(f.code == "side_effect_downgraded_from_inference" and f.element_id == "Task_RecordResolution"
+               for f in report.findings)

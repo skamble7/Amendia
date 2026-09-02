@@ -30,6 +30,11 @@ import {
   type OnbBindingIO, type OnbArtifactRequest, type OnbStagedArtifact,
 } from "@/api/services/registry";
 import { useCapabilities, useCapabilitySearch, useOnboardingSessions, usePacks } from "./queries";
+import { WaiverAffordance, bareCapId, type WaiverValue } from "./WaiverAffordance";
+import { gatesOf } from "@/features/copilot/humanize";
+
+// The HITL mode name for a rank (used when a waiver is set/cleared to move the gate to/from the floor).
+const floorMode = (rank: number): string => (rank >= 2 ? "approve_actions" : rank === 1 ? "review_after" : "none");
 
 const selectCls =
   "flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50";
@@ -1249,9 +1254,13 @@ export function BindingsStep({ session, onDone, onSession, onBack, nextLabel, na
   // (approve_actions) and its declared min_hitl_mode. Mirrors the backend guard so
   // illegal modes are disabled up front, for both staged and reused capabilities.
   const policyByCap = useMemo(() => {
-    const m: Record<string, { side_effect: string; floor: number }> = {};
+    // ADR-065: `floor` is the combined HITL floor (side-effect ⇒ approve_actions, plus the author's min_hitl_mode);
+    // `minFloor` is the NON-waivable part (min_hitl_mode alone). A waiver waives ONLY the side-effect part — so a
+    // waived binding's reachable floor is `minFloor`, not 0.
+    const m: Record<string, { side_effect: string; floor: number; minFloor: number }> = {};
     const add = (id: string, side_effect: string, minMode?: string | null) => {
-      m[id] = { side_effect, floor: Math.max(side_effect === "side_effectful" ? 2 : 0, HITL_RANK[minMode ?? "none"] ?? 0) };
+      const minFloor = HITL_RANK[minMode ?? "none"] ?? 0;
+      m[id] = { side_effect, minFloor, floor: Math.max(side_effect === "side_effectful" ? 2 : 0, minFloor) };
     };
     for (const c of (catalog ?? []) as any[]) add(c.capability_id, c.side_effect, c.constraints?.min_hitl_mode);
     for (const sc of session.staged_capabilities) add(sc.capability_id, sc.side_effect, sc.min_hitl_mode);
@@ -1260,6 +1269,10 @@ export function BindingsStep({ session, onDone, onSession, onBack, nextLabel, na
   const capIdOf = (ref?: string | null) => (ref ? ref.split("@")[0] : undefined);
   const sideEffectOf = (ref?: string | null) => policyByCap[capIdOf(ref) ?? ""]?.side_effect;
   const floorOf = (ref?: string | null) => policyByCap[capIdOf(ref) ?? ""]?.floor ?? 0;
+  const minFloorOf = (ref?: string | null) => policyByCap[capIdOf(ref) ?? ""]?.minFloor ?? 0;
+  // A waiver waives only the side-effect floor → the HITL select's effective floor drops to min_hitl_mode.
+  const effectiveFloorOf = (row: BindingInput) =>
+    row.side_effect_waiver ? minFloorOf(row.capability_ref) : floorOf(row.capability_ref);
 
   // ADR-027 Phase 1: inferred binding scaffolds pre-fill rows (executor type + lane role + HITL).
   const inferredBind = useMemo(
@@ -1457,6 +1470,9 @@ export function BindingsStep({ session, onDone, onSession, onBack, nextLabel, na
         const savedSrc = existing.input_sources ?? {};
         Object.assign(base, {
           capability_ref: existing.capability_ref, role: existing.role, hitl_role: existing.hitl_role,
+          // ADR-065: carry an existing binding's waiver (+ assist ref) through the round-trip, else re-opening
+          // Bindings would silently drop a justified waiver / re-apply the floor.
+          side_effect_waiver: existing.side_effect_waiver, assist_capability_ref: existing.assist_capability_ref,
           message_name: existing.message_name, call_pack: existing.call_pack, call_version: existing.call_version,
           input_map: existing.input_map ?? {}, output_map: existing.output_map ?? {},
           input_sources: (t.category === "capability" && Object.keys(savedSrc).length === 0)
@@ -1502,6 +1518,8 @@ export function BindingsStep({ session, onDone, onSession, onBack, nextLabel, na
   // Copilot stepped review: Continue is navigation-only unless the operator actually edited the bindings this
   // visit (so an unedited generated session isn't regressed below TRIAGE_SET). Any change to `rows` marks it dirty.
   const [dirty, setDirty] = useState(false);
+  // ADR-065 P3 (D2): per-element notice that a waiver was dropped because the capability changed.
+  const [waiverDropped, setWaiverDropped] = useState<Record<string, boolean>>({});
   const firstRows = useRef(true);
   useEffect(() => { if (firstRows.current) { firstRows.current = false; return; } setDirty(true); }, [rows]);
 
@@ -1546,14 +1564,24 @@ export function BindingsStep({ session, onDone, onSession, onBack, nextLabel, na
   // sources for the newly-chosen capability (its input name/fields change with the capability, so the prior
   // sources are stale) — resolving upstream refs with the new choice applied.
   const chooseExecutor = (id: string, ref: string) => {
-    const fl = floorOf(ref);
-    const cur = rows[id]!.hitl_mode;
+    const row = rows[id]!;
+    // ADR-065 P3 (D2): a waiver justifies ONE capability (mirrors reconcile.py::_waiver_drop_reason). Keep it only
+    // when the bare capability id is unchanged; on a change DROP it (never carry a justification onto a different
+    // capability) and re-apply the FULL floor — with a visible notice. Same defect class the copilot guard fixed.
+    const prevWaiver = row.side_effect_waiver;
+    const keepWaiver = !!prevWaiver && bareCapId(row.capability_ref) === bareCapId(ref);
+    const fl = keepWaiver ? minFloorOf(ref) : floorOf(ref);   // a kept waiver only owes the non-waivable min floor
+    const cur = row.hitl_mode;
     const bumped = (HITL_RANK[cur] ?? 0) < fl ? (fl >= 2 ? "approve_actions" : "review_after") : cur;
     const nextRef = (x: string) => (x === id ? ref : refForRows(x));
     // ADR-051: re-derive the output-name default for the newly-chosen capability (its <tool>_output changes),
     // keeping the gateway-derived suggestion when this task feeds one.
     const outName = inferredBind[id]?.suggested_output_name ?? ioOf(ref)?.output ?? undefined;
-    patch(id, { capability_ref: ref, hitl_mode: bumped, input_sources: resolveInputSources(id, nextRef, humanOutRows), output_name: outName });
+    patch(id, {
+      capability_ref: ref, hitl_mode: bumped, side_effect_waiver: keepWaiver ? prevWaiver : undefined,
+      input_sources: resolveInputSources(id, nextRef, humanOutRows), output_name: outName,
+    });
+    setWaiverDropped((w) => ({ ...w, [id]: !!prevWaiver && !keepWaiver }));
   };
 
   async function submit() {
@@ -1612,7 +1640,10 @@ export function BindingsStep({ session, onDone, onSession, onBack, nextLabel, na
       {tasks.map((t) => {
         const id = t.element_id;
         const row = rows[id]!;
-        const floor = t.category === "capability" ? floorOf(row.capability_ref) : 0;
+        // ADR-065: a waiver lowers the reachable floor to min_hitl_mode, so below-floor modes (incl. 'none')
+        // become selectable ONLY once a justification exists — never straight from the dropdown.
+        const floor = t.category === "capability" ? effectiveFloorOf(row) : 0;
+        const showWaiver = t.category === "capability" && sideEffectOf(row.capability_ref) === "side_effectful";
         return (
           <Card key={id} className={cn(fieldErrs[id] && "border-danger/60")}>
             <CardContent className="pt-5">
@@ -1638,7 +1669,7 @@ export function BindingsStep({ session, onDone, onSession, onBack, nextLabel, na
                   <Field label={t.category === "capability" ? "Capability" : "Role"}>
                     {t.category === "capability" ? (
                       <div className="flex items-center gap-1.5">
-                        <select className={cn(selectCls, "flex-1")} value={row.capability_ref ?? ""} onChange={(e) => chooseExecutor(id, e.target.value)}>
+                        <select aria-label="Capability" className={cn(selectCls, "flex-1")} value={row.capability_ref ?? ""} onChange={(e) => chooseExecutor(id, e.target.value)}>
                           <option value="">Select…</option>
                           {(rankedOptions[id] ?? capOptions).map((r) => <option key={r} value={r}>{r}{sideEffectOf(r) === "side_effectful" ? " · side-effectful" : ""}</option>)}
                         </select>
@@ -1653,7 +1684,13 @@ export function BindingsStep({ session, onDone, onSession, onBack, nextLabel, na
                     )}
                   </Field>
                   <Field label="HITL mode">
-                    <select className={selectCls} value={row.hitl_mode} onChange={(e) => patch(id, { hitl_mode: e.target.value })}>
+                    <select aria-label="HITL mode" className={selectCls} value={row.hitl_mode} onChange={(e) => {
+                      const m = e.target.value;
+                      // ADR-065: raising the gate to/above the full floor makes a waiver dead → clear it so the
+                      // mode and waiver never contradict (the backend would reject a dead waiver otherwise).
+                      const clears = !!row.side_effect_waiver && (HITL_RANK[m] ?? 0) >= floorOf(row.capability_ref);
+                      patch(id, clears ? { hitl_mode: m, side_effect_waiver: undefined } : { hitl_mode: m });
+                    }}>
                       {HITL_MODES.map((m) => <option key={m} value={m} disabled={(HITL_RANK[m] ?? 0) < floor}>{m}{(HITL_RANK[m] ?? 0) < floor ? " (too weak)" : ""}</option>)}
                     </select>
                   </Field>
@@ -1662,6 +1699,34 @@ export function BindingsStep({ session, onDone, onSession, onBack, nextLabel, na
                       ? <Input value={row.hitl_role ?? ""} onChange={(e) => patch(id, { hitl_role: e.target.value })} placeholder="role.<domain>.<lane>" className="font-mono text-xs" />
                       : <p className="py-2 text-xs text-muted-foreground">not required for mode none</p>}
                   </Field>
+                </div>
+              )}
+
+              {/* ADR-065 P3: a side-effectful capability can drop below the approve_actions floor (incl. 'none')
+                  ONLY through an explicit written waiver. Setting one moves the gate down to the waiver's floor;
+                  clearing it re-applies the full floor. The affordance is a justification, never a toggle. */}
+              {showWaiver && (
+                <div className="mt-3">
+                  <WaiverAffordance
+                    capabilityRef={row.capability_ref}
+                    waiver={(row.side_effect_waiver as WaiverValue | null | undefined) ?? null}
+                    onChange={(w) => {
+                      setWaiverDropped((d) => ({ ...d, [id]: false }));
+                      if (w) {
+                        // waive → drop the gate to the non-waivable floor (usually 'none'), making the waiver load-bearing
+                        const mf = minFloorOf(row.capability_ref);
+                        patch(id, { side_effect_waiver: w, hitl_mode: floorMode(mf), hitl_role: mf === 0 ? undefined : row.hitl_role });
+                      } else {
+                        // clear → re-apply the full floor
+                        patch(id, { side_effect_waiver: undefined, hitl_mode: floorMode(floorOf(row.capability_ref)) });
+                      }
+                    }} />
+                  {waiverDropped[id] && (
+                    <p className="mt-1 text-xs text-attention">
+                      The previous waiver was cleared because the capability changed — write a new one for this
+                      capability if it should still run un-gated.
+                    </p>
+                  )}
                 </div>
               )}
 
@@ -2249,6 +2314,7 @@ export function ReviewStep({ session, onChange, goStep }: { session: OnboardingS
         </CardContent>
       </Card>
 
+      <ReviewGatesSummary session={session} />
       {report && <ReportView report={report} goStep={goStep} />}
       {session.commit_progress.length > 0 && <CommitProgress steps={session.commit_progress} />}
 
@@ -2263,6 +2329,41 @@ export function ReviewStep({ session, onChange, goStep }: { session: OnboardingS
         <span className="text-sm text-muted-foreground">Activation pins every dependency and flips the pack to <span className="font-medium">active</span>.</span>
       </div>
     </div>
+  );
+}
+
+// ADR-065 P4b (D4): the technical wizard's last screen before publishing must restate where a person is involved
+// — and, loudest, any WAIVED step (a real-world action running with no approval). Reuses copilot's gatesOf + the
+// same waived-row treatment, so an operator who wrote a waiver on the Bindings step can't publish without it
+// being restated here.
+function ReviewGatesSummary({ session }: { session: OnboardingSession }) {
+  const gates = gatesOf(session).sort((a, b) => Number(b.waived ?? false) - Number(a.waived ?? false));
+  const waivedCount = gates.filter((g) => g.waived).length;
+  if (gates.length === 0) return null;
+  return (
+    <Card className={waivedCount > 0 ? "border-danger/40" : undefined}>
+      <CardHeader className="pb-2">
+        <CardTitle className="flex items-center gap-1.5 text-sm"><ShieldAlert className="size-4 text-muted-foreground" /> Where a person is involved</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-1.5">
+        {waivedCount > 0 && (
+          <p className="flex items-center gap-1.5 text-xs font-medium text-danger">
+            <ShieldAlert className="size-3.5" /> {waivedCount} step{waivedCount === 1 ? "" : "s"} act{waivedCount === 1 ? "s" : ""} on the real world with no one approving — review the justification before publishing.
+          </p>
+        )}
+        {gates.map((g) => g.waived ? (
+          <div key={g.elementId} className="rounded-md border border-danger/50 bg-danger-muted/20 p-2" data-testid="review-waived-gate">
+            <p className="flex items-center gap-1.5 text-sm font-medium text-danger">
+              <ShieldAlert className="size-3.5 shrink-0" /> {g.sentence}
+              <Badge variant="danger" className="text-[10px]">no approval — waived</Badge>
+            </p>
+            {g.justification && <p className="mt-0.5 text-xs italic text-muted-foreground">“{g.justification}”</p>}
+          </div>
+        ) : (
+          <p key={g.elementId} className="text-sm text-muted-foreground">{g.sentence}</p>
+        ))}
+      </CardContent>
+    </Card>
   );
 }
 

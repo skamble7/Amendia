@@ -124,6 +124,11 @@ class NodeContext:
     # entry (so a later compensate throw can reverse it). ``None`` on a non-compensable node.
     compensate_handler_id: Optional[str] = None
     compensate_scope: Optional[str] = None
+    # ADR-065 (P2): the operator's justified waiver of the side-effectful ⇒ hitl>=approve_actions gate, threaded
+    # off the manifest binding. Kept as a STRUCTURED value (the contract SideEffectWaiver, or None) — P4 adds
+    # waived_by / waived_at / waived_capability_id without reshaping NodeContext. ``None`` ⇒ no waiver ⇒ a
+    # side-effectful capability at hitl 'none' fails closed (``side_effect_ungated``), the tool never called.
+    side_effect_waiver: Optional[Any] = None
 
 
 def make_task_node(ctx: NodeContext, executor: Executor, *, simulation: bool,
@@ -421,6 +426,20 @@ def _run_node(ctx: NodeContext, executor: Executor, simulation: bool, state: Dic
             f"{ctx.element_id}: deep_agent capability must be behind a HITL gate, not 'none'",
             reason="deep_agent_ungated",
         )
+    # ADR-065 Part D: a side-effectful capability at hitl 'none' performs a real-world action with NO human
+    # gate. P1 made that a legal manifest state ONLY under an explicit, justified operator waiver — so mirror
+    # the deep_agent check: with no waiver, fail closed HERE, before ``_produce_outputs(mode="execute")`` ever
+    # calls the tool. When a waiver is present, run, but never silently — log the justification at INFO.
+    if _side_effect(ctx.descriptor) == "side_effectful":
+        waiver = getattr(ctx, "side_effect_waiver", None)
+        if waiver is None:
+            raise NodeExecutionError(
+                f"{ctx.element_id}: side-effectful capability '{_cap_id(ctx)}' is at hitl 'none' with no "
+                f"side-effect waiver — refusing to perform an ungated real-world action",
+                reason="side_effect_ungated",
+            )
+        logger.info("[%s] side-effectful capability '%s' running UNGATED (hitl 'none') under an operator "
+                    "waiver: %s", ctx.element_id, _cap_id(ctx), getattr(waiver, "justification", ""))
     # ADR-040/041: an interrupting timer boundary on this running serviceTask (own) and/or the remaining
     # budget of every enclosing subProcess timer scope → self-enforce the EARLIEST deadline. On breach:
     # commit nothing, mark the boundary channel (own → element_id; scope → scope_id), route to the target.
@@ -869,6 +888,23 @@ def _run_manual(ctx, executor, simulation, envelope, inputs, state, pid=None, *,
     draft_by_name: Dict[str, Any] = {}
     extra_actors: List[Dict[str, Any]] = []
     if ctx.assist_descriptor is not None and ctx.outputs:
+        # ADR-065 Part G (amended 2026-09-01): the assist runs in mode="execute" BELOW, BEFORE the interrupt()
+        # gate — so it is un-gated BY CONSTRUCTION, whatever ctx.hitl_mode (the effect always precedes the gate;
+        # no HITL rank buys anything here, unlike the capability path). A side-effectful assist therefore ALWAYS
+        # requires an operator waiver. Same reason code + fail-closed placement as the capability path; the tool
+        # is never called on the raise.
+        if _side_effect(ctx.assist_descriptor) == "side_effectful":
+            waiver = getattr(ctx, "side_effect_waiver", None)
+            if waiver is None:
+                raise NodeExecutionError(
+                    f"{ctx.element_id}: side-effectful assist capability "
+                    f"'{ctx.assist_descriptor.capability_id}' runs before the human gate (mode='execute' "
+                    f"precedes interrupt) with no side-effect waiver — refusing an ungated real-world action",
+                    reason="side_effect_ungated",
+                )
+            logger.info("[%s] side-effectful assist '%s' running UNGATED (hitl '%s') under an operator "
+                        "waiver: %s", ctx.element_id, ctx.assist_descriptor.capability_id, ctx.hitl_mode,
+                        getattr(waiver, "justification", ""))
         assist = _run_capability(ctx, ctx.assist_descriptor, executor, simulation, envelope, inputs,
                                  mode="execute", pid=pid, memo_visit=memo_visit)
         produced = assist.get("outputs", {}) or {}

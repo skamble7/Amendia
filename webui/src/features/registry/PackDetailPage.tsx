@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { ArrowLeft, Pencil, Loader2, RotateCcw, ChevronDown, ChevronRight, Trash2 } from "lucide-react";
+import { ArrowLeft, Pencil, Loader2, RotateCcw, ChevronDown, ChevronRight, Trash2, ShieldAlert } from "lucide-react";
 import { PageHeader } from "@/app/AppShell";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -42,6 +42,9 @@ export function PackDetailPage() {
   if (!pack) return <EmptyState title="Pack not found" />;
 
   const bindings = (pack.bindings ?? []) as Binding[];
+  // ADR-065: the pack's side-effect waivers — steps that run a real-world action with no human gate. Visible to
+  // any authenticated viewer (transparency); editing stays owner-gated (via the Edit config flow above).
+  const waivers = bindings.filter((b) => (b as any).side_effect_waiver);
 
   return (
     <>
@@ -106,7 +109,9 @@ export function PackDetailPage() {
                           {ex?.type === "human" ? <span className="text-process">{ex.role}</span> : <span className="text-artifact">{ex?.capability}</span>}
                         </TableCell>
                         <TableCell>
-                          {mode && mode !== "none" ? <ModeBadge mode={mode as HitlTaskMode} /> : <span className="text-xs text-muted-foreground">none</span>}
+                          {(b as any).side_effect_waiver
+                            ? <Badge variant="danger" className="gap-1 text-[10px]"><ShieldAlert className="size-3" /> waived — no approval</Badge>
+                            : mode && mode !== "none" ? <ModeBadge mode={mode as HitlTaskMode} /> : <span className="text-xs text-muted-foreground">none</span>}
                         </TableCell>
                       </TableRow>
                     );
@@ -115,6 +120,38 @@ export function PackDetailPage() {
               </Table>
             </CardContent>
           </Card>
+
+          {waivers.length > 0 && (
+            <Card className="border-danger/40">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-danger">
+                  <ShieldAlert className="size-4" /> Side-effect waivers ({waivers.length})
+                </CardTitle>
+                <p className="text-xs text-muted-foreground">
+                  These steps perform a real-world action and run with no human approval, under a written waiver.
+                  Visible to anyone; only the pack owner can change them (Edit config).
+                </p>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {waivers.map((b) => {
+                  const ex = b.executor as any;
+                  const cap = ex?.type === "human" ? (ex.assist_capability ?? ex.role) : ex?.capability;
+                  return (
+                    <div key={b.element_id} className="rounded-md border border-danger/40 bg-danger-muted/10 p-3">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-medium">{elementLabel(b.element_id)}</span>
+                        <span className="font-mono text-[10px] text-muted-foreground">{b.element_id}</span>
+                        {cap && <Badge variant="artifact" className="font-mono text-[10px]">{cap}</Badge>}
+                      </div>
+                      <p className="mt-1.5 whitespace-pre-line border-l-2 border-danger/40 pl-2 text-sm italic text-foreground">
+                        “{(b as any).side_effect_waiver.justification}”
+                      </p>
+                    </div>
+                  );
+                })}
+              </CardContent>
+            </Card>
+          )}
 
           {resolution && (
             <Card>

@@ -40,15 +40,31 @@ export interface Gate {
   sentence: string;
   /** true for approve_actions — a gate over a real-world side effect (badged "authorize"). */
   authorize: boolean;
+  /** ADR-065: true when this step performs a real-world action with NO human approval, under a waiver — the
+   *  absence of a gate, not a gate. Rendered as the loudest risk row (never dropped from the summary). */
+  waived?: boolean;
+  /** The operator's written justification for a waived step (present iff `waived`). */
+  justification?: string;
 }
 
-/** The human-acts-here gates, derived generically from the bindings (each non-`none` HITL gate → a sentence). */
+/** The human-involvement rows, derived generically from the bindings. Each non-`none` HITL gate → a sentence;
+ *  ADR-065: a WAIVED step (a real-world action running with no human approval) is NOT dropped — it is the single
+ *  highest-risk row and must be surfaced, so a reviewer can answer "what does this do without asking me?". */
 export function gatesOf(session: OnboardingSession): Gate[] {
   return (session.bindings ?? [])
-    .filter((b) => b.hitl_mode && b.hitl_mode !== "none")
+    .filter((b) => (b.hitl_mode && b.hitl_mode !== "none") || b.side_effect_waiver)
     .map((b) => {
-      const who = roleLabel(b.hitl_role ?? b.role ?? null);
       const what = humanizeElementId(b.element_id).toLowerCase();
+      if (b.side_effect_waiver) {
+        return {
+          elementId: b.element_id,
+          sentence: `${humanizeElementId(b.element_id)} runs automatically, with no one approving it.`,
+          authorize: false,
+          waived: true,
+          justification: b.side_effect_waiver.justification,
+        };
+      }
+      const who = roleLabel(b.hitl_role ?? b.role ?? null);
       return {
         elementId: b.element_id,
         sentence: `${who} ${modeVerb(b.hitl_mode)} ${what}.`,

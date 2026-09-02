@@ -54,7 +54,7 @@ async def _seed(svc):
     s = await svc.declare_artifact(s.session_id, DeclareArtifactRequest(
         artifact_key="art.dining.order", title="Order", json_schema=_ORDER_SCHEMA), owner=OWNER)
     binds = [
-        BindingInput(element_id="TakeOrder", element_kind="userTask", executor_type="human", role="role.server",
+        BindingInput(element_id="TakeOrder", element_kind="userTask", executor_type="human", role="role.server", hitl_mode="manual", hitl_role="role.server",
                      outputs=[StagedBindingIO(name="order", schema_ref="art.dining.order@^1.0.0")]),
         BindingInput(element_id="ValidateOrder", element_kind="serviceTask", executor_type="capability",
                      capability_ref="cap.dining.validate_order@^1.0.0", hitl_mode="none"),

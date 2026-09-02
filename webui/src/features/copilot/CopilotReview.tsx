@@ -4,7 +4,7 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
 import { useMutation } from "@tanstack/react-query";
-import { CheckCircle2, ShieldCheck, HelpCircle, Rocket, Settings2, XCircle } from "lucide-react";
+import { CheckCircle2, ShieldCheck, ShieldAlert, HelpCircle, Rocket, Settings2, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -14,7 +14,9 @@ import { gatesOf, readinessOf } from "./humanize";
 
 export function CopilotReview({ session, xml, editMode }: { session: OnboardingSession; xml?: string; editMode?: boolean }) {
   const [activated, setActivated] = useState<string | null>(session.result_pack ?? null);
-  const gates = gatesOf(session);
+  // ADR-065: waived steps (a real-world action with no approval) are the loudest rows — surface them FIRST.
+  const gates = gatesOf(session).sort((a, b) => Number(b.waived ?? false) - Number(a.waived ?? false));
+  const waivedCount = gates.filter((g) => g.waived).length;
   const readiness = readinessOf(session);
   const report = session.copilot_report;
   const openQuestions = report?.open_questions ?? [];
@@ -64,15 +66,29 @@ export function CopilotReview({ session, xml, editMode }: { session: OnboardingS
         </CardContent>
       </Card>
 
-      {/* Gates at a glance */}
-      <Card>
+      {/* Gates at a glance — incl. ADR-065 waived steps, which run a real-world action with NO approval. */}
+      <Card className={waivedCount > 0 ? "border-danger/40" : undefined}>
         <CardContent className="pt-5">
           <h3 className="mb-2 flex items-center gap-2 text-sm font-medium"><ShieldCheck className="size-4 text-muted-foreground" /> Where a person is involved</h3>
+          {waivedCount > 0 && (
+            <p className="mb-2 flex items-center gap-1.5 text-xs font-medium text-danger">
+              <ShieldAlert className="size-3.5" /> {waivedCount} step{waivedCount === 1 ? "" : "s"} act{waivedCount === 1 ? "s" : ""} on the real world with no one approving — review the justification.
+            </p>
+          )}
           {gates.length === 0 ? (
             <p className="text-sm text-muted-foreground">This process runs fully automatically — no human steps.</p>
           ) : (
             <ul className="space-y-1.5">
-              {gates.map((g) => (
+              {gates.map((g) => g.waived ? (
+                <li key={g.elementId} className="flex items-start gap-2 rounded-md border border-danger/50 bg-danger-muted/20 p-2 text-sm" data-testid="waived-gate">
+                  <ShieldAlert className="mt-0.5 size-4 shrink-0 text-danger" />
+                  <div className="min-w-0">
+                    <span className="font-medium text-danger">{g.sentence}</span>
+                    <Badge variant="danger" className="ml-2 text-[10px]">no approval — waived</Badge>
+                    {g.justification && <p className="mt-0.5 text-xs italic text-muted-foreground">“{g.justification}”</p>}
+                  </div>
+                </li>
+              ) : (
                 <li key={g.elementId} className="flex items-start gap-2 text-sm">
                   <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-agent" />
                   <span>{g.sentence}</span>

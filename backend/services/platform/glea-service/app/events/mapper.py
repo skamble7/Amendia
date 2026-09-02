@@ -12,7 +12,11 @@ from typing import Any, Dict, Optional
 
 import orjson
 
-from amendia_common.events import COHORT_LIFECYCLE, COHORT_SLA, EGRESS_DECISION
+from amendia_common.events import COHORT_LIFECYCLE, COHORT_SLA, EGRESS_DECISION, PACK_LIFECYCLE
+
+# ADR-065 P4b: the derived audit-row kind for a single side-effect waiver (fanned out from a publish
+# PackLifecycleEvent). A new `kind` VALUE only — no new column and no new routing key.
+PACK_WAIVER_KIND = "pack_waiver"
 
 
 class UnmappableEvent(ValueError):
@@ -85,6 +89,61 @@ def to_row(routing_key: str, payload: Dict[str, Any]) -> Dict[str, Any]:
         "egress_decision": str(payload.get("decision") or "") if is_egress else "",
         "payload": orjson.dumps(payload).decode("utf-8"),
     }
+
+
+def waiver_rows(routing_key: str, payload: Dict[str, Any]) -> list[Dict[str, Any]]:
+    """ADR-065 P4b: fan a publish ``PackLifecycleEvent``'s ``waivers`` out to one ``pack_waiver`` audit row EACH,
+    so an auditor finds every ungated-real-world-action binding across packs by ``kind = 'pack_waiver'`` — with
+    ``pack_key`` / ``pack_version`` / ``element_id`` / ``actor`` (= the justification's author) as real columns,
+    and the capability / justification / timestamp / publisher on the row's own ``payload`` (JSONExtract-able,
+    no cross-row scan). One blob per pack would have forced exactly that scan; one row per waiver does not.
+
+    The derived rows share the lifecycle event's ``correlation_id`` (empty for registry events — they carry no
+    Trace) and get a DETERMINISTIC ``event_id`` (``<event_id>:waiver:<element_id>``) so an at-least-once
+    redelivery collapses on the ReplacingMergeTree key instead of double-counting."""
+    if event_kind(routing_key) != PACK_LIFECYCLE:
+        return []
+    waivers = payload.get("waivers")
+    if not isinstance(waivers, list) or not waivers:
+        return []
+    base_id = str(payload.get("event_id") or "")
+    occurred = _parse_dt(payload.get("occurred_at"))
+    trace = payload.get("trace") or {}
+    correlation_id = str(trace.get("correlation_id") or "")
+    trace_id = str(trace.get("trace_id") or "")
+    publisher = str(payload.get("actor") or "")
+    pack_key = str(payload.get("pack_key") or "")
+    pack_version = str(payload.get("version") or payload.get("pack_version") or "")
+    rows: list[Dict[str, Any]] = []
+    for w in waivers:
+        if not isinstance(w, dict) or not w.get("element_id"):
+            continue
+        element_id = str(w["element_id"])
+        rows.append({
+            "event_id": f"{base_id}:waiver:{element_id}",
+            "occurred_at": occurred,
+            "kind": PACK_WAIVER_KIND,
+            "correlation_id": correlation_id,
+            "trace_id": trace_id,
+            "actor": str(w.get("waived_by") or ""),      # the JUSTIFICATION's author — "who allowed it"
+            "actor_kind": "human",
+            "role": "",
+            "element_id": element_id,
+            "pack_key": pack_key,
+            "pack_version": pack_version,
+            "decision": "", "decided_by": "", "sod_satisfied": None,
+            "artifact_key": "", "schema_ref": "", "authored_by_human": None,
+            "egress_host": "", "egress_decision": "",
+            "payload": orjson.dumps({
+                "element_id": element_id,
+                "capability_id": w.get("capability_id") or "",
+                "justification": w.get("justification") or "",
+                "waived_by": w.get("waived_by"),
+                "waived_at": w.get("waived_at"),
+                "publisher": publisher,                  # the pack's PUBLISHER — a different fact from waived_by
+            }).decode("utf-8"),
+        })
+    return rows
 
 
 def to_cohort_row(routing_key: str, payload: Dict[str, Any]) -> Dict[str, Any]:
