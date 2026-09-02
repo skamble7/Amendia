@@ -27,6 +27,12 @@ now on (`backend/docs/amendia_bridge_working_model.md`) with a mirror at project
 - **Engineering notes:** `backend/docs/engineering/` — incl. `amendia_pii_processor_gap_analysis.md` and
   `running-e2e-tests.md`.
 - **Authoring guides:** `backend/docs/methodology/cohort_authoring_guide.html` (cohort DAG + SLA, ADR-064).
+  **§6 "Situations — which SLA catches what" added 2026-09-01**: the guide taught the model concept-first, so
+  an author arriving with a *worry* ("what if the trigger never comes?") had to reverse-engineer the knobs.
+  §6 inverts it — a recipe table from situation → which of the three attachment points (edge / node-runtime /
+  end-to-end), owner, clock — plus owner-choice, how to pick the numbers, when NOT to declare one (a breach is
+  permanent, so a too-tight SLA leaves a permanent mark on a case that finished fine), and the mistake table.
+  Sections 6–9 renumbered to 7–10.
 - **Worked examples:** `backend/docs/methodology/worked-examples/` — `ach_exposure/` is the standing cohort
   regression fixture (3 segment BPMNs, trigger + cohort-close schemas, samples, `ONBOARDING.md`).
 - **MCP stub servers:** `mcp_stub/servers/` (wire/dine reference + 3 ACH per-segment servers); compose at
