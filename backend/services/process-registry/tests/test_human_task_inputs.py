@@ -73,7 +73,7 @@ def _binds(menu_source):
     return [
         BindingInput(element_id="PresentMenu", element_kind="serviceTask", executor_type="capability",
                      capability_ref="cap.dining.get_menu@^1.0.0", hitl_mode="none"),
-        BindingInput(element_id="SelectItems", element_kind="userTask", executor_type="human", role="role.server",
+        BindingInput(element_id="SelectItems", element_kind="userTask", executor_type="human", role="role.server", hitl_mode="manual", hitl_role="role.server",
                      inputs=[StagedBindingIO(name="menu", schema_ref="art.dining.get_menu_output@^1.0.0")],
                      input_sources={"menu": menu_source}),
     ]

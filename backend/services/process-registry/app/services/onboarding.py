@@ -40,8 +40,8 @@ from app.services.inference import (
 
 from amendia_contracts.artifact_schema import ArtifactSchemaRegistration
 from amendia_contracts.capability import CapabilityDescriptor
-from amendia_contracts.common import PACK_KEY_RE, SEMVER_RE, HitlMode, hitl_mode_at_least
-from amendia_contracts.process_pack import ProcessPackManifest, TriageRule
+from amendia_contracts.common import PACK_KEY_RE, SEMVER_RE, HitlMode, hitl_mode_at_least, utcnow
+from amendia_contracts.process_pack import ProcessPackManifest, SideEffectWaiver, TriageRule
 
 from app.dal.artifact_schema_repo import ArtifactSchemaRepository
 from app.dal.base import DuplicateError
@@ -488,6 +488,10 @@ class OnboardingService:
         sb.outputs = [StagedBindingIO(name=io["name"], schema_ref=io["schema"], required=io.get("required", True))
                       for io in b.get("outputs", [])]
         sb.input_sources = dict(b.get("input_map") or {})           # ADR-048 per-input sources (not the call maps)
+        # ADR-065: rehydrate the waiver from an existing manifest on pack-edit — a silently-dropped waiver on
+        # re-edit would re-gate a working pack.
+        if b.get("side_effect_waiver"):
+            sb.side_effect_waiver = SideEffectWaiver.model_validate(b["side_effect_waiver"])
         return sb
 
     def _staged_capability_from_descriptor(self, desc: Any) -> StagedCapability:
@@ -685,6 +689,9 @@ class OnboardingService:
         # ADR-051: the inferred output-name default per capability element (the gateway-condition first segment
         # it feeds, if any) — applied when the operator didn't set an explicit output_name.
         sugg_out = {ib.element_id: ib.suggested_output_name for ib in (s.inferred.bindings if s.inferred else [])}
+        # ADR-065 P4a: the currently-persisted waiver per element — so a re-save preserves the ORIGINAL author +
+        # timestamp when the justification is unchanged, and stamps fresh otherwise (see _stamp_waiver).
+        prior_waivers = {sb.element_id: sb.side_effect_waiver for sb in (s.bindings or [])}
 
         for b in req.bindings:
             bound_ids.append(b.element_id)
@@ -742,6 +749,25 @@ class OnboardingService:
                 if not b.role:
                     errors.append({"element_id": b.element_id, "field": "role",
                                    "message": "human executor requires a role"})
+                # ADR-065 Part G: a human executor at hitl 'none' passes the contract but raises at runtime.
+                if b.hitl_mode in ("none", "", None):
+                    errors.append({"element_id": b.element_id, "field": "hitl_mode",
+                                   "message": "a human executor needs a gate (not 'none')"})
+                # ADR-065 Part G (amended 2026-09-01): a side_effectful assist_capability runs in mode='execute'
+                # BEFORE the interrupt, so it is un-gated by construction — no HITL mode gates it (rank buys
+                # nothing). It ALWAYS requires a waiver, whatever b.hitl_mode. (Distinct from the capability
+                # executor rule in _check_hitl_guard, which keeps its approve_actions floor.)
+                if b.assist_capability_ref:
+                    assist_io = await self._capability_io_and_policy(b.assist_capability_ref, s)
+                    if assist_io is not None:
+                        assist_se = assist_io[0]
+                        if assist_se == "side_effectful" and getattr(b, "side_effect_waiver", None) is None:
+                            errors.append({
+                                "element_id": b.element_id, "field": "side_effect_waiver",
+                                "message": "side-effectful assist_capability runs before the human gate — it is "
+                                           "un-gated by construction and requires a side_effect_waiver "
+                                           "regardless of hitl mode",
+                            })
                 # ADR-050: a human task may declare the artifact(s) it produces (and reads). Each schema_ref
                 # must resolve to a staged/authored/trigger artifact; output names are checked for run-wide
                 # uniqueness after the loop (so a from-artifact source can address them unambiguously).
@@ -773,6 +799,9 @@ class OnboardingService:
                 message_name=message_name, call_pack=call_pack, call_version=call_version,
                 input_map=input_map, output_map=output_map, input_sources=dict(b.input_sources),
                 inputs=io_inputs, outputs=io_outputs,
+                # ADR-065 P4a: STAMP provenance + the capability bond server-side (any client-sent provenance is
+                # ignored). Correct-by-construction: the bond is the binding's own capability at write time.
+                side_effect_waiver=self._stamp_waiver(b, prior_waivers.get(b.element_id), owner),
             ))
 
         # Bijection: exactly one binding per bindable element, no orphans, no unbound elements.
@@ -820,18 +849,64 @@ class OnboardingService:
         s.last_cleared = cleared
         return await self.sessions.save(s)
 
+    @staticmethod
+    def _bond_cap_ref(b: BindingInput) -> Optional[str]:
+        """ADR-065 P4a: the bare capability id a waiver on this binding authorises — the executor's own capability,
+        or (a human executor's) side-effectful assist (amended Part G). ``None`` if there is none."""
+        ref = b.capability_ref if b.executor_type == "capability" else (
+            b.assist_capability_ref if b.executor_type == "human" else None)
+        return ref.split("@", 1)[0] if ref else None
+
+    def _stamp_waiver(self, b: BindingInput, prior: Optional[SideEffectWaiver], owner: str) -> Optional[SideEffectWaiver]:
+        """ADR-065 P4a: server-stamp a waiver's provenance + capability bond. ANY client-sent provenance is IGNORED
+        — the values are the authenticated principal, the clock, and the binding's OWN capability (so the bond is
+        correct by construction; the server cannot stamp a capability the binding does not have). The original
+        author + timestamp are preserved only when the justification is UNCHANGED and already provenanced (an
+        unrelated re-save must not steal authorship); anything new / changed / legacy-unbonded is stamped fresh —
+        so a dropped-and-rewritten waiver (a rebind) always acquires FRESH provenance, never the old author/bond."""
+        w = getattr(b, "side_effect_waiver", None)
+        if w is None:
+            return None
+        cap_id = self._bond_cap_ref(b)
+        # P4b D1: preserve author/timestamp only when the justification AND the derived bond both match the prior.
+        # Re-sending the same text for a DIFFERENT capability must NOT credit the prior author, and must NOT let the
+        # server silently re-bond (which would make side_effect_waiver_capability_mismatch unfalsifiable) — stamp
+        # the CURRENT owner at NOW for the new capability instead.
+        if (prior is not None and prior.waived_by and prior.justification == w.justification
+                and prior.waived_capability_id == cap_id):
+            return SideEffectWaiver(justification=w.justification, waived_by=prior.waived_by,
+                                    waived_at=prior.waived_at, waived_capability_id=cap_id)
+        return SideEffectWaiver(justification=w.justification, waived_by=owner,
+                                waived_at=utcnow(), waived_capability_id=cap_id)
+
     def _check_hitl_guard(self, b: BindingInput, side_effect: str, floor: Optional[str], errors: List[dict]) -> None:
+        # ADR-065: mirrors PackValidator._stage4_hitl_policy so assemble (this early pre-check) and the full
+        # validator (composed-manifest re-run at assemble + activation) never disagree. The side-effect floor is
+        # WAIVABLE (b.side_effect_waiver); min_hitl_mode is NOT; a dead waiver is an error.
         mode = b.hitl_mode
-        if side_effect == "side_effectful" and not hitl_mode_at_least(mode, _APPROVE_ACTIONS):
+        waiver = getattr(b, "side_effect_waiver", None)
+        load_bearing = side_effect == "side_effectful" and not hitl_mode_at_least(mode, _APPROVE_ACTIONS)
+        if load_bearing and waiver is None:
             errors.append({
                 "element_id": b.element_id, "field": "hitl_mode", "allowed_min_mode": "approve_actions",
-                "message": "side-effectful capability requires HITL mode >= approve_actions",
+                "message": "side-effectful capability requires HITL mode >= approve_actions (or a side_effect_waiver)",
             })
         if floor is not None and not hitl_mode_at_least(mode, floor):
             errors.append({
                 "element_id": b.element_id, "field": "hitl_mode", "allowed_min_mode": floor,
-                "message": f"HITL mode below capability floor '{floor}'",
+                "message": f"HITL mode below capability floor '{floor}' (this floor is not waivable)",
             })
+        if waiver is not None and not load_bearing:
+            errors.append({
+                "element_id": b.element_id, "field": "side_effect_waiver",
+                "message": "side_effect_waiver is not required — the capability is read_only or the binding "
+                           "already gates at >= approve_actions; remove the waiver",
+            })
+        # ADR-065 P4a: the capability-bond MISMATCH check lives only in PackValidator (run by BOTH assemble and
+        # activate, so they agree). It is not mirrored here because the set_bindings path CANNOT produce a
+        # mismatch: _stamp_waiver ignores any client-sent bond and re-stamps the binding's OWN capability
+        # (correct by construction). A mismatch is only reachable via a hand-built manifest, which activate
+        # validates through PackValidator.
 
     @staticmethod
     def _staged_artifact_keys(s: OnboardingSession) -> set:
@@ -1692,6 +1767,11 @@ class OnboardingService:
                 if b.hitl_role:
                     hitl["role"] = b.hitl_role
                 binding_doc["hitl"] = hitl
+            # ADR-065: emit the per-binding side-effect waiver into the manifest so it survives to activation +
+            # the runtime (P2) + the audit event (P4). Immutable with the pack version. P4a: emit provenance +
+            # the capability bond too (exclude_none so a legacy/unstamped waiver stays {justification}).
+            if b.side_effect_waiver is not None:
+                binding_doc["side_effect_waiver"] = b.side_effect_waiver.model_dump(mode="json", exclude_none=True)
             bindings.append(binding_doc)
 
         if trigger_ref:

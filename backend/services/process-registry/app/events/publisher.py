@@ -56,14 +56,17 @@ class RabbitPublisher:
 
 
 async def emit_pack_lifecycle(publisher: Optional[RabbitPublisher], *, pack_key: str, version: str,
-                              op: str, actor: str, detail: Optional[str] = None) -> None:
-    """Publish a PackLifecycleEvent (publish/deprecate/rollback). Fail-soft — never raises."""
+                              op: str, actor: str, detail: Optional[str] = None,
+                              waivers: Optional[list] = None) -> None:
+    """Publish a PackLifecycleEvent (publish/deprecate/rollback). Fail-soft — never raises. ADR-065 P4b:
+    ``waivers`` (set only on publish/activate) is fanned out by GLEA to one ``pack_waiver`` audit row each."""
     if publisher is None or not getattr(publisher, "is_ready", False):
         return
     try:
         ev = PackLifecycleEvent(
             event_id=uuid.uuid4().hex, occurred_at=datetime.now(timezone.utc),
             pack_key=pack_key, version=version, op=PackLifecycleOp(op), actor=actor, detail=detail,
+            waivers=waivers or None,
         )
         await publisher.publish(ev.to_doc(), ev.routing_key(), ev.event_id)
     except Exception as exc:  # noqa: BLE001 — governance audit must never break the lifecycle op

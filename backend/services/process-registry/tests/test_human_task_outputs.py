@@ -106,7 +106,7 @@ async def test_declare_authored_artifact_rejects_bad_id_and_schema(svc):
 async def test_human_output_binding_rejects_unstaged_schema_ref(svc):
     s = await _through_bindings(svc)  # no authored artifact declared
     binds = [
-        BindingInput(element_id="TakeOrder", element_kind="userTask", executor_type="human", role="role.server",
+        BindingInput(element_id="TakeOrder", element_kind="userTask", executor_type="human", role="role.server", hitl_mode="manual", hitl_role="role.server",
                      outputs=[StagedBindingIO(name="order", schema_ref="art.dining.order@^1.0.0")]),
         BindingInput(element_id="ValidateOrder", element_kind="serviceTask", executor_type="capability",
                      capability_ref="cap.dining.validate_order@^1.0.0", hitl_mode="none"),
@@ -124,7 +124,7 @@ async def test_human_output_name_on_a_different_artifact_errors(svc):
     s = await svc.declare_artifact(s.session_id, DeclareArtifactRequest(
         artifact_key="art.dining.order", title="Order", json_schema=_ORDER_SCHEMA), owner=OWNER)
     binds = [
-        BindingInput(element_id="TakeOrder", element_kind="userTask", executor_type="human", role="role.server",
+        BindingInput(element_id="TakeOrder", element_kind="userTask", executor_type="human", role="role.server", hitl_mode="manual", hitl_role="role.server",
                      outputs=[StagedBindingIO(name="validate_order_output", schema_ref="art.dining.order@^1.0.0")]),
         BindingInput(element_id="ValidateOrder", element_kind="serviceTask", executor_type="capability",
                      capability_ref="cap.dining.validate_order@^1.0.0", hitl_mode="none"),
@@ -161,9 +161,9 @@ async def test_revise_loop_same_output_name_same_artifact_ok(svc):
     s = await svc.declare_artifact(s.session_id, DeclareArtifactRequest(
         artifact_key="art.dining.order", title="Order", json_schema=_ORDER_SCHEMA), owner=OWNER)
     binds = [
-        BindingInput(element_id="TakeOrder", element_kind="userTask", executor_type="human", role="role.server",
+        BindingInput(element_id="TakeOrder", element_kind="userTask", executor_type="human", role="role.server", hitl_mode="manual", hitl_role="role.server",
                      outputs=[StagedBindingIO(name="order", schema_ref="art.dining.order@^1.0.0")]),
-        BindingInput(element_id="ReviseOrder", element_kind="userTask", executor_type="human", role="role.server",
+        BindingInput(element_id="ReviseOrder", element_kind="userTask", executor_type="human", role="role.server", hitl_mode="manual", hitl_role="role.server",
                      outputs=[StagedBindingIO(name="order", schema_ref="art.dining.order@^1.0.0")]),
         BindingInput(element_id="ValidateOrder", element_kind="serviceTask", executor_type="capability",
                      capability_ref="cap.dining.validate_order@^1.0.0", hitl_mode="none"),
@@ -183,7 +183,7 @@ async def test_capability_input_sources_from_human_authored_output_end_to_end(sv
         artifact_key="art.dining.order", title="Order", json_schema=_ORDER_SCHEMA), owner=OWNER)
 
     binds = [
-        BindingInput(element_id="TakeOrder", element_kind="userTask", executor_type="human", role="role.server",
+        BindingInput(element_id="TakeOrder", element_kind="userTask", executor_type="human", role="role.server", hitl_mode="manual", hitl_role="role.server",
                      outputs=[StagedBindingIO(name="order", schema_ref="art.dining.order@^1.0.0")]),
         BindingInput(element_id="ValidateOrder", element_kind="serviceTask", executor_type="capability",
                      capability_ref="cap.dining.validate_order@^1.0.0", hitl_mode="none"),

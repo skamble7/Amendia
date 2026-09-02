@@ -7,6 +7,7 @@ BPMN parse) are NOT done here — they belong to the registry/onboarding step.
 """
 from __future__ import annotations
 
+from datetime import datetime
 from enum import Enum
 from typing import Dict, List, Literal, Optional, Union
 
@@ -134,6 +135,37 @@ class Hitl(ContractModel):
         return self
 
 
+class SideEffectWaiver(ContractModel):
+    """ADR-065 — a per-binding, justified waiver of the platform's ``side_effectful ⇒ hitl >= approve_actions``
+    floor for THIS element in THIS pack version. Present only when it is doing work (a dead waiver is a
+    validation error). It waives EXACTLY that one platform floor — never the capability author's
+    ``constraints.min_hitl_mode``, never ``deep_agent_requires_hitl``, never any other rule (see the registry
+    validator). There is no boolean form: a waiver ALWAYS carries a substantive reason.
+
+    ADR-065 P4a — provenance + the capability bond. ``waived_capability_id`` is the BARE capability id (no version
+    range) the waiver authorises: stage 4 rejects a waiver whose bond does not match what the binding actually
+    resolves to (``side_effect_waiver_capability_mismatch``), turning the P1 registry-emission-side guarantee into
+    one the manifest carries. ``waived_by`` / ``waived_at`` record who wrote the justification and when. ALL THREE
+    are OPTIONAL and are STAMPED SERVER-SIDE by ``set_bindings`` — a client never asserts them (a client-sent value
+    is ignored). Absent ⇒ a pre-P4a (legacy) waiver: a warning (``side_effect_waiver_unbonded``), never an error."""
+
+    justification: str
+    waived_by: Optional[str] = None
+    waived_at: Optional[datetime] = None
+    waived_capability_id: Optional[str] = None
+
+    @field_validator("justification")
+    @classmethod
+    def _justification_non_trivial(cls, v: str) -> str:
+        s = (v or "").strip()
+        if len(s) < 20:
+            raise ValueError(
+                "side_effect_waiver.justification must be a substantive written reason "
+                "(non-empty, >= 20 characters after trimming)"
+            )
+        return s
+
+
 class ArtifactIO(ContractModel):
     name: str
     schema_: ArtifactRef = Field(..., alias="schema")
@@ -196,6 +228,10 @@ class Binding(ContractModel):
     # a named upstream output, or a composite of both). Optional: a binding without it behaves exactly as
     # today (shared-name chaining). Keyed by the binding input name.
     input_map: Dict[str, InputSource] = Field(default_factory=dict)
+    # ADR-065 (additive): an optional, justified waiver of the side_effectful⇒approve_actions floor for THIS
+    # binding. Absent ⇒ exactly today's behaviour (the gate stays on). It never waives the capability author's
+    # min_hitl_mode or the deep_agent gate — the registry validator enforces that.
+    side_effect_waiver: Optional[SideEffectWaiver] = None
 
     @model_validator(mode="after")
     def _executor_matches_kind(self) -> "Binding":

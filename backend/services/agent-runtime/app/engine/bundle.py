@@ -204,5 +204,8 @@ def build_node_contexts(bundle: PackBundle) -> Dict[str, NodeContext]:
             message_name=message_name,
             error_codes=error_codes,
             input_map=input_map,
+            # ADR-065 (P2): thread the operator's side-effect waiver (structured, or None) off the manifest
+            # binding. Read defensively so a bundle from an older cached manifest (no such field) doesn't explode.
+            side_effect_waiver=getattr(mb, "side_effect_waiver", None),
         )
     return contexts

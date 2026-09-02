@@ -103,6 +103,9 @@ def _scope_ctx(prefix: str, ctx: NodeContext) -> NodeContext:
         outputs=[OutputSpec(name=f"{prefix}{o.name}", artifact_key=o.artifact_key,
                             schema_ref=o.schema_ref, json_schema=o.json_schema) for o in ctx.outputs],
         title=ctx.title, message_name=ctx.message_name, error_codes=list(ctx.error_codes),
+        # ADR-065 (P2): carry the operator's side-effect waiver into the scoped callee context, else a
+        # legitimately-waived side-effectful task inside an inlined pack would fail closed spuriously.
+        side_effect_waiver=getattr(ctx, "side_effect_waiver", None),
     )
 
 

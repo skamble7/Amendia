@@ -109,10 +109,11 @@
     <a href="#andxor">3 · AND vs XOR branches</a>
     <a href="#slas">4 · SLAs: at-risk, breach, owner</a>
     <a href="#resolve">5 · Expected vs conditional</a>
-    <a href="#steps">6 · Declaring a cohort, step by step</a>
-    <a href="#example">7 · Worked example: ACH exposure</a>
-    <a href="#rules">8 · Rules, limits &amp; gotchas</a>
-    <a href="#checklist">9 · Author's checklist</a>
+    <a href="#situations">6 · Situations: which SLA catches what</a>
+    <a href="#steps">7 · Declaring a cohort, step by step</a>
+    <a href="#example">8 · Worked example: ACH exposure</a>
+    <a href="#rules">9 · Rules, limits &amp; gotchas</a>
+    <a href="#checklist">10 · Author's checklist</a>
   </nav>
 
   <h2 id="concepts"><span class="num">1</span>The vocabulary</h2>
@@ -348,7 +349,133 @@
       list of segments — is what makes conditional segments trustworthy.</p>
   </div>
 
-  <h2 id="steps"><span class="num">6</span>Declaring a cohort, step by step</h2>
+  <h2 id="situations"><span class="num">6</span>Situations — which SLA catches what</h2>
+  <p>Sections 1–5 give you the model. This section is the other direction: you arrive with a <em>worry</em>
+    ("what if Pega never sends the second trigger?") and want to know which knob to turn. Start here, then
+    §7 for the click-path.</p>
+
+  <div class="box idea">
+    <h4>◆ There are only three places a promise can attach</h4>
+    <p style="margin:0">Every situation below is one of these. If you can decide which of the three you mean, the rest
+      is filling in numbers.</p>
+    <ul style="margin:10px 0 0">
+      <li><strong>An edge SLA</strong> — between two things: <em>Start → segment</em>, <em>segment → segment</em>,
+        or <em>segment → Close</em>. This is the common one, and it is about <strong>waiting</strong>.</li>
+      <li><strong>A node runtime SLA</strong> — inside one segment, from its arrival to its completion. This is about
+        <strong>our own speed</strong>.</li>
+      <li><strong>An end-to-end SLA</strong> — the whole case, cohort-open to close. One per graph.</li>
+    </ul>
+  </div>
+
+  <h3>The recipe table</h3>
+  <table>
+    <thead><tr><th>What you're worried about</th><th>Declare</th><th>Anchor → satisfy</th><th>Owner</th><th>Clock</th></tr></thead>
+    <tbody>
+      <tr><td>The external system <strong>never invokes a segment</strong></td>
+          <td>Edge SLA on <em>previous → that segment</em></td>
+          <td>previous completes → segment arrives</td>
+          <td><span class="pill ext">external</span></td><td>usually wall</td></tr>
+      <tr><td>The case <strong>never starts</strong> after the cohort opens</td>
+          <td>Edge SLA on <em>Start → first segment</em></td>
+          <td>cohort opens → segment arrives</td>
+          <td><span class="pill ext">external</span></td><td>wall</td></tr>
+      <tr><td>The <strong>gap between our handback and the next trigger</strong> drifts</td>
+          <td>Edge SLA on <em>segment → segment</em></td>
+          <td>previous completes → next arrives</td>
+          <td><span class="pill ext">external</span></td><td>business, if people are involved</td></tr>
+      <tr><td><strong>Our own segment runs too long</strong></td>
+          <td>Node runtime SLA on that segment</td>
+          <td>segment arrives → segment completes</td>
+          <td><span class="pill ami">amendia</span></td><td>business, if it waits on an approver</td></tr>
+      <tr><td>The case <strong>is never closed</strong> — the cohort sits open forever</td>
+          <td>Edge SLA on <em>last segment → Close</em></td>
+          <td>last segment completes → close message received</td>
+          <td><span class="pill ext">external</span></td><td>wall</td></tr>
+      <tr><td>The <strong>whole case</strong> must land within a deadline</td>
+          <td>End-to-end SLA on the graph</td>
+          <td>cohort opens → close received</td>
+          <td><span class="pill amber">shared</span></td><td>usually business</td></tr>
+      <tr><td>A segment <strong>may legitimately be skipped</strong></td>
+          <td>Mark it <em>conditional</em> on an XOR split, then attach the SLA normally</td>
+          <td>as above — but voided when a sibling arrives or the case closes</td>
+          <td><span class="pill ext">external</span></td><td>—</td></tr>
+      <tr><td><strong>Parallel segments must all happen</strong></td>
+          <td>AND split; every branch <em>expected</em>, each with its own edge SLA</td>
+          <td>one per branch</td>
+          <td><span class="pill ext">external</span></td><td>—</td></tr>
+    </tbody>
+  </table>
+
+  <div class="box warn">
+    <h4>⚠ The one most people forget</h4>
+    <p style="margin:0">The <strong>segment → Close</strong> SLA. Every other promise fires because something was
+      <em>late</em>; this one is the only thing that notices <strong>nothing happened at all</strong>. Without it a
+      cohort whose external system quietly dropped the case stays <em>open</em> indefinitely and no one is told —
+      the exact blind spot cohorts were built for. If you declare one SLA on a graph, declare this one.</p>
+  </div>
+
+  <h3>Choosing the owner</h3>
+  <p>The owner is what turns a cohort into an accountability ledger, so it is worth a moment's thought rather than a
+    default. The rule is almost mechanical:</p>
+  <div class="grid">
+    <div class="card"><h4><span class="pill ext">external</span> — we were waiting</h4>
+      <p>Anything measuring an <em>arrival</em>. They had the ball: the trigger never came, or came late.</p></div>
+    <div class="card"><h4><span class="pill ami">amendia</span> — we were slow</h4>
+      <p>Anything measuring a <em>completion</em>. We had the ball: our segment stalled, usually on a human gate.</p></div>
+    <div class="card"><h4><span class="pill amber">shared</span> — the case as a whole</h4>
+      <p>End-to-end. Nobody single-handedly blew it; the case simply took too long across both sides.</p></div>
+    <div class="card"><h4>Nothing enforces this</h4>
+      <p>Amendia does <strong>not</strong> check that arrivals are attributed externally. Attribute a completion to
+        <em>external</em> and the ledger will quietly say something false. It trusts you.</p></div>
+  </div>
+
+  <h3>Choosing the numbers</h3>
+  <ul>
+    <li><strong>Set the deadline from what actually happens, not what you wish happened.</strong> Take the observed
+      p95 for that hop and add margin. An SLA tuned to the hope rather than the behaviour breaches constantly, and a
+      board that is always red is a board nobody reads.</li>
+    <li><strong>At-risk around 70–75% of the deadline.</strong> Far enough out that chasing still helps; close enough
+      that it isn't crying wolf. It must satisfy <code>0 ≤ at-risk &lt; deadline</code> or registration is rejected.</li>
+    <li><strong>Business hours whenever a human is in the loop.</strong> A wall-clock SLA on a step that waits on an
+      approver will breach overnight and every weekend, and those breaches are indistinguishable from real ones.</li>
+  </ul>
+
+  <div class="box">
+    <h4 style="color:#c3b4ff">When <em>not</em> to declare one</h4>
+    <p style="margin:0 0 8px">Not every edge needs an SLA, and there is a real cost to declaring one you don't mean.
+      <strong>A breach is permanent.</strong> If the work arrives after the deadline, the arrival is recorded as late
+      but <em>the breach still stands</em> — that is deliberate (a promise that was missed was missed), but it means a
+      too-tight SLA leaves a permanent red mark on a case that finished perfectly well.</p>
+    <p style="margin:0">The test: <em>if this breached at 3am, would someone actually do something?</em> If not, leave
+      it off. You can always add it once you've watched the cohort for a while — which is the recommended order.</p>
+  </div>
+
+  <h3>Mistakes worth avoiding</h3>
+  <table>
+    <thead><tr><th>Mistake</th><th>What you'll see</th></tr></thead>
+    <tbody>
+      <tr><td>Owner attributed to the wrong side</td>
+          <td>The board blames the external system for our slow approvals (or vice versa). Nothing errors — the ledger
+            is simply wrong, which is worse than missing.</td></tr>
+      <tr><td>Wall-clock on a human step</td>
+          <td>Breaches every night and weekend. Real breaches become invisible in the noise.</td></tr>
+      <tr><td>No <em>segment → Close</em> SLA</td>
+          <td>A dropped case sits <span class="pill amber">open</span> forever and nothing surfaces it.</td></tr>
+      <tr><td>An SLA on every edge</td>
+          <td>Alert fatigue — and in V1 breaches are <strong>surface-only</strong> (a badge and a live refresh; no email
+            or push exists yet), so a noisy board is the <em>only</em> signal and it stops being read.</td></tr>
+      <tr><td>Expecting a breach to intervene</td>
+          <td>It never will. A cohort has zero execution authority: a breach flags, warns and attributes. It does not
+            abort, retry, skip, escalate, or nudge anyone. It is a record, not a control.</td></tr>
+      <tr><td>Marking an XOR branch <em>expected</em></td>
+          <td>Rejected at registration — and rightly: the branch not taken would breach every time.</td></tr>
+      <tr><td>Editing the graph while cases run</td>
+          <td>Edits are <strong>forward-only</strong> (§9): running cohorts keep the graph they opened with. Your change
+            affects the next case, not the one you're staring at.</td></tr>
+    </tbody>
+  </table>
+
+  <h2 id="steps"><span class="num">7</span>Declaring a cohort, step by step</h2>
   <ol class="steps">
     <li><h3>Name the case</h3><p>Give the cohort an id and display name, and declare the <strong>close message</strong>:
       paste its JSON schema and point to where the <strong>correlation value</strong> and the final <strong>outcome</strong>
@@ -367,7 +494,7 @@
       running under this cohort you'll see a <strong>forward-only</strong> warning — see §8.</p></li>
   </ol>
 
-  <h2 id="example"><span class="num">7</span>Worked example: the ACH exposure cohort</h2>
+  <h2 id="example"><span class="num">8</span>Worked example: the ACH exposure cohort</h2>
   <p>Pega orchestrates an ACH exposure-limit case and hands three segments to Amendia: <strong>Assess</strong> the
     exposure, <strong>Enforce</strong> the underwriter's decision, and <strong>Closeout</strong> — which is either a
     <em>release</em> or a <em>purge</em>, never both. The graph in §2 is this process. Here's how it's declared.</p>
@@ -398,7 +525,7 @@
       voided by the close.</li>
   </ul>
 
-  <h2 id="rules"><span class="num">8</span>Rules, limits &amp; gotchas</h2>
+  <h2 id="rules"><span class="num">9</span>Rules, limits &amp; gotchas</h2>
   <div class="box warn">
     <h4>⚠ Edits are forward-only (for now)</h4>
     <p style="margin:0">Changing a cohort's graph or SLAs affects cases that <strong>open after</strong> the change. Cases
@@ -421,7 +548,7 @@
     <li><strong>No loops in v1.</strong> A segment that can repeat isn't expressible yet; model the single expected pass.</li>
   </ul>
 
-  <h2 id="checklist"><span class="num">9</span>Author's checklist</h2>
+  <h2 id="checklist"><span class="num">10</span>Author's checklist</h2>
   <div class="check">
     <div><span class="bx"></span><span>Correlation value chosen — one shared business key, unique per live case, and mapped on <em>every</em> segment.</span></div>
     <div><span class="bx"></span><span>Close message schema pasted, with the correlation and outcome paths pointed at the right fields.</span></div>

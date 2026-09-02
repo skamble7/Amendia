@@ -24,7 +24,7 @@ from app.clickhouse.writer import AuditWriter, CohortSlaWriter, CohortWriter
 from app.config import settings
 from app.events.consumer import AuditConsumer
 from app.events.mapper import (
-    is_cohort_event, is_cohort_sla_event, to_cohort_row, to_cohort_sla_row, to_row,
+    is_cohort_event, is_cohort_sla_event, to_cohort_row, to_cohort_sla_row, to_row, waiver_rows,
 )
 from app.logging_conf import configure_logging
 from app.routers import audit, cohorts, health
@@ -68,6 +68,9 @@ async def lifespan(app: FastAPI):
             await cohort_writer.insert(to_cohort_row(routing_key, payload))
         else:
             await writer.insert(to_row(routing_key, payload))
+            # ADR-065 P4b: a publish PackLifecycleEvent also fans out to one `pack_waiver` row per waiver.
+            for row in waiver_rows(routing_key, payload):
+                await writer.insert(row)
 
     consumer = AuditConsumer(settings.RABBITMQ_URL, handle)
     sealer = AuditSealer(reader, writer)

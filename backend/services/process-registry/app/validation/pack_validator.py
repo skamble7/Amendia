@@ -132,11 +132,17 @@ class PackValidator:
         # read-only step is meaningless), and its handler must be a bound capability.
         if model is not None:
             self._validate_compensation(manifest, model, resolved_caps, report)
+        # ADR-065 Part E: a side-effectful capability may never be a multi-instance host (waiver or not).
+        if model is not None:
+            self._validate_multi_instance_side_effect(manifest, model, resolved_caps, report)
         # Stage 5
         if model is not None:
             await self._stage5_artifacts_io(manifest, model, resolved_caps, report, trigger_schema)
         else:
             report.error("stage_skipped", stage=5, message="artifact/IO checks skipped: no valid BPMN")
+        # ADR-065 Part H: warn (non-blocking) when a read_only capability's output carries the acknowledgement
+        # shape that infers a side effect — the mislabeling-to-dodge-the-gate signal (heuristic, so a warning).
+        await self._validate_side_effect_labeling(manifest, resolved_caps, report)
         # Stage 6
         if model is not None:
             await self._stage6_gateway_vars(manifest, model, report)
@@ -288,26 +294,115 @@ class PackValidator:
         self, manifest: ProcessPackManifest, resolved: Dict[str, CapabilityDescriptor], report: ValidationReport
     ) -> None:
         for b in manifest.bindings:
-            if b.hitl is None:  # ADR-031: message bindings have no HITL gate — nothing to check here
+            waiver = getattr(b, "side_effect_waiver", None)
+            if b.hitl is None:  # ADR-031: message/call bindings have no HITL gate — nothing to gate here
+                # ADR-065: a waiver on a binding with no gate is dead (there is no side-effect floor to waive).
+                if waiver is not None:
+                    report.error("side_effect_waiver_not_required", stage=4, element_id=b.element_id,
+                                 message=f"side_effect_waiver on '{b.element_id}' does nothing — a "
+                                         f"{b.executor.type} executor has no side-effect gate to waive")
                 continue
             mode = b.hitl.mode
             if mode is not HitlMode.NONE and b.hitl.role is None:
                 report.error("hitl_role_missing", stage=4, element_id=b.element_id,
                              message=f"hitl mode '{mode.value}' requires a role")
             ex = b.executor
-            desc = resolved.get(ex.capability.ref_id) if ex.type == "capability" else None
-            if desc is None:
-                continue
-            if desc.side_effect.value == "side_effectful" and not hitl_mode_at_least(mode, APPROVE_ACTIONS):
-                report.error("side_effect_requires_approve_actions", stage=4, element_id=b.element_id,
-                             message=f"side-effectful capability '{desc.capability_id}' bound at "
-                                     f"'{mode.value}'; must be >= approve_actions")
-            floor = desc.constraints.min_hitl_mode if desc.constraints else None
-            if floor is not None and not hitl_mode_at_least(mode, floor):
-                report.error("hitl_below_capability_floor", stage=4, element_id=b.element_id,
-                             message=f"binding hitl '{mode.value}' is below capability min_hitl_mode '{floor.value}'")
 
-        # deep_agent-specific rules (ADR-021): HITL gate required, read_only-or-justified,
+            # ADR-065 Part G (second item): a human executor at hitl 'none' passes the contract but raises at
+            # runtime (allowed_decisions_for('none'), engine.py). Reject it at validation time.
+            if ex.type == "human" and mode is HitlMode.NONE:
+                report.error("hitl_none_on_human_executor", stage=4, element_id=b.element_id,
+                             message="a human executor cannot be bound at hitl 'none' — a human task needs a "
+                                     "gate (review_after / approve_result / approve_actions / manual)")
+
+            # The side-effect subject(s) on this binding: the capability executor, OR — ADR-065 Part G — a human
+            # task's assist_capability, which stage 4 never side-effect-checked yet runs in mode='execute' before
+            # the interrupt (task_runner._run_manual). The two are NOT the same rule (amended 2026-09-01): the
+            # capability path clears at approve_actions (propose → gate → execute), but the assist ALWAYS runs
+            # before the gate, so no HITL mode gates it — it is un-gated by construction. ``is_assist`` selects
+            # which condition makes the side-effect floor load-bearing below.
+            subjects: List[Tuple[CapabilityDescriptor, str, bool]] = []
+            unresolved = False
+            if ex.type == "capability":
+                desc = resolved.get(ex.capability.ref_id)
+                if desc is None:
+                    unresolved = True
+                else:
+                    subjects.append((desc, "side_effect_requires_approve_actions", False))
+            elif ex.type == "human" and ex.assist_capability is not None:
+                desc = resolved.get(ex.assist_capability.ref_id)
+                if desc is None:
+                    unresolved = True
+                else:
+                    subjects.append((desc, "assist_side_effect_requires_waiver", True))
+
+            waiver_load_bearing = False
+            for desc, code, is_assist in subjects:
+                is_se = desc.side_effect.value == "side_effectful"
+                # Capability: waivable floor cleared at approve_actions. Assist: un-gated by construction, so a
+                # side-effectful assist ALWAYS needs the waiver, whatever the task's hitl mode (rank buys nothing).
+                needs_waiver = is_se if is_assist else (is_se and not hitl_mode_at_least(mode, APPROVE_ACTIONS))
+                if needs_waiver:
+                    # ADR-065: the ONE waivable rule — the platform side_effectful floor (capability: at 'none';
+                    # assist: always). min_hitl_mode / deep_agent gates below stay non-waivable.
+                    waiver_load_bearing = True
+                    if waiver is None:
+                        if is_assist:
+                            report.error(code, stage=4, element_id=b.element_id,
+                                         message=f"side-effectful assist_capability '{desc.capability_id}' runs in "
+                                                 f"mode='execute' BEFORE the human gate — it is un-gated by "
+                                                 f"construction and requires a side_effect_waiver regardless of "
+                                                 f"hitl mode ('{mode.value}')")
+                        else:
+                            report.error(code, stage=4, element_id=b.element_id,
+                                         message=f"side-effectful capability '{desc.capability_id}' bound at "
+                                                 f"'{mode.value}'; must be >= approve_actions (or carry a "
+                                                 f"side_effect_waiver)")
+                # ADR-065 Part B: min_hitl_mode is the capability author's NON-waivable floor (capability
+                # executor only). It applies with or without a waiver.
+                if ex.type == "capability":
+                    floor = desc.constraints.min_hitl_mode if desc.constraints else None
+                    if floor is not None and not hitl_mode_at_least(mode, floor):
+                        report.error("hitl_below_capability_floor", stage=4, element_id=b.element_id,
+                                     message=f"binding hitl '{mode.value}' is below capability "
+                                             f"min_hitl_mode '{floor.value}' — this floor is not waivable")
+
+            # ADR-065 Part F + the dead-waiver rule. A present waiver must be doing work and must be loud.
+            if waiver is not None and not unresolved:
+                # ADR-065 P4a (D2): the capability bond. A binding has exactly ONE side-effect subject — the
+                # capability executor's own capability, OR (human executor, amended Part G) its assist. That is
+                # what the waiver authorises. If the waiver NAMES a capability (bare id) it must be that one;
+                # a mismatch is the only signal that catches a manifest hand-built outside the registry.
+                bond = getattr(waiver, "waived_capability_id", None)
+                bond_cap_id = subjects[0][0].capability_id if subjects else None
+                if bond is not None and bond_cap_id is not None and bond != bond_cap_id:
+                    report.error("side_effect_waiver_capability_mismatch", stage=4, element_id=b.element_id,
+                                 message=f"side_effect_waiver on '{b.element_id}' is bonded to capability '{bond}' "
+                                         f"but the binding runs '{bond_cap_id}' — a waiver justifies exactly one "
+                                         f"capability (it never came through the registry, or was hand-edited)")
+                if waiver_load_bearing:
+                    # ADR-065 P3 (D6): accurate for BOTH cases — a side-effectful capability executor with no
+                    # human gate at all, AND a side-effectful assist that runs BEFORE its human gate (so that
+                    # gate does not approve the action). Neither has human approval before the effect takes hold.
+                    report.warning("side_effect_waived", stage=4, element_id=b.element_id,
+                                   message=f"'{b.element_id}' performs a real-world (side-effectful) action with no "
+                                           f"human approval before it takes effect (hitl '{mode.value}'), under an "
+                                           f"explicit waiver. Justification: {waiver.justification}")
+                    # ADR-065 P4a (D3): a load-bearing waiver with NO capability bond is a pre-P4a (legacy) waiver,
+                    # not a forgery — visible (so it can be re-saved to acquire provenance), never an error.
+                    if bond is None:
+                        report.warning("side_effect_waiver_unbonded", stage=4, element_id=b.element_id,
+                                       message=f"side_effect_waiver on '{b.element_id}' carries no capability bond "
+                                               f"or author (a pre-P4a waiver) — re-save the binding to stamp "
+                                               f"provenance (who/when + the capability it authorises)")
+                else:
+                    report.error("side_effect_waiver_not_required", stage=4, element_id=b.element_id,
+                                 message=f"side_effect_waiver on '{b.element_id}' is not required — the "
+                                         f"capability is read_only or the binding already gates at "
+                                         f"'{mode.value}' (>= approve_actions); remove it (a dead waiver must "
+                                         f"not sit dormant where a later capability change would activate it)")
+
+        # deep_agent-specific rules (ADR-021): HITL gate required (NOT waivable), read_only-or-justified,
         # tools resolve, nemoclaw-mode required. (Runs once, after the per-binding loop.)
         validate_deep_agent_bindings(manifest, resolved, report)
 
@@ -396,6 +491,28 @@ class PackValidator:
                                      message=f"side-effectful task '{tid}' inside interrupting-timer "
                                              f"subProcess '{sid}' — cancelling committed side effects is "
                                              f"compensation (deferred to Item G)")
+
+    def _validate_multi_instance_side_effect(
+        self, manifest: ProcessPackManifest, model: BpmnModel,
+        resolved: Dict[str, CapabilityDescriptor], report: ValidationReport,
+    ) -> None:
+        """ADR-065 Part E: a ``side_effectful`` capability may not be a multi-instance host — REGARDLESS of any
+        waiver. Today it is only accidentally blocked (stage 4 needs >= approve_actions, compiler.py needs
+        hitl 'none'); once a waiver makes 'none' legal, one decision would authorise un-gated N-way fan-out of
+        real-world actions. Kept blocked explicitly (the compiler half lands in P2). Same style as the adjacent
+        timer/subprocess boundary side-effect rules."""
+        bindings = {b.element_id: b for b in manifest.bindings}
+        for host in model.multi_instance:
+            b = bindings.get(host)
+            if b is None or getattr(b.executor, "type", None) != "capability":
+                continue
+            desc = resolved.get(b.executor.capability.ref_id)
+            if desc is not None and desc.side_effect.value == "side_effectful":
+                report.error("multi_instance_side_effect_unsupported", stage=4, element_id=host,
+                             message=f"multi-instance host '{host}' is bound to side-effectful capability "
+                                     f"'{desc.capability_id}' — un-gated N-way fan-out of real-world actions is "
+                                     f"unsupported (waiver or not): one decision cannot authorise N actions "
+                                     f"(ADR-065 Part E)")
 
     def _validate_compensation(
         self, manifest: ProcessPackManifest, model: BpmnModel,
@@ -701,6 +818,40 @@ class PackValidator:
                                              f"'{ex.capability.ref_id}' call would be rejected at runtime "
                                              f"(isError → MCP_TOOL_ERROR)")
 
+    async def _validate_side_effect_labeling(
+        self, manifest: ProcessPackManifest, resolved: Dict[str, CapabilityDescriptor], report: ValidationReport,
+    ) -> None:
+        """ADR-065 Part H: a non-blocking warning when a capability declared ``read_only`` carries the
+        acknowledgement OUTPUT shape (acknowledged/action_id/status) that the introspection uses to INFER
+        ``side_effectful`` — i.e. the operator likely downgraded a real-world action to dodge the gate, for which
+        an explicit side_effect_waiver is now the honest path. Heuristic (the ack-shape inference can be wrong),
+        so a warning, never an error. The ``suggested_side_effect`` itself lives on the onboarding session (out of
+        the validator's scope); the underlying signal is recomputed here from the resolved OUTPUT artifact schema,
+        which faithfully mirrors the tool output — see the report for this deliberate placement."""
+        from app.services.mcp_introspect import carries_ack_shape
+        seen: set = set()
+        for b in manifest.bindings:
+            ex = b.executor
+            if ex.type == "capability":
+                desc = resolved.get(ex.capability.ref_id)
+            elif ex.type == "human" and ex.assist_capability is not None:
+                desc = resolved.get(ex.assist_capability.ref_id)
+            else:
+                continue
+            if desc is None or desc.side_effect.value != "read_only" or desc.capability_id in seen:
+                continue
+            for io in desc.outputs:
+                reg = await self._latest_active_schema(io.schema_.ref_id)
+                if reg is not None and carries_ack_shape(reg.json_schema):
+                    seen.add(desc.capability_id)
+                    report.warning("side_effect_downgraded_from_inference", stage=4, element_id=b.element_id,
+                                   message=f"capability '{desc.capability_id}' is declared read_only, but its "
+                                           f"output '{io.name}' carries the acknowledgement shape "
+                                           f"(acknowledged/action_id/status) that infers a side effect — was a "
+                                           f"real-world action downgraded to avoid the gate? If the autonomy is "
+                                           f"intentional, use a side_effect_waiver instead of mislabeling")
+                    break
+
     # ------------------------------------------------------------------ #
     # Stage 6 — gateway variables
     # ------------------------------------------------------------------ #
@@ -972,6 +1123,7 @@ class PackValidator:
     ) -> None:
         policies = manifest.policies
         if policies and policies.separation_of_duties:
+            bindings_by_id = {b.element_id: b for b in manifest.bindings}
             for sod in policies.separation_of_duties:
                 distinct = set(sod.elements)
                 if len(distinct) < 2:
@@ -982,6 +1134,17 @@ class PackValidator:
                         if el not in model.tasks:
                             report.error("sod_unknown_element", stage=7, element_id=el,
                                          message=f"SoD element '{el}' is not a BPMN task")
+                # ADR-065 (SoD consequence): an un-gated element (hitl 'none' — e.g. a waived side-effectful
+                # step) writes no `human` actor_log entry (engine/hitl.py), so a distinct_actor constraint that
+                # names it is meaningless — it neither excludes nor can be excluded. Non-blocking warning.
+                for el in sod.elements:
+                    b = bindings_by_id.get(el)
+                    if b is not None and b.hitl is not None and b.hitl.mode is HitlMode.NONE:
+                        report.warning("sod_element_ungated", stage=7, element_id=el,
+                                       message=f"distinct_actor SoD names '{el}', which is un-gated "
+                                               f"(hitl 'none'{' — waived' if getattr(b, 'side_effect_waiver', None) else ''}): "
+                                               f"it writes no human actor_log entry, so the four-eyes constraint "
+                                               f"over it has no effect")
 
         # ADR-049: the trigger shape for schema-aware triage validation. When the pack DECLARES a trigger, derive
         # the field/type map from its schema (the same helper authoring uses) — NOT the deployment sample

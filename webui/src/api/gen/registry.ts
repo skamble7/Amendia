@@ -979,6 +979,7 @@ export interface components {
             inputs?: components["schemas"]["ArtifactIO"][];
             /** Outputs */
             outputs?: components["schemas"]["ArtifactIO"][];
+            side_effect_waiver?: components["schemas"]["SideEffectWaiver"] | null;
         };
         /** Binding */
         "Binding-Output": {
@@ -1000,6 +1001,7 @@ export interface components {
             inputs?: components["schemas"]["ArtifactIO"][];
             /** Outputs */
             outputs?: components["schemas"]["ArtifactIO"][];
+            side_effect_waiver?: components["schemas"]["SideEffectWaiver"] | null;
         };
         /** BindingInput */
         BindingInput: {
@@ -1046,6 +1048,7 @@ export interface components {
             outputs?: components["schemas"]["StagedBindingIO"][];
             /** Role */
             role?: string | null;
+            side_effect_waiver?: components["schemas"]["SideEffectWaiver"] | null;
         };
         /**
          * BpmnInventory
@@ -2651,6 +2654,31 @@ export interface components {
          * @enum {string}
          */
         SideEffect: "read_only" | "side_effectful";
+        /**
+         * SideEffectWaiver
+         * @description ADR-065 — a per-binding, justified waiver of the platform's ``side_effectful ⇒ hitl >= approve_actions``
+         *     floor for THIS element in THIS pack version. Present only when it is doing work (a dead waiver is a
+         *     validation error). It waives EXACTLY that one platform floor — never the capability author's
+         *     ``constraints.min_hitl_mode``, never ``deep_agent_requires_hitl``, never any other rule (see the registry
+         *     validator). There is no boolean form: a waiver ALWAYS carries a substantive reason.
+         *
+         *     ADR-065 P4a — provenance + the capability bond. ``waived_capability_id`` is the BARE capability id (no version
+         *     range) the waiver authorises: stage 4 rejects a waiver whose bond does not match what the binding actually
+         *     resolves to (``side_effect_waiver_capability_mismatch``), turning the P1 registry-emission-side guarantee into
+         *     one the manifest carries. ``waived_by`` / ``waived_at`` record who wrote the justification and when. ALL THREE
+         *     are OPTIONAL and are STAMPED SERVER-SIDE by ``set_bindings`` — a client never asserts them (a client-sent value
+         *     is ignored). Absent ⇒ a pre-P4a (legacy) waiver: a warning (``side_effect_waiver_unbonded``), never an error.
+         */
+        SideEffectWaiver: {
+            /** Justification */
+            justification: string;
+            /** Waived At */
+            waived_at?: string | null;
+            /** Waived By */
+            waived_by?: string | null;
+            /** Waived Capability Id */
+            waived_capability_id?: string | null;
+        };
         /** SkillRuntime */
         SkillRuntime: {
             /** Entrypoint */
@@ -2736,6 +2764,7 @@ export interface components {
             outputs?: components["schemas"]["StagedBindingIO"][];
             /** Role */
             role?: string | null;
+            side_effect_waiver?: components["schemas"]["SideEffectWaiver"] | null;
         };
         /** StagedBindingIO */
         StagedBindingIO: {

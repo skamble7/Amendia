@@ -14,7 +14,9 @@ its Phase-A ``otel_traces`` spans. Follows the existing ``EventBase`` shape (``e
 from __future__ import annotations
 
 from enum import Enum
-from typing import ClassVar, Literal, Optional
+from typing import ClassVar, List, Literal, Optional
+
+from pydantic import BaseModel
 
 from amendia_common.events import (
     ARTIFACT_COMMITTED,
@@ -191,6 +193,19 @@ class RoleChangedEvent(EventBase):
 # --------------------------------------------------------------------------- #
 # process-registry
 # --------------------------------------------------------------------------- #
+class WaiverAudit(BaseModel):
+    """ADR-065 P4b — one side-effect waiver, carried on the ``publish`` PackLifecycleEvent so GLEA can persist a
+    row PER waiver. ``element_id`` / ``capability_id`` are structural ids; ``justification`` is a content value
+    (like ArtifactCommittedEvent.rationale). ``waived_by`` / ``waived_at`` are the justification's author + time —
+    distinct from the pack's publisher (the enclosing event's ``actor``)."""
+
+    element_id: str
+    capability_id: str                              # the bare capability id the waiver authorises (the bond)
+    justification: str
+    waived_by: Optional[str] = None
+    waived_at: Optional[str] = None                 # ISO-8601; Optional so a legacy (pre-P4a) waiver still rides
+
+
 class PackLifecycleEvent(EventBase):
     """A pack version transitioned lifecycle state (publish/activate, deprecate, rollback)."""
 
@@ -203,6 +218,9 @@ class PackLifecycleEvent(EventBase):
     op: PackLifecycleOp
     actor: str
     detail: Optional[str] = None
+    # ADR-065 P4b: the pack's side-effect waivers (set only on ``publish``/activate). GLEA fans these out to one
+    # ``pack_waiver`` audit row each, so an auditor queries ungated-real-world-action packs from the store alone.
+    waivers: Optional[List[WaiverAudit]] = None
     trace: Optional[Trace] = None
 
 

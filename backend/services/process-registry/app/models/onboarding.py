@@ -18,6 +18,7 @@ from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field
 
 from amendia_contracts.common import utcnow
+from amendia_contracts.process_pack import SideEffectWaiver
 
 
 # --------------------------------------------------------------------------- #
@@ -345,6 +346,9 @@ class StagedBinding(BaseModel):
     input_sources: Dict[str, Any] = Field(default_factory=dict)
     inputs: List[StagedBindingIO] = Field(default_factory=list)
     outputs: List[StagedBindingIO] = Field(default_factory=list)
+    # ADR-065: a justified per-binding waiver of the side_effectful⇒approve_actions floor. Reuses the contract
+    # model, so the >=20-char justification rule is enforced at parse time on the headless API too.
+    side_effect_waiver: Optional[SideEffectWaiver] = None
 
 
 class StagedTriageRule(BaseModel):
@@ -556,6 +560,9 @@ class BindingInput(BaseModel):
     # name must be authorable, not forced to ``<tool>_output``. Renames the mirrored output; schema_ref is
     # unchanged. None ⇒ default from the fed gateway's condition, else ``<tool>_output``.
     output_name: Optional[str] = None
+    # ADR-065: a justified per-binding waiver of the side_effectful⇒approve_actions floor (contract model —
+    # justification validated at parse time; the copilot may never set this, only a human in the wizard/API).
+    side_effect_waiver: Optional[SideEffectWaiver] = None
 
 
 class SetBindingsRequest(BaseModel):

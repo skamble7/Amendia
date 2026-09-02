@@ -137,3 +137,16 @@ async def test_pilot_pack_onboards_clean_end_to_end(cap_repo, schema_repo, pack_
     assert "ACTIVE" in result["pack"]
     pack = await pack_repo.get("wire-repair-agentic", "1.0.0")
     assert pack.status.value == "active"
+
+
+async def test_waiver_cannot_un_gate_a_deep_agent(agentic_tools_registered, cap_repo, validator):
+    # ADR-065 Part B: deep_agent_requires_hitl is NOT waivable. A side_effectful deep_agent at hitl 'none' with a
+    # waiver still fails — the waiver suppresses only the platform side-effect floor, never the deep_agent gate.
+    await cap_repo.insert(_agentic_descriptor(side_effect="side_effectful"))
+    d = _manifest_binding_agentic(
+        deep_agent_justifications={_CAP: "audited proposal-only loop, but bound un-gated here for the test"},
+        binding={"hitl": {"mode": "none"},
+                 "side_effect_waiver": {"justification": "operator waives the platform side-effect floor here"}},
+    )
+    report = await _validate(validator, d)
+    assert "deep_agent_requires_hitl" in _errs(report)          # the deep_agent gate is never waivable

@@ -48,7 +48,7 @@ The wizard rewrites each tool schema into an Amendia artifact registration. You 
 
 ## 4. Action-oriented tools — the acknowledgement contract
 
-An action-oriented tool is one whose descriptor will be classified `side_effect: side_effectful` in Amendia. (Amendia cannot infer this from MCP; the onboarding operator sets it. But you should design as if any tool that mutates the outside world is side-effectful, because the operator will mark it so, and Amendia policy then forces the binding to run behind an `approve_actions` or stricter human gate.)
+An action-oriented tool is one whose descriptor will be classified `side_effect: side_effectful` in Amendia. (Amendia cannot infer this from MCP; the onboarding operator sets it. But you should design as if any tool that mutates the outside world is side-effectful, because the operator will mark it so, and Amendia policy then requires the binding to run behind an `approve_actions` or stricter human gate — **unless the process owner records an explicit, written waiver** (ADR-065). See §4b: if your tool must never run unattended, say so in its descriptor.)
 
 Such a tool must return a typed acknowledgement so the process has something to commit and audit even when the "real" result is just "done." The recommended minimum shape:
 
@@ -73,6 +73,38 @@ You may extend this with action-specific fields (a payment reference, a message 
 Read-only tools (investigation, screening, enrichment) are not held to the acknowledgement shape — their `outputSchema` simply describes the data they return — but they are still bound by R2 (they must declare that output schema).
 
 ---
+
+## 4b. Making a gate non-waivable — `constraints.min_hitl_mode`
+
+Since ADR-065 the human gate on a side-effectful capability is **default-on but waivable**: the person onboarding
+a process may run your tool with no human approval, provided they record a written justification, which is
+stamped with their identity and lands in the audit store. That is deliberate — some processes legitimately have
+no human in them, and the alternative (an absolute rule) was being routed around by mislabeling action tools as
+`read_only`, which left no record at all.
+
+**You decide whether your own tool may be waived.** Declare a floor on the descriptor:
+
+```json
+"constraints": { "min_hitl_mode": "approve_actions" }
+```
+
+`min_hitl_mode` is the **capability author's non-waivable floor.** A waiver clears only the platform's
+side-effect rule; it can never take a binding below the floor you declare. So:
+
+- **No floor declared** — a process owner may waive the gate and run your tool unattended, with a justification
+  on the record. Right for notifications, idempotent handbacks, status writes: things where a re-run is a no-op
+  and there is no human decision to make.
+- **`min_hitl_mode: approve_actions`** — no process owner can ever run your tool without a human approving the
+  specific action. Right for anything that moves money, sends an irreversible instruction to a third party, or
+  cannot be undone by re-running it.
+
+Declare the floor when the answer is "a person must see this every time, whatever the process around it wants."
+It is the only control that survives the operator's own judgement, so use it where you would not accept a
+written justification as a substitute for a human being present.
+
+**A note on the `assist_capability` path.** A capability bound as a human task's *assist* runs **before** the
+human is shown the task, so no HITL mode gates it — it is un-gated by construction and always requires a waiver.
+If your tool is side-effectful, expect it to be refused as an assist unless the owner waives it explicitly.
 
 ## 4a. Signalling a modeled business error
 

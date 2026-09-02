@@ -302,6 +302,28 @@ describe("Copilot flow — stepped review + schema refiner (ADR-054)", () => {
     expect(screen.getByText(/a wire exception is triaged/i)).toBeInTheDocument();             // summary (rail)
   });
 
+  it("ADR-065: a WAIVED step is surfaced as a loud risk row on Understanding — not silently dropped", async () => {
+    // The pre-P3 bug: gatesOf filtered hitl_mode !== 'none', so a side-effectful step running with NO gate under a
+    // waiver vanished from the summary — the single highest-risk item, invisible. Assert it is PRESENT.
+    const JUST = "Kitchen fires the confirmed order automatically; there is nothing for a person to decide.";
+    server.use(http.get(`${REG}/onboarding/sess-c`, () => HttpResponse.json(wireSession({
+      bindings: [
+        binding({ element_id: "Task_FireTicket", capability_ref: "cap.payments.fire@^1.0.0",
+                  hitl_mode: "none", side_effect_waiver: { justification: JUST } }),
+        binding({ element_id: "Task_ApproveRepair", executor_type: "human", role: "role.payments.ops_approver",
+                  hitl_mode: "manual", hitl_role: "role.payments.ops_approver" }),
+      ],
+    }))));
+    renderCopilot("/registry/onboard/sess-c");
+
+    // the waived step is present, named, marked "no approval — waived", and shows its justification
+    expect(await screen.findByText(/fire ticket runs automatically, with no one approving it/i)).toBeInTheDocument();
+    expect(screen.getByText(/no approval — waived/i)).toBeInTheDocument();
+    expect(screen.getByText(new RegExp(JUST.slice(0, 24)))).toBeInTheDocument();
+    // the ordinary human gate still renders normally alongside it
+    expect(screen.getByText(/ops approver handles approve repair\./i)).toBeInTheDocument();
+  });
+
   it("the schema refiner re-types a property + adds a label → the live preview shows a labeled field, and Save persists the concrete schema", async () => {
     const user = userEvent.setup();
     let refineBody: Record<string, unknown> | undefined;

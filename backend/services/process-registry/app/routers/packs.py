@@ -147,8 +147,29 @@ async def activate_pack(
     activated = await repo.activate(pack_key, version, resolved_caps=resolved_caps, resolution=resolution.to_doc())
     resolver.invalidate()
     await emit_pack_lifecycle(publisher, pack_key=pack_key, version=version, op="publish",
-                              actor=getattr(actor, "amendia_user_id", "unknown"))
+                              actor=getattr(actor, "amendia_user_id", "unknown"),
+                              waivers=_waiver_audits(manifest))
     return activated
+
+
+def _waiver_audits(manifest) -> list:
+    """ADR-065 P4b: the pack's side-effect waivers, shaped for the audit event (one WaiverAudit per waived
+    binding). ``capability_id`` is the P4a bond (fall back to the binding's own capability id for a legacy waiver)."""
+    out: list = []
+    for b in manifest.bindings:
+        w = getattr(b, "side_effect_waiver", None)
+        if w is None:
+            continue
+        ex = b.executor
+        fallback = getattr(getattr(ex, "capability", None) or getattr(ex, "assist_capability", None), "ref_id", None)
+        out.append({
+            "element_id": b.element_id,
+            "capability_id": w.waived_capability_id or fallback or "",
+            "justification": w.justification,
+            "waived_by": w.waived_by,
+            "waived_at": w.waived_at.isoformat() if w.waived_at else None,
+        })
+    return out
 
 
 @router.post("/{pack_key}/{version}/deprecate", response_model=ProcessPackManifest, dependencies=[_OWNER])

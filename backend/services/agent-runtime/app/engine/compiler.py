@@ -275,6 +275,16 @@ def compile_graph(bundle: PackBundle, executor: Executor, *, simulation: bool, c
         mctx = node_ctxs[host]
         if mctx.executor_type != "capability" or mctx.descriptor is None:
             raise CompilerError(f"multi-instance host '{host}' must bind a capability executor")
+        # ADR-065 Part E: a side-effectful capability may NOT be a multi-instance host — waiver or not (P1 added
+        # the registry rule multi_instance_side_effect_unsupported; this is the compiler counterpart, defense in
+        # depth for a manifest that did not come through the registry). Before P1 this was unreachable (a
+        # side-effectful cap could not be at hitl 'none', which the MI-host check below requires); the waiver
+        # now makes 'none' legal, so the guard must key on side_effect independently of the gate.
+        _mse = mctx.descriptor.side_effect
+        if (_mse.value if hasattr(_mse, "value") else _mse) == "side_effectful":
+            raise CompilerError(
+                f"multi-instance host '{host}' binds a side-effectful capability — a side-effectful capability "
+                f"may not be a multi-instance host (ADR-065 Part E), waiver or not")
         if mctx.hitl_mode != "none":
             raise CompilerError(
                 f"multi-instance host '{host}' has HITL mode '{mctx.hitl_mode}' — HITL-gated "

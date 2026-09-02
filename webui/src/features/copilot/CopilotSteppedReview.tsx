@@ -5,7 +5,7 @@
 // generates; the operator reviews, tweaks, and approves.
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Check } from "lucide-react";
+import { Check, ShieldAlert } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
@@ -171,7 +171,15 @@ function UnderstandingStep({ session, footer }: { session: OnboardingSession; fo
         <Card>
           <CardHeader><CardTitle className="text-sm">Where a person is involved</CardTitle></CardHeader>
           <CardContent className="space-y-1">
-            {gates.map((g) => (
+            {gates.map((g) => g.waived ? (
+              <div key={g.elementId} className="rounded-md border border-danger/50 bg-danger-muted/20 p-2" data-testid="waived-gate">
+                <p className="flex items-center gap-1.5 text-sm font-medium text-danger">
+                  <ShieldAlert className="size-3.5 shrink-0" /> {g.sentence}
+                  <Badge variant="danger" className="text-[10px]">no approval — waived</Badge>
+                </p>
+                {g.justification && <p className="mt-0.5 text-xs italic text-muted-foreground">“{g.justification}”</p>}
+              </div>
+            ) : (
               <p key={g.elementId} className="text-sm text-muted-foreground">
                 {g.sentence}{g.authorize && <Badge variant="outline" className="ml-2">authorize</Badge>}
               </p>
